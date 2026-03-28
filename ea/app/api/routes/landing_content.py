@@ -14,7 +14,7 @@ APP_NAV_GROUPS = (
             {"href": "/app/today", "label": "Today", "key": "today"},
             {"href": "/app/queue", "label": "Queue", "key": "queue"},
             {"href": "/app/people", "label": "People", "key": "people"},
-            {"href": "/app/settings", "label": "Settings", "key": "settings"},
+            {"href": "/app/settings", "label": "Rules", "key": "settings"},
         ),
     },
 )
@@ -23,6 +23,7 @@ ADMIN_NAV_GROUPS = (
     {
         "label": "Operator control plane",
         "items": (
+            {"href": "/admin/office", "label": "Office", "key": "office"},
             {"href": "/admin/policies", "label": "Policies", "key": "policies"},
             {"href": "/admin/providers", "label": "Providers", "key": "providers"},
             {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},
@@ -84,14 +85,14 @@ PRODUCT_MODULES = (
     {"title": "Morning brief", "body": "Show the day as a clear brief instead of a wall of messages and half-remembered obligations."},
     {"title": "Queue", "body": "Keep decisions, drafts, and commitments inside one review lane instead of spreading them across separate product nouns."},
     {"title": "People", "body": "Keep relationship memory, recent context, and open loops visible where the office actually needs them."},
-    {"title": "Settings", "body": "Move rules, connections, exports, and expansion controls behind the first useful workflow instead of ahead of it."},
+    {"title": "Rules", "body": "Keep memo timing, review posture, Google capture, and outcome proof visible without leading with support tooling."},
 )
 
 SIGN_IN_NOTES = (
     "Use sign in only if you already have a workspace access link, a trusted deployment identity, or an existing session.",
     "Create a personal workspace from /register if you are starting fresh.",
     "Google connection is workspace data setup, not the primary app identity method.",
-    "Operator invites, shared review, and broader workspace controls come later from Settings.",
+    "Operator invites, shared review, and broader workspace controls come later from Rules and the operator center.",
 )
 
 PRICING_TIERS = (

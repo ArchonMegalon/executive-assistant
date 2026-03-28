@@ -15,6 +15,7 @@ from app.api.dependencies import (
     get_cloudflare_access_identity,
     get_container,
     get_request_context,
+    is_operator_context,
     require_operator_context,
 )
 from app.api.routes.landing_content import (
@@ -766,6 +767,8 @@ def app_shell(
         "channels": "settings",
         "automations": "settings",
     }.get(section, section)
+    if resolved_section == "activity" and is_operator_context(context):
+        return RedirectResponse("/admin/office", status_code=303)
     status = container.onboarding.status(principal_id=context.principal_id)
     if resolved_section == "channel-loop":
         workspace = dict(status.get("workspace") or {})
@@ -847,6 +850,7 @@ def app_shell(
                 actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
             )
         diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+        outcomes = product.workspace_outcomes(principal_id=context.principal_id) if resolved_section == "settings" else None
         payload = _workspace_section_payload(
             resolved_section,
             product.workspace_snapshot(
@@ -854,6 +858,7 @@ def app_shell(
                 operator_id=str(context.operator_id or "").strip(),
             ),
             diagnostics,
+            outcomes,
             operator_id=str(context.operator_id or "").strip(),
         )
     else:
@@ -877,6 +882,7 @@ def app_shell(
             workspace_label=str(workspace.get("name") or "Executive Workspace"),
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
+            console_form=dict(payload.get("console_form") or {}),
         ),
     )
 
@@ -897,7 +903,12 @@ def admin_shell(
     allowed = {row["key"] for group in ADMIN_NAV_GROUPS for row in group["items"]}
     if section not in allowed:
         raise HTTPException(status_code=404, detail="admin_section_not_found")
-    payload = _build_admin_section_payload(section, container=container, principal_id=context.principal_id)
+    payload = _build_admin_section_payload(
+        section,
+        container=container,
+        principal_id=context.principal_id,
+        operator_id=str(context.operator_id or "").strip(),
+    )
     return _render_public_template(
         request,
         "console_shell.html",

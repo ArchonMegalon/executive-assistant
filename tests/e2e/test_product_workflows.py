@@ -217,8 +217,8 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     response = page.goto(f"{base_url}/app/settings", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Rules" in page.content()
-    assert "Workspace diagnostics bundle" in page.content()
-    assert "Messaging scope" in page.content()
+    assert "Morning memo delivery" in page.content()
+    assert "Google signal loop" in page.content()
     assert "Draft approval" in page.content()
     assert "Google-first activation" in page.content()
 
@@ -434,7 +434,7 @@ def test_operator_scoped_browser_queue_hides_other_operator_work(browser: Browse
     try:
         base_url = str(team_browser_server["base_url"])
 
-        response = page.goto(f"{base_url}/app/activity", wait_until="networkidle")
+        response = page.goto(f"{base_url}/admin/office", wait_until="networkidle")
         assert response is not None and response.ok
         assert "Prepare board follow-up handoff" in page.content()
         assert "Coordinate shared follow-up queue" not in page.content()
@@ -557,11 +557,11 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
     )
     page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/activity", wait_until="networkidle")
+        response = page.goto(f"{base_url}/admin/office", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Operator Queue" in page.content()
-        assert "Queue health" in page.content()
-        assert "Suggested next claims" in page.content()
+        assert "Office" in page.content()
+        assert "What the office control surface is carrying right now" in page.content()
+        assert "What can be claimed next" in page.content()
         assert "Prepare board follow-up handoff" in page.content()
 
         response = page.goto(f"{base_url}/admin/audit-trail", wait_until="networkidle")
@@ -593,20 +593,20 @@ def test_operator_queue_claim_and_complete_stays_in_operator_lane(browser: Brows
     )
     page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/activity", wait_until="networkidle")
+        response = page.goto(f"{base_url}/admin/office", wait_until="networkidle")
         assert response is not None and response.ok
         row = page.locator(".console-row", has_text="Prepare board follow-up handoff")
         with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as claim_response:
             row.get_by_role("button", name="Claim").click()
         assert claim_response.value.status == 303
-        page.wait_for_url(f"{base_url}/app/activity")
+        page.wait_for_url(f"{base_url}/admin/office")
         page.wait_for_load_state("networkidle")
 
         row = page.locator(".console-row", has_text="Prepare board follow-up handoff")
         with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as complete_response:
             row.get_by_role("button", name="Complete").click()
         assert complete_response.value.status == 303
-        page.wait_for_url(f"{base_url}/app/activity")
+        page.wait_for_url(f"{base_url}/admin/office")
         page.wait_for_load_state("networkidle")
         assert "What just moved through the operator lane" in page.content()
     finally:

@@ -552,10 +552,12 @@
     </div>
     {% if console_form and console_form.fields %}
     <div class="console-callout">
-      <div class="console-kicker">Search</div>
-      <form class="console-form" method="{{ console_form.method or 'get' }}" action="{{ console_form.action or request.url.path }}">
+      <div class="console-kicker">{{ console_form.get('eyebrow') or 'Search' }}</div>
+      {% if console_form.get('title') %}<h2>{{ console_form.get('title') }}</h2>{% endif %}
+      {% if console_form.get('copy') %}<p class="console-copy">{{ console_form.get('copy') }}</p>{% endif %}
+      <form class="console-form" method="{{ console_form.get('method') or 'get' }}" action="{{ console_form.get('action') or request.url.path }}">
         <div class="console-field-grid">
-          {% for field in console_form.fields %}
+          {% for field in console_form.get('fields') or [] %}
           <label class="console-field">
             <span>{{ field.label }}</span>
             {% if field.type == 'number' %}
@@ -565,6 +567,19 @@
               value="{{ field.value or '' }}"
               {% if field.min %}min="{{ field.min }}"{% endif %}
               {% if field.max %}max="{{ field.max }}"{% endif %}
+            >
+            {% elif field.type == 'select' %}
+            <select name="{{ field.name }}">
+              {% for option in field.options or [] %}
+              <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
+              {% endfor %}
+            </select>
+            {% elif field.type == 'checkbox' %}
+            <input
+              type="checkbox"
+              name="{{ field.name }}"
+              value="{{ field.value or 'true' }}"
+              {% if field.checked %}checked{% endif %}
             >
             {% else %}
             <input
@@ -577,7 +592,7 @@
           </label>
           {% endfor %}
         </div>
-        <button class="console-action" type="submit">{{ console_form.submit_label or 'Save' }}</button>
+        <button class="console-action" type="submit">{{ console_form.get('submit_label') or 'Save' }}</button>
       </form>
     </div>
     {% endif %}

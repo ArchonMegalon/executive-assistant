@@ -1040,7 +1040,7 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     client.headers.pop("X-EA-Principal-ID", None)
     access = client.get(accepted_body["access_url"], follow_redirects=False)
     assert access.status_code == 303
-    assert access.headers["location"] == "/app/activity"
+    assert access.headers["location"] == "/admin/office"
     assert "ea_workspace_session=" in str(access.headers.get("set-cookie") or "")
     session_loop = client.get("/app/api/channel-loop")
     assert session_loop.status_code == 200

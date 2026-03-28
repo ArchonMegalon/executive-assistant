@@ -395,10 +395,12 @@ def workspace_section_payload(
     section: str,
     snapshot: ProductSnapshot,
     diagnostics: dict[str, object] | None = None,
+    outcomes: dict[str, object] | None = None,
     *,
     operator_id: str = "",
 ) -> dict[str, object]:
     diagnostics = diagnostics or {}
+    outcomes = outcomes or {}
     operator_key = str(operator_id or "").strip()
     queue_health = dict(diagnostics.get("queue_health") or {})
     provider_posture = dict(diagnostics.get("providers") or {})
@@ -408,6 +410,9 @@ def workspace_section_payload(
     analytics_delivery = dict(analytics.get("delivery") or {})
     analytics_access = dict(analytics.get("access") or {})
     analytics_sync = dict(analytics.get("sync") or {})
+    memo_loop = dict(outcomes.get("memo_loop") or analytics.get("memo_loop") or {})
+    office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
+    proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     assignment_suggestions = [dict(value) for value in (queue_health.get("assignment_suggestions") or [])]
     assigned_handoffs = tuple(row for row in snapshot.handoffs if operator_key and row.owner == operator_key)
     unclaimed_handoffs = tuple(row for row in snapshot.handoffs if not operator_key or row.owner != operator_key)
@@ -817,43 +822,90 @@ def workspace_section_payload(
         },
         "settings": {
             "title": "Rules",
-            "summary": "Channel permissions, commercial boundaries, and support posture belong in one understandable control surface.",
+            "summary": "Keep the memo loop, capture rules, and proof of value visible without dragging the operator control plane into the principal workspace.",
+            "console_form": {
+                "action": "/app/actions/settings/morning-memo",
+                "method": "post",
+                "eyebrow": "Memo controls",
+                "title": "Update morning memo schedule",
+                "copy": "Change the delivery window and recipient without reopening onboarding.",
+                "submit_label": "Save memo rules",
+                "fields": [
+                    {
+                        "label": "Enable scheduled memo",
+                        "name": "enabled",
+                        "type": "checkbox",
+                        "value": "true",
+                        "checked": bool(memo_loop.get("enabled")),
+                    },
+                    {
+                        "label": "Cadence",
+                        "name": "cadence",
+                        "type": "select",
+                        "value": str(memo_loop.get("cadence") or "daily_morning"),
+                        "options": [
+                            {"label": "Every day", "value": "daily_morning"},
+                            {"label": "Weekdays", "value": "weekdays_morning"},
+                        ],
+                    },
+                    {
+                        "label": "Recipient email",
+                        "name": "recipient_email",
+                        "type": "email",
+                        "value": str(memo_loop.get("recipient_email") or ""),
+                        "placeholder": "Uses the connected Google email when left blank",
+                    },
+                    {
+                        "label": "Delivery time",
+                        "name": "delivery_time_local",
+                        "type": "time",
+                        "value": str(memo_loop.get("delivery_time_local") or "08:00"),
+                    },
+                    {
+                        "label": "Quiet hours start",
+                        "name": "quiet_hours_start",
+                        "type": "time",
+                        "value": str(memo_loop.get("quiet_hours_start") or "20:00"),
+                    },
+                    {
+                        "label": "Quiet hours end",
+                        "name": "quiet_hours_end",
+                        "type": "time",
+                        "value": str(memo_loop.get("quiet_hours_end") or "07:00"),
+                    },
+                ],
+            },
             "cards": [
                 {
-                    "eyebrow": "Workspace rules",
-                    "title": "Current plan, channels, and contract posture",
-                    "body": "Rules are now modeled as first-class product objects with visible commercial and operational impact.",
-                    "items": _rule_rows(snapshot.rules[:7])
-                    + [
+                    "eyebrow": "Morning memo",
+                    "title": "Morning memo delivery",
+                    "body": "The scheduled memo should stay legible: when it lands, who it lands to, and whether it is producing a useful daily loop.",
+                    "items": [
+                        _row("Memo state", str(memo_loop.get("state") or "watch").replace("_", " ").title(), "Memo", href="/app/settings/outcomes"),
+                        _row("Enabled", "Yes" if memo_loop.get("enabled") else "No", "Memo", href="/app/settings/outcomes"),
+                        _row("Cadence", str(memo_loop.get("cadence") or "daily_morning").replace("_", " "), "Memo", href="/app/settings/outcomes"),
                         _row(
-                            "Workspace diagnostics bundle",
-                            str(dict(diagnostics.get("readiness") or {}).get("detail") or "Export support-ready workspace bundle"),
-                            "Bundle",
-                            href="/app/settings/support",
-                            action_href="/app/api/diagnostics/export",
-                            action_label="Open bundle",
-                            action_method="get",
-                            return_to="/app/settings",
-                        )
+                            "Delivery time",
+                            f"{memo_loop.get('delivery_time_local') or '08:00'} {memo_loop.get('timezone') or dict(diagnostics.get('workspace') or {}).get('timezone') or 'UTC'}",
+                            "Memo",
+                            href="/app/settings/outcomes",
+                        ),
+                        _row("Recipient", str(memo_loop.get("recipient_email") or "waiting for recipient"), "Memo", href="/app/settings/outcomes"),
+                        _row("Useful loop days", str(memo_loop.get("days_with_useful_loop") or 0), "Memo", href="/app/settings/outcomes"),
+                        _row("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo", href="/app/settings/outcomes"),
+                        _row("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo", href="/app/settings/outcomes"),
+                        _row("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo", href="/app/settings/outcomes"),
                     ],
                 },
                 {
-                    "eyebrow": "Queue and memo health",
-                    "title": "What this ruleset is currently supporting",
-                    "body": "Usage and queue pressure should stay attached to the commercial and support posture.",
+                    "eyebrow": "Google signal loop",
+                    "title": "What is feeding the office loop",
+                    "body": "Gmail and Calendar should explain whether fresh signals are entering the queue and whether staged work is ready for review.",
                     "items": [
-                        _row("Memo items", str(snapshot.stats_json.get("brief_items", 0)), "Usage"),
-                        _row("Queue items", str(snapshot.stats_json.get("queue_items", 0)), "Usage"),
-                        _row("Commitments", str(snapshot.stats_json.get("commitments", 0)), "Usage"),
-                        _row("Handoffs", str(snapshot.stats_json.get("handoffs", 0)), "Usage"),
-                        _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/activity"),
-                        _row("Retrying delivery", str(queue_health.get("retrying_delivery") or 0), "Queue", href="/app/settings/support"),
-                        _row("Delivery errors", str(queue_health.get("delivery_errors") or 0), "Queue", href="/app/settings/support"),
-                        _row("Active operators", str(dict(diagnostics.get("operators") or {}).get("active_count") or 0), "Usage", href="/app/settings/usage"),
-                        _row("Memos opened", str(dict(dict(diagnostics.get("analytics") or {}).get("counts") or {}).get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
-                        _row("Time to first value", str(dict(diagnostics.get("analytics") or {}).get("time_to_first_value_seconds") or "pending"), "Analytics", href="/app/settings/usage"),
+                        _row("Connected", "Yes" if analytics_sync.get("google_connected") else "No", "Sync", href="/app/settings/google"),
+                        _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
                         _row(
-                            "Google sync freshness",
+                            "Freshness",
                             str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(),
                             "Sync",
                             href="/app/settings/google",
@@ -861,84 +913,48 @@ def workspace_section_payload(
                             action_label="Run now" if analytics_sync.get("google_connected") else "",
                             action_method="get" if analytics_sync.get("google_connected") else "",
                         ),
+                        _row("Token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/google"),
+                        _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
+                        _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
+                        _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
                         _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/inbox"),
-                        _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
-                        _row(
-                            "Outcome summary",
-                            str(dict(diagnostics.get("analytics") or {}).get("success_summary") or "Review activation and closure signals"),
-                            "Outcomes",
-                            href="/app/settings/outcomes",
-                        ),
-                        _row(
-                            "Workspace access",
-                            f"{int(dict(dict(diagnostics.get('analytics') or {}).get('access') or {}).get('active') or 0)} active sessions",
-                            "Access",
-                            href="/app/settings/access",
-                        ),
-                        _row(
-                            "Workspace invites",
-                            "Manage pending operator and reviewer access before it turns into support work.",
-                            "Invites",
-                            href="/app/settings/invitations",
-                        ),
-                        _row(
-                            "Trust posture",
-                            str(readiness.get("detail") or "Review evidence, rules, and support posture"),
-                            "Trust",
-                            href="/app/settings/trust",
-                        ),
                     ],
                 },
                 {
-                    "eyebrow": "Reviewable work",
-                    "title": "What the current rules are gating",
-                    "body": "Rules are useful when they explain what still needs approval, assignment, or follow-up.",
-                    "items": _queue_rows(snapshot.queue_items[:8]),
+                    "eyebrow": "Workspace rules",
+                    "title": "What this office currently allows",
+                    "body": "Rules should explain the review-first posture, channel boundary, and durable controls behind the current loop.",
+                    "items": _rule_rows(snapshot.rules[:8]),
                 },
                 {
-                    "eyebrow": "Plan boundary",
-                    "title": "What this workspace actually includes",
-                    "body": "The commercial boundary should be visible where channel scope, support posture, and escalation rules are chosen.",
+                    "eyebrow": "Office-loop proof",
+                    "title": "How the daily office loop is proving itself",
+                    "body": "The principal surface should say plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
                     "items": [
-                        _row("Workspace plan", str(dict(diagnostics.get("plan") or {}).get("display_name") or "Pilot"), "Plan", href="/app/settings/plan"),
-                        _row("Plan unit", str(dict(diagnostics.get("plan") or {}).get("unit_of_sale") or "workspace"), "Plan", href="/app/settings/plan"),
-                        _row("Support tier", str(dict(diagnostics.get("billing") or {}).get("support_tier") or "standard"), "Support", href="/app/settings/support"),
-                        _row("Billing state", str(dict(diagnostics.get("billing") or {}).get("billing_state") or "unknown"), "Billing", href="/app/settings/plan"),
+                        _row("Gate state", str(office_loop_proof.get("state") or "watch").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
                         _row(
-                            "Channels",
-                            ", ".join(str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()) or "Google-first path",
-                            "Channels",
-                            href="/app/settings/plan",
+                            "Passed checks",
+                            f"{int(office_loop_proof.get('passed_checks') or 0)}/{int(office_loop_proof.get('check_total') or 0)}",
+                            "Gate",
+                            href="/app/settings/outcomes",
                         ),
-                        _row(
-                            "Messaging scope",
-                            "Included" if dict(diagnostics.get("entitlements") or {}).get("messaging_channels_enabled") else "Not included on this plan",
-                            "Entitlement",
-                            href="/app/settings/plan",
-                        ),
-                        _row(
-                            "Feature flags",
-                            ", ".join(str(value).replace("_", " ") for value in (dict(diagnostics.get("entitlements") or {}).get("feature_flags") or [])[:6]) or "No enabled features",
-                            "Entitlement",
-                            href="/app/settings/plan",
-                        ),
-                        _row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Support", href="/app/settings/support"),
-                        _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
-                        _row("Audit retention", str(dict(diagnostics.get("entitlements") or {}).get("audit_retention") or "standard"), "Trust", href="/app/settings/trust"),
-                        _row("Evidence linked", str(snapshot.stats_json.get("evidence", 0)), "Trust", href="/app/settings/trust"),
-                        _row("Recommended plan", str(commercial.get("recommended_plan_label") or "Current plan"), "Plan", href="/app/settings/plan"),
-                        _row(
-                            "Blocked actions",
-                            ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
-                            "Support",
-                            href="/app/settings/support",
-                        ),
-                        _row(
-                            "Warnings",
-                            "; ".join(str(value) for value in (dict(diagnostics.get("commercial") or {}).get("warnings") or []) if str(value).strip()) or "No current warnings",
-                            "Support",
-                            href="/app/settings/support",
-                        ),
+                        _row("Summary", str(office_loop_proof.get("summary") or "No proof summary yet."), "Gate", href="/app/settings/outcomes"),
+                        _row("Memo open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Memo", href="/app/settings/outcomes"),
+                        _row("Approval action rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
+                        _row("Commitment close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Commitments", href="/app/settings/outcomes"),
+                        *[
+                            _row(
+                                str(item.get("label") or "Check"),
+                                (
+                                    f"{item.get('actual')} / <= {item.get('target_max')}"
+                                    if item.get("target_max") is not None
+                                    else f"{item.get('actual')} / {item.get('target')}"
+                                ),
+                                str(item.get("state") or "watch").replace("_", " ").title(),
+                                href="/app/settings/outcomes",
+                            )
+                            for item in proof_checks[:4]
+                        ],
                     ],
                 },
             ],

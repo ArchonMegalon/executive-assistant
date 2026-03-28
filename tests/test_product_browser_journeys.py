@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.product_test_helpers import build_product_client, seed_product_state, start_workspace
+from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
 def test_workspace_pages_render_seeded_product_objects() -> None:
@@ -50,18 +50,14 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     settings = client.get("/app/settings")
     assert settings.status_code == 200
     assert "Rules" in settings.text
-    assert "Workspace diagnostics bundle" in settings.text
-    assert "Billing state" in settings.text
-    assert "Messaging scope" in settings.text
-    assert "Feature flags" in settings.text
-    assert "/app/settings/plan" in settings.text
-    assert "/app/settings/usage" in settings.text
-    assert "/app/settings/support" in settings.text
+    assert "Morning memo delivery" in settings.text
+    assert "What is feeding the office loop" in settings.text
+    assert "Office-loop proof" in settings.text
     assert "/app/settings/outcomes" in settings.text
     assert "/app/settings/google" in settings.text
-    assert "/app/settings/access" in settings.text
-    assert "/app/settings/invitations" in settings.text
-    assert "/app/settings/trust" in settings.text
+    assert "/app/settings/support" not in settings.text
+    assert "/app/settings/access" not in settings.text
+    assert "/app/settings/invitations" not in settings.text
 
     invitations = client.get("/app/settings/invitations")
     assert invitations.status_code == 200
@@ -349,6 +345,27 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Operator handoff digest" in operator_digest.text
 
 
+def test_operator_admin_office_page_centers_the_operator_lane() -> None:
+    principal_id = "exec-browser-admin-office"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seed_product_state(client, principal_id=principal_id)
+
+    office = client.get("/admin/office")
+    assert office.status_code == 200
+    assert "Office" in office.text
+    assert "What the office control surface is carrying right now" in office.text
+    assert "What the operator should do next" in office.text
+    assert "What already belongs to this operator lane" in office.text
+    assert "What can be claimed next" in office.text
+    assert "Access, delivery, and Google posture" in office.text
+    assert "Prepare board follow-up handoff" in office.text
+    assert "Google sync freshness" in office.text
+
+    redirected = client.get("/app/activity", follow_redirects=False)
+    assert redirected.status_code == 303
+    assert redirected.headers["location"] == "/admin/office"
+
+
 def test_channel_loop_get_actions_work() -> None:
     principal_id = "exec-browser-channel-loop"
     client = build_product_client(principal_id=principal_id)
@@ -411,7 +428,7 @@ def test_workspace_access_and_channel_delivery_routes_issue_session_cookie() -> 
     client.headers.pop("X-EA-Principal-ID", None)
     access = client.get(accepted.json()["access_url"], follow_redirects=False)
     assert access.status_code == 303
-    assert access.headers["location"] == "/app/activity"
+    assert access.headers["location"] == "/admin/office"
     assert "ea_workspace_session=" in str(access.headers.get("set-cookie") or "")
     session_queue = client.get("/app/api/queue")
     assert session_queue.status_code == 200
@@ -512,6 +529,45 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert "Workspace access" in access_page.text
     assert "Live workspace access links" in access_page.text
     assert "principal@example.com" in access_page.text
+
+
+def test_browser_rules_page_can_update_morning_memo_schedule() -> None:
+    principal_id = "exec-browser-memo-rules"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal")
+    seed_product_state(client, principal_id=principal_id)
+
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "enabled": "true",
+            "cadence": "weekdays_morning",
+            "recipient_email": "briefs@example.com",
+            "delivery_time_local": "07:30",
+            "quiet_hours_start": "21:00",
+            "quiet_hours_end": "06:30",
+            "return_to": "/app/settings",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    assert updated.headers["location"] == "/app/settings"
+
+    settings = client.get("/app/settings")
+    assert settings.status_code == 200
+    assert "Update morning memo schedule" in settings.text
+    assert "briefs@example.com" in settings.text
+    assert "07:30" in settings.text
+
+    status = client.get("/v1/onboarding/status")
+    assert status.status_code == 200
+    memo = status.json()["delivery_preferences"]["morning_memo"]
+    assert memo["enabled"] is True
+    assert memo["cadence"] == "weekdays_morning"
+    assert memo["delivery_time_local"] == "07:30"
+    assert memo["quiet_hours_start"] == "21:00"
+    assert memo["quiet_hours_end"] == "06:30"
+    assert memo["recipient_email"] == "briefs@example.com"
 
 
 def test_browser_google_settings_page_and_run_now_action_work() -> None:
