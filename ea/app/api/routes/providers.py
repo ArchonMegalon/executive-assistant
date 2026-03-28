@@ -58,6 +58,7 @@ class OneminBillingRefreshIn(BaseModel):
     capture_raw_text: bool = Field(default=True)
     timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
     binding_ids: list[str] = Field(default_factory=list)
+    account_labels: list[str] = Field(default_factory=list)
 
 
 class OneminImageReserveIn(BaseModel):
@@ -1358,6 +1359,7 @@ def refresh_onemin_billing(
     payload = body or OneminBillingRefreshIn()
     timeout_seconds = _onemin_browseract_timeout_seconds(payload.timeout_seconds)
     requested_ids = {str(binding_id or "").strip() for binding_id in payload.binding_ids if str(binding_id or "").strip()}
+    requested_account_labels = {str(account_label or "").strip() for account_label in payload.account_labels if str(account_label or "").strip()}
     operator_allowed = _is_operator_context(context)
     bindings = [
         binding
@@ -1409,6 +1411,8 @@ def refresh_onemin_billing(
                 "browseract_onemin_members_workflow_id",
             )
             account_labels = _resolve_onemin_account_labels(binding)
+            if requested_account_labels:
+                account_labels = [account_label for account_label in account_labels if account_label in requested_account_labels]
             binding_account_login_credentials: dict[str, dict[str, str]] = {}
             for account_label in account_labels:
                 if account_label not in bound_account_labels:
@@ -1426,7 +1430,7 @@ def refresh_onemin_billing(
                     {
                         "binding_id": binding.binding_id,
                         "external_account_ref": binding.external_account_ref,
-                        "reason": "account_label_unresolved",
+                        "reason": "account_label_unresolved" if not requested_account_labels else "account_label_filtered",
                     }
                 )
                 continue
@@ -1466,6 +1470,15 @@ def refresh_onemin_billing(
                 )
         else:
             selected_browseract_labels = set()
+        if requested_account_labels:
+            unresolved_requested_labels = sorted(requested_account_labels - set(bound_account_label_order))
+            for account_label in unresolved_requested_labels:
+                skipped.append(
+                    {
+                        "account_label": account_label,
+                        "reason": "account_label_not_bound",
+                    }
+                )
         browseract_billing_jobs: list[dict[str, object]] = []
         browseract_member_jobs: list[dict[str, object]] = []
         for job in binding_jobs:
