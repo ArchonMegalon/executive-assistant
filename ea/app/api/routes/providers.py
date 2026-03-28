@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 import re
 import time
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,6 +26,8 @@ router = APIRouter(prefix="/v1/providers", tags=["providers"])
 
 _ONEMIN_DIRECT_API_QUARANTINED_UNTIL = 0.0
 _ONEMIN_DIRECT_API_QUARANTINE_REASON = ""
+_MEDIA_CHALLENGER_LEDGER_PATH = Path(os.getenv("EA_MEDIA_CHALLENGER_LEDGER_PATH", "/docker/fleet/state/chummer6/ea_challenger_ledger.json"))
+_MEDIA_PROVIDER_SCHEDULER_PATH = Path(os.getenv("EA_MEDIA_PROVIDER_SCHEDULER_PATH", "/docker/fleet/state/chummer6/ea_provider_scheduler.json"))
 
 
 class ProviderBindingIn(BaseModel):
@@ -230,6 +234,77 @@ def _redact_registry_for_principal(view: dict[str, object]) -> dict[str, object]
     return result
 
 
+def _load_json_file(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _floatish(value: object, *, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _media_scheduler_summary(now_epoch: float) -> dict[str, object]:
+    scheduler = _load_json_file(_MEDIA_PROVIDER_SCHEDULER_PATH)
+    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
+    rows: list[dict[str, object]] = []
+    for provider_key, raw_entry in sorted(providers.items()):
+        entry = dict(raw_entry or {})
+        active_target = str(entry.get("active_target") or "").strip()
+        active_until_epoch = _floatish(entry.get("active_until_epoch"), default=0.0)
+        wait_seconds = max(0, int(round(active_until_epoch - now_epoch))) if active_target else 0
+        rows.append(
+            {
+                "provider_key": str(provider_key or "").strip(),
+                "state": "active" if active_target and wait_seconds > 0 else "idle",
+                "active_target": active_target,
+                "wait_seconds_remaining": wait_seconds,
+                "updated_at_epoch": _floatish(entry.get("updated_at"), default=0.0),
+            }
+        )
+    return {
+        "path": str(_MEDIA_PROVIDER_SCHEDULER_PATH),
+        "provider_count": len(rows),
+        "active_provider_count": sum(1 for row in rows if row["state"] == "active"),
+        "providers": rows,
+    }
+
+
+def _media_challenger_summary() -> dict[str, object]:
+    ledger = _load_json_file(_MEDIA_CHALLENGER_LEDGER_PATH)
+    assets = ledger.get("assets") if isinstance(ledger.get("assets"), dict) else {}
+    rows: list[dict[str, object]] = []
+    for target, raw_entry in sorted(assets.items()):
+        entry = dict(raw_entry or {})
+        challenger = dict(entry.get("last_challenger") or {})
+        rows.append(
+            {
+                "target": str(target or "").strip(),
+                "provider": str(entry.get("provider") or "").strip(),
+                "status": str(entry.get("status") or "").strip(),
+                "score": _floatish(entry.get("score"), default=0.0),
+                "updated_at_epoch": _floatish(entry.get("updated_at"), default=0.0),
+                "last_challenger_provider": str(challenger.get("provider") or "").strip(),
+                "last_challenger_status": str(challenger.get("status") or "").strip(),
+                "last_challenger_beat_champion": bool(challenger.get("beat_champion")),
+                "last_challenger_updated_at_epoch": _floatish(challenger.get("updated_at"), default=0.0),
+            }
+        )
+    return {
+        "path": str(_MEDIA_CHALLENGER_LEDGER_PATH),
+        "asset_count": len(rows),
+        "challenger_count": sum(1 for row in rows if row["last_challenger_provider"]),
+        "assets": rows[:50],
+    }
+
+
 @router.post("/bindings", response_model=ProviderBindingOut)
 def upsert_provider_binding(
     body: ProviderBindingIn,
@@ -359,6 +434,21 @@ def get_provider_registry(
     if not _is_operator_context(context):
         view = _redact_registry_for_principal(view)
     return view
+
+
+@router.get("/media-stewardship", response_model=None)
+def get_media_stewardship(
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    if not _is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
+    now_epoch = time.time()
+    return {
+        "contract_name": "ea.media_stewardship",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "provider_scheduler": _media_scheduler_summary(now_epoch),
+        "challenger_ledger": _media_challenger_summary(),
+    }
 
 
 @router.post("/onemin/probe-all", response_model=dict[str, object])

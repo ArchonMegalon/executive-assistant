@@ -1691,6 +1691,69 @@ def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatc
     assert review_light["providers"][0]["provider_key"] == "browseract"
 
 
+def test_media_stewardship_endpoint_exposes_scheduler_and_challenger_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+
+    from app.api.routes import providers as providers_route
+
+    scheduler_path = tmp_path / "provider-scheduler.json"
+    challenger_path = tmp_path / "challenger-ledger.json"
+    scheduler_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "media_factory": {
+                        "active_until_epoch": 4102444800.0,
+                        "active_target": "assets/hero/chummer6-hero.png",
+                        "updated_at": 4102441200.0,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    challenger_path.write_text(
+        json.dumps(
+            {
+                "assets": {
+                    "assets/hero/chummer6-hero.png": {
+                        "provider": "media_factory",
+                        "status": "media_factory:rendered",
+                        "score": 312.0,
+                        "updated_at": 4102441200.0,
+                        "last_challenger": {
+                            "provider": "gemini_vortex",
+                            "status": "gemini_vortex:rendered",
+                            "beat_champion": False,
+                            "updated_at": 4102441300.0,
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(providers_route, "_MEDIA_PROVIDER_SCHEDULER_PATH", scheduler_path)
+    monkeypatch.setattr(providers_route, "_MEDIA_CHALLENGER_LEDGER_PATH", challenger_path)
+
+    response = owner.get("/v1/providers/media-stewardship")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["contract_name"] == "ea.media_stewardship"
+    assert body["provider_scheduler"]["provider_count"] == 1
+    assert body["provider_scheduler"]["active_provider_count"] == 1
+    assert body["provider_scheduler"]["providers"][0]["provider_key"] == "media_factory"
+    assert body["provider_scheduler"]["providers"][0]["active_target"] == "assets/hero/chummer6-hero.png"
+    assert body["provider_scheduler"]["providers"][0]["wait_seconds_remaining"] > 0
+    assert body["challenger_ledger"]["asset_count"] == 1
+    assert body["challenger_ledger"]["challenger_count"] == 1
+    assert body["challenger_ledger"]["assets"][0]["last_challenger_provider"] == "gemini_vortex"
+    assert body["challenger_ledger"]["assets"][0]["last_challenger_beat_champion"] is False
+
+
 def test_public_tour_routes_serve_bundle_html_json_and_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
