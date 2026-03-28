@@ -850,6 +850,88 @@ def _scheduler_now_epoch() -> float:
     return float(time.time())
 
 
+def _pid_is_alive(pid: object) -> bool:
+    try:
+        normalized = int(pid)
+    except Exception:
+        return False
+    if normalized <= 0:
+        return False
+    try:
+        os.kill(normalized, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+    return True
+
+
+def _render_target_process_alive(target: str) -> bool:
+    normalized_target = str(target or "").strip()
+    if not normalized_target:
+        return False
+    try:
+        probe = subprocess.run(
+            ["ps", "-eo", "pid=,args="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except Exception:
+        return False
+    needle = f"--target {normalized_target}"
+    for line in probe.stdout.splitlines():
+        cleaned = line.strip()
+        if "chummer6_guide_media_worker.py render-targets" not in cleaned:
+            continue
+        if needle in cleaned:
+            return True
+    return False
+
+
+def _sanitize_provider_scheduler_entry(
+    *,
+    provider: str,
+    scheduler: dict[str, object],
+) -> dict[str, object]:
+    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
+    normalized = str(provider or "").strip().lower()
+    entry = dict(providers.get(normalized) or {})
+    if not entry:
+        return {}
+    now_epoch = _scheduler_now_epoch()
+    changed = False
+    active_until = _floatish(entry.get("active_until_epoch"), default=0.0)
+    active_target = str(entry.get("active_target") or "").strip()
+    active_owner_pid = entry.get("active_owner_pid")
+    if active_until <= now_epoch and (active_target or active_owner_pid or active_until):
+        entry["active_until_epoch"] = 0.0
+        entry["active_target"] = ""
+        entry["active_owner_pid"] = 0
+        changed = True
+    elif active_until > now_epoch and active_target:
+        owner_alive = _pid_is_alive(active_owner_pid)
+        if active_owner_pid and not owner_alive:
+            entry["active_until_epoch"] = 0.0
+            entry["active_target"] = ""
+            entry["active_owner_pid"] = 0
+            changed = True
+        elif not active_owner_pid and not _render_target_process_alive(active_target):
+            entry["active_until_epoch"] = 0.0
+            entry["active_target"] = ""
+            entry["active_owner_pid"] = 0
+            changed = True
+    if changed:
+        entry["updated_at"] = now_epoch
+        providers[normalized] = entry
+        scheduler["providers"] = providers
+        write_json_file(PROVIDER_SCHEDULER_OUT, scheduler)
+    return entry
+
+
 def _semantic_review_notes(notes: list[str]) -> list[str]:
     cleaned = []
     seen: set[str] = set()
@@ -894,8 +976,7 @@ def challenger_beats_champion(
 
 def _provider_scheduler_entry(*, provider: str) -> dict[str, object]:
     scheduler = load_provider_scheduler()
-    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
-    return dict(providers.get(str(provider or "").strip().lower()) or {})
+    return _sanitize_provider_scheduler_entry(provider=provider, scheduler=scheduler)
 
 
 def _provider_scheduler_wait_seconds(*, provider: str, target: str) -> int:
@@ -926,6 +1007,7 @@ def _acquire_provider_scheduler_slot(*, provider: str, target: str, hold_seconds
         return False, max(0, int(round(active_until - now_epoch)))
     entry["active_until_epoch"] = now_epoch + max(5, int(hold_seconds))
     entry["active_target"] = normalized_target
+    entry["active_owner_pid"] = os.getpid()
     entry["updated_at"] = now_epoch
     providers[normalized] = entry
     scheduler["providers"] = providers
@@ -944,6 +1026,7 @@ def _release_provider_scheduler_slot(*, provider: str, target: str) -> None:
         return
     entry["active_until_epoch"] = 0.0
     entry["active_target"] = ""
+    entry["active_owner_pid"] = 0
     entry["updated_at"] = _scheduler_now_epoch()
     providers[normalized] = entry
     scheduler["providers"] = providers

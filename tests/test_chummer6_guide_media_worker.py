@@ -2066,6 +2066,7 @@ def test_render_with_ooda_skips_provider_when_scheduler_slot_is_held(
                 "onemin": {
                     "active_until_epoch": media._scheduler_now_epoch() + 120.0,
                     "active_target": "assets/other.png",
+                    "active_owner_pid": 999999,
                 }
             }
         },
@@ -2073,6 +2074,7 @@ def test_render_with_ooda_skips_provider_when_scheduler_slot_is_held(
     output_path = tmp_path / "render.png"
 
     monkeypatch.setattr(media, "build_safe_media_factory_prompt", lambda **kwargs: str(kwargs["prompt"]))
+    monkeypatch.setattr(media, "_pid_is_alive", lambda pid: True)
 
     def _run_command_provider(name: str, command: list[str], **kwargs: object) -> tuple[bool, str]:
         Path(str(kwargs["output_path"])).write_bytes(b"png")
@@ -2116,6 +2118,34 @@ def test_champion_entry_for_target_seeds_from_repo_asset(
     assert entry["score"] == 287.5
     assert entry["source"] == "repo_seed"
     assert ledger["assets"][target]["path"] == str(target_path)
+
+
+def test_provider_scheduler_entry_clears_stale_legacy_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    scheduler_path = tmp_path / "scheduler.json"
+    monkeypatch.setattr(media, "PROVIDER_SCHEDULER_OUT", scheduler_path)
+    media.write_json_file(
+        scheduler_path,
+        {
+            "providers": {
+                "media_factory": {
+                    "active_until_epoch": media._scheduler_now_epoch() + 120.0,
+                    "active_target": "assets/horizons/alice.png",
+                    "updated_at": media._scheduler_now_epoch(),
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(media, "_render_target_process_alive", lambda target: False)
+
+    entry = media._provider_scheduler_entry(provider="media_factory")
+    persisted = json.loads(scheduler_path.read_text(encoding="utf-8"))
+
+    assert entry["active_until_epoch"] == 0.0
+    assert entry["active_target"] == ""
+    assert persisted["providers"]["media_factory"]["active_until_epoch"] == 0.0
 
 
 def test_render_specs_keeps_existing_champion_when_challenger_does_not_beat_it(
