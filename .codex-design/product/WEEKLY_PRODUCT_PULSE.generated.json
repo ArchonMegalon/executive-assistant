@@ -1,31 +1,31 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-28T17:21:05Z",
-  "as_of": "2026-03-28",
+  "generated_at": "2026-03-28T23:03:00Z",
+  "as_of": "2026-03-29",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is ready; overall progress is 73% in 'Scale & stabilize'; the longest pole remains Cloud & Publishing.",
+  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is blocked; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine.",
   "active_wave": "Next 20 Big Wins After Post-Audit Closeout",
   "active_wave_status": "in_progress",
   "journey_gate_health": {
-    "state": "ready",
-    "reason": "Journey proof is steady on current published evidence.",
-    "blocked_count": 0,
+    "state": "blocked",
+    "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
+    "blocked_count": 1,
     "warning_count": 0
   },
   "governor_decisions": [
     {
-      "decision_id": "2026-03-28-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+      "decision_id": "2026-03-29-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
       "action": "closeout_and_continue",
-      "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 4 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
+      "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 5 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
       "cited_signals": [
-        "overall_progress_percent=73",
-        "history_snapshot_count=4",
+        "overall_progress_percent=100",
+        "history_snapshot_count=5",
         "oldest_blocker_days=0",
-        "phase_label=Scale & stabilize",
-        "longest_pole=Cloud & Publishing"
+        "phase_label=Public-fit polish",
+        "longest_pole=Core Engine"
       ]
     }
   ],
@@ -37,9 +37,9 @@
       "front_door_wave_closed": true
     },
     "journey_gate_health": {
-      "state": "ready",
-      "reason": "Journey proof is steady on current published evidence.",
-      "blocked_count": 0,
+      "state": "blocked",
+      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
+      "blocked_count": 1,
       "warning_count": 0
     },
     "top_support_or_feedback_clusters": [
@@ -61,7 +61,7 @@
       },
       {
         "cluster_id": "long_pole_visibility",
-        "summary": "The current longest pole remains Cloud & Publishing, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
+        "summary": "The current longest pole remains Core Engine, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
         "source_paths": [
           "products/chummer/PROGRESS_REPORT.generated.json",
           "products/chummer/RELEASE_EVIDENCE_PACK.md"
@@ -73,15 +73,15 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-28-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+        "decision_id": "2026-03-29-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
         "action": "closeout_and_continue",
-        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 4 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
+        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 5 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
         "cited_signals": [
-          "overall_progress_percent=73",
-          "history_snapshot_count=4",
+          "overall_progress_percent=100",
+          "history_snapshot_count=5",
           "oldest_blocker_days=0",
-          "phase_label=Scale & stabilize",
-          "longest_pole=Cloud & Publishing"
+          "phase_label=Public-fit polish",
+          "longest_pole=Core Engine"
         ]
       }
     ],
@@ -89,10 +89,10 @@
   },
   "supporting_signals": {
     "current_recommended_wave": "Next 20 Big Wins After Post-Audit Closeout",
-    "overall_progress_percent": 73,
-    "phase_label": "Scale & stabilize",
-    "history_snapshot_count": 4,
-    "longest_pole": "Cloud & Publishing",
+    "overall_progress_percent": 100,
+    "phase_label": "Public-fit polish",
+    "history_snapshot_count": 5,
+    "longest_pole": "Core Engine",
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",

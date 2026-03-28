@@ -17,7 +17,7 @@ waves:
       - 5
   - id: W2
     name: Widen the Build and Explain moat
-    status: not_started
+    status: in_progress
     milestone_ids:
       - 6
       - 7
@@ -62,7 +62,7 @@ milestones:
       - chummer6-hub
       - chummer6-core
       - chummer6-ui
-    status: not_started
+    status: complete
     exit_criteria:
       - Consequence state is stored as governed campaign truth instead of recap prose or install-local notes.
       - Campaign-facing UI can explain faction, heat, contact, and reputation changes with grounded receipts.
@@ -75,7 +75,7 @@ milestones:
       - chummer6-hub
       - executive-assistant
       - chummer6-ui
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Dossiers can move between rosters, campaigns, and groups with explicit ownership transfer and auditability.
       - Organizer and GM actions stay on the same governed account and control backbone as normal user flows.
