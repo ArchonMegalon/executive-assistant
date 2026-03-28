@@ -2054,6 +2054,145 @@ def test_render_with_ooda_skips_provider_on_rate_limit_cooldown(
     assert second["provider"] == "media_factory"
 
 
+def test_render_with_ooda_skips_provider_when_scheduler_slot_is_held(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_SCHEDULER_OUT", tmp_path / "scheduler.json")
+    media.write_json_file(
+        media.PROVIDER_SCHEDULER_OUT,
+        {
+            "providers": {
+                "onemin": {
+                    "active_until_epoch": media._scheduler_now_epoch() + 120.0,
+                    "active_target": "assets/other.png",
+                }
+            }
+        },
+    )
+    output_path = tmp_path / "render.png"
+
+    monkeypatch.setattr(media, "build_safe_media_factory_prompt", lambda **kwargs: str(kwargs["prompt"]))
+
+    def _run_command_provider(name: str, command: list[str], **kwargs: object) -> tuple[bool, str]:
+        Path(str(kwargs["output_path"])).write_bytes(b"png")
+        return True, f"{name}:rendered"
+
+    monkeypatch.setattr(media, "run_command_provider", _run_command_provider)
+
+    result = media.render_with_ooda(
+        prompt="render the room",
+        output_path=output_path,
+        width=960,
+        height=540,
+        spec={"providers": ["onemin", "media_factory"], "target": "assets/pages/current-status.png"},
+    )
+
+    assert any(item.startswith("onemin:cooldown:") or item.startswith("onemin:scheduled_wait:") for item in result["attempts"])
+    assert result["provider"] == "media_factory"
+
+
+def test_champion_entry_for_target_seeds_from_repo_asset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    repo_root = tmp_path / "Chummer6"
+    target = "assets/pages/current-status.png"
+    target_path = repo_root / target
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(b"png")
+
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", repo_root)
+    monkeypatch.setattr(media, "visual_audit_enabled", lambda **kwargs: True)
+    monkeypatch.setattr(
+        media,
+        "visual_audit_score",
+        lambda **kwargs: (287.5, ["visual_audit:world_marker_spread_weak"]),
+    )
+
+    ledger = {"assets": {}}
+    entry = media.champion_entry_for_target(target=target, ledger=ledger)
+
+    assert entry["score"] == 287.5
+    assert entry["source"] == "repo_seed"
+    assert ledger["assets"][target]["path"] == str(target_path)
+
+
+def test_render_specs_keeps_existing_champion_when_challenger_does_not_beat_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    repo_root = tmp_path / "Chummer6"
+    target = "assets/pages/current-status.png"
+    canonical_path = repo_root / target
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+    canonical_path.write_bytes(b"champion")
+
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", repo_root)
+    monkeypatch.setattr(media, "SCENE_LEDGER_OUT", tmp_path / "scene-ledger.json")
+    monkeypatch.setattr(media, "CHALLENGER_LEDGER_OUT", tmp_path / "challenger-ledger.json")
+    monkeypatch.setattr(media, "MANIFEST_OUT", tmp_path / "manifest.json")
+    monkeypatch.setattr(media, "STATE_OUT", tmp_path / "state.json")
+    monkeypatch.setattr(media, "scene_rows_for_style_epoch", lambda *args, **kwargs: [])
+    monkeypatch.setattr(media, "repetition_block_reason", lambda **kwargs: "")
+    monkeypatch.setattr(media, "refine_prompt_with_ooda", lambda **kwargs: str(kwargs["prompt"]))
+    monkeypatch.setattr(media, "ensure_troll_clause", lambda **kwargs: str(kwargs["prompt"]))
+    monkeypatch.setattr(media, "first_contact_variant_count", lambda **kwargs: 2)
+    monkeypatch.setattr(media, "normalize_banner_size", lambda **kwargs: "normalize_banner_size:ok")
+    monkeypatch.setattr(media, "first_contact_target", lambda target: False)
+    monkeypatch.setattr(media, "troll_postpass_enabled", lambda: False)
+    monkeypatch.setattr(media, "apply_public_asset_finish_postpass", lambda **kwargs: "public_asset_finish_postpass:pillow")
+    monkeypatch.setattr(media, "build_render_accounting", lambda assets: {"assets": len(assets)})
+    monkeypatch.setattr(media, "easter_egg_payload", lambda contract: {})
+    monkeypatch.setattr(media, "infer_cast_signature", lambda contract: "duo")
+
+    def _variant_prompt(**kwargs: object) -> tuple[str, list[str]]:
+        return str(kwargs["prompt"]), []
+
+    monkeypatch.setattr(media, "ooda_variant_prompt", _variant_prompt)
+    monkeypatch.setattr(media, "ooda_variant_spec", lambda **kwargs: (dict(kwargs["spec"]), []))
+
+    def _render_with_ooda(**kwargs: object) -> dict[str, object]:
+        output_path = Path(str(kwargs["output_path"]))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"candidate")
+        return {"provider": "media_factory", "status": "media_factory:rendered", "attempts": ["media_factory:rendered"]}
+
+    monkeypatch.setattr(media, "render_with_ooda", _render_with_ooda)
+    monkeypatch.setattr(media, "visual_audit_enabled", lambda target: True)
+
+    def _visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[str]]:
+        if image_path == canonical_path:
+            return 310.0, []
+        return 300.0, ["visual_audit:cast_readability_weak"]
+
+    monkeypatch.setattr(media, "visual_audit_score", _visual_audit_score)
+    monkeypatch.setattr(media, "critical_visual_gate_failures", lambda **kwargs: [])
+
+    manifest = media.render_specs(
+        specs=[
+            {
+                "target": target,
+                "prompt": "Render the room",
+                "width": 960,
+                "height": 540,
+                "media_row": {"scene_contract": {"composition": "workspace", "subject": "status wall"}},
+                "providers": ["media_factory"],
+            }
+        ],
+        output_dir=repo_root,
+    )
+
+    champion_after = canonical_path.read_bytes()
+    ledger = json.loads((tmp_path / "challenger-ledger.json").read_text(encoding="utf-8"))
+    entry = ledger["assets"][target]
+
+    assert champion_after == b"champion"
+    assert "challenger:kept_existing_champion" in manifest["assets"][0]["attempts"]
+    assert entry["score"] == 310.0
+    assert entry["last_challenger"]["beat_champion"] is False
+
+
 def test_critical_visual_gate_failures_reject_soft_finish_on_flagship_assets() -> None:
     media = _load_module()
 
