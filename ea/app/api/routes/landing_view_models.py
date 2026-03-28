@@ -146,6 +146,8 @@ def app_section_payload(
 ) -> dict[str, object]:
     workspace = dict(status.get("workspace") or {})
     privacy = dict(status.get("privacy") or {})
+    delivery_preferences = dict(status.get("delivery_preferences") or {})
+    morning_memo = dict(delivery_preferences.get("morning_memo") or {})
     preview = dict(status.get("brief_preview") or {})
     channels = dict(status.get("channels") or {})
     cards = channel_cards(channels)
@@ -181,6 +183,19 @@ def app_section_payload(
         f"Action suggestions: {'allowed' if privacy.get('allow_action_suggestions') else 'off'}",
         f"Automatic briefs: {'allowed' if privacy.get('allow_auto_briefs') else 'off'}",
     ]
+    if privacy.get("allow_auto_briefs"):
+        privacy_lines.append(
+            "Memo schedule: "
+            + " · ".join(
+                part
+                for part in (
+                    humanize(str(morning_memo.get("cadence") or "daily_morning")),
+                    f"{morning_memo.get('delivery_time_local') or '08:00'} {morning_memo.get('timezone') or workspace.get('timezone') or 'UTC'}",
+                    str(morning_memo.get("resolved_recipient_email") or "waiting for recipient"),
+                )
+                if str(part or "").strip()
+            )
+        )
     channel_lines = [f"{card['label']}: {card['status']} — {card['detail']}" for card in cards]
     channel_items = [row_item(card["label"], card["detail"], card["status"]) for card in cards]
     identity_posture_items = [

@@ -78,12 +78,44 @@
     </section>
   </div>
 
+  {% set morning_memo = (status.delivery_preferences or {}).get('morning_memo', {}) %}
   <form class="wizard-form" method="post" action="/setup/finalize" data-next-step="3">
     {{ shared_browser_fields|safe }}
     <div class="check-grid">
       <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare replies for review before anything is sent.</span></label>
       <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow action suggestions</strong>Let the assistant surface next steps and follow-up recommendations.</span></label>
       <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow automatic memos</strong>Generate memos on a schedule when the workspace is stable enough.</span></label>
+    </div>
+    <input type="hidden" name="auto_brief_delivery_channel" value="{{ morning_memo.get('delivery_channel', 'email') }}">
+
+    <div class="field-grid" style="margin-top: 12px;">
+      <div>
+        <label for="auto_brief_cadence">Morning memo cadence</label>
+        <select id="auto_brief_cadence" name="auto_brief_cadence">
+          <option value="daily_morning" {% if morning_memo.get('cadence', 'daily_morning') == 'daily_morning' %}selected{% endif %}>Every day</option>
+          <option value="weekdays_morning" {% if morning_memo.get('cadence') == 'weekdays_morning' %}selected{% endif %}>Weekdays only</option>
+        </select>
+      </div>
+      <div>
+        <label for="auto_brief_delivery_time_local">Delivery time</label>
+        <input id="auto_brief_delivery_time_local" name="auto_brief_delivery_time_local" type="time" value="{{ morning_memo.get('delivery_time_local', '08:00') }}">
+      </div>
+      <div>
+        <label for="auto_brief_recipient_email">Delivery email override</label>
+        <input id="auto_brief_recipient_email" name="auto_brief_recipient_email" type="email" placeholder="Uses Google primary email by default" value="{{ morning_memo.get('recipient_email', '') }}">
+      </div>
+      <div>
+        <label for="auto_brief_quiet_hours_start">Quiet hours start</label>
+        <input id="auto_brief_quiet_hours_start" name="auto_brief_quiet_hours_start" type="time" value="{{ morning_memo.get('quiet_hours_start', '20:00') }}">
+      </div>
+      <div>
+        <label for="auto_brief_quiet_hours_end">Quiet hours end</label>
+        <input id="auto_brief_quiet_hours_end" name="auto_brief_quiet_hours_end" type="time" value="{{ morning_memo.get('quiet_hours_end', '07:00') }}">
+      </div>
+      <div>
+        <label>Current memo target</label>
+        <p class="copy" style="margin-top: 8px;">{{ morning_memo.get('resolved_recipient_email', 'Will resolve from the connected Google account once available.') }}</p>
+      </div>
     </div>
 
     <details class="advanced">

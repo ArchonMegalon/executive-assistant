@@ -206,6 +206,12 @@ class OnboardingFinalizeIn(BaseModel):
     allow_drafts: bool = Field(default=False)
     allow_action_suggestions: bool = Field(default=True)
     allow_auto_briefs: bool = Field(default=False)
+    auto_brief_cadence: str = Field(default="daily_morning", max_length=80)
+    auto_brief_delivery_time_local: str = Field(default="08:00", max_length=16)
+    auto_brief_quiet_hours_start: str = Field(default="20:00", max_length=16)
+    auto_brief_quiet_hours_end: str = Field(default="07:00", max_length=16)
+    auto_brief_recipient_email: str = Field(default="", max_length=320)
+    auto_brief_delivery_channel: str = Field(default="email", max_length=80)
 
 
 class OnboardingEnvelopeOut(BaseModel):
@@ -571,4 +577,10 @@ def onboarding_finalize(
         allow_drafts=body.allow_drafts,
         allow_action_suggestions=body.allow_action_suggestions,
         allow_auto_briefs=body.allow_auto_briefs,
+        auto_brief_cadence=body.auto_brief_cadence,
+        auto_brief_delivery_time_local=body.auto_brief_delivery_time_local,
+        auto_brief_quiet_hours_start=body.auto_brief_quiet_hours_start,
+        auto_brief_quiet_hours_end=body.auto_brief_quiet_hours_end,
+        auto_brief_recipient_email=body.auto_brief_recipient_email,
+        auto_brief_delivery_channel=body.auto_brief_delivery_channel,
     )
