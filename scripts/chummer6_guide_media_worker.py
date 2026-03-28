@@ -4956,6 +4956,121 @@ def apply_context_overlay(*, output_path: Path, spec: dict[str, object], width: 
             pass
 
 
+def ooda_variant_prompt(
+    *,
+    prompt: str,
+    target: str,
+    variant: int,
+    previous_notes: list[str],
+    previous_gate_failures: list[str],
+) -> tuple[str, list[str]]:
+    if variant <= 0:
+        return prompt, []
+    notes = {str(note or "").strip() for note in [*previous_notes, *previous_gate_failures] if str(note or "").strip()}
+    corrections: list[str] = []
+    correction_tags: list[str] = []
+    if {
+        "visual_audit:environment_share_too_low",
+        "visual_audit:subject_crop_too_tight",
+        "critical_visual_gate:subject_crop_too_tight",
+    } & notes:
+        correction_tags.append("wider_room_first")
+        corrections.append(
+            "Corrective pass: set the camera farther back and let the room, floor, doorway, shelves, ceiling, and surrounding apparatus do more of the storytelling than faces or torso crop."
+        )
+    if {
+        "visual_audit:apparatus_share_too_low",
+        "critical_visual_gate:apparatus_share_too_low",
+    } & notes:
+        correction_tags.append("apparatus_dominance")
+        corrections.append(
+            "Corrective pass: the machinery, approval rails, rollback rig, test chamber, and surrounding hardware must occupy more frame share than the people."
+        )
+    if {"visual_audit:soft_finish", "critical_visual_gate:soft_finish"} & notes:
+        correction_tags.append("harder_finish")
+        corrections.append(
+            "Corrective pass: harder edges, sharper focal separation, brighter hot highlights, stronger rim light, crisper grime and material detail, less watercolor softness, less haze."
+        )
+    if {"visual_audit:insufficient_flash", "critical_visual_gate:insufficient_flash"} & notes:
+        correction_tags.append("higher_energy")
+        corrections.append(
+            "Corrective pass: stronger contrast, hotter sodium-cyan or orange-cyan energy, brighter speculars, stronger reflections, and bolder poster-grade punch."
+        )
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized == "assets/hero/chummer6-hero.png" and correction_tags:
+        corrections.append(
+            "Hero-specific correction: keep more visible clinic geography, chrome clutter, side bench, open bay door, tool wall, wet floor, hanging lights, and improvised med hardware in frame."
+        )
+    elif normalized == "assets/horizons/karma-forge.png" and correction_tags:
+        corrections.append(
+            "Forge-specific correction: keep the proving bay, rails, consequence chamber, assay cage, sample racks, and gantry hardware visibly larger than the operators."
+        )
+    elif normalized in {
+        "assets/pages/horizons-index.png",
+        "assets/pages/parts-index.png",
+        "assets/pages/current-status.png",
+        "assets/pages/public-surfaces.png",
+        "assets/pages/what-chummer6-is.png",
+    } and correction_tags:
+        corrections.append(
+            "Environment-map correction: the location and work zones must read before any single person, gadget, sign, or overlay trace."
+        )
+    if not corrections:
+        return prompt, []
+    return prompt + " " + " ".join(corrections), correction_tags
+
+
+def ooda_variant_spec(
+    *,
+    spec: dict[str, object],
+    target: str,
+    variant: int,
+    previous_provider: str,
+    previous_notes: list[str],
+    previous_gate_failures: list[str],
+) -> tuple[dict[str, object], list[str]]:
+    if variant <= 0:
+        return spec, []
+    adjusted = dict(spec)
+    current = adjusted.get("providers")
+    providers = [str(entry).strip().lower() for entry in current if str(entry).strip()] if isinstance(current, list) else provider_order()
+    notes = {str(note or "").strip() for note in [*previous_notes, *previous_gate_failures] if str(note or "").strip()}
+    normalized = str(target or "").replace("\\", "/").strip()
+    provider_tags: list[str] = []
+
+    def _prioritize(name: str) -> None:
+        lowered = str(name or "").strip().lower()
+        if not lowered or lowered not in providers:
+            return
+        providers.remove(lowered)
+        providers.insert(0, lowered)
+
+    if previous_provider:
+        if {"visual_audit:soft_finish", "critical_visual_gate:soft_finish", "visual_audit:insufficient_flash", "critical_visual_gate:insufficient_flash"} & notes:
+            if previous_provider == "media_factory":
+                _prioritize("onemin")
+                provider_tags.append("prefer_onemin_finish")
+            elif previous_provider == "onemin" and normalized == "assets/horizons/karma-forge.png":
+                _prioritize("media_factory")
+                provider_tags.append("prefer_media_factory_apparatus")
+        if {
+            "visual_audit:environment_share_too_low",
+            "visual_audit:subject_crop_too_tight",
+            "critical_visual_gate:subject_crop_too_tight",
+            "visual_audit:apparatus_share_too_low",
+            "critical_visual_gate:apparatus_share_too_low",
+        } & notes:
+            if previous_provider == "onemin" and normalized != "assets/hero/chummer6-hero.png":
+                _prioritize("media_factory")
+                provider_tags.append("prefer_media_factory_room")
+            elif previous_provider == "media_factory" and normalized == "assets/hero/chummer6-hero.png":
+                _prioritize("onemin")
+                provider_tags.append("prefer_onemin_hero_finish")
+
+    adjusted["providers"] = providers
+    return adjusted, provider_tags
+
+
 def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int, spec: dict[str, object]) -> dict[str, object]:
     forbid_legacy_svg_fallback(output_path)
     attempts: list[str] = []
@@ -5882,10 +5997,32 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         best_score = float("-inf")
         best_notes: list[str] = []
         best_gate_failures: list[str] = []
+        previous_notes: list[str] = []
+        previous_gate_failures: list[str] = []
+        previous_provider = ""
         for variant in range(variant_attempts):
             candidate_path = out_path if variant_attempts == 1 else out_path.with_name(f"{out_path.stem}.__candidate{variant}{out_path.suffix}")
-            result = render_with_ooda(prompt=prompt, output_path=candidate_path, width=width, height=height, spec=spec)
+            variant_prompt, prompt_tags = ooda_variant_prompt(
+                prompt=prompt,
+                target=target,
+                variant=variant,
+                previous_notes=previous_notes,
+                previous_gate_failures=previous_gate_failures,
+            )
+            variant_spec, provider_tags = ooda_variant_spec(
+                spec=spec,
+                target=target,
+                variant=variant,
+                previous_provider=previous_provider,
+                previous_notes=previous_notes,
+                previous_gate_failures=previous_gate_failures,
+            )
+            result = render_with_ooda(prompt=variant_prompt, output_path=candidate_path, width=width, height=height, spec=variant_spec)
             statuses: list[str] = list(result["attempts"])
+            if prompt_tags:
+                statuses.append("variant_ooda:prompt:" + ",".join(prompt_tags))
+            if provider_tags:
+                statuses.append("variant_ooda:providers:" + ",".join(provider_tags))
             statuses.append(normalize_banner_size(image_path=candidate_path, width=width, height=height))
             base_score = 0.0
             base_notes: list[str] = []
@@ -5916,6 +6053,9 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 final_notes=notes,
             )
             statuses.extend(gate_failures)
+            previous_notes = [*base_notes, *notes]
+            previous_gate_failures = list(gate_failures)
+            previous_provider = str(result["provider"])
             candidate_score = score + (base_score * 0.6) - (35.0 * len(gate_failures))
             if candidate_score > best_score:
                 best_score = candidate_score

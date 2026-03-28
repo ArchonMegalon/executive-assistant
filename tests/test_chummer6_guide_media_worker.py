@@ -1981,6 +1981,55 @@ def test_scene_policy_for_target_makes_karma_forge_an_industrial_materials_lab()
     assert "materials" in prompt or "awakened" in prompt
 
 
+def test_ooda_variant_prompt_adds_room_finish_and_energy_corrections() -> None:
+    media = _load_module()
+
+    variant_prompt, tags = media.ooda_variant_prompt(
+        prompt="Base hero prompt.",
+        target="assets/hero/chummer6-hero.png",
+        variant=1,
+        previous_notes=[
+            "visual_audit:environment_share_too_low",
+            "visual_audit:soft_finish",
+            "visual_audit:insufficient_flash",
+        ],
+        previous_gate_failures=[],
+    )
+
+    lowered = variant_prompt.lower()
+    assert "camera farther back" in lowered
+    assert "harder edges" in lowered
+    assert "stronger contrast" in lowered
+    assert "clinic geography" in lowered
+    assert tags == ["wider_room_first", "harder_finish", "higher_energy"]
+
+
+def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
+    media = _load_module()
+
+    adjusted_room, room_tags = media.ooda_variant_spec(
+        spec={"providers": ["onemin", "media_factory", "magixai"]},
+        target="assets/pages/parts-index.png",
+        variant=1,
+        previous_provider="onemin",
+        previous_notes=["visual_audit:environment_share_too_low"],
+        previous_gate_failures=[],
+    )
+    assert adjusted_room["providers"][0] == "media_factory"
+    assert "prefer_media_factory_room" in room_tags
+
+    adjusted_finish, finish_tags = media.ooda_variant_spec(
+        spec={"providers": ["media_factory", "onemin", "magixai"]},
+        target="assets/horizons/karma-forge.png",
+        variant=1,
+        previous_provider="media_factory",
+        previous_notes=["visual_audit:soft_finish"],
+        previous_gate_failures=[],
+    )
+    assert adjusted_finish["providers"][0] == "onemin"
+    assert "prefer_onemin_finish" in finish_tags
+
+
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_PROMPT_REFINEMENT_REQUIRED", raising=False)
