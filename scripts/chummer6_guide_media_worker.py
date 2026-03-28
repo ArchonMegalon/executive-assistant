@@ -104,7 +104,8 @@ QUALITY_FOCUS_TARGETS = frozenset(
         "assets/parts/hub.png",
     }
 )
-DIRECT_ONEMIN_PREFERRED_TARGETS = frozenset({"assets/hero/chummer6-hero.png", *QUALITY_FOCUS_TARGETS})
+DIRECT_ONEMIN_PREFERRED_TARGETS = frozenset({"assets/hero/chummer6-hero.png"})
+MAGIXAI_PREFERRED_TARGETS = frozenset(QUALITY_FOCUS_TARGETS)
 MEDIA_FACTORY_PREFERRED_TARGETS = frozenset(
     {
         "assets/pages/horizons-index.png",
@@ -1202,6 +1203,8 @@ def champion_entry_for_target(*, target: str, ledger: dict[str, object]) -> dict
         ledger["assets"] = assets
     existing = dict(assets.get(target) or {})
     if existing:
+        if str(existing.get("path") or "").strip() and not str(existing.get("output_path") or "").strip():
+            existing["output_path"] = str(existing.get("path") or "").strip()
         return existing
     champion_path = canonical_asset_path(target)
     if not champion_path.exists() or not visual_audit_enabled(target=target):
@@ -1211,6 +1214,7 @@ def champion_entry_for_target(*, target: str, ledger: dict[str, object]) -> dict
         "score": score,
         "notes": list(notes),
         "path": str(champion_path),
+        "output_path": str(champion_path),
         "source": "repo_seed",
         "updated_at": _scheduler_now_epoch(),
     }
@@ -1238,6 +1242,7 @@ def record_champion_result(
         "score": float(score),
         "notes": [str(note).strip() for note in notes if str(note).strip()],
         "path": str(output_path),
+        "output_path": str(output_path),
         "provider": str(provider or "").strip(),
         "status": str(status or "").strip(),
         "source": str(source or "").strip(),
@@ -1265,6 +1270,7 @@ def record_challenger_attempt(
         "score": float(score),
         "notes": [str(note).strip() for note in notes if str(note).strip()],
         "path": str(output_path),
+        "output_path": str(output_path),
         "provider": str(provider or "").strip(),
         "status": str(status or "").strip(),
         "beat_champion": bool(beat_champion),
@@ -1546,6 +1552,8 @@ def routed_provider_order_for_target(target: str, *, providers: list[str] | None
 
     if normalized_target in DIRECT_ONEMIN_PREFERRED_TARGETS:
         _prioritize("onemin")
+    elif normalized_target in MAGIXAI_PREFERRED_TARGETS and env_value("AI_MAGICX_API_KEY"):
+        _prioritize("magixai")
     elif normalized_target in MEDIA_FACTORY_PREFERRED_TARGETS:
         _prioritize("media_factory")
     scored = [(provider_health_penalty(provider=value, target=normalized_target), index, value) for index, value in enumerate(ordered)]
@@ -2507,11 +2515,18 @@ def _download_remote_image(url: str, *, output_path: Path, name: str) -> tuple[b
     return True, f"{name}:rendered"
 
 
-def run_magixai_api_provider(*, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
+def run_magixai_api_provider(
+    *,
+    prompt: str,
+    output_path: Path,
+    width: int,
+    height: int,
+    spec: dict[str, object] | None = None,
+) -> tuple[bool, str]:
     api_key = env_value("AI_MAGICX_API_KEY")
     if not api_key:
         return False, "magixai:not_configured"
-    model_candidates = magixai_image_model_candidates(env_value("CHUMMER6_MAGIXAI_MODEL"))
+    model_candidates = magixai_model_candidates(spec)
     size_candidates = magixai_size_variants(width=width, height=height)
     base_urls = magixai_api_base_urls(env_value("CHUMMER6_MAGIXAI_BASE_URL"))
     headers = {
@@ -2719,6 +2734,15 @@ def _spec_string_list(spec: dict[str, object] | None, key: str) -> list[str]:
         if normalized and normalized not in cleaned:
             cleaned.append(normalized)
     return cleaned
+
+
+def magixai_model_candidates(spec: dict[str, object] | None = None) -> list[str]:
+    explicit = _spec_string_list(spec, "magixai_models")
+    configured = _spec_string(spec, "magixai_model") or env_value("CHUMMER6_MAGIXAI_MODEL")
+    base = magixai_image_model_candidates(configured)
+    if not explicit:
+        return base
+    return [*explicit, *[model for model in base if model not in explicit]]
 
 
 def onemin_model_candidates(spec: dict[str, object] | None = None) -> list[str]:
@@ -5753,8 +5777,9 @@ def ooda_variant_spec(
     if previous_provider:
         if quality_focus_target(normalized) and champion_score > float("-inf") and previous_score + 8.0 < champion_score:
             if previous_provider == "onemin":
-                _prioritize("media_factory")
-                provider_tags.append("prefer_media_factory_challenger")
+                next_provider = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
+                _prioritize(next_provider)
+                provider_tags.append(f"prefer_{next_provider}_challenger")
             elif previous_provider == "media_factory":
                 _prioritize("browseract_prompting_systems")
                 provider_tags.append("prefer_browseract_challenger")
@@ -5851,7 +5876,7 @@ def render_with_ooda(
         elif normalized == "magixai":
             safe_prompt = sanitize_prompt_for_provider(prompt, provider=normalized)
             try:
-                ok, detail = run_magixai_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
+                ok, detail = run_magixai_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height, spec=spec)
                 if not ok:
                     command_ok, command_detail = run_command_provider("magixai", shlex_command("CHUMMER6_MAGIXAI_RENDER_COMMAND"), prompt=safe_prompt, output_path=output_path, width=width, height=height, reference_image=reference_image)
                     if command_ok or detail.endswith(":not_configured"):

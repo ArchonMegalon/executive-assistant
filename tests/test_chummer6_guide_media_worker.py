@@ -53,15 +53,16 @@ def test_provider_order_defaults_to_non_onemin_media_providers_before_onemin(mon
     assert media.provider_order() == ["media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
 
 
-def test_routed_provider_order_prefers_onemin_for_quality_focus_targets() -> None:
+def test_routed_provider_order_prefers_magixai_for_quality_focus_targets() -> None:
     media = _load_module()
+    media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
 
     routed = media.routed_provider_order_for_target(
-        "assets/pages/parts-index.png",
+        "assets/parts/hub.png",
         providers=["media_factory", "magixai", "onemin"],
     )
 
-    assert routed[0] == "onemin"
+    assert routed[0] == "magixai"
 
 
 def test_routed_provider_order_keeps_media_factory_first_for_forge() -> None:
@@ -172,6 +173,53 @@ def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkey
     assert calls[0][0] == "https://www.aimagicx.com/api/v1/images/generations"
     assert calls[0][1]["size"] == "landscape_16_9"
     assert calls[1][1]["size"] == "1280x720"
+
+
+def test_run_magixai_api_provider_respects_spec_model_priority(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+    seen_models: list[str] = []
+
+    class _JsonResponse:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.status = 200
+            self.headers = {"Content-Type": "application/json"}
+            self._body = json.dumps(body).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    def fake_urlopen(request, timeout=0):
+        payload = json.loads(request.data.decode("utf-8"))
+        seen_models.append(str(payload["model"]))
+        return _JsonResponse({"data": [{"url": "https://example.test/magix-image.png"}]})
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="magixai": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    ok, detail = media.run_magixai_api_provider(
+        prompt="industrial research forge",
+        output_path=tmp_path / "forge.png",
+        width=1280,
+        height=720,
+        spec={"magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/ideogram/v2"]},
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert seen_models[0] == "fal-ai/flux-pro/v1.1-ultra"
 
 
 def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -2324,6 +2372,16 @@ def test_champion_entry_for_target_seeds_from_repo_asset(
     assert ledger["assets"][target]["path"] == str(target_path)
 
 
+def test_champion_entry_for_target_backfills_output_path_alias() -> None:
+    media = _load_module()
+    ledger = {"assets": {"assets/pages/current-status.png": {"path": "/tmp/champion.png", "score": 123.0}}}
+
+    entry = media.champion_entry_for_target(target="assets/pages/current-status.png", ledger=ledger)
+
+    assert entry["path"] == "/tmp/champion.png"
+    assert entry["output_path"] == "/tmp/champion.png"
+
+
 def test_provider_scheduler_entry_clears_stale_legacy_lock(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2498,6 +2556,7 @@ def test_ooda_variant_prompt_adds_room_finish_and_energy_corrections() -> None:
 
 def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
     media = _load_module()
+    media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
 
     adjusted_room, room_tags = media.ooda_variant_spec(
         spec={"providers": ["onemin", "media_factory", "magixai"]},
@@ -2510,7 +2569,7 @@ def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
         previous_gate_failures=[],
     )
     assert adjusted_room["providers"][0] == "media_factory"
-    assert "prefer_media_factory_challenger" in room_tags
+    assert "prefer_magixai_challenger" in room_tags
     assert "prefer_media_factory_room" in room_tags
 
     adjusted_finish, finish_tags = media.ooda_variant_spec(
@@ -2529,6 +2588,7 @@ def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
 
 def test_ooda_variant_spec_switches_weak_asset_off_losing_onemin_branch() -> None:
     media = _load_module()
+    media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
 
     adjusted, tags = media.ooda_variant_spec(
         spec={"providers": ["onemin", "media_factory", "browseract_prompting_systems", "magixai"]},
@@ -2541,8 +2601,8 @@ def test_ooda_variant_spec_switches_weak_asset_off_losing_onemin_branch() -> Non
         previous_gate_failures=[],
     )
 
-    assert adjusted["providers"][0] == "media_factory"
-    assert "prefer_media_factory_challenger" in tags
+    assert adjusted["providers"][0] == "magixai"
+    assert "prefer_magixai_challenger" in tags
 
 
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
