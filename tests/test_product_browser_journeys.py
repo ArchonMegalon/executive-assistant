@@ -58,6 +58,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "/app/settings/usage" in settings.text
     assert "/app/settings/support" in settings.text
     assert "/app/settings/outcomes" in settings.text
+    assert "/app/settings/google" in settings.text
     assert "/app/settings/access" in settings.text
     assert "/app/settings/invitations" in settings.text
     assert "/app/settings/trust" in settings.text
@@ -496,3 +497,18 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert "Workspace access" in access_page.text
     assert "Live workspace access links" in access_page.text
     assert "principal@example.com" in access_page.text
+
+
+def test_browser_google_settings_page_and_run_now_action_work() -> None:
+    principal_id = "exec-browser-google-settings"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    sync_page = client.get("/app/settings/google")
+    assert sync_page.status_code == 200
+    assert "Google sync" in sync_page.text
+    assert "Latest sync run and queued follow-up work" in sync_page.text
+
+    triggered = client.get("/app/actions/signals/google/sync?return_to=/app/settings/google", follow_redirects=False)
+    assert triggered.status_code == 303
+    assert triggered.headers["location"].startswith("/app/settings/google")
