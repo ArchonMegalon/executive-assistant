@@ -100,9 +100,9 @@ journey_gates:
       target_history_snapshots: 4
       repo_source_proof:
         - repo: chummer6-hub
-          path: .codex-studio/published/HUB_CAMPAIGN_OS_LOCAL_PROOF.generated.json
+          path: .codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
           must_contain:
-            - '"contract_name": "chummer6-hub.campaign_os_local_proof"'
+            - '"contract_name": "chummer6-hub.local_release_proof"'
             - '"build_explain_publish"'
         - repo: chummer6-hub
           path: Chummer.Run.Api/Views/Accounts/Account.cshtml
@@ -163,9 +163,9 @@ journey_gates:
       target_history_snapshots: 4
       repo_source_proof:
         - repo: chummer6-hub
-          path: .codex-studio/published/HUB_CAMPAIGN_OS_LOCAL_PROOF.generated.json
+          path: .codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
           must_contain:
-            - '"contract_name": "chummer6-hub.campaign_os_local_proof"'
+            - '"contract_name": "chummer6-hub.local_release_proof"'
             - '"campaign_session_recover_recap"'
         - repo: chummer6-mobile
           path: .codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
