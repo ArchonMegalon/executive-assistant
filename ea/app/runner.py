@@ -86,9 +86,8 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
     api_attempted = 0
     api_rate_limited = False
     error_count = 0
-    batch_size = max(1, int(providers_route._onemin_browseract_max_accounts_per_refresh()))
-    batch_backoff_seconds = max(0.0, float(providers_route._onemin_direct_api_batch_backoff_seconds()))
-    processed_in_batch = 0
+    browseract_parallelism = max(1, int(providers_route._onemin_browseract_parallelism()))
+    browseract_timeout_seconds = max(30, int(providers_route._onemin_browseract_timeout_seconds()))
 
     try:
         bindings = [
@@ -96,6 +95,7 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             for binding in container.tool_runtime.list_connector_bindings_for_connector("browseract", limit=1000)
             if str(binding.status or "").strip().lower() == "enabled"
         ]
+        browseract_billing_jobs: list[dict[str, object]] = []
         for binding in bindings:
             binding_metadata = dict(binding.auth_metadata_json or {})
             billing_run_url = providers_route._binding_run_url(
@@ -122,73 +122,103 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             )
             account_labels = providers_route._resolve_onemin_account_labels(binding)
             for account_label in account_labels:
-                if processed_in_batch >= batch_size:
-                    if batch_backoff_seconds > 0:
-                        time.sleep(batch_backoff_seconds)
-                    processed_in_batch = 0
                 if not billing_run_url and not billing_workflow_id and not providers_route._browseract_onemin_login_ready(
                     account_label=account_label,
                     binding_metadata=binding_metadata,
                 ):
                     continue
-                browseract_attempted += 1
-                processed_in_batch += 1
-                try:
-                    providers_route._invoke_browseract_tool(
-                        container=container,
-                        principal_id=str(binding.principal_id or "").strip(),
-                        tool_name="browseract.onemin_billing_usage",
-                        action_kind="billing.inspect",
-                        payload_json={
-                            "binding_id": binding.binding_id,
-                            "account_label": account_label,
-                            "capture_raw_text": False,
-                            **({"run_url": billing_run_url} if billing_run_url else {}),
-                            **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
-                            "timeout_seconds": 180,
-                        },
-                    )
-                    browseract_refreshed += 1
-                except providers_route.ToolExecutionError as exc:
-                    error_count += 1
-                    log.warning(
-                        "scheduler onemin billing browseract refresh failed principal=%s binding=%s account=%s error=%s",
-                        binding.principal_id,
-                        binding.binding_id,
-                        account_label,
-                        exc,
-                    )
-                    continue
-                if not members_run_url and not members_workflow_id and not providers_route._browseract_onemin_login_ready(
-                    account_label=account_label,
-                    binding_metadata=binding_metadata,
-                ):
-                    continue
-                try:
-                    providers_route._invoke_browseract_tool(
-                        container=container,
-                        principal_id=str(binding.principal_id or "").strip(),
-                        tool_name="browseract.onemin_member_reconciliation",
-                        action_kind="billing.reconcile_members",
-                        payload_json={
-                            "binding_id": binding.binding_id,
-                            "account_label": account_label,
-                            "capture_raw_text": False,
-                            **({"run_url": members_run_url} if members_run_url else {}),
-                            **({"workflow_id": members_workflow_id} if members_workflow_id else {}),
-                            "timeout_seconds": 180,
-                        },
-                    )
-                    member_reconciled += 1
-                except providers_route.ToolExecutionError as exc:
-                    error_count += 1
-                    log.warning(
-                        "scheduler onemin member reconciliation failed principal=%s binding=%s account=%s error=%s",
-                        binding.principal_id,
-                        binding.binding_id,
-                        account_label,
-                        exc,
-                    )
+                browseract_billing_jobs.append(
+                    {
+                        "principal_id": str(binding.principal_id or "").strip(),
+                        "binding_id": binding.binding_id,
+                        "external_account_ref": binding.external_account_ref,
+                        "account_label": account_label,
+                        "billing_run_url": billing_run_url,
+                        "billing_workflow_id": billing_workflow_id,
+                        "members_run_url": members_run_url,
+                        "members_workflow_id": members_workflow_id,
+                        "member_login_ready": providers_route._browseract_onemin_login_ready(
+                            account_label=account_label,
+                            binding_metadata=binding_metadata,
+                        ),
+                    }
+                )
+
+        browseract_attempted = len(browseract_billing_jobs)
+        billing_results, billing_errors = providers_route._run_onemin_browseract_jobs(
+            jobs=browseract_billing_jobs,
+            max_workers=browseract_parallelism,
+            tool_name="browseract.onemin_billing_usage",
+            invoke_job=lambda job: providers_route._invoke_browseract_tool(
+                container=container,
+                principal_id=str(job.get("principal_id") or ""),
+                tool_name="browseract.onemin_billing_usage",
+                action_kind="billing.inspect",
+                payload_json={
+                    "binding_id": str(job.get("binding_id") or ""),
+                    "account_label": str(job.get("account_label") or ""),
+                    "capture_raw_text": False,
+                    **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
+                    **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                    "timeout_seconds": browseract_timeout_seconds,
+                },
+            ),
+        )
+        browseract_refreshed = len(billing_results)
+        error_count += len(billing_errors)
+        for row in billing_errors:
+            log.warning(
+                "scheduler onemin billing browseract refresh failed principal=%s binding=%s account=%s error=%s",
+                next((str(job.get("principal_id") or "") for job in browseract_billing_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
+                row.get("binding_id"),
+                row.get("account_label"),
+                row.get("error"),
+            )
+
+        successful_labels = {
+            str(row.get("account_label") or "").strip()
+            for row in billing_results
+            if str(row.get("account_label") or "").strip()
+        }
+        browseract_member_jobs = [
+            dict(job)
+            for job in browseract_billing_jobs
+            if str(job.get("account_label") or "").strip() in successful_labels
+            and (
+                str(job.get("members_run_url") or "").strip()
+                or str(job.get("members_workflow_id") or "").strip()
+                or bool(job.get("member_login_ready"))
+            )
+        ]
+        member_results, member_errors = providers_route._run_onemin_browseract_jobs(
+            jobs=browseract_member_jobs,
+            max_workers=browseract_parallelism,
+            tool_name="browseract.onemin_member_reconciliation",
+            invoke_job=lambda job: providers_route._invoke_browseract_tool(
+                container=container,
+                principal_id=str(job.get("principal_id") or ""),
+                tool_name="browseract.onemin_member_reconciliation",
+                action_kind="billing.reconcile_members",
+                payload_json={
+                    "binding_id": str(job.get("binding_id") or ""),
+                    "account_label": str(job.get("account_label") or ""),
+                    "capture_raw_text": False,
+                    **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
+                    **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                    "timeout_seconds": browseract_timeout_seconds,
+                },
+            ),
+        )
+        member_reconciled = len(member_results)
+        error_count += len(member_errors)
+        for row in member_errors:
+            log.warning(
+                "scheduler onemin member reconciliation failed principal=%s binding=%s account=%s error=%s",
+                next((str(job.get("principal_id") or "") for job in browseract_member_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
+                row.get("binding_id"),
+                row.get("account_label"),
+                row.get("error"),
+            )
 
         if _scheduler_onemin_global_provider_api_sweep_enabled():
             (

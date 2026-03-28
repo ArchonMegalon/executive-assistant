@@ -1569,6 +1569,173 @@ def settings_support_detail(
     )
 
 
+@router.get("/app/settings/outcomes", response_class=HTMLResponse)
+def settings_outcomes_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="outcomes_opened",
+        surface="settings_outcomes",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    outcomes = product.workspace_outcomes(principal_id=context.principal_id)
+    counts = {str(key): int(value or 0) for key, value in dict(outcomes.get("counts") or {}).items()}
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace outcomes",
+        current_nav="settings",
+        console_title="Workspace outcomes",
+        console_summary="First value, review activity, commitment closure, and correction signals should explain whether this office is actually getting value.",
+        object_kind="Outcome posture",
+        object_title=str(outcomes.get("success_summary") or "Workspace outcomes"),
+        object_summary=f"Memo open rate {outcomes.get('memo_open_rate') or 0} · Commitment close rate {outcomes.get('commitment_close_rate') or 0}",
+        object_meta=[
+            {"label": "First value event", "value": str(outcomes.get("first_value_event") or "pending").replace("_", " ")},
+            {"label": "Time to first value", "value": str(outcomes.get("time_to_first_value_seconds") or "pending")},
+            {"label": "Memo open rate", "value": str(outcomes.get("memo_open_rate") or 0)},
+            {"label": "Churn risk", "value": str(outcomes.get("churn_risk") or "watch").replace("_", " ")},
+        ],
+        object_sidebar_title="What a healthy loop should show",
+        object_sidebar_copy="A healthy office loop reaches first value quickly, gets the memo opened, turns approvals into actions, and closes commitments at a visible rate.",
+        object_sidebar_rows=[
+            _object_detail_row("Success summary", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
+            _object_detail_row("Approval action rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
+            _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Closure"),
+            _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Activation",
+                "title": "How quickly the workspace reached first value",
+                "items": [
+                    _object_detail_row("First value event", str(outcomes.get("first_value_event") or "pending").replace("_", " "), "Activation"),
+                    _object_detail_row("Time to first value", str(outcomes.get("time_to_first_value_seconds") or "pending"), "Activation"),
+                    _object_detail_row("Memo opened", str(counts.get("memo_opened") or 0), "Memo"),
+                    _object_detail_row("Approval requested", str(counts.get("approval_requested") or 0), "Approvals"),
+                ],
+            },
+            {
+                "eyebrow": "Loop quality",
+                "title": "How the daily loop is performing",
+                "items": [
+                    _object_detail_row("Memo open rate", str(outcomes.get("memo_open_rate") or 0), "Memo"),
+                    _object_detail_row("Approval action rate", str(outcomes.get("approval_action_rate") or 0), "Approvals"),
+                    _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Commitments"),
+                    _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
+                    _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Risk"),
+                ],
+            },
+            {
+                "eyebrow": "Counts",
+                "title": "Signals feeding the outcome posture",
+                "items": [
+                    _object_detail_row("Draft approved", str(counts.get("draft_approved") or 0), "Drafts"),
+                    _object_detail_row("Commitment created", str(counts.get("commitment_created") or 0), "Commitments"),
+                    _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Commitments"),
+                    _object_detail_row("Handoff completed", str(counts.get("handoff_completed") or 0), "Handoffs"),
+                    _object_detail_row("Memory corrected", str(counts.get("memory_corrected") or 0), "People"),
+                    _object_detail_row("Support bundle opened", str(counts.get("support_bundle_opened") or 0), "Support"),
+                ],
+            },
+        ],
+    )
+
+
+@router.get("/app/settings/trust", response_class=HTMLResponse)
+def settings_trust_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="trust_opened",
+        surface="settings_trust",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    trust = product.workspace_trust_summary(principal_id=context.principal_id)
+    readiness = dict(trust.get("readiness") or {})
+    provider_posture = dict(trust.get("provider_posture") or {})
+    reliability = dict(trust.get("reliability") or {})
+    recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace trust",
+        current_nav="settings",
+        console_title="Workspace trust",
+        console_summary="Evidence, rules, readiness, provider posture, and recent product events should make the assistant legible when the office asks why something happened.",
+        object_kind="Trust posture",
+        object_title=str(trust.get("workspace_summary") or "Workspace trust posture"),
+        object_summary=f"Health score {trust.get('health_score') or 0} · {trust.get('evidence_count') or 0} evidence items · {trust.get('rule_count') or 0} rules",
+        object_meta=[
+            {"label": "Health score", "value": str(trust.get("health_score") or 0)},
+            {"label": "Audit retention", "value": str(trust.get("audit_retention") or "standard")},
+            {"label": "Evidence linked", "value": str(trust.get("evidence_count") or 0)},
+            {"label": "Rules", "value": str(trust.get("rule_count") or 0)},
+        ],
+        object_sidebar_title="What should make this trustworthy",
+        object_sidebar_copy="Trust is the product of clear readiness, understandable provider posture, reliable delivery, visible rules, and recent evidence of what the system actually did.",
+        object_sidebar_rows=[
+            _object_detail_row("Workspace summary", str(trust.get("workspace_summary") or "No trust summary yet."), "Summary"),
+            _object_detail_row("Readiness", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
+            _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
+            _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
+            _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
+            _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Readiness",
+                "title": "Runtime and provider posture",
+                "items": [
+                    _object_detail_row("Workspace status", str(readiness.get("status") or "unknown").replace("_", " "), "Runtime"),
+                    _object_detail_row("Readiness detail", str(readiness.get("detail") or "No readiness detail recorded."), "Runtime"),
+                    _object_detail_row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Provider"),
+                    _object_detail_row("Risk detail", str(provider_posture.get("risk_detail") or "No provider risk detail recorded."), "Provider"),
+                    _object_detail_row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Provider"),
+                ],
+            },
+            {
+                "eyebrow": "Trust controls",
+                "title": "Evidence, rules, and retention",
+                "items": [
+                    _object_detail_row("Evidence linked", str(trust.get("evidence_count") or 0), "Evidence"),
+                    _object_detail_row("Rule count", str(trust.get("rule_count") or 0), "Rules"),
+                    _object_detail_row("Audit retention", str(trust.get("audit_retention") or "standard"), "Audit"),
+                    _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
+                    _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
+                    _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
+                ],
+            },
+            {
+                "eyebrow": "Recent product events",
+                "title": "What the assistant recently did",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("label") or item.get("event_type") or "Product event").replace("_", " "),
+                        str(item.get("summary") or item.get("detail") or item.get("object_title") or "No event detail recorded."),
+                        str(item.get("event_type") or "event").replace("_", " ").title(),
+                    )
+                    for item in recent_events[:8]
+                ] or [_object_detail_row("No recent product events", "Product event history will appear here as the workspace is used.", "History")],
+            },
+        ],
+    )
+
+
 @router.get("/app/{section}", response_class=HTMLResponse)
 def app_shell(
     section: str,

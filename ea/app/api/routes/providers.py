@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import re
 import time
@@ -723,6 +724,97 @@ def _onemin_browseract_max_accounts_per_refresh() -> int:
     return max(1, min(50, value))
 
 
+def _onemin_browseract_parallelism() -> int:
+    raw = str(upstream._env("ONEMIN_BROWSERACT_PARALLELISM") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = int(raw) if raw else 6
+    except Exception:
+        value = 6
+    return max(1, min(12, value))
+
+
+def _onemin_browseract_timeout_seconds(requested_timeout_seconds: int | None = None) -> int:
+    if requested_timeout_seconds is not None:
+        return max(30, min(int(requested_timeout_seconds), 1800))
+    raw = str(upstream._env("ONEMIN_BROWSERACT_TIMEOUT_SECONDS") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = int(raw) if raw else 75
+    except Exception:
+        value = 75
+    return max(30, min(value, 1800))
+
+
+def _run_onemin_browseract_jobs(
+    *,
+    jobs: list[dict[str, object]],
+    max_workers: int,
+    invoke_job,
+    tool_name: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    if not jobs:
+        return [], []
+
+    result_rows: list[tuple[int, dict[str, object]]] = []
+    error_rows: list[tuple[int, dict[str, object]]] = []
+
+    def _record_result(index: int, job: dict[str, object], output: dict[str, object]) -> None:
+        result_rows.append(
+            (
+                index,
+                {
+                    "binding_id": str(job.get("binding_id") or ""),
+                    "external_account_ref": str(job.get("external_account_ref") or ""),
+                    "account_label": str(job.get("account_label") or ""),
+                    **dict(output or {}),
+                },
+            )
+        )
+
+    def _record_error(index: int, job: dict[str, object], exc: Exception) -> None:
+        error_rows.append(
+            (
+                index,
+                {
+                    "binding_id": str(job.get("binding_id") or ""),
+                    "external_account_ref": str(job.get("external_account_ref") or ""),
+                    "account_label": str(job.get("account_label") or ""),
+                    "tool_name": tool_name,
+                    "error": str(exc or "tool_execution_failed"),
+                },
+            )
+        )
+
+    ordered_jobs = list(enumerate(jobs))
+    worker_count = min(max(int(max_workers), 1), len(ordered_jobs))
+    if worker_count <= 1:
+        for index, job in ordered_jobs:
+            try:
+                _record_result(index, job, dict(invoke_job(job) or {}))
+            except Exception as exc:  # pragma: no cover - parity with threaded path
+                _record_error(index, job, exc)
+        return (
+            [row for _, row in sorted(result_rows, key=lambda item: item[0])],
+            [row for _, row in sorted(error_rows, key=lambda item: item[0])],
+        )
+
+    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="onemin-browseract") as executor:
+        future_to_job: dict[object, tuple[int, dict[str, object]]] = {}
+        for index, job in ordered_jobs:
+            future = executor.submit(invoke_job, job)
+            future_to_job[future] = (index, job)
+        for future in as_completed(future_to_job):
+            index, job = future_to_job[future]
+            try:
+                _record_result(index, job, dict(future.result() or {}))
+            except Exception as exc:
+                _record_error(index, job, exc)
+
+    return (
+        [row for _, row in sorted(result_rows, key=lambda item: item[0])],
+        [row for _, row in sorted(error_rows, key=lambda item: item[0])],
+    )
+
+
 def _onemin_direct_api_quarantine_remaining() -> tuple[float, str]:
     remaining = max(0.0, _ONEMIN_DIRECT_API_QUARANTINED_UNTIL - time.time())
     return remaining, str(_ONEMIN_DIRECT_API_QUARANTINE_REASON or "").strip()
@@ -781,6 +873,63 @@ def _onemin_parse_iso(value: object) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _partition_onemin_browseract_account_labels(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_rows: list[object],
+    account_labels: list[str],
+) -> tuple[list[str], list[str]]:
+    normalized_labels: list[str] = []
+    seen: set[str] = set()
+    for value in account_labels:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_labels.append(normalized)
+    if len(normalized_labels) <= 1:
+        if not normalized_labels:
+            return [], []
+        return normalized_labels, []
+
+    try:
+        account_rows = container.onemin_manager.accounts_snapshot(
+            provider_health=upstream._provider_health_report(),
+            binding_rows=binding_rows,
+            principal_id=principal_id,
+        )
+    except Exception:
+        return normalized_labels, []
+
+    details_by_label: dict[str, dict[str, object]] = {}
+    for row in account_rows:
+        label = str(row.get("account_label") or row.get("account_id") or "").strip()
+        if label and label not in details_by_label:
+            details_by_label[label] = dict(row)
+
+    original_index = {label: index for index, label in enumerate(normalized_labels)}
+
+    def _sort_key(label: str) -> tuple[int, float, int]:
+        row = details_by_label.get(label) or {}
+        has_actual = bool(row.get("has_actual_billing"))
+        last_snapshot = _onemin_parse_iso(row.get("last_billing_snapshot_at"))
+        freshness = last_snapshot.timestamp() if last_snapshot is not None else -1.0
+        return (
+            freshness,
+            original_index.get(label, 0),
+        )
+    missing_labels = sorted(
+        [label for label in normalized_labels if not bool((details_by_label.get(label) or {}).get("has_actual_billing"))],
+        key=_sort_key,
+    )
+    actual_labels = sorted(
+        [label for label in normalized_labels if bool((details_by_label.get(label) or {}).get("has_actual_billing"))],
+        key=_sort_key,
+    )
+    return missing_labels, actual_labels
 
 
 def _onemin_interval_for_type(*, topup_type: str, subscription_cycle: str) -> timedelta | None:
@@ -1207,7 +1356,7 @@ def refresh_onemin_billing(
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     payload = body or OneminBillingRefreshIn()
-    timeout_seconds = int(payload.timeout_seconds) if payload.timeout_seconds is not None else 180
+    timeout_seconds = _onemin_browseract_timeout_seconds(payload.timeout_seconds)
     requested_ids = {str(binding_id or "").strip() for binding_id in payload.binding_ids if str(binding_id or "").strip()}
     operator_allowed = _is_operator_context(context)
     bindings = [
@@ -1230,6 +1379,7 @@ def refresh_onemin_billing(
     browseract_billing_error_labels: set[str] = set()
     browseract_member_attempted_labels: set[str] = set()
     browseract_max_accounts = _onemin_browseract_max_accounts_per_refresh()
+    browseract_parallelism = _onemin_browseract_parallelism()
     refresh_allowed, throttle_seconds_remaining, throttle_reason = container.onemin_manager.begin_billing_refresh()
     binding_jobs: list[dict[str, object]] = []
 
@@ -1291,16 +1441,33 @@ def refresh_onemin_billing(
                     "account_labels": account_labels,
                 }
             )
-        selected_browseract_labels = (
-            set(
-                container.onemin_manager.select_billing_refresh_account_labels(
-                    bound_account_label_order,
-                    limit=browseract_max_accounts,
-                )
+        if refresh_allowed:
+            stale_labels, actual_labels = _partition_onemin_browseract_account_labels(
+                container=container,
+                principal_id=context.principal_id,
+                binding_rows=bindings,
+                account_labels=bound_account_label_order,
             )
-            if refresh_allowed
-            else set()
-        )
+            selected_browseract_labels = set()
+            if stale_labels:
+                selected_browseract_labels.update(
+                    container.onemin_manager.select_billing_refresh_account_labels(
+                        stale_labels,
+                        limit=min(browseract_max_accounts, len(stale_labels)),
+                    )
+                )
+            remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
+            if remaining_browseract_slots > 0 and actual_labels:
+                selected_browseract_labels.update(
+                    container.onemin_manager.select_billing_refresh_account_labels(
+                        actual_labels,
+                        limit=min(remaining_browseract_slots, len(actual_labels)),
+                    )
+                )
+        else:
+            selected_browseract_labels = set()
+        browseract_billing_jobs: list[dict[str, object]] = []
+        browseract_member_jobs: list[dict[str, object]] = []
         for job in binding_jobs:
             binding = job["binding"]
             binding_metadata = dict(job["binding_metadata"] or {})
@@ -1329,88 +1496,94 @@ def refresh_onemin_billing(
                     ):
                         continue
                     browseract_billing_attempted_labels.add(account_label)
-                    try:
-                        output = _invoke_browseract_tool(
-                            container=container,
-                            principal_id=context.principal_id,
-                            tool_name="browseract.onemin_billing_usage",
-                            action_kind="billing.inspect",
-                            payload_json={
-                                "binding_id": binding.binding_id,
-                                "account_label": account_label,
-                                "capture_raw_text": bool(payload.capture_raw_text),
-                                **({"run_url": billing_run_url} if billing_run_url else {}),
-                                **({"workflow_id": billing_workflow_id} if billing_workflow_id else {}),
-                                **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
-                            },
-                        )
-                        billing_results.append(
-                            {
-                                "binding_id": binding.binding_id,
-                                "external_account_ref": binding.external_account_ref,
-                                "account_label": account_label,
-                                **output,
-                            }
-                        )
-                        browseract_billing_result_labels.add(account_label)
-                    except ToolExecutionError as exc:
-                        browseract_billing_error_labels.add(account_label)
-                        errors.append(
-                            {
-                                "binding_id": binding.binding_id,
-                                "external_account_ref": binding.external_account_ref,
-                                "account_label": account_label,
-                                "tool_name": "browseract.onemin_billing_usage",
-                                "error": str(exc or "tool_execution_failed"),
-                            }
-                        )
+                    browseract_billing_jobs.append(
+                        {
+                            "principal_id": context.principal_id,
+                            "binding_id": binding.binding_id,
+                            "external_account_ref": binding.external_account_ref,
+                            "account_label": account_label,
+                            "capture_raw_text": bool(payload.capture_raw_text),
+                            "billing_run_url": billing_run_url,
+                            "billing_workflow_id": billing_workflow_id,
+                            "members_run_url": members_run_url,
+                            "members_workflow_id": members_workflow_id,
+                            "member_login_ready": _browseract_onemin_login_ready(
+                                account_label=account_label,
+                                binding_metadata=binding_metadata,
+                            ),
+                            "timeout_seconds": timeout_seconds,
+                        }
+                    )
 
-                if not payload.include_members:
+        if refresh_allowed and browseract_billing_jobs:
+            billing_job_results, billing_job_errors = _run_onemin_browseract_jobs(
+                jobs=browseract_billing_jobs,
+                max_workers=browseract_parallelism,
+                tool_name="browseract.onemin_billing_usage",
+                invoke_job=lambda job: _invoke_browseract_tool(
+                    container=container,
+                    principal_id=str(job.get("principal_id") or context.principal_id),
+                    tool_name="browseract.onemin_billing_usage",
+                    action_kind="billing.inspect",
+                    payload_json={
+                        "binding_id": str(job.get("binding_id") or ""),
+                        "account_label": str(job.get("account_label") or ""),
+                        "capture_raw_text": bool(job.get("capture_raw_text")),
+                        **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
+                        **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                    },
+                ),
+            )
+            billing_results.extend(billing_job_results)
+            errors.extend(billing_job_errors)
+            browseract_billing_result_labels.update(
+                str(row.get("account_label") or "").strip()
+                for row in billing_job_results
+                if str(row.get("account_label") or "").strip()
+            )
+            browseract_billing_error_labels.update(
+                str(row.get("account_label") or "").strip()
+                for row in billing_job_errors
+                if str(row.get("account_label") or "").strip()
+            )
+
+        if refresh_allowed and payload.include_members:
+            for job in browseract_billing_jobs:
+                account_label = str(job.get("account_label") or "").strip()
+                if not account_label or account_label not in browseract_billing_result_labels:
                     continue
-                for account_label in account_labels:
-                    if account_label not in browseract_billing_attempted_labels:
-                        continue
-                    if account_label in browseract_member_attempted_labels:
-                        continue
-                    if not members_run_url and not members_workflow_id and not _browseract_onemin_login_ready(
-                        account_label=account_label,
-                        binding_metadata=binding_metadata,
-                    ):
-                        continue
-                    browseract_member_attempted_labels.add(account_label)
-                    try:
-                        output = _invoke_browseract_tool(
-                            container=container,
-                            principal_id=context.principal_id,
-                            tool_name="browseract.onemin_member_reconciliation",
-                            action_kind="billing.reconcile_members",
-                            payload_json={
-                                "binding_id": binding.binding_id,
-                                "account_label": account_label,
-                                "capture_raw_text": bool(payload.capture_raw_text),
-                                **({"run_url": members_run_url} if members_run_url else {}),
-                                **({"workflow_id": members_workflow_id} if members_workflow_id else {}),
-                                **({"timeout_seconds": timeout_seconds} if payload.timeout_seconds is not None else {}),
-                            },
-                        )
-                        member_results.append(
-                            {
-                                "binding_id": binding.binding_id,
-                                "external_account_ref": binding.external_account_ref,
-                                "account_label": account_label,
-                                **output,
-                            }
-                        )
-                    except ToolExecutionError as exc:
-                        errors.append(
-                            {
-                                "binding_id": binding.binding_id,
-                                "external_account_ref": binding.external_account_ref,
-                                "account_label": account_label,
-                                "tool_name": "browseract.onemin_member_reconciliation",
-                                "error": str(exc or "tool_execution_failed"),
-                            }
-                        )
+                if account_label in browseract_member_attempted_labels:
+                    continue
+                members_run_url = str(job.get("members_run_url") or "")
+                members_workflow_id = str(job.get("members_workflow_id") or "")
+                if not members_run_url and not members_workflow_id and not bool(job.get("member_login_ready")):
+                    continue
+                browseract_member_attempted_labels.add(account_label)
+                browseract_member_jobs.append(dict(job))
+
+        if refresh_allowed and browseract_member_jobs:
+            member_job_results, member_job_errors = _run_onemin_browseract_jobs(
+                jobs=browseract_member_jobs,
+                max_workers=browseract_parallelism,
+                tool_name="browseract.onemin_member_reconciliation",
+                invoke_job=lambda job: _invoke_browseract_tool(
+                    container=container,
+                    principal_id=str(job.get("principal_id") or context.principal_id),
+                    tool_name="browseract.onemin_member_reconciliation",
+                    action_kind="billing.reconcile_members",
+                    payload_json={
+                        "binding_id": str(job.get("binding_id") or ""),
+                        "account_label": str(job.get("account_label") or ""),
+                        "capture_raw_text": bool(job.get("capture_raw_text")),
+                        **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
+                        **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                    },
+                ),
+            )
+            member_results.extend(member_job_results)
+            errors.extend(member_job_errors)
 
         api_billing_results: list[dict[str, object]] = []
         api_member_results: list[dict[str, object]] = []
