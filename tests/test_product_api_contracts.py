@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
@@ -403,6 +404,80 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
         item for item in candidates_after_repeat.json() if "board packet" in str(item.get("title") or "").lower()
     ]
     assert len(board_packet_matches) == 1
+
+
+def test_channel_loop_approvals_digest_can_accept_and_reject_signal_candidates() -> None:
+    principal_id = "exec-product-channel-loop-candidates"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    first_signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:inline-1",
+            "external_id": "gmail-message:inline-1",
+        },
+    )
+    assert first_signal.status_code == 200
+    second_signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Investor note",
+            "summary": "Reply to Sofia about the investor note today.",
+            "text": "Reply to Sofia about the investor note today.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:inline-2",
+            "external_id": "gmail-message:inline-2",
+        },
+    )
+    assert second_signal.status_code == 200
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    approvals_digest = next(item for item in loop.json()["digests"] if item["key"] == "approvals")
+    assert approvals_digest["stats"]["pending_commitment_candidates"] >= 2
+    candidate_items = [item for item in approvals_digest["items"] if item["tag"] == "Candidate"]
+    assert len(candidate_items) >= 2
+    assert all("/app/channel-actions/" in item["action_href"] for item in candidate_items)
+    assert any(item["secondary_action_label"] == "Reject" for item in candidate_items)
+
+    accepted_item = next(item for item in candidate_items if "board packet" in item["title"].lower())
+    accepted = client.get(accepted_item["action_href"], follow_redirects=False)
+    assert accepted.status_code == 303
+    assert accepted.headers["location"] == "/app/channel-loop/approvals"
+
+    commitments = client.get("/app/api/commitments")
+    assert commitments.status_code == 200
+    accepted_commitment = next(item for item in commitments.json() if "board packet" in item["statement"].lower())
+    assert accepted_commitment["source_type"] == "office_signal"
+    assert accepted_commitment["channel_hint"] == "gmail"
+    assert accepted_commitment["source_ref"] == "gmail-thread:inline-1"
+    assert accepted_commitment["due_at"]
+
+    pending_after_accept = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert pending_after_accept.status_code == 200
+    assert all("board packet" not in str(item.get("title") or "").lower() for item in pending_after_accept.json())
+
+    rejected_item = next(item for item in candidate_items if "investor note" in item["title"].lower())
+    rejected = client.get(rejected_item["secondary_action_href"], follow_redirects=False)
+    assert rejected.status_code == 303
+    assert rejected.headers["location"] == "/app/channel-loop/approvals"
+
+    rejected_candidates = client.get("/app/api/commitments/candidates", params={"status": "rejected"})
+    assert rejected_candidates.status_code == 200
+    assert any("investor note" in str(item.get("title") or "").lower() for item in rejected_candidates.json())
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    assert int(dict(diagnostics.json()["analytics"]["counts"]).get("channel_action_redeemed") or 0) >= 2
 
 
 def test_product_commitment_detail_and_queue_resolution() -> None:
@@ -913,6 +988,59 @@ def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     assert delivery.status_code == 200
     delivery_body = delivery.json()
     assert "https://public.example.com/channel-loop/deliveries/" in delivery_body["plain_text"]
+
+
+def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:
+    principal_id = "exec-product-memo-refresh"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    sync_calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        ProductService,
+        "google_signal_sync_status",
+        lambda self, *, principal_id: {
+            "connected": True,
+            "freshness_state": "watch",
+        },
+    )
+
+    def _fake_sync(self, *, principal_id: str, actor: str, email_limit: int = 5, calendar_limit: int = 5):
+        sync_calls.append((principal_id, actor))
+        self.stage_extracted_commitments(
+            principal_id=principal_id,
+            text="Send revised board packet to Sofia by EOD.",
+            counterparty="Sofia N.",
+            channel_hint="gmail",
+            source_ref="gmail-thread:memo-refresh",
+            signal_type="email_thread",
+            reference_at="2026-03-28T10:15:00+00:00",
+        )
+        return {"total": 1, "synced_total": 1, "deduplicated_total": 0}
+
+    monkeypatch.setattr(ProductService, "sync_google_workspace_signals", _fake_sync)
+
+    delivery = client.post(
+        "/app/api/channel-loop/memo/deliveries",
+        json={
+            "recipient_email": "principal@example.com",
+            "role": "principal",
+            "display_name": "Principal Digest",
+            "delivery_channel": "link_only",
+        },
+    )
+    assert delivery.status_code == 200
+    assert sync_calls == [(principal_id, "channel_digest:memo")]
+
+    candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert candidates.status_code == 200
+    refreshed_candidate = next(item for item in candidates.json() if "board packet" in item["title"].lower())
+    assert refreshed_candidate["suggested_due_at"] == "2026-03-28T17:00:00+00:00"
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    counts = dict(diagnostics.json()["analytics"]["counts"])
+    assert int(counts.get("channel_digest_signal_refresh_completed") or 0) >= 1
 
 
 def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> None:

@@ -371,6 +371,21 @@ def test_channel_loop_get_actions_work() -> None:
     client = build_product_client(principal_id=principal_id)
     seeded = seed_product_state(client, principal_id=principal_id)
 
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:browser-inline-1",
+            "external_id": "gmail-message:browser-inline-1",
+        },
+    )
+    assert signal.status_code == 200
+
     loop_page = client.get("/app/channel-loop")
     assert loop_page.status_code == 200
     assert "Inline loop" in loop_page.text
@@ -379,6 +394,7 @@ def test_channel_loop_get_actions_work() -> None:
     approvals_page = client.get("/app/channel-loop/approvals")
     assert approvals_page.status_code == 200
     assert "Inline approvals" in approvals_page.text
+    assert "Revised board packet to Sofia" in approvals_page.text
 
     loop_payload = client.get("/app/api/channel-loop")
     assert loop_payload.status_code == 200
@@ -388,6 +404,14 @@ def test_channel_loop_get_actions_work() -> None:
     assert approved.status_code == 303
     assert approved.headers["location"] == "/app/channel-loop/approvals"
     assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
+
+    candidate_href = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Candidate")
+    candidate_accepted = client.get(candidate_href, follow_redirects=False)
+    assert candidate_accepted.status_code == 303
+    assert candidate_accepted.headers["location"] == "/app/channel-loop/approvals"
+    pending_candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert pending_candidates.status_code == 200
+    assert "board packet" not in pending_candidates.text.lower()
 
     memo_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "memo")
     closed_href = next(item["action_href"] for item in memo_digest["items"] if item["tag"] == "Commitment")

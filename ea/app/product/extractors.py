@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import re
 
 from app.product.models import CommitmentCandidate
@@ -10,9 +12,63 @@ _PROMISE_PATTERNS = (
     re.compile(r"\b(?:send|share|reply|confirm|schedule|reschedule|review|approve|prepare)\s+([a-z0-9 ,.'/-]{3,120})", re.IGNORECASE),
 )
 _TEMPORAL_SUFFIX = re.compile(
-    r"(?:\b(?:today|tomorrow|tonight|this afternoon|this evening|this week|next week|before lunch|before dinner|by eod|by end of day)\b)$",
+    r"(?:\b(?:today|tomorrow(?: morning| afternoon| evening)?|tonight|this afternoon|this evening|this week|next week|before lunch|before dinner|by eod|by end of day)\b)$",
     re.IGNORECASE,
 )
+
+
+def _parse_reference_datetime(value: str | None) -> datetime:
+    normalized = str(value or "").strip()
+    if normalized:
+        for parser in (
+            lambda raw: datetime.fromisoformat(raw.replace("Z", "+00:00")),
+            parsedate_to_datetime,
+        ):
+            try:
+                parsed = parser(normalized)
+                if parsed.tzinfo is None:
+                    return parsed.replace(tzinfo=timezone.utc)
+                return parsed
+            except Exception:
+                continue
+    return datetime.now(timezone.utc)
+
+
+def _with_local_clock(base: datetime, *, hour: int, minute: int = 0) -> str:
+    local_value = base.astimezone(base.tzinfo or timezone.utc).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return local_value.isoformat()
+
+
+def _infer_relative_due_at(text: str, *, reference_at: str | None) -> str | None:
+    normalized = " ".join(str(text or "").lower().split())
+    if not normalized:
+        return None
+    base = _parse_reference_datetime(reference_at)
+    local_base = base.astimezone(base.tzinfo or timezone.utc)
+    if "tomorrow morning" in normalized:
+        return _with_local_clock(local_base + timedelta(days=1), hour=9)
+    if "tomorrow afternoon" in normalized:
+        return _with_local_clock(local_base + timedelta(days=1), hour=15)
+    if "tomorrow evening" in normalized or "tonight" in normalized:
+        return _with_local_clock(local_base + timedelta(days=1 if "tomorrow evening" in normalized else 0), hour=18)
+    if "tomorrow" in normalized:
+        return _with_local_clock(local_base + timedelta(days=1), hour=17)
+    if "before lunch" in normalized:
+        return _with_local_clock(local_base, hour=12)
+    if "this afternoon" in normalized:
+        return _with_local_clock(local_base, hour=15)
+    if "this evening" in normalized or "before dinner" in normalized:
+        return _with_local_clock(local_base, hour=18)
+    if "by eod" in normalized or "by end of day" in normalized or "today" in normalized:
+        return _with_local_clock(local_base, hour=17)
+    if "this week" in normalized:
+        target = local_base + timedelta(days=max(4 - local_base.weekday(), 0))
+        return _with_local_clock(target, hour=17)
+    if "next week" in normalized:
+        days_until_next_monday = (7 - local_base.weekday()) or 7
+        target = local_base + timedelta(days=days_until_next_monday)
+        return _with_local_clock(target, hour=9)
+    return None
 
 
 def _split_candidate_chunks(value: str) -> tuple[str, ...]:
@@ -30,10 +86,12 @@ def extract_commitment_candidates(
     *,
     counterparty: str = "",
     due_at: str | None = None,
+    reference_at: str | None = None,
 ) -> tuple[CommitmentCandidate, ...]:
     normalized = " ".join(str(text or "").split()).strip()
     if not normalized:
         return ()
+    inferred_due_at = str(due_at or "").strip() or _infer_relative_due_at(normalized, reference_at=reference_at)
     seen: set[str] = set()
     rows: list[CommitmentCandidate] = []
     for pattern in _PROMISE_PATTERNS:
@@ -51,7 +109,7 @@ def extract_commitment_candidates(
                         details=f"Extracted from source text: {normalized[:180]}",
                         source_text=normalized,
                         confidence=0.82 if pattern is _PROMISE_PATTERNS[0] else 0.68,
-                        suggested_due_at=due_at,
+                        suggested_due_at=inferred_due_at or None,
                         counterparty=counterparty,
                         status="pending",
                     )
@@ -65,7 +123,7 @@ def extract_commitment_candidates(
             details=f"Candidate extracted from source text: {normalized[:180]}",
             source_text=normalized,
             confidence=0.35,
-            suggested_due_at=due_at,
+            suggested_due_at=inferred_due_at or None,
             counterparty=counterparty,
             status="pending",
         ),
