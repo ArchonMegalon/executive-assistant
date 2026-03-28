@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html
+import os
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -22,6 +24,18 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(tags=["landing"])
+
+
+def _public_base_url(request: Request) -> str:
+    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if redirect_uri:
+        parsed = urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    return str(request.base_url).rstrip("/")
 
 
 @router.get("/app/channel/drafts/{draft_ref}/approve")
@@ -94,7 +108,7 @@ def channel_digest_delivery_open(
     container: AppContainer = Depends(get_container),
 ):
     product = build_product_service(container)
-    delivery = product.preview_channel_digest_delivery(token=token, base_url=str(request.base_url))
+    delivery = product.preview_channel_digest_delivery(token=token, base_url=_public_base_url(request))
     if delivery is None:
         raise HTTPException(status_code=404, detail="channel_digest_delivery_not_found")
     response = RedirectResponse(str(delivery.get("open_url") or "/app/channel-loop").strip() or "/app/channel-loop", status_code=303)
@@ -115,7 +129,7 @@ def app_channel_digest_plain(
         principal_id=context.principal_id,
         digest_key=digest_key,
         operator_id=str(context.operator_id or "").strip(),
-        base_url=str(request.base_url),
+        base_url=_public_base_url(request),
     )
     if not text:
         raise HTTPException(status_code=404, detail="channel_digest_not_found")
