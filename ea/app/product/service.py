@@ -645,6 +645,7 @@ class ProductService:
             channel_hint=normalized_channel,
             source_ref=str(source_ref or "").strip(),
             signal_type=normalized_signal,
+            reference_at=str((payload or {}).get("received_at") or (payload or {}).get("start_at") or _now_iso()).strip(),
         ) if source_text else ()
         payload_json = {
             "signal_type": normalized_signal,
@@ -1859,8 +1860,14 @@ class ProductService:
         text: str,
         counterparty: str = "",
         due_at: str | None = None,
+        reference_at: str | None = None,
     ) -> tuple[CommitmentCandidate, ...]:
-        return extract_commitment_candidates(text, counterparty=counterparty, due_at=due_at)
+        return extract_commitment_candidates(
+            text,
+            counterparty=counterparty,
+            due_at=due_at,
+            reference_at=reference_at,
+        )
 
     def _candidate_from_memory_row(self, row) -> CommitmentCandidate:  # type: ignore[no-untyped-def]
         fact = dict(getattr(row, "fact_json", {}) or {})
@@ -1913,8 +1920,14 @@ class ProductService:
         channel_hint: str = "",
         source_ref: str = "",
         signal_type: str = "",
+        reference_at: str | None = None,
     ) -> tuple[CommitmentCandidate, ...]:
-        extracted = self.extract_commitments(text=text, counterparty=counterparty, due_at=due_at)
+        extracted = self.extract_commitments(
+            text=text,
+            counterparty=counterparty,
+            due_at=due_at,
+            reference_at=reference_at,
+        )
         staged: list[CommitmentCandidate] = []
         normalized_kind = str(kind or "commitment").strip().lower() or "commitment"
         for candidate in extracted:
@@ -4201,6 +4214,36 @@ class ProductService:
         normalized_email = str(recipient_email or "").strip().lower()
         normalized_role = str(role or "principal").strip().lower() or "principal"
         resolved_operator_id = str(operator_id or "").strip() if normalized_role == "operator" else ""
+        if normalized_digest == "memo":
+            sync_status = self.google_signal_sync_status(principal_id=principal_id)
+            if bool(sync_status.get("connected")) and str(sync_status.get("freshness_state") or "").strip().lower() != "clear":
+                try:
+                    self.sync_google_workspace_signals(
+                        principal_id=principal_id,
+                        actor="channel_digest:memo",
+                        email_limit=5,
+                        calendar_limit=5,
+                    )
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="channel_digest_signal_refresh_completed",
+                        payload={
+                            "digest_key": normalized_digest,
+                            "freshness_before": str(sync_status.get("freshness_state") or "watch"),
+                        },
+                        source_id=normalized_digest,
+                    )
+                except RuntimeError as exc:
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="channel_digest_signal_refresh_failed",
+                        payload={
+                            "digest_key": normalized_digest,
+                            "freshness_before": str(sync_status.get("freshness_state") or "watch"),
+                            "error": str(exc),
+                        },
+                        source_id=normalized_digest,
+                    )
         digest = self.channel_digest_pack(
             principal_id=principal_id,
             digest_key=normalized_digest,
@@ -4399,6 +4442,11 @@ class ProductService:
         ]
         open_decisions = [item for item in snapshot.decisions if item.status != "decided"]
         principal_queue = [item for item in snapshot.queue_items if item.requires_principal]
+        review_candidates = [
+            item
+            for item in snapshot.commitment_candidates
+            if str(item.status or "").strip().lower() in {"pending", "duplicate"}
+        ]
         assigned_handoffs = [item for item in snapshot.handoffs if operator_key and item.owner == operator_key]
         unclaimed_handoffs = [item for item in snapshot.handoffs if not str(item.owner or "").strip()]
         visible_handoffs = assigned_handoffs[:1] + unclaimed_handoffs[:2]
@@ -4480,6 +4528,48 @@ class ProductService:
                     ),
                     "action_label": "Approve now",
                     "action_method": "get",
+                }
+            )
+        for candidate in review_candidates[:2]:
+            candidate_detail = " · ".join(
+                part
+                for part in (
+                    candidate.kind.replace("_", " ").title(),
+                    candidate.counterparty,
+                    f"Due {candidate.suggested_due_at[:10]}" if candidate.suggested_due_at else "",
+                    candidate.signal_type.replace("_", " ").title() if candidate.signal_type else "",
+                    f"Merges into {candidate.duplicate_of_ref}" if candidate.duplicate_of_ref else "",
+                )
+                if part
+            ) or "Signal-backed commitment candidate is waiting for review."
+            approval_items.append(
+                {
+                    "title": candidate.title,
+                    "detail": candidate_detail,
+                    "tag": "Candidate",
+                    "href": f"/app/commitments/candidates/{candidate.candidate_id}",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="candidate",
+                        object_ref=candidate.candidate_id,
+                        action="accept",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Accepted from inline approvals digest.",
+                    ),
+                    "action_label": "Merge" if candidate.duplicate_of_ref else "Accept",
+                    "action_method": "get",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="candidate",
+                        object_ref=candidate.candidate_id,
+                        action="reject",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Rejected from inline approvals digest.",
+                    ),
+                    "secondary_action_label": "Reject",
+                    "secondary_action_method": "get",
                 }
             )
         for decision in open_decisions[:2]:
@@ -4614,11 +4704,16 @@ class ProductService:
             {
                 "key": "approvals",
                 "headline": "Inline approvals",
-                "summary": "Clear draft approvals and decision pressure without dropping into the full workspace.",
-                "preview_text": f"{len(snapshot.drafts)} pending drafts and {len(principal_queue)} principal-backed queue items are waiting.",
+                "summary": "Clear draft approvals, staged commitment review, and decision pressure without dropping into the full workspace.",
+                "preview_text": (
+                    f"{len(snapshot.drafts)} pending drafts, "
+                    f"{len(review_candidates)} staged commitment candidates, "
+                    f"and {len(principal_queue)} principal-backed queue items are waiting."
+                ),
                 "items": approval_items,
                 "stats": {
                     "pending_drafts": len(snapshot.drafts),
+                    "pending_commitment_candidates": len(review_candidates),
                     "principal_queue_items": len(principal_queue),
                     "open_decisions": len(open_decisions),
                 },
@@ -4692,6 +4787,19 @@ class ProductService:
                 decided_by=resolved_actor,
                 reason=reason,
             )
+        elif object_kind in {"candidate", "commitment_candidate"}:
+            if action == "reject":
+                result = self.reject_commitment_candidate(
+                    principal_id=principal_id,
+                    candidate_id=object_ref,
+                    reviewer=resolved_actor,
+                )
+            else:
+                result = self.accept_commitment_candidate(
+                    principal_id=principal_id,
+                    candidate_id=object_ref,
+                    reviewer=resolved_actor,
+                )
         elif object_kind == "queue":
             result = self.resolve_queue_item(
                 principal_id=principal_id,
