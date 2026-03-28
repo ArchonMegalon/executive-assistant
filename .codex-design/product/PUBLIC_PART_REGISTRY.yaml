@@ -61,7 +61,7 @@ parts:
       - a table-facing shell that is separate from the heavy workbench view
     public_noteworthy_limits:
       - this is still the next major seam to finish cleanly
-      - some play surfaces remain preview while the session stack hardens
+      - the session stack is still deepening around cache, replay, and recovery polish
     current_truth: Mobile is where the live-session promise becomes real, and the current work is about event logs, cache, replay, and sync rather than cosmetic flash.
     go_deeper_links:
       - ../NOW/public-surfaces.md
@@ -70,14 +70,14 @@ parts:
     title: Hub
     public_tagline: The online side that keeps identity, coordination, and hosted participation boring.
     you_touch_this_when: You sign in, sync a hosted surface, follow what is coming next, or use the public participation and recognition flows.
-    why_you_care: It keeps shared coordination, hosted previews, accounts, and community participation from turning into manual glue work.
+    why_you_care: It keeps shared coordination, hosted surfaces, accounts, and community participation from turning into manual glue work.
     what_you_notice:
       - sign-in and account surfaces
       - public landing, home, and participation entry points
       - shared coordination, hosted status, and recognition views that do not ask you to understand the server internals first
     public_noteworthy_limits:
       - it is not where the rules math becomes true
-      - some hosted surfaces are still preview rather than the final promoted shape
+      - the user-facing coordination layer is promoted, but deeper operator seams still stay behind it
     current_truth: Hub is already the hosted front door for identity, landing/home projection, participation, and community views, but it is still tightening the line between user-facing coordination and deeper operator machinery.
     go_deeper_links:
       - ../NOW/current-status.md

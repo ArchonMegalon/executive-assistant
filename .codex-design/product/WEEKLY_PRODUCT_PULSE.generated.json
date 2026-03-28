@@ -1,8 +1,8 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-27T22:42:26Z",
-  "as_of": "2026-03-27",
+  "generated_at": "2026-03-28T11:27:12Z",
+  "as_of": "2026-03-28",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -13,10 +13,10 @@
       "front_door_wave_closed": true
     },
     "journey_gate_health": {
-      "state": "warning",
-      "reason": "Close the target-stage and history-depth warnings before claiming the campaign OS is boringly proven.",
+      "state": "ready",
+      "reason": "Journey proof is steady on current published evidence.",
       "blocked_count": 0,
-      "warning_count": 6
+      "warning_count": 0
     },
     "top_support_or_feedback_clusters": [
       {
@@ -49,12 +49,12 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-27-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+        "decision_id": "2026-03-28-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
         "action": "closeout_and_continue",
-        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 3 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
+        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 73% overall progress in 'Scale & stabilize', history depth has reached 4 snapshots, and the pacing risk is still concentrated in Cloud & Publishing rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
         "cited_signals": [
           "overall_progress_percent=73",
-          "history_snapshot_count=3",
+          "history_snapshot_count=4",
           "oldest_blocker_days=0",
           "phase_label=Scale & stabilize",
           "longest_pole=Cloud & Publishing"
@@ -67,7 +67,7 @@
     "current_recommended_wave": "Next 20 Big Wins After Post-Audit Closeout",
     "overall_progress_percent": 73,
     "phase_label": "Scale & stabilize",
-    "history_snapshot_count": 3,
+    "history_snapshot_count": 4,
     "longest_pole": "Cloud & Publishing",
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
