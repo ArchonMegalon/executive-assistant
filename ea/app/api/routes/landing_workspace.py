@@ -375,6 +375,7 @@ def settings_outcomes_detail(
     )
     outcomes = product.workspace_outcomes(principal_id=context.principal_id)
     counts = {str(key): int(value or 0) for key, value in dict(outcomes.get("counts") or {}).items()}
+    memo_loop = dict(outcomes.get("memo_loop") or {})
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -385,11 +386,16 @@ def settings_outcomes_detail(
         console_summary="First value, review activity, commitment closure, and correction signals should explain whether this office is actually getting value.",
         object_kind="Outcome posture",
         object_title=str(outcomes.get("success_summary") or "Workspace outcomes"),
-        object_summary=f"Memo open rate {outcomes.get('memo_open_rate') or 0} · Commitment close rate {outcomes.get('commitment_close_rate') or 0}",
+        object_summary=(
+            f"Memo open rate {outcomes.get('memo_open_rate') or 0} · "
+            f"Commitment close rate {outcomes.get('commitment_close_rate') or 0} · "
+            f"Scheduled loop {str(memo_loop.get('state') or 'watch').replace('_', ' ')}"
+        ),
         object_meta=[
             {"label": "First value event", "value": str(outcomes.get("first_value_event") or "pending").replace("_", " ")},
             {"label": "Time to first value", "value": str(outcomes.get("time_to_first_value_seconds") or "pending")},
             {"label": "Memo open rate", "value": str(outcomes.get("memo_open_rate") or 0)},
+            {"label": "Useful loop days", "value": str(memo_loop.get("days_with_useful_loop") or 0)},
             {"label": "Churn risk", "value": str(outcomes.get("churn_risk") or "watch").replace("_", " ")},
         ],
         object_sidebar_title="What a healthy loop should show",
@@ -399,6 +405,7 @@ def settings_outcomes_detail(
             _object_detail_row("Approval action rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
             _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Closure"),
             _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
+            _object_detail_row("Scheduled memo loop", str(memo_loop.get("state") or "watch").replace("_", " "), "Memo"),
         ],
         object_sections=[
             {
@@ -420,6 +427,20 @@ def settings_outcomes_detail(
                     _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Commitments"),
                     _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
                     _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Risk"),
+                ],
+            },
+            {
+                "eyebrow": "Scheduled memo",
+                "title": "How the recurring memo loop is proving itself",
+                "items": [
+                    _object_detail_row("Enabled", str(memo_loop.get("enabled") or False).lower(), "Memo"),
+                    _object_detail_row("Cadence", str(memo_loop.get("cadence") or "daily_morning").replace("_", " "), "Memo"),
+                    _object_detail_row("Delivery time", f"{memo_loop.get('delivery_time_local') or '08:00'} {memo_loop.get('timezone') or workspace.get('timezone') or 'UTC'}", "Memo"),
+                    _object_detail_row("Recipient", str(memo_loop.get("recipient_email") or "waiting for recipient"), "Memo"),
+                    _object_detail_row("Useful loop days", str(memo_loop.get("days_with_useful_loop") or 0), "Memo"),
+                    _object_detail_row("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo"),
+                    _object_detail_row("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo"),
+                    _object_detail_row("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo"),
                 ],
             },
             {

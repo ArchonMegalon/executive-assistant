@@ -250,6 +250,7 @@ class WorkspaceOutcomesOut(BaseModel):
     correction_rate: float = 0.0
     churn_risk: str = "watch"
     success_summary: str = ""
+    memo_loop: dict[str, object] = Field(default_factory=dict)
     counts: dict[str, int] = Field(default_factory=dict)
 
 

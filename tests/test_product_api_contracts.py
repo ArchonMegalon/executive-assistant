@@ -146,6 +146,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "memo_open_rate" in outcomes_body
     assert "approval_action_rate" in outcomes_body
     assert "commitment_close_rate" in outcomes_body
+    assert "memo_loop" in outcomes_body
     assert "counts" in outcomes_body
     trust = client.get("/app/api/trust")
     assert trust.status_code == 200
@@ -817,6 +818,7 @@ def test_product_diagnostics_include_value_events() -> None:
     assert outcomes_body["counts"]["draft_approved"] >= 1
     assert outcomes_body["counts"]["commitment_closed"] >= 1
     assert outcomes_body["success_summary"]
+    assert "memo_loop" in outcomes_body
 
     bundle = client.get("/app/api/diagnostics/export")
     assert bundle.status_code == 200
