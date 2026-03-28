@@ -1736,6 +1736,167 @@ def settings_trust_detail(
     )
 
 
+@router.get("/app/settings/access", response_class=HTMLResponse)
+def settings_access_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="access_settings_opened",
+        surface="settings_access",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    active_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=context.principal_id, status="active", limit=50)]
+    revoked_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=context.principal_id, status="revoked", limit=20)]
+    total_opens = sum(
+        1
+        for item in product.list_office_events(principal_id=context.principal_id, limit=200)
+        if str(item.get("event_type") or "").strip() == "workspace_access_session_opened"
+    )
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace access",
+        current_nav="settings",
+        console_title="Workspace access",
+        console_summary="Active access sessions should be visible and revocable from the browser, not buried in API payloads or support tooling.",
+        object_kind="Access posture",
+        object_title=f"{len(active_sessions)} active sessions",
+        object_summary=f"{total_opens} access opens recorded · {len(revoked_sessions)} revoked sessions",
+        object_meta=[
+            {"label": "Active sessions", "value": str(len(active_sessions))},
+            {"label": "Access opens", "value": str(total_opens)},
+            {"label": "Revoked sessions", "value": str(len(revoked_sessions))},
+            {"label": "Role mix", "value": ", ".join(sorted({str(item.get('role') or 'principal') for item in active_sessions} or {'principal'}))},
+        ],
+        object_sidebar_title="What this should make easy",
+        object_sidebar_copy="Access should be reviewable in product language: who still has a live link, where it lands, and whether an old session has been revoked cleanly.",
+        object_sidebar_rows=[
+            _object_detail_row("Active sessions", str(len(active_sessions)), "Access"),
+            _object_detail_row("Access opens", str(total_opens), "Telemetry"),
+            _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
+            _object_detail_row("Default operator target", "/app/activity", "Operators"),
+            _object_detail_row("Default principal target", "/app/today", "Principal"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Active sessions",
+                "title": "Live workspace access links",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("email") or "unknown"),
+                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/today')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
+                    )
+                    for item in active_sessions[:12]
+                ] or [_object_detail_row("No active access sessions", "Issue a workspace access link when someone needs direct entry into the workspace.", "Clear")],
+            },
+            {
+                "eyebrow": "Recently revoked",
+                "title": "Sessions that no longer authenticate",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("email") or "unknown"),
+                        f"revoked by {str(item.get('revoked_by') or 'workspace')} · {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
+                        "Revoked",
+                    )
+                    for item in revoked_sessions[:8]
+                ] or [_object_detail_row("No revoked sessions", "Revoked links and sessions will appear here when access is withdrawn.", "History")],
+            },
+        ],
+    )
+
+
+@router.get("/app/settings/invitations", response_class=HTMLResponse)
+def settings_invitations_detail(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="invitations_opened",
+        surface="settings_invitations",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    pending = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="pending", limit=50)]
+    accepted = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="accepted", limit=20)]
+    revoked = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="revoked", limit=20)]
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title="Executive Assistant Workspace invitations",
+        current_nav="settings",
+        console_title="Workspace invitations",
+        console_summary="Pending invites, accepted roles, and revoked access should be visible where the workspace decides who joins the office loop.",
+        object_kind="Invitation posture",
+        object_title=f"{len(pending)} pending invitations",
+        object_summary=f"{len(accepted)} accepted · {len(revoked)} revoked",
+        object_meta=[
+            {"label": "Pending", "value": str(len(pending))},
+            {"label": "Accepted", "value": str(len(accepted))},
+            {"label": "Revoked", "value": str(len(revoked))},
+            {"label": "Seat-aware roles", "value": "principal, operator"},
+        ],
+        object_sidebar_title="What invitation control should answer",
+        object_sidebar_copy="Invitation control should answer who is waiting to join, which role they will enter with, and whether an old invite still needs to be withdrawn.",
+        object_sidebar_rows=[
+            _object_detail_row("Pending invitations", str(len(pending)), "Invites"),
+            _object_detail_row("Accepted invitations", str(len(accepted)), "Access"),
+            _object_detail_row("Revoked invitations", str(len(revoked)), "Invites"),
+            _object_detail_row("Operator seat policy", "Operator seats are enforced at acceptance time.", "Seats"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Pending",
+                "title": "Invites waiting for acceptance",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("email") or "unknown"),
+                        f"{str(item.get('role') or 'operator').replace('_', ' ')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        "Pending",
+                    )
+                    for item in pending[:12]
+                ] or [_object_detail_row("No pending invitations", "Create an invite when the workspace needs another reviewer or operator.", "Clear")],
+            },
+            {
+                "eyebrow": "Accepted",
+                "title": "People who already joined through an invite",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("email") or "unknown"),
+                        f"{str(item.get('role') or 'operator').replace('_', ' ')} · accepted {str(item.get('accepted_at') or '')[:19] or 'n/a'}",
+                        "Accepted",
+                    )
+                    for item in accepted[:8]
+                ] or [_object_detail_row("No accepted invitations", "Accepted invitations will appear here after the recipient uses the secure invite link.", "History")],
+            },
+            {
+                "eyebrow": "Revoked",
+                "title": "Invitations that no longer grant access",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("email") or "unknown"),
+                        f"{str(item.get('role') or 'operator').replace('_', ' ')} · revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}",
+                        "Revoked",
+                    )
+                    for item in revoked[:8]
+                ] or [_object_detail_row("No revoked invitations", "Revoked invitations will appear here when a pending invite is withdrawn.", "History")],
+            },
+        ],
+    )
+
+
 @router.get("/app/{section}", response_class=HTMLResponse)
 def app_shell(
     section: str,

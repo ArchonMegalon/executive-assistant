@@ -862,6 +862,18 @@ def workspace_section_payload(
                             href="/app/settings/outcomes",
                         ),
                         _row(
+                            "Workspace access",
+                            f"{int(dict(dict(diagnostics.get('analytics') or {}).get('access') or {}).get('active') or 0)} active sessions",
+                            "Access",
+                            href="/app/settings/access",
+                        ),
+                        _row(
+                            "Workspace invites",
+                            "Manage pending operator and reviewer access before it turns into support work.",
+                            "Invites",
+                            href="/app/settings/invitations",
+                        ),
+                        _row(
                             "Trust posture",
                             str(readiness.get("detail") or "Review evidence, rules, and support posture"),
                             "Trust",
