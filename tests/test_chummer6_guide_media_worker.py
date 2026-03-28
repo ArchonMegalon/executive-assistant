@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 import tempfile
@@ -220,6 +221,62 @@ def test_run_magixai_api_provider_respects_spec_model_priority(monkeypatch: pyte
     assert ok is True
     assert detail == "downloaded"
     assert seen_models[0] == "fal-ai/flux-pro/v1.1-ultra"
+
+
+def test_run_magixai_api_provider_continues_past_forbidden_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+    seen_models: list[str] = []
+
+    class _JsonResponse:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.status = 200
+            self.headers = {"Content-Type": "application/json"}
+            self._body = json.dumps(body).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    def fake_urlopen(request, timeout=0):
+        payload = json.loads(request.data.decode("utf-8"))
+        seen_models.append(str(payload["model"]))
+        if payload["model"] == "fal-ai/flux-pro/v1.1-ultra":
+            raise media.urllib.error.HTTPError(
+                request.full_url,
+                500,
+                "Internal Server Error",
+                hdrs={"Content-Type": "application/json"},
+                fp=io.BytesIO(b'{"error":"Forbidden"}'),
+            )
+        return _JsonResponse({"data": [{"url": "https://example.test/magix-image.png"}]})
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="magixai": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    ok, detail = media.run_magixai_api_provider(
+        prompt="industrial research forge",
+        output_path=tmp_path / "forge.png",
+        width=1280,
+        height=720,
+        spec={"magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-2-pro"]},
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert seen_models[0] == "fal-ai/flux-pro/v1.1-ultra"
+    assert "fal-ai/flux-2-pro" in seen_models
 
 
 def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
