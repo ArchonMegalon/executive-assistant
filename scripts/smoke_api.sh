@@ -267,6 +267,18 @@ if [[ "${REVOKED_ACCESS_STATUS}" != "404" ]]; then
 fi
 echo "registration/workspace access ok"
 
+echo "== smoke: workspace browser surfaces =="
+SEARCH_PAGE="$(curl -fsS "${BASE}/app/search?query=board" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PLAN_PAGE="$(curl -fsS "${BASE}/app/settings/plan" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+GOOGLE_SETTINGS_PAGE="$(curl -fsS "${BASE}/app/settings/google" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+TRUST_PAGE="$(curl -fsS "${BASE}/app/settings/trust" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+WORKSPACE_BROWSER_FIELDS="$(python3 -c "import sys; search, plan, google, trust = sys.argv[1:5]; print('{}|{}|{}|{}'.format('Workspace search' in search and '/app/search' in search, 'Workspace plan' in plan and 'Billing state' in plan, 'Google sync' in google and 'Pending commitment candidates' in google, 'Workspace trust' in trust and 'Recent product events' in trust))" "${SEARCH_PAGE}" "${PLAN_PAGE}" "${GOOGLE_SETTINGS_PAGE}" "${TRUST_PAGE}")"
+if [[ "${WORKSPACE_BROWSER_FIELDS}" != "True|True|True|True" ]]; then
+  echo "expected workspace browser surfaces to render search, plan, Google sync, and trust details; got ${WORKSPACE_BROWSER_FIELDS}" >&2
+  fail 12 "policy contract mismatch"
+fi
+echo "workspace browser surfaces ok"
+
 echo "== smoke: google signal sync =="
 GOOGLE_SYNC_BODY="${EA_ROOT}/.smoke_tmp/google_signal_sync.json"
 GOOGLE_SYNC_STATUS="$(curl -sS -o "${GOOGLE_SYNC_BODY}" -w '%{http_code}' -X POST "${BASE}/app/api/signals/google/sync?email_limit=1&calendar_limit=1" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
