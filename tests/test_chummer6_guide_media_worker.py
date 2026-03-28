@@ -1623,6 +1623,67 @@ def test_visual_audit_enabled_uses_ffmpeg_fallback_when_pil_missing(monkeypatch:
     assert media.visual_audit_enabled(target="assets/parts/ui.png") is False
 
 
+def _synthetic_grid(*, active_tiles: set[tuple[int, int]], bright_tiles: set[tuple[int, int]] | None = None) -> tuple[int, int, list[int]]:
+    width = 48
+    height = 36
+    tile_w = width // 4
+    tile_h = height // 3
+    bright_tiles = bright_tiles or set()
+    raw = [18] * (width * height)
+    for tile_y in range(3):
+        for tile_x in range(4):
+            if (tile_x, tile_y) not in active_tiles:
+                continue
+            for y in range(tile_y * tile_h, (tile_y + 1) * tile_h):
+                for x in range(tile_x * tile_w, (tile_x + 1) * tile_w):
+                    idx = y * width + x
+                    if (x + y) % 2 == 0:
+                        raw[idx] = 245 if (tile_x, tile_y) in bright_tiles else 210
+                    else:
+                        raw[idx] = 20
+    return width, height, raw
+
+
+def test_visual_audit_score_flags_overlay_anchor_spread_weak_for_hero(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "_visual_audit_grayscale_grid",
+        lambda **_: _synthetic_grid(
+            active_tiles={(1, 0), (2, 0), (1, 1), (2, 1), (1, 2), (2, 2)},
+            bright_tiles={(1, 0), (2, 0), (1, 1), (2, 1), (1, 2), (2, 2)},
+        ),
+    )
+
+    score, notes = media.visual_audit_score(
+        image_path=Path("/tmp/ignored.png"),
+        target="assets/hero/chummer6-hero.png",
+    )
+
+    assert score > 0
+    assert "visual_audit:overlay_anchor_spread_weak" in notes
+
+
+def test_visual_audit_score_flags_workzone_story_weak_for_public_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "_visual_audit_grayscale_grid",
+        lambda **_: _synthetic_grid(
+            active_tiles={(1, 0), (2, 0), (1, 1), (2, 1)},
+            bright_tiles={(1, 0), (2, 0), (1, 1), (2, 1)},
+        ),
+    )
+
+    score, notes = media.visual_audit_score(
+        image_path=Path("/tmp/ignored.png"),
+        target="assets/pages/public-surfaces.png",
+    )
+
+    assert score < 200
+    assert "visual_audit:workzone_story_weak" in notes
+
+
 def test_visual_audit_score_accepts_gritty_flash_for_karma_forge(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
     image_path = tmp_path / "karma.png"
@@ -1939,6 +2000,58 @@ def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() 
     assert "critical_visual_gate:low_semantic_density" in failures
     assert "critical_visual_gate:narrow_subject_cluster" in failures
     assert "critical_visual_gate:insufficient_flash" in failures
+
+
+def test_provider_rate_limit_cooldown_parses_retry_after() -> None:
+    media = _load_module()
+
+    delay = media._provider_rate_limit_cooldown_seconds(
+        provider="onemin",
+        detail='onemin:http_429:{"message":"Too many requests. Please try again after 26 seconds","retryAfter":26}',
+    )
+
+    assert delay == 26
+
+
+def test_render_with_ooda_skips_provider_on_rate_limit_cooldown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    media._PROVIDER_RATE_LIMIT_COOLDOWNS.clear()
+    output_path = tmp_path / "render.png"
+
+    monkeypatch.setattr(media, "build_safe_onemin_prompt", lambda **kwargs: str(kwargs["prompt"]))
+    monkeypatch.setattr(media, "build_safe_media_factory_prompt", lambda **kwargs: str(kwargs["prompt"]))
+    monkeypatch.setattr(
+        media,
+        "run_onemin_api_provider",
+        lambda **_kwargs: (False, 'onemin:http_429:{"retryAfter":26}'),
+    )
+
+    def _run_command_provider(name: str, command: list[str], **kwargs: object) -> tuple[bool, str]:
+        Path(str(kwargs["output_path"])).write_bytes(b"png")
+        return True, f"{name}:rendered"
+
+    monkeypatch.setattr(media, "run_command_provider", _run_command_provider)
+
+    first = media.render_with_ooda(
+        prompt="render the room",
+        output_path=output_path,
+        width=960,
+        height=540,
+        spec={"providers": ["onemin", "media_factory"]},
+    )
+    second = media.render_with_ooda(
+        prompt="render the room",
+        output_path=output_path,
+        width=960,
+        height=540,
+        spec={"providers": ["onemin", "media_factory"]},
+    )
+
+    assert any("cooldown_applied:26s" in item for item in first["attempts"])
+    assert any(item.startswith("onemin:cooldown:") for item in second["attempts"])
+    assert second["provider"] == "media_factory"
 
 
 def test_critical_visual_gate_failures_reject_soft_finish_on_flagship_assets() -> None:

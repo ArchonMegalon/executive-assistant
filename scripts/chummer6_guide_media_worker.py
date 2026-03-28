@@ -1052,6 +1052,7 @@ HORIZON_MEDIA_FALLBACKS: dict[str, dict[str, object]] = {
 # approved overrides. The old bespoke fallback scene map is kept only as dead
 # reference during migration and is intentionally disabled at runtime.
 HORIZON_MEDIA_FALLBACKS = {}
+_PROVIDER_RATE_LIMIT_COOLDOWNS: dict[str, float] = {}
 
 
 def provider_order() -> list[str]:
@@ -1080,6 +1081,72 @@ def _normalized_provider_order(values: list[str]) -> list[str]:
         if value not in normalized and value not in deferred_onemin:
             target.append(value)
     return normalized + deferred_onemin
+
+
+def _http_retry_after_seconds(
+    *,
+    headers: object | None,
+    body: str,
+    default: int = 30,
+    minimum: int = 5,
+    maximum: int = 180,
+) -> int:
+    candidates: list[str] = []
+    retry_after = ""
+    try:
+        retry_after = str(getattr(headers, "get", lambda *_args, **_kwargs: "")("Retry-After") or "").strip()
+    except Exception:
+        retry_after = ""
+    if retry_after:
+        candidates.append(retry_after)
+    body_text = str(body or "")
+    for pattern in (
+        r'"retryAfter"\s*:\s*"?(\d+)"?',
+        r"\bretry[_ -]?after\b[^0-9]{0,6}(\d+)",
+        r"\btry again after\b[^0-9]{0,6}(\d+)",
+    ):
+        match = re.search(pattern, body_text, re.IGNORECASE)
+        if match:
+            candidates.append(str(match.group(1)))
+    for candidate in candidates:
+        try:
+            return max(minimum, min(maximum, int(float(candidate))))
+        except Exception:
+            continue
+    return max(minimum, min(maximum, int(default)))
+
+
+def _provider_rate_limit_cooldown_seconds(*, provider: str, detail: str) -> int:
+    normalized = str(provider or "").strip().lower()
+    if "http_429" not in str(detail or "") and "too many requests" not in str(detail or "").lower():
+        return 0
+    default = 30
+    if normalized in {"onemin", "1min", "1min.ai", "oneminai"}:
+        default = 30
+    elif normalized in {"media_factory", "media-factory"}:
+        default = 20
+    elif normalized.startswith("browseract_"):
+        default = 20
+    return _http_retry_after_seconds(headers=None, body=str(detail or ""), default=default)
+
+
+def _provider_cooldown_remaining_seconds(provider: str) -> int:
+    normalized = str(provider or "").strip().lower()
+    until = float(_PROVIDER_RATE_LIMIT_COOLDOWNS.get(normalized) or 0.0)
+    if until <= 0:
+        return 0
+    return max(0, int(round(until - time.monotonic())))
+
+
+def _mark_provider_rate_limit_cooldown(*, provider: str, detail: str) -> int:
+    delay = _provider_rate_limit_cooldown_seconds(provider=provider, detail=detail)
+    if delay <= 0:
+        return 0
+    normalized = str(provider or "").strip().lower()
+    until = time.monotonic() + float(delay)
+    previous = float(_PROVIDER_RATE_LIMIT_COOLDOWNS.get(normalized) or 0.0)
+    _PROVIDER_RATE_LIMIT_COOLDOWNS[normalized] = max(previous, until)
+    return delay
 
 
 def media_factory_render_command() -> list[str]:
@@ -2410,6 +2477,10 @@ def run_onemin_api_provider(
                                 content_type = str(response.headers.get("Content-Type") or "").lower()
                         except urllib.error.HTTPError as exc:
                             body = exc.read().decode("utf-8", errors="replace").strip()
+                            if exc.code == 429:
+                                retry_after = _http_retry_after_seconds(headers=exc.headers, body=body, default=30)
+                                errors.append(f"{url}:{model}:{size_label}:http_429:retry_after:{retry_after}")
+                                return False, f"onemin:http_429:retry_after:{retry_after}"
                             invalid_size = "Invalid value:" in body and "Supported values are:" in body
                             retryable_busy = exc.code == 400 and "OPEN_AI_UNEXPECTED_ERROR" in body and not invalid_size
                             if retryable_busy:
@@ -3089,8 +3160,10 @@ def critical_visual_gate_failures(
                 "visual_audit:dead_negative_space",
                 "visual_audit:environment_share_too_low",
                 "visual_audit:low_semantic_density",
+                "visual_audit:cast_readability_weak",
                 "visual_audit:insufficient_flash",
                 "visual_audit:narrow_subject_cluster",
+                "visual_audit:overlay_anchor_spread_weak",
                 "visual_audit:shallow_layering",
                 "visual_audit:soft_finish",
                 "visual_audit:subject_crop_too_tight",
@@ -3111,11 +3184,14 @@ def critical_visual_gate_failures(
             "min_base_score": 90.0,
             "reject_notes": {
                 "visual_audit:apparatus_share_too_low",
+                "visual_audit:cast_readability_weak",
                 "visual_audit:dead_negative_space",
                 "visual_audit:environment_share_too_low",
                 "visual_audit:low_semantic_density",
                 "visual_audit:insufficient_flash",
+                "visual_audit:missing_operator_pairing",
                 "visual_audit:narrow_subject_cluster",
+                "visual_audit:overlay_anchor_spread_weak",
                 "visual_audit:shallow_layering",
                 "visual_audit:soft_finish",
                 "visual_audit:subject_crop_too_tight",
@@ -3931,9 +4007,14 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     overlay_density = str(visual_contract.get("overlay_density") or "").strip().lower()
     negative_space_cap = str(visual_contract.get("negative_space_cap") or "").strip().lower()
     flash_level = str(visual_contract.get("flash_level") or "").strip().lower()
+    person_count_target = str(visual_contract.get("person_count_target") or "").strip().lower()
+    cast_readability_required = _boolish(visual_contract.get("cast_readability_required"), default=False)
+    overlay_anchor_required = _boolish(visual_contract.get("overlay_anchor_required"), default=False)
+    world_marker_minimum = _floatish(visual_contract.get("world_marker_minimum"), default=0.0)
     environment_share_minimum = _floatish(visual_contract.get("environment_share_minimum"), default=0.0)
     apparatus_share_minimum = _floatish(visual_contract.get("apparatus_share_minimum"), default=0.0)
     subject_crop_maximum = _floatish(visual_contract.get("subject_crop_maximum"), default=0.0)
+    normalized_target = str(target or "").replace("\\", "/").strip()
     tiles_x = 4
     tiles_y = 3
     tile_w = max(1, width // tiles_x)
@@ -4046,6 +4127,8 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     perimeter_active_tiles = sum(1 for tile in perimeter_tiles if active_map.get(tile))
     center_band_active_tiles = sum(1 for tile in center_band_tiles if active_map.get(tile))
     upper_band_active_tiles = sum(1 for tile in upper_band_tiles if active_map.get(tile))
+    left_half_active_tiles = sum(1 for (x, _y), active in active_map.items() if active and x < 2)
+    right_half_active_tiles = sum(1 for (x, _y), active in active_map.items() if active and x >= 2)
     if dark_flat_tiles > max_dark_flat_tiles:
         notes.append("visual_audit:dead_negative_space")
         score -= 25
@@ -4082,6 +4165,26 @@ def visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[st
     if required_active_rows and len(active_rows) < required_active_rows:
         notes.append("visual_audit:shallow_layering")
         score -= 16
+    if person_count_target in {"duo_or_team", "duo_preferred"}:
+        if min(left_half_active_tiles, right_half_active_tiles) < 1 or len(active_cols) < 3:
+            notes.append("visual_audit:missing_operator_pairing")
+            score -= 14
+    if cast_readability_required:
+        if active_tiles < max(5, required_active_tiles - 1) or len(active_rows) < 2:
+            notes.append("visual_audit:cast_readability_weak")
+            score -= 12
+    if overlay_anchor_required:
+        if center_band_active_tiles >= max(4, perimeter_active_tiles + 2):
+            notes.append("visual_audit:overlay_anchor_spread_weak")
+            score -= 12
+    if normalized_target in QUALITY_FOCUS_TARGETS:
+        if perimeter_active_tiles < 4 and (center_band_active_tiles >= 4 or len(active_cols) < 3):
+            notes.append("visual_audit:workzone_story_weak")
+            score -= 14
+    if world_marker_minimum >= 3:
+        if perimeter_active_tiles < 3 or len(active_cols) < 3:
+            notes.append("visual_audit:world_marker_spread_weak")
+            score -= 12
     if target == "assets/pages/horizons-index.png" and len(spreads) >= 12:
         left = mean([spreads[0], spreads[4], spreads[8]])
         center = mean([spreads[1], spreads[5], spreads[9]])
@@ -5018,6 +5121,21 @@ def ooda_variant_prompt(
         corrections.append(
             "Corrective pass: stronger contrast, hotter sodium-cyan or orange-cyan energy, brighter speculars, stronger reflections, and bolder poster-grade punch."
         )
+    if {"visual_audit:missing_operator_pairing", "visual_audit:cast_readability_weak"} & notes:
+        correction_tags.append("clearer_operator_relationship")
+        corrections.append(
+            "Corrective pass: make the cast read clearly at mid-distance with separated operator roles, readable body language, and no single blurry torso mass swallowing the scene."
+        )
+    if {"visual_audit:overlay_anchor_spread_weak"} & notes:
+        correction_tags.append("stronger_overlay_anchors")
+        corrections.append(
+            "Corrective pass: keep every overlay trace edge-biased and attached to rails, racks, shelves, seams, tools, or apparatus geometry instead of drifting through the central body mass."
+        )
+    if {"visual_audit:workzone_story_weak", "visual_audit:world_marker_spread_weak"} & notes:
+        correction_tags.append("stronger_world_story")
+        corrections.append(
+            "Corrective pass: show more of the room, floor, benches, shelves, cable paths, and world-marker clutter so the place and work zones read before any single person or device."
+        )
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png" and correction_tags:
         corrections.append(
@@ -5111,6 +5229,10 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         providers = provider_order()
     for provider in providers:
         normalized = provider.strip().lower()
+        cooldown_remaining = _provider_cooldown_remaining_seconds(normalized)
+        if cooldown_remaining > 0:
+            attempts.append(f"{normalized}:cooldown:{cooldown_remaining}s")
+            continue
         if normalized == "pollinations":
             safe_prompt = build_safe_pollinations_prompt(prompt=prompt, spec=spec)
             ok, detail = run_pollinations_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
@@ -5177,6 +5299,9 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         else:
             ok, detail = False, f"{normalized}:unknown_provider"
         attempts.append(detail)
+        cooldown_applied = _mark_provider_rate_limit_cooldown(provider=normalized, detail=detail)
+        if cooldown_applied > 0:
+            attempts.append(f"{normalized}:cooldown_applied:{cooldown_applied}s")
         if ok:
             return {"provider": normalized, "status": detail, "attempts": attempts}
     raise RuntimeError("no image provider succeeded: " + " || ".join(attempts))
