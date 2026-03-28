@@ -52,6 +52,8 @@ ENV_FILE = EA_ROOT / ".env"
 STATE_OUT = Path("/docker/fleet/state/chummer6/ea_media_last.json")
 MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
 SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
+CHALLENGER_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_challenger_ledger.json")
+PROVIDER_SCHEDULER_OUT = Path("/docker/fleet/state/chummer6/ea_provider_scheduler.json")
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
 MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
 MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
@@ -827,6 +829,139 @@ def load_scene_ledger() -> dict[str, object]:
     return loaded
 
 
+def load_challenger_ledger() -> dict[str, object]:
+    loaded = load_json_file(CHALLENGER_LEDGER_OUT)
+    assets = loaded.get("assets")
+    if not isinstance(assets, dict):
+        loaded["assets"] = {}
+    return loaded
+
+
+def load_provider_scheduler() -> dict[str, object]:
+    loaded = load_json_file(PROVIDER_SCHEDULER_OUT)
+    providers = loaded.get("providers")
+    if not isinstance(providers, dict):
+        loaded["providers"] = {}
+    return loaded
+
+
+def _scheduler_now_epoch() -> float:
+    return float(time.time())
+
+
+def _semantic_review_notes(notes: list[str]) -> list[str]:
+    cleaned = []
+    seen: set[str] = set()
+    for note in notes:
+        normalized = str(note or "").strip()
+        if not normalized or normalized not in SEMANTIC_REVIEW_NOTES or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(normalized)
+    return cleaned
+
+
+def _semantic_review_penalty_count(notes: list[str]) -> int:
+    return len(_semantic_review_notes(notes))
+
+
+def challenger_beats_champion(
+    *,
+    champion: dict[str, object] | None,
+    score: float,
+    notes: list[str],
+) -> bool:
+    data = champion if isinstance(champion, dict) else {}
+    if not data:
+        return True
+    champion_score = _floatish(data.get("score"), default=float("-inf"))
+    champion_notes = [str(entry).strip() for entry in (data.get("notes") or []) if str(entry).strip()]
+    champion_penalties = _semantic_review_penalty_count(champion_notes)
+    challenger_penalties = _semantic_review_penalty_count(notes)
+    if challenger_penalties == 0 and champion_penalties > 0 and score >= champion_score - 2.0:
+        return True
+    if challenger_penalties < champion_penalties and score >= champion_score - 4.0:
+        return True
+    if score >= champion_score + 8.0 and challenger_penalties <= champion_penalties:
+        return True
+    if score >= champion_score + 2.0 and challenger_penalties < champion_penalties:
+        return True
+    if score > champion_score and challenger_penalties <= champion_penalties:
+        return True
+    return False
+
+
+def _provider_scheduler_entry(*, provider: str) -> dict[str, object]:
+    scheduler = load_provider_scheduler()
+    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
+    return dict(providers.get(str(provider or "").strip().lower()) or {})
+
+
+def _provider_scheduler_wait_seconds(*, provider: str, target: str) -> int:
+    normalized = str(provider or "").strip().lower()
+    entry = _provider_scheduler_entry(provider=normalized)
+    now_epoch = _scheduler_now_epoch()
+    cooldown_until = _floatish(entry.get("cooldown_until_epoch"), default=0.0)
+    active_until = _floatish(entry.get("active_until_epoch"), default=0.0)
+    active_target = str(entry.get("active_target") or "").strip()
+    waits: list[int] = []
+    if cooldown_until > now_epoch:
+        waits.append(max(0, int(round(cooldown_until - now_epoch))))
+    if active_until > now_epoch and active_target and active_target != str(target or "").strip():
+        waits.append(max(0, int(round(active_until - now_epoch))))
+    return max(waits or [0])
+
+
+def _acquire_provider_scheduler_slot(*, provider: str, target: str, hold_seconds: int) -> tuple[bool, int]:
+    normalized = str(provider or "").strip().lower()
+    normalized_target = str(target or "").strip()
+    scheduler = load_provider_scheduler()
+    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
+    entry = dict(providers.get(normalized) or {})
+    now_epoch = _scheduler_now_epoch()
+    active_until = _floatish(entry.get("active_until_epoch"), default=0.0)
+    active_target = str(entry.get("active_target") or "").strip()
+    if active_until > now_epoch and active_target and active_target != normalized_target:
+        return False, max(0, int(round(active_until - now_epoch)))
+    entry["active_until_epoch"] = now_epoch + max(5, int(hold_seconds))
+    entry["active_target"] = normalized_target
+    entry["updated_at"] = now_epoch
+    providers[normalized] = entry
+    scheduler["providers"] = providers
+    write_json_file(PROVIDER_SCHEDULER_OUT, scheduler)
+    return True, 0
+
+
+def _release_provider_scheduler_slot(*, provider: str, target: str) -> None:
+    normalized = str(provider or "").strip().lower()
+    normalized_target = str(target or "").strip()
+    scheduler = load_provider_scheduler()
+    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
+    entry = dict(providers.get(normalized) or {})
+    active_target = str(entry.get("active_target") or "").strip()
+    if active_target and active_target != normalized_target:
+        return
+    entry["active_until_epoch"] = 0.0
+    entry["active_target"] = ""
+    entry["updated_at"] = _scheduler_now_epoch()
+    providers[normalized] = entry
+    scheduler["providers"] = providers
+    write_json_file(PROVIDER_SCHEDULER_OUT, scheduler)
+
+
+def _provider_scheduler_hold_seconds(*, provider: str) -> int:
+    normalized = str(provider or "").strip().lower()
+    if normalized in {"onemin", "1min", "1min.ai", "oneminai"}:
+        return 180
+    if normalized in {"media_factory", "media-factory"}:
+        return 300
+    if normalized.startswith("browseract_"):
+        return 180
+    if normalized == "magixai":
+        return 90
+    return 60
+
+
 def scene_rows(ledger: dict[str, object]) -> list[dict[str, object]]:
     rows = ledger.get("assets")
     if not isinstance(rows, list):
@@ -1053,6 +1188,22 @@ HORIZON_MEDIA_FALLBACKS: dict[str, dict[str, object]] = {
 # reference during migration and is intentionally disabled at runtime.
 HORIZON_MEDIA_FALLBACKS = {}
 _PROVIDER_RATE_LIMIT_COOLDOWNS: dict[str, float] = {}
+SEMANTIC_REVIEW_NOTES = frozenset(
+    {
+        "visual_audit:apparatus_share_too_low",
+        "visual_audit:cast_readability_weak",
+        "visual_audit:environment_share_too_low",
+        "visual_audit:insufficient_flash",
+        "visual_audit:missing_operator_pairing",
+        "visual_audit:missing_lane_plurality",
+        "visual_audit:overlay_anchor_spread_weak",
+        "visual_audit:shallow_layering",
+        "visual_audit:soft_finish",
+        "visual_audit:subject_crop_too_tight",
+        "visual_audit:workzone_story_weak",
+        "visual_audit:world_marker_spread_weak",
+    }
+)
 
 
 def provider_order() -> list[str]:
@@ -1133,9 +1284,9 @@ def _provider_rate_limit_cooldown_seconds(*, provider: str, detail: str) -> int:
 def _provider_cooldown_remaining_seconds(provider: str) -> int:
     normalized = str(provider or "").strip().lower()
     until = float(_PROVIDER_RATE_LIMIT_COOLDOWNS.get(normalized) or 0.0)
-    if until <= 0:
-        return 0
-    return max(0, int(round(until - time.monotonic())))
+    in_process = max(0, int(round(until - time.monotonic()))) if until > 0 else 0
+    persisted = _provider_scheduler_wait_seconds(provider=normalized, target="")
+    return max(in_process, persisted)
 
 
 def _mark_provider_rate_limit_cooldown(*, provider: str, detail: str) -> int:
@@ -1146,6 +1297,16 @@ def _mark_provider_rate_limit_cooldown(*, provider: str, detail: str) -> int:
     until = time.monotonic() + float(delay)
     previous = float(_PROVIDER_RATE_LIMIT_COOLDOWNS.get(normalized) or 0.0)
     _PROVIDER_RATE_LIMIT_COOLDOWNS[normalized] = max(previous, until)
+    scheduler = load_provider_scheduler()
+    providers = scheduler.get("providers") if isinstance(scheduler.get("providers"), dict) else {}
+    entry = dict(providers.get(normalized) or {})
+    current_epoch = _scheduler_now_epoch()
+    cooldown_until_epoch = current_epoch + float(delay)
+    entry["cooldown_until_epoch"] = max(_floatish(entry.get("cooldown_until_epoch"), default=0.0), cooldown_until_epoch)
+    entry["updated_at"] = current_epoch
+    providers[normalized] = entry
+    scheduler["providers"] = providers
+    write_json_file(PROVIDER_SCHEDULER_OUT, scheduler)
     return delay
 
 
@@ -5218,6 +5379,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
     forbid_legacy_svg_fallback(output_path)
     attempts: list[str] = []
     requested_order = spec.get("providers")
+    target = str(spec.get("target") or "").strip()
     explicit_provider_filter = bool(env_value("CHUMMER6_IMAGE_PROVIDER_ORDER"))
     if isinstance(requested_order, list):
         requested = [str(entry).strip().lower() for entry in requested_order if str(entry).strip()]
@@ -5233,71 +5395,115 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         if cooldown_remaining > 0:
             attempts.append(f"{normalized}:cooldown:{cooldown_remaining}s")
             continue
+        acquired = False
+        if target:
+            acquired, scheduled_wait = _acquire_provider_scheduler_slot(
+                provider=normalized,
+                target=target,
+                hold_seconds=_provider_scheduler_hold_seconds(provider=normalized),
+            )
+            if not acquired:
+                attempts.append(f"{normalized}:scheduled_wait:{scheduled_wait}s")
+                continue
         if normalized == "pollinations":
             safe_prompt = build_safe_pollinations_prompt(prompt=prompt, spec=spec)
-            ok, detail = run_pollinations_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
+            try:
+                ok, detail = run_pollinations_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
         elif normalized in {"media_factory", "media-factory"}:
             safe_prompt = build_safe_media_factory_prompt(prompt=prompt, spec=spec)
-            ok, detail = run_command_provider(
-                "media_factory",
-                media_factory_render_command(),
-                prompt=safe_prompt,
-                output_path=output_path,
-                width=width,
-                height=height,
-            )
+            try:
+                ok, detail = run_command_provider(
+                    "media_factory",
+                    media_factory_render_command(),
+                    prompt=safe_prompt,
+                    output_path=output_path,
+                    width=width,
+                    height=height,
+                )
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
         elif normalized == "magixai":
             safe_prompt = sanitize_prompt_for_provider(prompt, provider=normalized)
-            ok, detail = run_magixai_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
-            if not ok:
-                command_ok, command_detail = run_command_provider("magixai", shlex_command("CHUMMER6_MAGIXAI_RENDER_COMMAND"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
-                if command_ok or detail.endswith(":not_configured"):
-                    ok, detail = command_ok, command_detail
-            if not ok:
-                url_ok, url_detail = run_url_provider("magixai", url_template("CHUMMER6_MAGIXAI_RENDER_URL_TEMPLATE"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
-                if url_ok or detail.endswith(":not_configured"):
-                    ok, detail = url_ok, url_detail
-        elif normalized == "markupgo":
-            ok, detail = False, "markupgo:disabled_for_primary_art"
-        elif normalized == "prompting_systems":
-            ok, detail = run_command_provider("prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
-            if not ok:
-                url_ok, url_detail = run_url_provider("prompting_systems", url_template("CHUMMER6_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
-                if url_ok or detail.endswith(":not_configured"):
-                    ok, detail = url_ok, url_detail
-        elif normalized == "browseract_magixai":
-            if env_value("BROWSERACT_API_KEY"):
-                ok, detail = run_command_provider("browseract_magixai", shlex_command("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+            try:
+                ok, detail = run_magixai_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
                 if not ok:
-                    url_ok, url_detail = run_url_provider("browseract_magixai", url_template("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
-                    if url_ok or detail.endswith(":not_configured"):
-                        ok, detail = url_ok, url_detail
-            else:
-                ok, detail = False, "browseract_magixai:not_configured"
-        elif normalized == "browseract_prompting_systems":
-            if env_value("BROWSERACT_API_KEY"):
-                ok, detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
-                if not ok:
-                    url_ok, url_detail = run_url_provider("browseract_prompting_systems", url_template("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
-                    if url_ok or detail.endswith(":not_configured"):
-                        ok, detail = url_ok, url_detail
-                if not ok:
-                    command_ok, command_detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    command_ok, command_detail = run_command_provider("magixai", shlex_command("CHUMMER6_MAGIXAI_RENDER_COMMAND"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
                     if command_ok or detail.endswith(":not_configured"):
                         ok, detail = command_ok, command_detail
                 if not ok:
-                    url_ok, url_detail = run_url_provider("browseract_prompting_systems", url_template("CHUMMER6_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    url_ok, url_detail = run_url_provider("magixai", url_template("CHUMMER6_MAGIXAI_RENDER_URL_TEMPLATE"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
                     if url_ok or detail.endswith(":not_configured"):
                         ok, detail = url_ok, url_detail
-            else:
-                ok, detail = False, "browseract_prompting_systems:not_configured"
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
+        elif normalized == "markupgo":
+            ok, detail = False, "markupgo:disabled_for_primary_art"
+            if acquired and target:
+                _release_provider_scheduler_slot(provider=normalized, target=target)
+        elif normalized == "prompting_systems":
+            try:
+                ok, detail = run_command_provider("prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                if not ok:
+                    url_ok, url_detail = run_url_provider("prompting_systems", url_template("CHUMMER6_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    if url_ok or detail.endswith(":not_configured"):
+                        ok, detail = url_ok, url_detail
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
+        elif normalized == "browseract_magixai":
+            try:
+                if env_value("BROWSERACT_API_KEY"):
+                    ok, detail = run_command_provider("browseract_magixai", shlex_command("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    if not ok:
+                        url_ok, url_detail = run_url_provider("browseract_magixai", url_template("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
+                        if url_ok or detail.endswith(":not_configured"):
+                            ok, detail = url_ok, url_detail
+                else:
+                    ok, detail = False, "browseract_magixai:not_configured"
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
+        elif normalized == "browseract_prompting_systems":
+            try:
+                if env_value("BROWSERACT_API_KEY"):
+                    ok, detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    if not ok:
+                        url_ok, url_detail = run_url_provider("browseract_prompting_systems", url_template("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
+                        if url_ok or detail.endswith(":not_configured"):
+                            ok, detail = url_ok, url_detail
+                    if not ok:
+                        command_ok, command_detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                        if command_ok or detail.endswith(":not_configured"):
+                            ok, detail = command_ok, command_detail
+                    if not ok:
+                        url_ok, url_detail = run_url_provider("browseract_prompting_systems", url_template("CHUMMER6_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
+                        if url_ok or detail.endswith(":not_configured"):
+                            ok, detail = url_ok, url_detail
+                else:
+                    ok, detail = False, "browseract_prompting_systems:not_configured"
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
         elif normalized in {"onemin", "1min", "1min.ai", "oneminai"}:
             safe_prompt = build_safe_onemin_prompt(prompt=prompt, spec=spec)
-            ok, detail = run_onemin_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height, spec=spec)
+            try:
+                ok, detail = run_onemin_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height, spec=spec)
+            finally:
+                if acquired and target:
+                    _release_provider_scheduler_slot(provider=normalized, target=target)
         elif normalized in {"scene_contract_renderer", "ooda_compositor", "local_raster"}:
             ok, detail = False, f"{normalized}:forbidden_fallback"
+            if acquired and target:
+                _release_provider_scheduler_slot(provider=normalized, target=target)
         else:
             ok, detail = False, f"{normalized}:unknown_provider"
+            if acquired and target:
+                _release_provider_scheduler_slot(provider=normalized, target=target)
         attempts.append(detail)
         cooldown_applied = _mark_provider_rate_limit_cooldown(provider=normalized, detail=detail)
         if cooldown_applied > 0:
