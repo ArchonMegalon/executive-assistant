@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
     from app.api.routes.policy import router as policy_router
     from app.api.routes.providers import router as providers_router
     from app.api.routes.product_api import router as product_api_router
+    from app.api.routes.product_api_delivery import router as product_api_delivery_router
     from app.api.routes.product_api_workspace import router as product_api_workspace_router
     from app.api.routes.responses import router as responses_router
     from app.api.routes.rewrite import router as rewrite_router
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(google_oauth_router)
     app.include_router(policy_router, dependencies=auth_dependency)
     app.include_router(providers_router, dependencies=auth_dependency)
+    app.include_router(product_api_delivery_router, dependencies=auth_dependency)
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
     app.include_router(runtime_router, dependencies=auth_dependency)
