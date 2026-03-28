@@ -96,6 +96,7 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
             "config": {
                 "selector": 'button[type=submit], button:has-text("Log In")',
                 "password_selector": 'input[placeholder="Password"], input[aria-label="Password"], input[type=password]',
+                "form_selector": "form[name='login'], .ant-modal form, .ant-modal-root form, form",
                 "react_click": True,
                 "auth_advance_timeout_ms": 12000,
                 "pre_submit_cookie_name": "cf_clearance",

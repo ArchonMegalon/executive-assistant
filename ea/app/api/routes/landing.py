@@ -5,7 +5,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -258,6 +258,7 @@ def _console_shell_context(
     workspace_label: str,
     cards: list[dict[str, object]],
     stats: list[dict[str, str]],
+    console_form: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "page_title": page_title,
@@ -268,6 +269,7 @@ def _console_shell_context(
         "workspace_label": workspace_label,
         "cards": cards,
         "stats": stats,
+        "console_form": console_form or {},
         "principal_id": context.principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
@@ -1728,6 +1730,139 @@ def settings_google_detail(
                 ],
             },
         ],
+    )
+
+
+@router.get("/app/search", response_class=HTMLResponse)
+def app_search(
+    request: Request,
+    query: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    workspace = dict(container.onboarding.status(principal_id=context.principal_id).get("workspace") or {})
+    product = build_product_service(container)
+    normalized_query = str(query or "").strip()
+    items = list(
+        product.search_workspace(
+            principal_id=context.principal_id,
+            query=normalized_query,
+            limit=limit,
+            operator_id=str(context.operator_id or "").strip(),
+        )
+    ) if normalized_query else []
+    if normalized_query:
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="workspace_search_opened",
+            surface="search_browser",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            metadata={"query": normalized_query[:80], "result_total": len(items)},
+        )
+    kind_counts: dict[str, int] = {}
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for item in items:
+        kind = str(item.get("kind") or "workspace").strip() or "workspace"
+        kind_counts[kind] = int(kind_counts.get(kind) or 0) + 1
+        grouped.setdefault(kind, []).append(item)
+    stats = [
+        {"label": "Results", "value": str(len(items))},
+        {"label": "People", "value": str(kind_counts.get("person") or 0)},
+        {"label": "Decisions", "value": str(kind_counts.get("decision") or 0)},
+        {"label": "Commitments", "value": str(kind_counts.get("commitment") or 0)},
+    ] if normalized_query else []
+    cards = [
+        {
+            "eyebrow": "Workspace search",
+            "title": f"Results for “{normalized_query}”" if normalized_query else "Search the workspace",
+            "body": (
+                f"{len(items)} results across people, threads, commitments, decisions, evidence, and rules."
+                if normalized_query
+                else "Search across people, threads, commitments, decisions, evidence, rules, and handoffs from one browser surface."
+            ),
+            "items": items[:12] if normalized_query else [
+                {
+                    "title": "Try a person, thread, or obligation",
+                    "detail": "Search for Sofia, board, investor, renewal, or a concrete commitment title.",
+                    "tag": "Hint",
+                },
+                {
+                    "title": "Results stay actionable",
+                    "detail": "Search rows keep their native open/approve/close/claim actions when the underlying object supports them.",
+                    "tag": "Action",
+                },
+            ],
+        },
+        {
+            "eyebrow": "How to use it",
+            "title": "Search should collapse navigation, not add to it",
+            "body": "Use a concrete name, topic, or object label. The first lane gets you to the object; the action button should finish the next step without another hunt.",
+            "items": (
+                [
+                    {
+                        "title": f"{kind.title()} results",
+                        "detail": f"{count} matched item{'s' if count != 1 else ''}.",
+                        "tag": "Kind",
+                    }
+                    for kind, count in sorted(kind_counts.items(), key=lambda item: (-item[1], item[0]))[:6]
+                ]
+                if normalized_query
+                else [
+                    {"title": "People", "detail": "Search names, roles, themes, or relationship signals.", "tag": "Kind"},
+                    {"title": "Decisions and commitments", "detail": "Search a board item, follow-up, due obligation, or review object directly.", "tag": "Kind"},
+                    {"title": "Evidence and rules", "detail": "Search the explanation layer when you need to answer why something happened.", "tag": "Kind"},
+                ]
+            ),
+        },
+    ]
+    if normalized_query:
+        for kind, rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))[:4]:
+            cards.append(
+                {
+                    "eyebrow": "Kind slice",
+                    "title": f"{kind.title()} matches",
+                    "body": f"Top {kind} hits for “{normalized_query}”.",
+                    "items": rows[:6],
+                }
+            )
+    return _render_public_template(
+        request,
+        "console_shell.html",
+        **_console_shell_context(
+            request=request,
+            page_title="Executive Assistant Workspace search",
+            current_nav="settings",
+            context=context,
+            console_title="Workspace search",
+            console_summary="Search should be the fastest way to jump across the office object model and execute the next obvious action.",
+            nav_groups=APP_NAV_GROUPS,
+            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            cards=cards,
+            stats=stats,
+            console_form={
+                "method": "get",
+                "action": "/app/search",
+                "submit_label": "Search",
+                "fields": [
+                    {
+                        "type": "text",
+                        "name": "query",
+                        "label": "Search the workspace",
+                        "value": normalized_query,
+                        "placeholder": "Sofia, board, investor, renewal",
+                    },
+                    {
+                        "type": "number",
+                        "name": "limit",
+                        "label": "Limit",
+                        "value": str(limit),
+                        "min": "1",
+                        "max": "100",
+                    },
+                ],
+            },
+        ),
     )
 
 

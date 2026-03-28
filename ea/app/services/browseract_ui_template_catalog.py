@@ -549,6 +549,7 @@ def _onemin_login_modal_nodes() -> tuple[list[dict[str, object]], list[list[str]
             "config": {
                 "selector": _ONEMIN_SUBMIT_SELECTOR,
                 "password_selector": _ONEMIN_PASSWORD_SELECTOR,
+                "form_selector": "form[name='login'], .ant-modal form, .ant-modal-root form, form",
                 "react_click": True,
                 "auth_advance_timeout_ms": 12000,
                 "pre_submit_cookie_name": "cf_clearance",
