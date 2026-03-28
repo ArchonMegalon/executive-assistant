@@ -22,6 +22,7 @@ def create_app() -> FastAPI:
     from app.api.routes.health import router as health_router
     from app.api.routes.human import router as human_router
     from app.api.routes.landing import router as landing_router
+    from app.api.routes.landing_objects import router as landing_objects_router
     from app.api.routes.landing_workspace import router as landing_workspace_router
     from app.api.routes.memory import router as memory_router
     from app.api.routes.observations import router as observations_router
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
+    app.include_router(landing_objects_router)
     app.include_router(landing_workspace_router)
     app.include_router(landing_router)
     if s.public_results_enabled:
