@@ -5728,6 +5728,8 @@ def ooda_variant_spec(
     target: str,
     variant: int,
     previous_provider: str,
+    previous_score: float,
+    champion_score: float,
     previous_notes: list[str],
     previous_gate_failures: list[str],
 ) -> tuple[dict[str, object], list[str]]:
@@ -5749,6 +5751,13 @@ def ooda_variant_spec(
         providers.insert(0, lowered)
 
     if previous_provider:
+        if quality_focus_target(normalized) and champion_score > float("-inf") and previous_score + 8.0 < champion_score:
+            if previous_provider == "onemin":
+                _prioritize("media_factory")
+                provider_tags.append("prefer_media_factory_challenger")
+            elif previous_provider == "media_factory":
+                _prioritize("browseract_prompting_systems")
+                provider_tags.append("prefer_browseract_challenger")
         if {"visual_audit:soft_finish", "critical_visual_gate:soft_finish", "visual_audit:insufficient_flash", "critical_visual_gate:insufficient_flash"} & notes:
             if previous_provider == "media_factory":
                 _prioritize("onemin")
@@ -6798,6 +6807,8 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 target=target,
                 variant=variant,
                 previous_provider=previous_provider,
+                previous_score=best_final_score if best_result is not None else 0.0,
+                champion_score=champion_score,
                 previous_notes=previous_notes,
                 previous_gate_failures=previous_gate_failures,
             )
