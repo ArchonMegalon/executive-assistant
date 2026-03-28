@@ -294,6 +294,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Workspace outcomes" in outcomes_page.text
     assert "How quickly the workspace reached first value" in outcomes_page.text
     assert "How the daily loop is performing" in outcomes_page.text
+    assert "How the recurring memo loop is proving itself" in outcomes_page.text
 
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200

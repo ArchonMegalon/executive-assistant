@@ -742,6 +742,7 @@ class ProductService:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
         analytics = dict(diagnostics.get("analytics") or {})
         counts = dict(analytics.get("counts") or {})
+        memo_loop = dict(analytics.get("memo_loop") or {})
         selected_counts = {
             "memo_opened": int(counts.get("memo_opened") or 0),
             "approval_requested": int(counts.get("approval_requested") or 0),
@@ -762,6 +763,7 @@ class ProductService:
             "correction_rate": float(analytics.get("correction_rate") or 0.0),
             "churn_risk": str(analytics.get("churn_risk") or "watch").strip() or "watch",
             "success_summary": str(analytics.get("success_summary") or "").strip(),
+            "memo_loop": memo_loop,
             "counts": selected_counts,
         }
 
@@ -3058,6 +3060,8 @@ class ProductService:
     def workspace_diagnostics(self, *, principal_id: str) -> dict[str, object]:
         status = self._container.onboarding.status(principal_id=principal_id)
         workspace = dict(status.get("workspace") or {})
+        delivery_preferences = dict(status.get("delivery_preferences") or {})
+        morning_memo = dict(delivery_preferences.get("morning_memo") or {})
         selected_channels = tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip())
         plan = workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
         snapshot = self.workspace_snapshot(principal_id=principal_id)
@@ -3076,6 +3080,9 @@ class ProductService:
         activation_started_at = ""
         first_value_at = ""
         first_value_event = ""
+        first_scheduled_memo_sent_at = ""
+        last_scheduled_memo_sent_at = ""
+        useful_loop_days: set[str] = set()
         first_value_types = {"draft_approved", "commitment_created", "commitment_closed", "handoff_completed", "memory_corrected", "memo_opened"}
         for row in event_rows:
             analytics_counts[row.event_type] = int(analytics_counts.get(row.event_type, 0) or 0) + 1
@@ -3085,6 +3092,15 @@ class ProductService:
             if row.event_type in first_value_types and created_at and not first_value_at:
                 first_value_at = created_at
                 first_value_event = row.event_type
+            if row.event_type == "scheduled_morning_memo_delivery_sent":
+                payload = dict(getattr(row, "payload", {}) or {})
+                local_day = str(payload.get("local_day") or "").strip()
+                if local_day:
+                    useful_loop_days.add(local_day)
+                if created_at and not first_scheduled_memo_sent_at:
+                    first_scheduled_memo_sent_at = created_at
+                if created_at:
+                    last_scheduled_memo_sent_at = created_at
         first_value_seconds: int | None = None
         if activation_started_at and first_value_at:
             try:
@@ -3151,6 +3167,9 @@ class ProductService:
         draft_approved_count = int(analytics_counts.get("draft_approved") or 0)
         commitment_closed_count = int(analytics_counts.get("commitment_closed") or 0)
         memory_corrected_count = int(analytics_counts.get("memory_corrected") or 0)
+        scheduled_memo_sent_count = int(analytics_counts.get("scheduled_morning_memo_delivery_sent") or 0)
+        scheduled_memo_failed_count = int(analytics_counts.get("scheduled_morning_memo_delivery_failed") or 0)
+        scheduled_memo_blocked_count = int(analytics_counts.get("scheduled_morning_memo_delivery_blocked") or 0)
         support_bundle_opened_count = int(analytics_counts.get("support_bundle_opened") or 0)
         registration_email_sent_count = int(analytics_counts.get("registration_email_sent") or 0)
         registration_email_failed_count = int(analytics_counts.get("registration_email_failed") or 0)
@@ -3247,6 +3266,15 @@ class ProductService:
             if churn_risk == "high"
             else "Adoption needs attention."
         )
+        memo_loop_state = (
+            "watch"
+            if not bool(morning_memo.get("enabled"))
+            else "critical"
+            if scheduled_memo_failed_count or scheduled_memo_blocked_count
+            else "watch"
+            if scheduled_memo_sent_count == 0
+            else "clear"
+        )
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -3321,6 +3349,20 @@ class ProductService:
                 "correction_rate": correction_rate,
                 "churn_risk": churn_risk,
                 "success_summary": success_summary,
+                "memo_loop": {
+                    "enabled": bool(morning_memo.get("enabled")),
+                    "cadence": str(morning_memo.get("cadence") or "daily_morning"),
+                    "delivery_time_local": str(morning_memo.get("delivery_time_local") or "08:00"),
+                    "timezone": str(morning_memo.get("timezone") or workspace.get("timezone") or "UTC"),
+                    "recipient_email": str(morning_memo.get("resolved_recipient_email") or ""),
+                    "scheduled_sent": scheduled_memo_sent_count,
+                    "scheduled_failed": scheduled_memo_failed_count,
+                    "scheduled_blocked": scheduled_memo_blocked_count,
+                    "days_with_useful_loop": len(useful_loop_days),
+                    "first_scheduled_sent_at": first_scheduled_memo_sent_at,
+                    "last_scheduled_sent_at": last_scheduled_memo_sent_at,
+                    "state": memo_loop_state,
+                },
                 "delivery": {
                     "registration_sent": registration_email_sent_count,
                     "registration_failed": registration_email_failed_count,
