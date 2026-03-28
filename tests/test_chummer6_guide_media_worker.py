@@ -78,8 +78,11 @@ def test_onemin_model_candidates_ignore_low_tier_policy_override(monkeypatch: py
     ]
 
 
-def test_routed_provider_order_prefers_magixai_for_quality_focus_targets() -> None:
+def test_routed_provider_order_prefers_magixai_for_quality_focus_targets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_HEALTH_OUT", tmp_path / "provider-health.json")
     media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
 
     routed = media.routed_provider_order_for_target(
