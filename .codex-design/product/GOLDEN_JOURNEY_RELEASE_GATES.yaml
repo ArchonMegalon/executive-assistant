@@ -48,10 +48,11 @@ journey_gates:
             - BuildSupportPortalRelativePathForInstall
             - BuildSupportPortalRelativePathForWorkspace
         - repo: chummer6-mobile
-          path: src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
+          path: .codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
           must_contain:
-            - kind=install_help
-            - sessionId=
+            - '"contract_name": "chummer6-mobile.local_release_proof"'
+            - '"status": "passed"'
+            - '"install_claim_restore_continue"'
       required_project_posture:
         - project_id: ui
           minimum_stage: pre_repo_local_complete
@@ -167,10 +168,10 @@ journey_gates:
             - '"contract_name": "chummer6-hub.campaign_os_local_proof"'
             - '"campaign_session_recover_recap"'
         - repo: chummer6-mobile
-          path: src/Chummer.Play.Web/wwwroot/index.html
+          path: .codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
           must_contain:
-            - id="workspace-update"
-            - id="workspace-support"
+            - '"contract_name": "chummer6-mobile.local_release_proof"'
+            - '"campaign_session_recover_recap"'
       required_project_posture:
         - project_id: hub
           minimum_stage: pre_repo_local_complete
@@ -217,6 +218,12 @@ journey_gates:
         - progress_report
       minimum_history_snapshots: 2
       target_history_snapshots: 4
+      repo_source_proof:
+        - repo: chummer6-mobile
+          path: .codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
+          must_contain:
+            - '"contract_name": "chummer6-mobile.local_release_proof"'
+            - '"recover_from_sync_conflict"'
       required_project_posture:
         - project_id: hub
           minimum_stage: pre_repo_local_complete
