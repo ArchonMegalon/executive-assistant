@@ -54,6 +54,7 @@ MANIFEST_OUT = Path("/docker/fleet/state/chummer6/ea_media_manifest.json")
 SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 CHALLENGER_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_challenger_ledger.json")
 PROVIDER_SCHEDULER_OUT = Path("/docker/fleet/state/chummer6/ea_provider_scheduler.json")
+PROVIDER_HEALTH_OUT = Path("/docker/fleet/state/chummer6/ea_provider_health_registry.json")
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
 MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
 MEDIA_FACTORY_RENDER_SCRIPT = MEDIA_FACTORY_ROOT / "scripts" / "render_guide_asset.py"
@@ -853,6 +854,14 @@ def load_provider_scheduler() -> dict[str, object]:
     return loaded
 
 
+def load_provider_health_registry() -> dict[str, object]:
+    loaded = load_json_file(PROVIDER_HEALTH_OUT)
+    providers = loaded.get("providers")
+    if not isinstance(providers, dict):
+        loaded["providers"] = {}
+    return loaded
+
+
 def _scheduler_now_epoch() -> float:
     return float(time.time())
 
@@ -1051,6 +1060,127 @@ def _provider_scheduler_hold_seconds(*, provider: str) -> int:
     if normalized == "magixai":
         return 90
     return 60
+
+
+def target_family_for(target: str) -> str:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if normalized == "assets/hero/chummer6-hero.png":
+        return "hero_flagship"
+    if normalized == "assets/horizons/karma-forge.png":
+        return "forge_flagship"
+    if normalized == "assets/pages/horizons-index.png":
+        return "index_flagship"
+    if normalized in QUALITY_FOCUS_TARGETS:
+        if normalized.startswith("assets/pages/"):
+            return "weak_page"
+        if normalized.startswith("assets/horizons/"):
+            return "weak_horizon"
+        if normalized.startswith("assets/parts/"):
+            return "weak_part"
+    if normalized.startswith("assets/pages/"):
+        return "page"
+    if normalized.startswith("assets/horizons/"):
+        return "horizon"
+    if normalized.startswith("assets/parts/"):
+        return "part"
+    if normalized.startswith("assets/hero/"):
+        return "hero"
+    return "general"
+
+
+def _provider_health_outcome(detail: str, *, ok: bool) -> str:
+    cleaned = str(detail or "").strip().lower()
+    if ok:
+        return "success"
+    if "no_output_watchdog_timeout" in cleaned or "watchdog" in cleaned:
+        return "no_output_watchdog"
+    if "http_429" in cleaned or "retry_after" in cleaned:
+        return "rate_limit"
+    if "timeout" in cleaned:
+        return "timeout"
+    if "empty_output" in cleaned:
+        return "empty_output"
+    if "command_failed" in cleaned:
+        return "command_failed"
+    if "urlerror" in cleaned:
+        return "urlerror"
+    if "manager_unavailable" in cleaned:
+        return "manager_unavailable"
+    if "capacity_unavailable" in cleaned:
+        return "capacity_unavailable"
+    return "failure"
+
+
+def record_provider_health_attempt(*, provider: str, target: str, detail: str, ok: bool) -> None:
+    normalized_provider = str(provider or "").strip().lower()
+    if not normalized_provider:
+        return
+    family = target_family_for(target)
+    registry = load_provider_health_registry()
+    providers = registry.get("providers") if isinstance(registry.get("providers"), dict) else {}
+    provider_entry = dict(providers.get(normalized_provider) or {})
+    families = provider_entry.get("families") if isinstance(provider_entry.get("families"), dict) else {}
+    family_entry = dict(families.get(family) or {})
+    attempts = family_entry.get("recent_attempts")
+    if not isinstance(attempts, list):
+        attempts = []
+    outcome = _provider_health_outcome(detail, ok=ok)
+    attempts.append(
+        {
+            "target": str(target or "").strip(),
+            "outcome": outcome,
+            "detail": str(detail or "").strip()[:240],
+            "ok": bool(ok),
+            "observed_at": _scheduler_now_epoch(),
+        }
+    )
+    attempts = [dict(entry) for entry in attempts if isinstance(entry, dict)][-12:]
+    family_entry["recent_attempts"] = attempts
+    family_entry["success_count"] = int(family_entry.get("success_count") or 0) + (1 if ok else 0)
+    family_entry["failure_count"] = int(family_entry.get("failure_count") or 0) + (0 if ok else 1)
+    family_entry["updated_at"] = _scheduler_now_epoch()
+    families[family] = family_entry
+    provider_entry["families"] = families
+    provider_entry["updated_at"] = _scheduler_now_epoch()
+    providers[normalized_provider] = provider_entry
+    registry["providers"] = providers
+    write_json_file(PROVIDER_HEALTH_OUT, registry)
+
+
+def provider_health_penalty(*, provider: str, target: str) -> int:
+    registry = load_provider_health_registry()
+    providers = registry.get("providers") if isinstance(registry.get("providers"), dict) else {}
+    provider_entry = dict(providers.get(str(provider or "").strip().lower()) or {})
+    families = provider_entry.get("families") if isinstance(provider_entry.get("families"), dict) else {}
+    family_entry = dict(families.get(target_family_for(target)) or {})
+    attempts = [dict(entry) for entry in (family_entry.get("recent_attempts") or []) if isinstance(entry, dict)][-6:]
+    penalty = 0
+    for entry in attempts:
+        outcome = str(entry.get("outcome") or "").strip()
+        if outcome in {"success"}:
+            penalty = max(0, penalty - 2)
+        elif outcome in {"rate_limit"}:
+            penalty += 2
+        elif outcome in {"timeout", "no_output_watchdog", "empty_output"}:
+            penalty += 4
+        elif outcome:
+            penalty += 1
+    return penalty
+
+
+def provider_should_skip_for_health(*, provider: str, target: str) -> str:
+    registry = load_provider_health_registry()
+    providers = registry.get("providers") if isinstance(registry.get("providers"), dict) else {}
+    provider_entry = dict(providers.get(str(provider or "").strip().lower()) or {})
+    families = provider_entry.get("families") if isinstance(provider_entry.get("families"), dict) else {}
+    family_entry = dict(families.get(target_family_for(target)) or {})
+    attempts = [dict(entry) for entry in (family_entry.get("recent_attempts") or []) if isinstance(entry, dict)][-3:]
+    outcomes = [str(entry.get("outcome") or "").strip() for entry in attempts]
+    if len(outcomes) >= 2 and all(outcome in {"timeout", "no_output_watchdog", "empty_output"} for outcome in outcomes[-2:]):
+        return "stalled"
+    if len(outcomes) >= 3 and all(outcome in {"rate_limit"} for outcome in outcomes[-3:]):
+        return "rate_limited"
+    return ""
 
 
 def canonical_asset_path(target: str) -> Path:
@@ -1418,6 +1548,8 @@ def routed_provider_order_for_target(target: str, *, providers: list[str] | None
         _prioritize("onemin")
     elif normalized_target in MEDIA_FACTORY_PREFERRED_TARGETS:
         _prioritize("media_factory")
+    scored = [(provider_health_penalty(provider=value, target=normalized_target), index, value) for index, value in enumerate(ordered)]
+    ordered = [value for _penalty, _index, value in sorted(scored, key=lambda item: (item[0], item[1]))]
     return ordered
 
 
@@ -2212,8 +2344,20 @@ def load_media_overrides() -> dict[str, object]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def format_command(parts: list[str], *, prompt: str, target: str, output: str, width: int, height: int) -> list[str]:
-    return [part.format(prompt=prompt, target=target, output=output, width=width, height=height) for part in parts]
+def format_command(
+    parts: list[str],
+    *,
+    prompt: str,
+    target: str,
+    output: str,
+    width: int,
+    height: int,
+    reference: str = "",
+) -> list[str]:
+    return [
+        part.format(prompt=prompt, target=target, output=output, width=width, height=height, reference=reference)
+        for part in parts
+    ]
 
 
 def command_provider_timeout_seconds(name: str) -> int:
@@ -2254,20 +2398,34 @@ def url_provider_timeout_seconds(name: str) -> int:
     return defaults.get(normalized, 90)
 
 
-def run_command_provider(name: str, template: list[str], *, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
+def run_command_provider(
+    name: str,
+    template: list[str],
+    *,
+    prompt: str,
+    output_path: Path,
+    width: int,
+    height: int,
+    reference_image: Path | None = None,
+) -> tuple[bool, str]:
     if not template:
         return False, f"{name}:not_configured"
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = format_command(
+        template,
+        prompt=prompt,
+        target=output_path.stem,
+        output=str(output_path),
+        width=width,
+        height=height,
+        reference=str(reference_image) if isinstance(reference_image, Path) else "",
+    )
+    if str(name or "").strip().lower() in {"media_factory", "media-factory"} and isinstance(reference_image, Path):
+        if reference_image.exists() and "--reference-image" not in command:
+            command.extend(["--reference-image", str(reference_image)])
     try:
         subprocess.run(
-            format_command(
-                template,
-                prompt=prompt,
-                target=output_path.stem,
-                output=str(output_path),
-                width=width,
-                height=height,
-            ),
+            command,
             check=True,
             text=True,
             capture_output=True,
@@ -2633,6 +2791,17 @@ def onemin_request_timeout_seconds(model: str) -> int:
     return 45
 
 
+def onemin_watchdog_seconds(spec: dict[str, object] | None = None) -> int:
+    explicit = _spec_string(spec, "onemin_watchdog_seconds")
+    raw = explicit or env_value("CHUMMER6_ONEMIN_WATCHDOG_SECONDS") or ""
+    try:
+        if raw:
+            return max(30, min(600, int(float(raw))))
+    except Exception:
+        pass
+    return 180
+
+
 def onemin_payloads(
     model: str,
     *,
@@ -2718,6 +2887,12 @@ def run_onemin_api_provider(
     height: int,
     spec: dict[str, object] | None = None,
 ) -> tuple[bool, str]:
+    started_at = time.monotonic()
+    watchdog_seconds = onemin_watchdog_seconds(spec)
+
+    def _watchdog_expired() -> bool:
+        return (time.monotonic() - started_at) >= float(watchdog_seconds)
+
     configured_slots = resolve_onemin_image_slots()
     if not configured_slots:
         return False, "onemin:not_configured"
@@ -2798,13 +2973,22 @@ def run_onemin_api_provider(
     seen_requests: set[tuple[str, tuple[tuple[str, str], ...], str]] = set()
     try:
         for url in endpoints:
+            if _watchdog_expired():
+                errors.append(f"watchdog:{watchdog_seconds}s")
+                return False, "onemin:no_output_watchdog_timeout"
             for model in model_candidates:
+                if _watchdog_expired():
+                    errors.append(f"watchdog:{watchdog_seconds}s")
+                    return False, "onemin:no_output_watchdog_timeout"
                 try:
                     payloads = onemin_payloads(model, prompt=prompt, width=width, height=height, spec=spec)
                 except TypeError:
                     payloads = onemin_payloads(model, prompt=prompt, width=width, height=height)
                 timeout_seconds = onemin_request_timeout_seconds(model)
                 for payload in payloads:
+                    if _watchdog_expired():
+                        errors.append(f"watchdog:{watchdog_seconds}s")
+                        return False, "onemin:no_output_watchdog_timeout"
                     prompt_object = payload.get("promptObject") if isinstance(payload, dict) else {}
                     size_label = str(
                         (
@@ -2847,6 +3031,9 @@ def run_onemin_api_provider(
                             if retryable_busy:
                                 busy_recovered = False
                                 for _attempt in range(provider_busy_retries()):
+                                    if _watchdog_expired():
+                                        errors.append(f"watchdog:{watchdog_seconds}s")
+                                        return False, "onemin:no_output_watchdog_timeout"
                                     time.sleep(provider_busy_delay_seconds())
                                     try:
                                         request = urllib.request.Request(
@@ -5576,7 +5763,15 @@ def ooda_variant_spec(
     return adjusted, provider_tags
 
 
-def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int, spec: dict[str, object]) -> dict[str, object]:
+def render_with_ooda(
+    *,
+    prompt: str,
+    output_path: Path,
+    width: int,
+    height: int,
+    spec: dict[str, object],
+    reference_image: Path | None = None,
+) -> dict[str, object]:
     forbid_legacy_svg_fallback(output_path)
     attempts: list[str] = []
     requested_order = spec.get("providers")
@@ -5593,6 +5788,10 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
     providers = routed_provider_order_for_target(target, providers=providers)
     for provider in providers:
         normalized = provider.strip().lower()
+        health_skip_reason = provider_should_skip_for_health(provider=normalized, target=target) if target else ""
+        if health_skip_reason:
+            attempts.append(f"{normalized}:health_skip:{health_skip_reason}")
+            continue
         cooldown_remaining = _provider_cooldown_remaining_seconds(normalized)
         if cooldown_remaining > 0:
             attempts.append(f"{normalized}:cooldown:{cooldown_remaining}s")
@@ -5624,6 +5823,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
                     output_path=output_path,
                     width=width,
                     height=height,
+                    reference_image=reference_image,
                 )
             finally:
                 if acquired and target:
@@ -5633,7 +5833,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
             try:
                 ok, detail = run_magixai_api_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
                 if not ok:
-                    command_ok, command_detail = run_command_provider("magixai", shlex_command("CHUMMER6_MAGIXAI_RENDER_COMMAND"), prompt=safe_prompt, output_path=output_path, width=width, height=height)
+                    command_ok, command_detail = run_command_provider("magixai", shlex_command("CHUMMER6_MAGIXAI_RENDER_COMMAND"), prompt=safe_prompt, output_path=output_path, width=width, height=height, reference_image=reference_image)
                     if command_ok or detail.endswith(":not_configured"):
                         ok, detail = command_ok, command_detail
                 if not ok:
@@ -5649,7 +5849,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
                 _release_provider_scheduler_slot(provider=normalized, target=target)
         elif normalized == "prompting_systems":
             try:
-                ok, detail = run_command_provider("prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                ok, detail = run_command_provider("prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height, reference_image=reference_image)
                 if not ok:
                     url_ok, url_detail = run_url_provider("prompting_systems", url_template("CHUMMER6_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
                     if url_ok or detail.endswith(":not_configured"):
@@ -5660,7 +5860,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         elif normalized == "browseract_magixai":
             try:
                 if env_value("BROWSERACT_API_KEY"):
-                    ok, detail = run_command_provider("browseract_magixai", shlex_command("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    ok, detail = run_command_provider("browseract_magixai", shlex_command("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height, reference_image=reference_image)
                     if not ok:
                         url_ok, url_detail = run_url_provider("browseract_magixai", url_template("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
                         if url_ok or detail.endswith(":not_configured"):
@@ -5673,13 +5873,13 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         elif normalized == "browseract_prompting_systems":
             try:
                 if env_value("BROWSERACT_API_KEY"):
-                    ok, detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                    ok, detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height, reference_image=reference_image)
                     if not ok:
                         url_ok, url_detail = run_url_provider("browseract_prompting_systems", url_template("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_RENDER_URL_TEMPLATE"), prompt=prompt, output_path=output_path, width=width, height=height)
                         if url_ok or detail.endswith(":not_configured"):
                             ok, detail = url_ok, url_detail
                     if not ok:
-                        command_ok, command_detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height)
+                        command_ok, command_detail = run_command_provider("browseract_prompting_systems", shlex_command("CHUMMER6_PROMPTING_SYSTEMS_RENDER_COMMAND"), prompt=prompt, output_path=output_path, width=width, height=height, reference_image=reference_image)
                         if command_ok or detail.endswith(":not_configured"):
                             ok, detail = command_ok, command_detail
                     if not ok:
@@ -5710,6 +5910,8 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         cooldown_applied = _mark_provider_rate_limit_cooldown(provider=normalized, detail=detail)
         if cooldown_applied > 0:
             attempts.append(f"{normalized}:cooldown_applied:{cooldown_applied}s")
+        if target:
+            record_provider_health_attempt(provider=normalized, target=target, detail=detail, ok=ok)
         if ok:
             return {"provider": normalized, "status": detail, "attempts": attempts}
     raise RuntimeError("no image provider succeeded: " + " || ".join(attempts))
@@ -6552,6 +6754,13 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         height = int(spec.get("height", 720))
         out_path = output_dir / target
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        canonical_path = canonical_asset_path(target)
+        reference_image: Path | None = None
+        champion_path = Path(str(champion_entry.get("output_path") or "")).expanduser() if champion_entry else None
+        if isinstance(champion_path, Path) and champion_path.exists():
+            reference_image = champion_path
+        elif canonical_path.exists():
+            reference_image = canonical_path
         variant_attempts = first_contact_variant_count(target=target)
         best_result: dict[str, object] | None = None
         best_statuses: list[str] = []
@@ -6581,7 +6790,14 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 previous_notes=previous_notes,
                 previous_gate_failures=previous_gate_failures,
             )
-            result = render_with_ooda(prompt=variant_prompt, output_path=candidate_path, width=width, height=height, spec=variant_spec)
+            result = render_with_ooda(
+                prompt=variant_prompt,
+                output_path=candidate_path,
+                width=width,
+                height=height,
+                spec=variant_spec,
+                reference_image=reference_image,
+            )
             statuses: list[str] = list(result["attempts"])
             if prompt_tags:
                 statuses.append("variant_ooda:prompt:" + ",".join(prompt_tags))
@@ -6658,7 +6874,6 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         if best_gate_failures:
             raise RuntimeError(f"critical_visual_audit_failed:{target}:{','.join(best_gate_failures[:4])}")
         chosen_path = Path(str(best_result["candidate_path"]))
-        canonical_path = canonical_asset_path(target)
         keep_existing_champion = (
             bool(champion_entry)
             and not best_beats_champion
@@ -6893,6 +7108,7 @@ def main() -> int:
     render.add_argument("--output", required=True)
     render.add_argument("--width", type=int, default=1280)
     render.add_argument("--height", type=int, default=720)
+    render.add_argument("--reference-image")
     render_pack_parser = sub.add_parser("render-pack")
     render_pack_parser.add_argument("--output-dir", default="/docker/fleet/state/chummer6/ea_media_assets")
     render_pack_parser.add_argument("--skip-release-build", action="store_true")
@@ -6943,6 +7159,7 @@ def main() -> int:
         width=int(args.width),
         height=int(args.height),
         spec={"target": str(output_path.name), "media_row": {}},
+        reference_image=Path(args.reference_image).expanduser() if str(getattr(args, "reference_image", "") or "").strip() else None,
     )
     STATE_OUT.parent.mkdir(parents=True, exist_ok=True)
     STATE_OUT.write_text(json.dumps({"output": str(output_path), **result}, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
