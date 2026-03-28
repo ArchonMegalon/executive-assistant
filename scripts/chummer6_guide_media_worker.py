@@ -91,10 +91,13 @@ FIRST_CONTACT_TARGETS = frozenset(
 )
 QUALITY_FOCUS_TARGETS = frozenset(
     {
+        "assets/horizons/alice.png",
+        "assets/horizons/runsite.png",
         "assets/pages/current-status.png",
         "assets/pages/parts-index.png",
         "assets/pages/public-surfaces.png",
         "assets/pages/what-chummer6-is.png",
+        "assets/parts/hub.png",
     }
 )
 CRITICAL_VISUAL_TARGETS = FIRST_CONTACT_TARGETS
@@ -3048,6 +3051,9 @@ def first_contact_variant_count(*, target: str) -> int:
                 "assets/pages/parts-index.png": 4,
                 "assets/pages/public-surfaces.png": 4,
                 "assets/pages/what-chummer6-is.png": 4,
+                "assets/horizons/alice.png": 4,
+                "assets/horizons/runsite.png": 4,
+                "assets/parts/hub.png": 4,
             }.get(normalized, 5)
     except Exception:
         value = 5
@@ -5022,14 +5028,17 @@ def ooda_variant_prompt(
             "Forge-specific correction: keep the proving bay, rails, consequence chamber, assay cage, sample racks, and gantry hardware visibly larger than the operators."
         )
     elif normalized in {
+        "assets/horizons/alice.png",
+        "assets/horizons/runsite.png",
         "assets/pages/horizons-index.png",
         "assets/pages/parts-index.png",
         "assets/pages/current-status.png",
         "assets/pages/public-surfaces.png",
+        "assets/parts/hub.png",
         "assets/pages/what-chummer6-is.png",
     } and correction_tags:
         corrections.append(
-            "Environment-map correction: the location and work zones must read before any single person, gadget, sign, or overlay trace."
+            "Environment-and-workzone correction: the location, work zones, benches, aisles, shelves, or industrial floor must read before any single person, gadget, sign, or overlay trace."
         )
     if not corrections:
         return prompt, []

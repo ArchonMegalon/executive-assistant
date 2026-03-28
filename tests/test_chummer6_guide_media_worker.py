@@ -1485,7 +1485,9 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     assert media.first_contact_target("assets/hero/chummer6-hero.png") is True
     assert media.first_contact_variant_count(target="assets/hero/chummer6-hero.png") == 8
     assert media.quality_focus_target("assets/pages/public-surfaces.png") is True
+    assert media.quality_focus_target("assets/horizons/alice.png") is True
     assert media.first_contact_variant_count(target="assets/pages/public-surfaces.png") == 4
+    assert media.first_contact_variant_count(target="assets/horizons/alice.png") == 4
     assert media.first_contact_variant_count(target="assets/parts/ui.png") == 1
 
 
