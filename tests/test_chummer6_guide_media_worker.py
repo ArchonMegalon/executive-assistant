@@ -2439,6 +2439,41 @@ def test_champion_entry_for_target_backfills_output_path_alias() -> None:
     assert entry["output_path"] == "/tmp/champion.png"
 
 
+def test_champion_entry_for_target_refreshes_repo_seed_after_manual_promotion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    repo_root = tmp_path / "Chummer6"
+    target = "assets/pages/what-chummer6-is.png"
+    target_path = repo_root / target
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(b"newer-png")
+
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", repo_root)
+    monkeypatch.setattr(media, "visual_audit_enabled", lambda **kwargs: True)
+    monkeypatch.setattr(media, "visual_audit_score", lambda **kwargs: (264.08333333333337, []))
+
+    ledger = {
+        "assets": {
+            target: {
+                "path": str(target_path),
+                "output_path": str(target_path),
+                "score": 233.33333333333331,
+                "notes": [],
+                "source": "repo_seed",
+                "updated_at": 0.0,
+            }
+        }
+    }
+
+    entry = media.champion_entry_for_target(target=target, ledger=ledger)
+
+    assert entry["path"] == str(target_path)
+    assert entry["output_path"] == str(target_path)
+    assert entry["score"] == 264.08333333333337
+    assert ledger["assets"][target]["score"] == 264.08333333333337
+
+
 def test_provider_scheduler_entry_clears_stale_legacy_lock(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

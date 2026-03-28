@@ -1202,11 +1202,36 @@ def champion_entry_for_target(*, target: str, ledger: dict[str, object]) -> dict
         assets = {}
         ledger["assets"] = assets
     existing = dict(assets.get(target) or {})
+    champion_path = canonical_asset_path(target)
     if existing:
         if str(existing.get("path") or "").strip() and not str(existing.get("output_path") or "").strip():
             existing["output_path"] = str(existing.get("path") or "").strip()
+        if champion_path.exists() and visual_audit_enabled(target=target):
+            existing_path = Path(str(existing.get("path") or existing.get("output_path") or "").strip()) if str(existing.get("path") or existing.get("output_path") or "").strip() else None
+            canonical_mtime = 0.0
+            try:
+                canonical_mtime = float(champion_path.stat().st_mtime)
+            except Exception:
+                canonical_mtime = 0.0
+            updated_at = _floatish(existing.get("updated_at"), default=0.0)
+            existing_score = _floatish(existing.get("score"), default=float("-inf"))
+            existing_notes = [str(entry).strip() for entry in (existing.get("notes") or []) if str(entry).strip()]
+            should_refresh = False
+            if existing_path and _same_resolved_path(existing_path, champion_path):
+                should_refresh = canonical_mtime > updated_at + 0.5 or not existing_notes and existing_score == float("-inf")
+            if should_refresh:
+                score, notes = visual_audit_score(image_path=champion_path, target=target)
+                refreshed = dict(existing)
+                refreshed["score"] = score
+                refreshed["notes"] = list(notes)
+                refreshed["path"] = str(champion_path)
+                refreshed["output_path"] = str(champion_path)
+                refreshed["source"] = str(existing.get("source") or "repo_sync").strip() or "repo_sync"
+                refreshed["updated_at"] = _scheduler_now_epoch()
+                assets[target] = refreshed
+                ledger["assets"] = assets
+                return dict(refreshed)
         return existing
-    champion_path = canonical_asset_path(target)
     if not champion_path.exists() or not visual_audit_enabled(target=target):
         return {}
     score, notes = visual_audit_score(image_path=champion_path, target=target)
