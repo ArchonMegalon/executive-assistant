@@ -264,6 +264,31 @@ async function main() {
       const waitMs = Math.max(250, Number((config && config.wait_timeout_ms) || (isOptional(config) ? 1200 : 12000)));
       const postClickWaitMs = Math.max(200, Number((config && config.post_click_wait_ms) || 1500));
       await locator.waitFor({ state: 'visible', timeout: waitMs }).catch(() => {});
+      if (Boolean(config && config.react_click)) {
+        const reacted = await locator.evaluate((node) => {
+          const keys = Object.keys(node || {}).filter((key) => String(key || '').startsWith('__reactProps'));
+          for (const key of keys) {
+            try {
+              const props = node[key];
+              if (!props || typeof props.onClick !== 'function') continue;
+              props.onClick({
+                preventDefault() {},
+                stopPropagation() {},
+                currentTarget: node,
+                target: node,
+                nativeEvent: new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
+              });
+              return true;
+            } catch (_) {}
+          }
+          return false;
+        }).catch(() => false);
+        if (reacted) {
+          await page.waitForTimeout(postClickWaitMs);
+          await trace(`react-click-${label || 'click'}`);
+          return true;
+        }
+      }
       if (Boolean(config && config.dom_click)) {
         await locator.evaluate((node) => {
           if (node && typeof node.click === 'function') {
