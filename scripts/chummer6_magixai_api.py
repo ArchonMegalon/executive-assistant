@@ -11,11 +11,11 @@ MAGIXAI_QUOTA_ENDPOINT = "/quota"
 MAGIXAI_MODELS_ENDPOINT = "/models"
 
 MAGIXAI_DEFAULT_IMAGE_MODELS = (
-    "fal-ai/flux-pro/v1.1-ultra",
     "fal-ai/flux-2-pro",
-    "fal-ai/gpt-image-1.5",
-    "fal-ai/ideogram/v2",
+    "fal-ai/flux-pro/v1.1-ultra",
     "fal-ai/hidream-i1-dev",
+    "fal-ai/ideogram/v2",
+    "fal-ai/gpt-image-1.5",
     "fal-ai/flux-2",
     "fal-ai/flux/dev",
     "fal-ai/hidream-i1-fast",

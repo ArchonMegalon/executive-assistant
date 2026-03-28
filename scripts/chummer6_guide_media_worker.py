@@ -2562,7 +2562,11 @@ def run_magixai_api_provider(
                     if is_credit_exhaustion_message(body):
                         return False, f"magixai:insufficient_credits:http_{exc.code}:{body[:180]}"
                     if '"error":"Forbidden"' in body or '"error": "Forbidden"' in body:
-                        return False, f"magixai:forbidden:http_{exc.code}:{body[:180]}"
+                        errors.append(f"{url}:{model}:{size}:forbidden:http_{exc.code}:{body[:180]}")
+                        continue
+                    if '"error":"Not Found"' in body or '"error": "Not Found"' in body:
+                        errors.append(f"{url}:{model}:{size}:not_found:http_{exc.code}:{body[:180]}")
+                        continue
                     if magixai_looks_like_html(content_type=exc.headers.get("Content-Type"), body=body):
                         errors.append(f"{url}:{model}:{size}:html_response:http_{exc.code}")
                         continue
