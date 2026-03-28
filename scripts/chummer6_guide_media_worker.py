@@ -61,6 +61,7 @@ RELEASE_CONTROL_SCRIPT = Path("/docker/fleet/scripts/materialize_chummer_release
 RELEASE_BUILDER_SCRIPT = EA_ROOT / "scripts" / "chummer6_release_builder.py"
 RELEASE_MATRIX_OUT = Path("/docker/fleet/state/chummer6/chummer6_release_matrix.json")
 TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-troll.png")
+CHUMMER6_REPO_ROOT = Path("/docker/chummercomplete/Chummer6")
 DEFAULT_PROVIDER_ORDER = [
     "media_factory",
     "browseract_prompting_systems",
@@ -960,6 +961,96 @@ def _provider_scheduler_hold_seconds(*, provider: str) -> int:
     if normalized == "magixai":
         return 90
     return 60
+
+
+def canonical_asset_path(target: str) -> Path:
+    cleaned = str(target or "").strip().lstrip("/")
+    return CHUMMER6_REPO_ROOT / cleaned
+
+
+def _same_resolved_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except Exception:
+        return str(left) == str(right)
+
+
+def champion_entry_for_target(*, target: str, ledger: dict[str, object]) -> dict[str, object]:
+    assets = ledger.get("assets")
+    if not isinstance(assets, dict):
+        assets = {}
+        ledger["assets"] = assets
+    existing = dict(assets.get(target) or {})
+    if existing:
+        return existing
+    champion_path = canonical_asset_path(target)
+    if not champion_path.exists() or not visual_audit_enabled(target=target):
+        return {}
+    score, notes = visual_audit_score(image_path=champion_path, target=target)
+    seeded = {
+        "score": score,
+        "notes": list(notes),
+        "path": str(champion_path),
+        "source": "repo_seed",
+        "updated_at": _scheduler_now_epoch(),
+    }
+    assets[target] = seeded
+    ledger["assets"] = assets
+    return dict(seeded)
+
+
+def record_champion_result(
+    *,
+    ledger: dict[str, object],
+    target: str,
+    output_path: Path,
+    score: float,
+    notes: list[str],
+    provider: str,
+    status: str,
+    source: str,
+) -> None:
+    assets = ledger.get("assets")
+    if not isinstance(assets, dict):
+        assets = {}
+        ledger["assets"] = assets
+    assets[target] = {
+        "score": float(score),
+        "notes": [str(note).strip() for note in notes if str(note).strip()],
+        "path": str(output_path),
+        "provider": str(provider or "").strip(),
+        "status": str(status or "").strip(),
+        "source": str(source or "").strip(),
+        "updated_at": _scheduler_now_epoch(),
+    }
+
+
+def record_challenger_attempt(
+    *,
+    ledger: dict[str, object],
+    target: str,
+    output_path: Path,
+    score: float,
+    notes: list[str],
+    provider: str,
+    status: str,
+    beat_champion: bool,
+) -> None:
+    assets = ledger.get("assets")
+    if not isinstance(assets, dict):
+        assets = {}
+        ledger["assets"] = assets
+    current = dict(assets.get(target) or {})
+    current["last_challenger"] = {
+        "score": float(score),
+        "notes": [str(note).strip() for note in notes if str(note).strip()],
+        "path": str(output_path),
+        "provider": str(provider or "").strip(),
+        "status": str(status or "").strip(),
+        "beat_champion": bool(beat_champion),
+        "updated_at": _scheduler_now_epoch(),
+    }
+    assets[target] = current
 
 
 def scene_rows(ledger: dict[str, object]) -> list[dict[str, object]]:
@@ -6286,6 +6377,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         raise RuntimeError("no asset specs selected for rendering")
     output_dir.mkdir(parents=True, exist_ok=True)
     ledger = load_scene_ledger()
+    challenger_ledger = load_challenger_ledger()
     active_style_epoch = {}
     if specs and isinstance(specs[0].get("style_epoch"), dict):
         active_style_epoch = dict(specs[0].get("style_epoch") or {})
@@ -6321,6 +6413,8 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
 
     def _render_spec(spec: dict[str, object]) -> dict[str, object]:
         target = str(spec["target"])
+        champion_entry = champion_entry_for_target(target=target, ledger=challenger_ledger)
+        champion_score = _floatish(champion_entry.get("score"), default=float("-inf")) if champion_entry else float("-inf")
         row = spec.get("media_row") if isinstance(spec.get("media_row"), dict) else {}
         contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
         composition = str(contract.get("composition") or "").strip()
@@ -6351,11 +6445,14 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         best_result: dict[str, object] | None = None
         best_statuses: list[str] = []
         best_score = float("-inf")
+        best_final_score = 0.0
         best_notes: list[str] = []
         best_gate_failures: list[str] = []
+        best_beats_champion = not champion_entry
         previous_notes: list[str] = []
         previous_gate_failures: list[str] = []
         previous_provider = ""
+        no_improvement_streak = 0
         for variant in range(variant_attempts):
             candidate_path = out_path if variant_attempts == 1 else out_path.with_name(f"{out_path.stem}.__candidate{variant}{out_path.suffix}")
             variant_prompt, prompt_tags = ooda_variant_prompt(
@@ -6413,23 +6510,58 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
             previous_gate_failures = list(gate_failures)
             previous_provider = str(result["provider"])
             candidate_score = score + (base_score * 0.6) - (35.0 * len(gate_failures))
-            if candidate_score > best_score:
+            beats_champion = challenger_beats_champion(
+                champion=champion_entry,
+                score=score,
+                notes=[*base_notes, *notes],
+            )
+            if champion_entry:
+                statuses.append(f"challenger:champion_score:{champion_score:.2f}")
+                statuses.append("challenger:beats_champion" if beats_champion else "challenger:below_champion")
+            if beats_champion:
+                no_improvement_streak = 0
+            else:
+                no_improvement_streak += 1
+            if (
+                best_result is None
+                or (beats_champion and not best_beats_champion)
+                or (beats_champion == best_beats_champion and candidate_score > best_score)
+            ):
                 best_score = candidate_score
                 best_result = {"provider": result["provider"], "status": result["status"], "candidate_path": str(candidate_path)}
                 best_statuses = statuses
+                best_final_score = score
                 best_notes = [*base_notes, *notes]
                 best_gate_failures = gate_failures
+                best_beats_champion = beats_champion
             if variant_attempts > 1 and candidate_path != out_path and candidate_score < best_score:
                 try:
                     candidate_path.unlink()
                 except Exception:
                     pass
+            if champion_entry and no_improvement_streak >= 3 and variant >= 2:
+                best_statuses.append("challenger:no_improvement_stop")
+                break
         if best_result is None:
             raise RuntimeError(f"render_failed_without_candidate:{target}")
         if best_gate_failures:
             raise RuntimeError(f"critical_visual_audit_failed:{target}:{','.join(best_gate_failures[:4])}")
         chosen_path = Path(str(best_result["candidate_path"]))
-        if chosen_path != out_path:
+        canonical_path = canonical_asset_path(target)
+        keep_existing_champion = (
+            bool(champion_entry)
+            and not best_beats_champion
+            and canonical_path.exists()
+            and _same_resolved_path(out_path, canonical_path)
+        )
+        if keep_existing_champion:
+            best_statuses.append("challenger:kept_existing_champion")
+            if chosen_path != out_path:
+                try:
+                    chosen_path.unlink()
+                except Exception:
+                    pass
+        elif chosen_path != out_path:
             chosen_path.replace(out_path)
         postpass_attempts = best_statuses
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
@@ -6446,6 +6578,27 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 "style_epoch": dict(spec.get("style_epoch") or {}) if isinstance(spec.get("style_epoch"), dict) else {},
             }
         )
+        record_challenger_attempt(
+            ledger=challenger_ledger,
+            target=target,
+            output_path=canonical_path if keep_existing_champion else out_path,
+            score=best_final_score,
+            notes=best_notes,
+            provider=str(best_result["provider"]),
+            status=str(best_result["status"]),
+            beat_champion=best_beats_champion,
+        )
+        if best_beats_champion or not champion_entry:
+            record_champion_result(
+                ledger=challenger_ledger,
+                target=target,
+                output_path=canonical_path if keep_existing_champion else out_path,
+                score=best_final_score,
+                notes=best_notes,
+                provider=str(best_result["provider"]),
+                status=str(best_result["status"]),
+                source="repo_output" if _same_resolved_path(out_path, canonical_path) else "render_output",
+            )
         egg_payload = easter_egg_payload(contract)
         return {
             "target": target,
@@ -6479,6 +6632,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
             "assets": accepted_rows,
         },
     )
+    write_json_file(CHALLENGER_LEDGER_OUT, challenger_ledger)
     STATE_OUT.write_text(
         json.dumps(
             {
