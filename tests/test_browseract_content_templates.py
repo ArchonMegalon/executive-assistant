@@ -43,6 +43,7 @@ class BrowserActContentTemplateTests(unittest.TestCase):
         submit_node = next(node for node in billing_usage["workflow_spec_json"]["nodes"] if node["id"] == "submit")
         self.assertEqual(submit_node["type"], "submit_login_form")
         self.assertTrue(submit_node["config"]["react_click"])
+        self.assertEqual(submit_node["config"]["form_selector"], "form[name='login'], .ant-modal form, .ant-modal-root form, form")
         self.assertTrue(any(node["id"] == "unlock_free_credits" for node in billing_usage["workflow_spec_json"]["nodes"]))
         self.assertTrue(any(node["id"] == "extract_pre_bonus_page" for node in billing_usage["workflow_spec_json"]["nodes"]))
         self.assertTrue(any(node["id"] == "extract_billing_bonus_page" for node in billing_usage["workflow_spec_json"]["nodes"]))
@@ -59,6 +60,8 @@ class BrowserActContentTemplateTests(unittest.TestCase):
         open_login_entry = next(node for node in members["workflow_spec_json"]["nodes"] if node["id"] == "open_login_modal")
         self.assertTrue(open_login_entry["config"]["dom_click"])
         self.assertTrue(open_login_entry["config"]["react_click"])
+        submit_node = next(node for node in members["workflow_spec_json"]["nodes"] if node["id"] == "submit")
+        self.assertEqual(submit_node["config"]["form_selector"], "form[name='login'], .ant-modal form, .ant-modal-root form, form")
 
 
 if __name__ == "__main__":

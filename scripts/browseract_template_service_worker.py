@@ -352,6 +352,30 @@ async function main() {
     }
   }
 
+  async function maybeRequestSubmit(selector, label, config = {}) {
+    const normalized = String(selector || '').trim();
+    if (!normalized) return false;
+    try {
+      const locator = await awaitLocator(normalized, config);
+      if (!locator) return false;
+      await locator.evaluate((form) => {
+        if (form && typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+          return;
+        }
+        if (form && typeof form.dispatchEvent === 'function') {
+          form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        }
+      });
+      await page.waitForTimeout(Math.max(500, Number((config && config.post_click_wait_ms) || 1500)));
+      await trace(`request-submit-${label || 'submit'}`);
+      return true;
+    } catch (error) {
+      result.warnings.push(`${label || 'request_submit'}:${String(error && error.message ? error.message : error)}`);
+      return false;
+    }
+  }
+
   async function waitForCookie(cookieName, timeoutMs) {
     const normalized = String(cookieName || '').trim();
     if (!normalized) return true;
@@ -370,6 +394,7 @@ async function main() {
 
   async function submitLoginForm(config, label) {
     const passwordSelector = String(config.password_selector || "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']").trim();
+    const formSelector = String(config.form_selector || "form[name='login'], .ant-modal form, .ant-modal-root form, form").trim();
     const startUrl = String(page.url() || '');
     const authAdvanceTimeoutMs = Math.max(1500, Number(config.auth_advance_timeout_ms || 5000));
     const preSubmitCookieName = String(config.pre_submit_cookie_name || '').trim();
@@ -414,6 +439,11 @@ async function main() {
       }
       if (preSubmitWaitMs > 0) {
         await page.waitForTimeout(preSubmitWaitMs);
+      }
+      if (formSelector && await maybeRequestSubmit(formSelector, `${label}:request_submit:${attempt + 1}`, config)) {
+        if (await authAdvanced()) {
+          return true;
+        }
       }
       if (await maybePressEnter(passwordSelector, `${label}:enter:${attempt + 1}`, config)) {
         if (await authAdvanced()) {
@@ -560,6 +590,23 @@ async function main() {
   }
 
   try {
+    page.on('requestfailed', (request) => {
+      try {
+        const url = String(request.url() || '');
+        const errorText = String((request.failure() && request.failure().errorText) || '');
+        if (url.includes('api.1min.ai/auth/')) {
+          result.warnings.push(`requestfailed:${url}:${errorText}`);
+        }
+      } catch (_) {}
+    });
+    page.on('console', (message) => {
+      try {
+        const text = String(message && message.text ? message.text() : '');
+        if (text.includes('api.1min.ai/auth/login') || text.includes('CORS policy')) {
+          result.warnings.push(`console:${text}`);
+        }
+      } catch (_) {}
+    });
     for (const node of (spec.nodes || [])) {
       if (!node || typeof node !== 'object') continue;
       const nodeType = String(node.type || '').trim().toLowerCase();

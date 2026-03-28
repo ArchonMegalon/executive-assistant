@@ -63,6 +63,12 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "/app/settings/invitations" in settings.text
     assert "/app/settings/trust" in settings.text
 
+    search_page = client.get("/app/search", params={"query": "Sofia"})
+    assert search_page.status_code == 200
+    assert "Workspace search" in search_page.text
+    assert "Results for “Sofia”" in search_page.text
+    assert "Sofia N." in search_page.text
+
     person_detail = client.get(f"/app/people/{seeded['stakeholder_id']}")
     assert person_detail.status_code == 200
     assert "Sofia N." in person_detail.text

@@ -97,9 +97,13 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             if str(binding.status or "").strip().lower() == "enabled"
         ]
         binding_jobs: list[dict[str, object]] = []
-        bound_account_label_order: list[str] = []
-        seen_account_labels: set[str] = set()
+        principal_binding_rows: dict[str, list[object]] = {}
+        principal_bound_account_label_order: dict[str, list[str]] = {}
+        principal_seen_account_labels: dict[str, set[str]] = {}
         for binding in bindings:
+            principal_id = str(binding.principal_id or "").strip()
+            if not principal_id:
+                continue
             binding_metadata = dict(binding.auth_metadata_json or {})
             billing_run_url = providers_route._binding_run_url(
                 binding_metadata,
@@ -124,13 +128,17 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
                 "browseract_onemin_members_workflow_id",
             )
             account_labels = providers_route._resolve_onemin_account_labels(binding)
+            principal_binding_rows.setdefault(principal_id, []).append(binding)
+            principal_bound_account_label_order.setdefault(principal_id, [])
+            principal_seen_account_labels.setdefault(principal_id, set())
             for account_label in account_labels:
-                if account_label and account_label not in seen_account_labels:
-                    seen_account_labels.add(account_label)
-                    bound_account_label_order.append(account_label)
+                if account_label and account_label not in principal_seen_account_labels[principal_id]:
+                    principal_seen_account_labels[principal_id].add(account_label)
+                    principal_bound_account_label_order[principal_id].append(account_label)
             binding_jobs.append(
                 {
                     "binding": binding,
+                    "principal_id": principal_id,
                     "binding_metadata": binding_metadata,
                     "billing_run_url": billing_run_url,
                     "billing_workflow_id": billing_workflow_id,
@@ -140,32 +148,44 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
                 }
             )
 
-        stale_labels, actual_labels = providers_route._partition_onemin_browseract_account_labels(
-            container=container,
-            principal_id="codex-fleet",
-            binding_rows=bindings,
-            account_labels=bound_account_label_order,
-        )
-        selected_browseract_labels: set[str] = set()
-        if stale_labels:
-            selected_browseract_labels.update(
-                container.onemin_manager.select_billing_refresh_account_labels(
-                    stale_labels,
-                    limit=min(browseract_max_accounts, len(stale_labels)),
-                )
+        select_refresh_account_labels = getattr(container.onemin_manager, "select_billing_refresh_account_labels", None)
+        principal_selected_browseract_labels: dict[str, set[str]] = {}
+        for principal_id, account_labels in principal_bound_account_label_order.items():
+            stale_labels, actual_labels = providers_route._partition_onemin_browseract_account_labels(
+                container=container,
+                principal_id=principal_id,
+                binding_rows=principal_binding_rows.get(principal_id, []),
+                account_labels=account_labels,
             )
-        remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
-        if remaining_browseract_slots > 0 and actual_labels:
-            selected_browseract_labels.update(
-                container.onemin_manager.select_billing_refresh_account_labels(
-                    actual_labels,
-                    limit=min(remaining_browseract_slots, len(actual_labels)),
-                )
-            )
+            selected_browseract_labels: set[str] = set()
+            if stale_labels:
+                if callable(select_refresh_account_labels):
+                    selected_browseract_labels.update(
+                        select_refresh_account_labels(
+                            stale_labels,
+                            limit=min(browseract_max_accounts, len(stale_labels)),
+                        )
+                    )
+                else:
+                    selected_browseract_labels.update(list(stale_labels)[: min(browseract_max_accounts, len(stale_labels))])
+            remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
+            if remaining_browseract_slots > 0 and actual_labels:
+                if callable(select_refresh_account_labels):
+                    selected_browseract_labels.update(
+                        select_refresh_account_labels(
+                            actual_labels,
+                            limit=min(remaining_browseract_slots, len(actual_labels)),
+                        )
+                    )
+                else:
+                    selected_browseract_labels.update(list(actual_labels)[: min(remaining_browseract_slots, len(actual_labels))])
+            principal_selected_browseract_labels[principal_id] = selected_browseract_labels
 
         browseract_billing_jobs: list[dict[str, object]] = []
         for job in binding_jobs:
             binding = job["binding"]
+            principal_id = str(job["principal_id"] or "")
+            selected_browseract_labels = principal_selected_browseract_labels.get(principal_id, set())
             binding_metadata = dict(job["binding_metadata"] or {})
             billing_run_url = str(job["billing_run_url"] or "")
             billing_workflow_id = str(job["billing_workflow_id"] or "")
