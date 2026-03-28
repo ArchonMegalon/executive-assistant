@@ -344,6 +344,158 @@ asset_overlay_contracts:
     overlay_attachment_rule: >
       Attach overlays to rails, packet flow, and apparatus geometry; avoid
       floating torso or face coverage.
+  assets/pages/what-chummer6-is.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.64
+    subject_crop_maximum: 0.23
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - clipped provenance tags
+      - vertical rail markers
+      - trust-seam brackets
+      - subtle trace arrows
+    overlay_actionability_rule: >
+      If overlays appear, keep them faint and anchored to the review rail,
+      clips, or trace seam; never let a floating screen or loose text slab
+      explain the page.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/pages/current-status.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.66
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - fragile provenance traces
+      - shelf brackets
+      - weak receipt halos
+      - edge-biased target pings
+    overlay_actionability_rule: >
+      Keep any AR faint, local, and shelf-anchored; the public niche and its
+      surviving physical traces must do more storytelling than electronics.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/pages/public-surfaces.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.70
+    subject_crop_maximum: 0.20
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - cross-surface state echoes
+      - route markers
+      - wall-seam brackets
+      - taped-pocket traces
+    overlay_actionability_rule: >
+      Any overlay must stay welded to wall seams, pockets, route tiles, or
+      shelf traces; never promote a single glowing panel into the subject.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/pages/parts-index.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.74
+    subject_crop_maximum: 0.18
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - route lines
+      - district callout pings
+      - zone brackets
+      - floor-path halos
+    overlay_actionability_rule: >
+      Overlays may only help the viewer parse room-scale work zones and route
+      connections; the walkable environment map must remain primary.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/alice.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.34
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - branching hazard arcs
+      - mannequin-silhouette brackets
+      - test-lane markers
+      - outcome ghost traces
+    overlay_actionability_rule: >
+      Treat any overlay as test-lane hazard instrumentation attached to the
+      sim bench, mannequin silhouette, or branching risk path, never as a wall
+      display verdict.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/runsite.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.60
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - ingress cones
+      - ghost-lane traces
+      - threat-posture marks
+      - wall-seam anchors
+    overlay_actionability_rule: >
+      Keep planning cues welded to wet concrete, wall seams, crate edges, and
+      ingress paths so the staging point reads as a real place, not a slab UI.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/hub.png:
+    world_marker_minimum: 3
+    environment_share_minimum: 0.62
+    apparatus_share_minimum: 0.45
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+    overlay_geometry:
+      - relay seams
+      - hosted-state brackets
+      - aisle pings
+      - rack-edge traces
+    overlay_actionability_rule: >
+      Any overlay must attach to racks, seams, or aisle hardware and should
+      reinforce hosted coordination instead of becoming a screen wall.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
 sections:
   - id: hero
     brief_family: clinic_intake

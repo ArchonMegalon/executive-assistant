@@ -36,6 +36,22 @@ journey_gates:
         - support_packets
       minimum_history_snapshots: 2
       target_history_snapshots: 4
+      repo_source_proof:
+        - repo: chummer6-hub
+          path: .codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
+          must_contain:
+            - '"contract_name": "chummer6-hub.local_release_proof"'
+            - '"status": "passed"'
+        - repo: chummer6-ui
+          path: Chummer.Desktop.Runtime/DesktopInstallLinkingRuntime.cs
+          must_contain:
+            - BuildSupportPortalRelativePathForInstall
+            - BuildSupportPortalRelativePathForWorkspace
+        - repo: chummer6-mobile
+          path: src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
+          must_contain:
+            - kind=install_help
+            - sessionId=
       required_project_posture:
         - project_id: ui
           minimum_stage: pre_repo_local_complete
