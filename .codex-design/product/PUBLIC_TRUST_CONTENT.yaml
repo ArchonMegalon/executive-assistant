@@ -46,7 +46,7 @@ trust_pages:
         body: "The first-party intake is the default lane for install trouble, product bugs, and practical feedback. GitHub is the advanced public issue lane, not the main customer entry point."
         bullets:
           - "Use Contact for install trouble, product bugs, or UX friction."
-          - "Use Account > Support when you want tracked case history in the signed-in shell."
+          - "Use Account > Support when you want tracked case history attached to your account."
           - "Use GitHub only when you intentionally want a public technical issue trail."
       - id: product-question
         eyebrow: "Product question or UX confusion"
@@ -61,9 +61,9 @@ trust_pages:
     heading: "What Chummer stores, and what it does not"
     intro: "This is the practical hosted-product posture right now: what the account keeps, what stays out of Hub, and how install linking and support stay bounded."
     effective_date: "2026-03-25"
-    updated_date: "2026-03-25"
+    updated_date: "2026-03-28"
     summary_points:
-      - "The installer stays canonical"
+      - "The installer stays the same for everyone"
       - "Hub stores account and support state"
       - "Provider secrets stay out of Hub"
     actions:
@@ -83,7 +83,7 @@ trust_pages:
         body: "The hosted account keeps your basic profile, linked sign-in methods, devices and access state, support cases, and preview preferences so the public and signed-in surfaces stay coherent."
       - id: install-linking
         eyebrow: "Install linking"
-        heading: "The installer stays canonical; the account handoff is the variable part"
+        heading: "The installer stays the same; the account handoff is the variable part"
         body: "Chummer does not personalize the installer binary. The account-aware part is the signed-in receipt and short-lived claim code that can bind the local copy back to your account on first launch."
       - id: not-in-hub
         eyebrow: "What stays out"
@@ -188,7 +188,7 @@ faq_pages:
           - question: "Why is the current preview gated behind an account?"
             answer: "The current preview uses account-aware download handoff so the first installed copy can attach back to your account from first launch instead of becoming an orphaned preview."
           - question: "Do I get a personalized installer?"
-            answer: "No. The installer stays canonical. The account-aware part is the receipt and short-lived claim code that links the installed copy back to you."
+            answer: "No. The installer stays the same for everyone. The account-aware part is the receipt and short-lived claim code that links the installed copy back to you."
           - question: "Where do I go if install or update goes sideways?"
             answer: "Start with Downloads, then use Contact or Account > Support. GitHub is the advanced public issue lane, not the default support door."
       - title: "Participation and support"
@@ -196,4 +196,4 @@ faq_pages:
           - question: "Do I need to participate to help or report a bug?"
             answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
           - question: "Can I get help without a GitHub account?"
-            answer: "Yes. The first-party support intake is the default help lane. Create a Chummer account if you want tracked support history inside the signed-in shell."
+            answer: "Yes. The first-party support intake is the default help lane. Create a Chummer account if you want tracked support history inside your account."

@@ -20,6 +20,7 @@ def create_app() -> FastAPI:
     from app.api.routes.evidence import router as evidence_router
     from app.api.routes.google_oauth import router as google_oauth_router
     from app.api.routes.health import router as health_router
+    from app.api.routes.landing_actions import router as landing_actions_router
     from app.api.routes.landing_channel import router as landing_channel_router
     from app.api.routes.human import router as human_router
     from app.api.routes.landing import router as landing_router
@@ -42,6 +43,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
+    app.include_router(landing_actions_router)
     app.include_router(landing_channel_router)
     app.include_router(landing_objects_router)
     app.include_router(landing_workspace_router)

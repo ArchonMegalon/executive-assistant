@@ -36,7 +36,7 @@ guest_gate_summary: Create a Chummer account first so the installer handoff, cla
 guest_gate_primary_label: Create account to get preview
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Keep this install linked from the first launch
-signed_in_dispatch_summary: Start the canonical installer download, copy the short-lived claim code, and let Chummer attach this installed copy back to your account when it opens.
+signed_in_dispatch_summary: Start the same published installer download, copy the short-lived claim code, and let Chummer attach this installed copy back to your account when it opens.
 signed_in_dispatch_steps:
   - Start the installer from this signed-in handoff page.
   - Copy the short-lived claim code before you leave the browser.
