@@ -2504,10 +2504,13 @@ def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
         target="assets/pages/parts-index.png",
         variant=1,
         previous_provider="onemin",
+        previous_score=120.0,
+        champion_score=240.0,
         previous_notes=["visual_audit:environment_share_too_low"],
         previous_gate_failures=[],
     )
     assert adjusted_room["providers"][0] == "media_factory"
+    assert "prefer_media_factory_challenger" in room_tags
     assert "prefer_media_factory_room" in room_tags
 
     adjusted_finish, finish_tags = media.ooda_variant_spec(
@@ -2515,11 +2518,31 @@ def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
         target="assets/horizons/karma-forge.png",
         variant=1,
         previous_provider="media_factory",
+        previous_score=120.0,
+        champion_score=240.0,
         previous_notes=["visual_audit:soft_finish"],
         previous_gate_failures=[],
     )
     assert adjusted_finish["providers"][0] == "onemin"
     assert "prefer_onemin_finish" in finish_tags
+
+
+def test_ooda_variant_spec_switches_weak_asset_off_losing_onemin_branch() -> None:
+    media = _load_module()
+
+    adjusted, tags = media.ooda_variant_spec(
+        spec={"providers": ["onemin", "media_factory", "browseract_prompting_systems", "magixai"]},
+        target="assets/pages/what-chummer6-is.png",
+        variant=1,
+        previous_provider="onemin",
+        previous_score=180.0,
+        champion_score=240.0,
+        previous_notes=[],
+        previous_gate_failures=[],
+    )
+
+    assert adjusted["providers"][0] == "media_factory"
+    assert "prefer_media_factory_challenger" in tags
 
 
 def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_requiring_it(monkeypatch: pytest.MonkeyPatch) -> None:
