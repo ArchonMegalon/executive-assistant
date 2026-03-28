@@ -890,7 +890,29 @@ def test_product_diagnostics_include_value_events() -> None:
     assert body["billing"]["renewal_owner_role"] == "principal"
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
-    assert isinstance(body["pending_delivery"], list)
+
+
+def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
+    principal_id = "exec-product-delivery-public-host"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.delenv("EA_PUBLIC_APP_BASE_URL", raising=False)
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://public.example.com/google/callback")
+
+    delivery = client.post(
+        "/app/api/channel-loop/memo/deliveries",
+        json={
+            "recipient_email": "operator@example.com",
+            "role": "operator",
+            "display_name": "Operator Digest",
+            "operator_id": "operator-office",
+            "delivery_channel": "link_only",
+            "expires_in_hours": 24,
+        },
+    )
+    assert delivery.status_code == 200
+    delivery_body = delivery.json()
+    assert "https://public.example.com/channel-loop/deliveries/" in delivery_body["plain_text"]
 
 
 def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> None:

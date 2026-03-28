@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
@@ -26,6 +29,18 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+def _public_base_url(request: Request) -> str:
+    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if redirect_uri:
+        parsed = urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    return str(request.base_url).rstrip("/")
 
 
 @router.get("/events", response_model=OfficeEventResponse)
@@ -191,7 +206,7 @@ def get_channel_digest_plain(
         principal_id=context.principal_id,
         digest_key=digest_key,
         operator_id=str(context.operator_id or "").strip(),
-        base_url=str(request.base_url),
+        base_url=_public_base_url(request),
     )
     if not text:
         raise HTTPException(status_code=404, detail="channel_digest_not_found")
@@ -222,7 +237,7 @@ def create_channel_digest_delivery(
         operator_id=body.operator_id,
         delivery_channel=body.delivery_channel,
         expires_in_hours=body.expires_in_hours,
-        base_url=str(request.base_url),
+        base_url=_public_base_url(request),
     )
     if payload is None:
         raise HTTPException(status_code=404, detail="channel_digest_not_found")
