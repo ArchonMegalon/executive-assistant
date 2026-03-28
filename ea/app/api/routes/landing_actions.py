@@ -255,3 +255,31 @@ async def app_correct_person(
     if corrected is None:
         raise HTTPException(status_code=404, detail="person_not_found")
     return RedirectResponse(return_to, status_code=303)
+
+
+@router.post("/app/actions/settings/morning-memo")
+async def app_update_morning_memo_settings(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/settings")
+    status = container.onboarding.status(principal_id=context.principal_id)
+    privacy = dict(status.get("privacy") or {})
+    morning_memo = dict(dict(status.get("delivery_preferences") or {}).get("morning_memo") or {})
+    container.onboarding.finalize(
+        principal_id=context.principal_id,
+        retention_mode=str(privacy.get("retention_mode") or "full_bodies"),
+        metadata_only_channels=tuple(str(value) for value in (privacy.get("metadata_only_channels") or []) if str(value).strip()),
+        allow_drafts=bool(privacy.get("allow_drafts")),
+        allow_action_suggestions=bool(privacy.get("allow_action_suggestions", True)),
+        allow_auto_briefs=_form_value(body, "enabled", "").lower() in {"true", "1", "yes", "on"},
+        auto_brief_cadence=_form_value(body, "cadence", str(morning_memo.get("cadence") or "daily_morning")),
+        auto_brief_delivery_time_local=_form_value(body, "delivery_time_local", str(morning_memo.get("delivery_time_local") or "08:00")),
+        auto_brief_quiet_hours_start=_form_value(body, "quiet_hours_start", str(morning_memo.get("quiet_hours_start") or "20:00")),
+        auto_brief_quiet_hours_end=_form_value(body, "quiet_hours_end", str(morning_memo.get("quiet_hours_end") or "07:00")),
+        auto_brief_recipient_email=_form_value(body, "recipient_email", str(morning_memo.get("recipient_email") or "")),
+        auto_brief_delivery_channel=str(morning_memo.get("delivery_channel") or "email"),
+    )
+    return RedirectResponse(return_to, status_code=303)

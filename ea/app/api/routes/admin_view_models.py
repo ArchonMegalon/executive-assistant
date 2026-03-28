@@ -11,6 +11,7 @@ def _row(
     detail: str,
     tag: str,
     *,
+    href: str = "",
     action_href: str = "",
     action_label: str = "",
     action_value: str = "",
@@ -23,6 +24,8 @@ def _row(
     secondary_return_to: str = "",
 ) -> dict[str, str]:
     row = {"title": title, "detail": detail, "tag": tag}
+    if href:
+        row["href"] = href
     if action_href:
         row["action_href"] = action_href
     if action_label:
@@ -66,14 +69,58 @@ def _operator_rows(values: object) -> list[dict[str, str]]:
     return rows
 
 
-def build_admin_section_payload(section: str, *, container: AppContainer, principal_id: str) -> dict[str, object]:
+def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = True, return_to: str = "/admin/office") -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    operator_key = str(operator_id or "").strip()
+    for value in values if isinstance(values, (list, tuple)) else []:
+        handoff_id = str(getattr(value, "id", "") or "").strip()
+        owner = str(getattr(value, "owner", "") or "").strip()
+        detail = " · ".join(
+            part
+            for part in (
+                owner or "Unassigned",
+                f"due {str(getattr(value, 'due_time', '') or '')[:10]}" if getattr(value, "due_time", None) else "",
+                str(getattr(value, "escalation_status", "") or "").replace("_", " ").title(),
+            )
+            if str(part or "").strip()
+        ) or "Handoff is still open."
+        action_href = ""
+        action_label = ""
+        action_value = ""
+        if actionable and handoff_id:
+            if operator_key and owner == operator_key:
+                action_href = f"/app/actions/handoffs/{handoff_id}/complete"
+                action_label = "Complete"
+                action_value = "completed"
+            else:
+                action_href = f"/app/actions/handoffs/{handoff_id}/assign"
+                action_label = "Claim"
+                action_value = "assign"
+        rows.append(
+            _row(
+                str(getattr(value, "summary", "") or "Handoff"),
+                detail,
+                str(getattr(value, "escalation_status", "") or "handoff").replace("_", " ").title(),
+                href=f"/app/handoffs/{handoff_id}" if handoff_id else "",
+                action_href=action_href,
+                action_label=action_label,
+                action_value=action_value,
+                return_to=return_to if action_href else "",
+            )
+        )
+    return rows
+
+def build_admin_section_payload(section: str, *, container: AppContainer, principal_id: str, operator_id: str = "") -> dict[str, object]:
     readiness_ok, readiness_label = container.readiness.check()
     readiness_state = "ready" if readiness_ok else "attention"
     status = container.onboarding.status(principal_id=principal_id)
     privacy = dict(status.get("privacy") or {})
     delivery_preferences = dict(status.get("delivery_preferences") or {})
     morning_memo = dict(delivery_preferences.get("morning_memo") or {})
-    diagnostics = build_product_service(container).workspace_diagnostics(principal_id=principal_id)
+    product = build_product_service(container)
+    diagnostics = product.workspace_diagnostics(principal_id=principal_id)
+    office = product.operator_center(principal_id=principal_id, operator_id=operator_id)
+    office_snapshot_state = product.workspace_snapshot(principal_id=principal_id, operator_id=operator_id)
     approvals = container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=8)
     approval_history = container.orchestrator.list_approval_history_for_principal(principal_id=principal_id, limit=8)
     human_tasks = container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=8)
@@ -344,8 +391,134 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for event in list(diagnostics_analytics.get("recent_events") or [])[:8]
     ]
+    office_queue = dict(office.get("queue_health") or {})
+    office_delivery = dict(office.get("delivery") or {})
+    office_access = dict(office.get("access") or {})
+    office_sync = dict(office.get("sync") or {})
+    office_snapshot = {str(key): int(value or 0) for key, value in dict(office.get("snapshot") or {}).items()}
+    office_operator_key = str(operator_id or "").strip()
+    office_assigned_handoffs = [
+        row for row in office_snapshot_state.handoffs
+        if office_operator_key and str(getattr(row, "owner", "") or "").strip() == office_operator_key
+    ]
+    office_claimable_handoffs = [
+        row for row in office_snapshot_state.handoffs
+        if not office_operator_key or str(getattr(row, "owner", "") or "").strip() != office_operator_key
+    ]
+    office_lane_rows = [
+        _row(
+            str(item.get("label") or "Lane"),
+            str(item.get("detail") or "Operator lane detail"),
+            _humanize(str(item.get("state") or "clear")).title(),
+            href=str(item.get("href") or "/admin/office"),
+        )
+        for item in list(office.get("lanes") or [])
+    ]
+    office_action_rows = [
+        _row(
+            str(item.get("label") or "Next action"),
+            str(item.get("detail") or "Operator action"),
+            "Next",
+            href=str(item.get("href") or "/admin/office"),
+            action_href=str(item.get("action_href") or ""),
+            action_label=str(item.get("action_label") or ""),
+            action_value=str(item.get("action_value") or ""),
+            action_method=str(item.get("action_method") or ""),
+            return_to=str(item.get("return_to") or ""),
+        )
+        for item in list(office.get("next_actions") or [])
+    ]
+    office_delivery_rows = [
+        _row("Active sessions", str(office_access.get("active") or 0), "Access", href="/app/settings/access"),
+        _row("Access opens", str(office_access.get("opened") or 0), "Access", href="/app/settings/access"),
+        _row("Revoked sessions", str(office_access.get("revoked") or 0), "Access", href="/app/settings/access"),
+        _row("Registration emails sent", str(office_delivery.get("registration_sent") or 0), "Delivery", href="/app/settings/invitations"),
+        _row("Registration email failures", str(office_delivery.get("registration_failed") or 0), "Delivery", href="/app/settings/support"),
+        _row("Digest emails sent", str(office_delivery.get("digest_sent") or 0), "Delivery", href="/app/channel-loop"),
+        _row("Digest email failures", str(office_delivery.get("digest_failed") or 0), "Delivery", href="/app/settings/support"),
+        _row("Google account", str(office_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
+        _row("Google sync freshness", _humanize(str(office_sync.get("google_sync_freshness_state") or "watch")).title(), "Sync", href="/app/settings/google"),
+        _row("Pending sync candidates", str(office_sync.get("pending_commitment_candidates") or 0), "Queue", href="/app/inbox"),
+    ]
+    office_snapshot_rows = [
+        _row("Assigned handoffs", str(office_snapshot.get("assigned_handoffs") or 0), "Queue", href="/app/follow-ups"),
+        _row("Completed handoffs", str(office_snapshot.get("completed_handoffs") or 0), "Queue", href="/app/follow-ups"),
+        _row("Clearable queue items", str(office_snapshot.get("clearable_queue_items") or 0), "Queue", href="/app/briefing"),
+        _row("Exception count", str(office_snapshot.get("exception_count") or 0), "Queue", href="/admin/office"),
+        _row("Open commitments", str(office_snapshot.get("open_commitments") or 0), "Commitments", href="/app/inbox"),
+        _row("Pending drafts", str(office_snapshot.get("pending_drafts") or 0), "Drafts", href="/app/inbox"),
+        _row("Open decisions", str(office_snapshot.get("open_decisions") or 0), "Decisions", href="/app/briefing"),
+        _row("People in play", str(office_snapshot.get("people_in_play") or 0), "People", href="/app/people"),
+        _row("Queue state", str(office_queue.get("state") or "healthy"), "Queue", href="/admin/office"),
+        _row("Load score", str(office_queue.get("load_score") or 0), "Queue", href="/admin/office"),
+    ]
+    office_runtime_rows = [
+        _row(
+            _humanize(str(item.get("event_type") or "event")).title(),
+            " · ".join(
+                part
+                for part in (
+                    str(item.get("created_at") or "")[:19],
+                    str(item.get("source_id") or "").strip(),
+                )
+                if str(part or "").strip()
+            )
+            or "Recent operator/runtime event.",
+            "Event",
+        )
+        for item in list(office.get("recent_runtime") or [])[:10]
+    ]
 
     mapping: dict[str, dict[str, object]] = {
+        "office": {
+            "title": "Office",
+            "summary": "Claim, pre-clear, and protect the office loop before it turns into principal noise.",
+            "cards": [
+                {
+                    "eyebrow": "Operator lanes",
+                    "title": "What the office control surface is carrying right now",
+                    "items": office_lane_rows or [_row("No active lanes", "The operator center is currently clear.", "Clear")],
+                },
+                {
+                    "eyebrow": "Next actions",
+                    "title": "What the operator should do next",
+                    "items": office_action_rows or [_row("No next actions", "The current office loop does not need an operator intervention.", "Clear")],
+                },
+                {
+                    "eyebrow": "Assigned to me",
+                    "title": "What already belongs to this operator lane",
+                    "items": _handoff_rows(office_assigned_handoffs[:8], operator_id=office_operator_key, return_to="/admin/office")
+                    or [_row("No assigned handoffs", "Nothing is currently assigned to this operator lane.", "Clear")],
+                },
+                {
+                    "eyebrow": "Claimable handoffs",
+                    "title": "What can be claimed next",
+                    "items": _handoff_rows(office_claimable_handoffs[:8], operator_id=office_operator_key, return_to="/admin/office")
+                    or [_row("No claimable handoffs", "The current handoff lane is already claimed or clear.", "Clear")],
+                },
+                {
+                    "eyebrow": "Delivery and sync",
+                    "title": "Access, delivery, and Google posture",
+                    "items": office_delivery_rows,
+                },
+                {
+                    "eyebrow": "Recently completed",
+                    "title": "What just moved through the operator lane",
+                    "items": _handoff_rows(office_snapshot_state.completed_handoffs[:6], actionable=False)
+                    or [_row("No recently completed handoffs", "Completed operator work will appear here after it returns cleanly.", "History")],
+                },
+                {
+                    "eyebrow": "Current load",
+                    "title": "What the operator lane is protecting",
+                    "items": office_snapshot_rows,
+                },
+                {
+                    "eyebrow": "Recent runtime",
+                    "title": "Recent operator and runtime events",
+                    "items": office_runtime_rows or [_row("No recent runtime events", "Operator and delivery events will appear here as the office loop runs.", "History")],
+                },
+            ],
+        },
         "policies": {
             "title": "Policies",
             "summary": "Approval posture, review rules, and queue pressure for the current office deployment.",
@@ -421,12 +594,20 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         },
     }
     payload = mapping[section]
+    stats = [
+        {"label": "Providers", "value": str(registry.get("provider_count") or 0)},
+        {"label": "Approvals", "value": str(len(approvals))},
+        {"label": "Human tasks", "value": str(task_summary.get("total") or len(human_tasks))},
+        {"label": "Delivery", "value": str(len(pending_delivery))},
+    ]
+    if section == "office":
+        stats = [
+            {"label": "Claims", "value": str(office_queue.get("unclaimed_handoffs") or 0)},
+            {"label": "Exceptions", "value": str(office_snapshot.get("exception_count") or 0)},
+            {"label": "Clearable", "value": str(office_snapshot.get("clearable_queue_items") or 0)},
+            {"label": "Decisions", "value": str(office_snapshot.get("open_decisions") or 0)},
+        ]
     return {
-        "stats": [
-            {"label": "Providers", "value": str(registry.get("provider_count") or 0)},
-            {"label": "Approvals", "value": str(len(approvals))},
-            {"label": "Human tasks", "value": str(task_summary.get("total") or len(human_tasks))},
-            {"label": "Delivery", "value": str(len(pending_delivery))},
-        ],
+        "stats": stats,
         **payload,
     }

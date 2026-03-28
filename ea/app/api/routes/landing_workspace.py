@@ -702,7 +702,7 @@ def settings_access_detail(
             _object_detail_row("Active sessions", str(len(active_sessions)), "Access"),
             _object_detail_row("Access opens", str(total_opens), "Telemetry"),
             _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
-            _object_detail_row("Default operator target", "/app/activity", "Operators"),
+            _object_detail_row("Default operator target", "/admin/office", "Operators"),
             _object_detail_row("Default principal target", "/app/today", "Principal"),
         ],
         object_sections=[

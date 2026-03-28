@@ -1518,7 +1518,7 @@ class ProductService:
             "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
         }
         access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
-        default_target = "/app/activity" if normalized_role == "operator" else "/app/today"
+        default_target = "/admin/office" if normalized_role == "operator" else "/app/today"
         payload = {
             "session_id": session_id,
             "principal_id": str(principal_id or "").strip(),
@@ -1579,7 +1579,7 @@ class ProductService:
                     "expires_at": str(payload.get("expires_at") or "").strip(),
                     "access_token": str(payload.get("access_token") or "").strip(),
                     "access_url": str(payload.get("access_url") or "").strip(),
-                    "default_target": str(payload.get("default_target") or ("/app/activity" if normalized_role == "operator" else "/app/today")).strip(),
+                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/today")).strip(),
                 }
             elif event_type == "workspace_access_session_revoked" and session_id in sessions:
                 sessions[session_id].update(
@@ -1633,7 +1633,7 @@ class ProductService:
             "expires_at": str(payload.get("expires_at") or "").strip(),
             "access_token": str(token or "").strip(),
             "access_url": f"/workspace-access/{token}",
-            "default_target": "/app/activity" if normalized_role == "operator" else "/app/today",
+            "default_target": "/admin/office" if normalized_role == "operator" else "/app/today",
         }
 
     def open_workspace_access_session(self, *, token: str, actor: str = "") -> dict[str, object] | None:
@@ -3644,7 +3644,7 @@ class ProductService:
                 "state": "critical" if int(queue_health.get("sla_breaches") or 0) else "clear",
                 "count": int(queue_health.get("sla_breaches") or 0),
                 "detail": f"{int(queue_health.get('sla_breaches') or 0)} breaches · {int(queue_health.get('oldest_handoff_age_hours') or 0)}h oldest handoff",
-                "href": "/app/activity",
+                "href": "/admin/office",
             },
             {
                 "key": "claims",
@@ -3652,7 +3652,7 @@ class ProductService:
                 "state": "watch" if int(queue_health.get("unclaimed_handoffs") or 0) else "clear",
                 "count": int(queue_health.get("unclaimed_handoffs") or 0),
                 "detail": f"{int(queue_health.get('suggested_claims') or 0)} suggested claims ready now",
-                "href": "/app/activity",
+                "href": "/admin/office",
             },
             {
                 "key": "preclear",
@@ -3660,7 +3660,7 @@ class ProductService:
                 "state": "watch" if clearable_queue_items else "clear",
                 "count": len(clearable_queue_items),
                 "detail": f"{len(clearable_queue_items)} queue items can be cleared inside the operator lane",
-                "href": "/app/activity",
+                "href": "/admin/office",
             },
             {
                 "key": "principal",
@@ -3726,12 +3726,12 @@ class ProductService:
                 {
                     "label": str(item.get("summary") or handoff_id or "Claim handoff"),
                     "detail": "Claim the most urgent unassigned handoff before it ages into a miss.",
-                    "href": f"/app/handoffs/{handoff_id}" if handoff_id else "/app/activity",
+                    "href": f"/app/handoffs/{handoff_id}" if handoff_id else "/admin/office",
                     "action_href": f"/app/actions/handoffs/{handoff_id}/assign" if handoff_id else "",
                     "action_label": "Claim" if handoff_id else "",
                     "action_value": "assign" if handoff_id else "",
                     "action_method": "post" if handoff_id else "",
-                    "return_to": "/app/activity" if handoff_id else "",
+                    "return_to": "/admin/office" if handoff_id else "",
                 }
             )
         if int(queue_health.get("retrying_delivery") or 0) or int(queue_health.get("delivery_errors") or 0):
@@ -3796,12 +3796,12 @@ class ProductService:
                 {
                     "label": str(clearable.title or "Clear queue item"),
                     "detail": "Resolve this inside the operator lane before it becomes principal noise.",
-                    "href": clearable_href or "/app/activity",
+                    "href": clearable_href or "/admin/office",
                     "action_href": clearable_action_href,
                     "action_label": clearable_action_label,
                     "action_value": clearable_action_value,
                     "action_method": clearable_action_method,
-                    "return_to": "/app/activity" if clearable_action_href else "",
+                    "return_to": "/admin/office" if clearable_action_href else "",
                 }
             )
         if not bool(sync.get("google_connected")):
