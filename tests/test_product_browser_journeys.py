@@ -57,6 +57,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "/app/settings/plan" in settings.text
     assert "/app/settings/usage" in settings.text
     assert "/app/settings/support" in settings.text
+    assert "/app/settings/outcomes" in settings.text
+    assert "/app/settings/trust" in settings.text
 
     person_detail = client.get(f"/app/people/{seeded['stakeholder_id']}")
     assert person_detail.status_code == 200
@@ -258,6 +260,30 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert seeded["decision_window_id"] in decisions.text
 
     plan_page = client.get("/app/settings/plan")
+    assert plan_page.status_code == 200
+    assert "Workspace plan" in plan_page.text
+
+    usage_page = client.get("/app/settings/usage")
+    assert usage_page.status_code == 200
+    assert "Usage and activation" in usage_page.text
+    assert "Success metrics" in usage_page.text
+
+    support_page = client.get("/app/settings/support")
+    assert support_page.status_code == 200
+    assert "Support and diagnostics" in support_page.text
+    assert "Operational reliability" in support_page.text
+
+    outcomes_page = client.get("/app/settings/outcomes")
+    assert outcomes_page.status_code == 200
+    assert "Workspace outcomes" in outcomes_page.text
+    assert "How quickly the workspace reached first value" in outcomes_page.text
+    assert "How the daily loop is performing" in outcomes_page.text
+
+    trust_page = client.get("/app/settings/trust")
+    assert trust_page.status_code == 200
+    assert "Workspace trust" in trust_page.text
+    assert "What the assistant recently did" in trust_page.text
+    assert "Evidence, rules, and retention" in trust_page.text
     assert plan_page.status_code == 200
     assert "Commercial boundary" in plan_page.text
     assert "What this workspace includes" in plan_page.text

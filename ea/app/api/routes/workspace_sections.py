@@ -855,6 +855,18 @@ def workspace_section_payload(
                         _row("Google sync freshness", str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(), "Sync", href="/app/settings/usage"),
                         _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/inbox"),
                         _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
+                        _row(
+                            "Outcome summary",
+                            str(dict(diagnostics.get("analytics") or {}).get("success_summary") or "Review activation and closure signals"),
+                            "Outcomes",
+                            href="/app/settings/outcomes",
+                        ),
+                        _row(
+                            "Trust posture",
+                            str(readiness.get("detail") or "Review evidence, rules, and support posture"),
+                            "Trust",
+                            href="/app/settings/trust",
+                        ),
                     ],
                 },
                 {
@@ -892,6 +904,8 @@ def workspace_section_payload(
                         ),
                         _row("Provider risk", str(provider_posture.get("risk_state") or "unknown"), "Support", href="/app/settings/support"),
                         _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
+                        _row("Audit retention", str(dict(diagnostics.get("entitlements") or {}).get("audit_retention") or "standard"), "Trust", href="/app/settings/trust"),
+                        _row("Evidence linked", str(snapshot.stats_json.get("evidence", 0)), "Trust", href="/app/settings/trust"),
                         _row("Recommended plan", str(commercial.get("recommended_plan_label") or "Current plan"), "Plan", href="/app/settings/plan"),
                         _row(
                             "Blocked actions",

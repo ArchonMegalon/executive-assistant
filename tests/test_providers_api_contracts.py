@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import urllib.parse
 from pathlib import Path
 
@@ -1127,6 +1128,202 @@ def test_onemin_billing_refresh_rotates_browseract_login_pass_across_cycles(
         ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
         ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_2"),
         ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_3"),
+    ]
+
+
+def test_onemin_billing_refresh_fans_out_browseract_jobs_in_parallel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("ONEMIN_BROWSERACT_PARALLELISM", "3")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_1",
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_: True)
+
+    barrier = threading.Barrier(3)
+    invoked: list[tuple[str, str]] = []
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        if tool_name == "browseract.onemin_billing_usage":
+            barrier.wait(timeout=1.0)
+            invoked.append((tool_name, account_label))
+            return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        return {"refresh_backend": "browseract", "matched_owner_slots": 1}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+
+    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": False})
+
+    assert response.status_code == 200
+    assert response.json()["billing_refresh_count"] == 3
+    assert sorted(invoked) == [
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_2"),
+    ]
+
+
+def test_onemin_billing_refresh_only_reconciles_members_after_successful_billing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_1",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_: True)
+
+    invoked: list[tuple[str, str]] = []
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        invoked.append((tool_name, account_label))
+        if tool_name == "browseract.onemin_billing_usage" and account_label == "ONEMIN_AI_API_KEY_FALLBACK_1":
+            raise providers_route.ToolExecutionError("login_failed")
+        if tool_name == "browseract.onemin_billing_usage":
+            return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        return {"refresh_backend": "browseract", "matched_owner_slots": 1}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+
+    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": True})
+
+    assert response.status_code == 200
+    assert ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY") in invoked
+    assert ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY_FALLBACK_1") not in invoked
+    assert response.json()["member_reconciliation_count"] == 1
+
+
+def test_onemin_billing_refresh_prioritizes_missing_and_stale_actual_billing_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_1",
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                    "ONEMIN_AI_API_KEY_FALLBACK_3",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_: True)
+    monkeypatch.setattr(
+        owner.app.state.container.onemin_manager,
+        "accounts_snapshot",
+        lambda **_: [
+            {
+                "account_label": "ONEMIN_AI_API_KEY",
+                "has_actual_billing": True,
+                "last_billing_snapshot_at": "2026-03-28T12:00:00+00:00",
+            },
+            {
+                "account_label": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                "has_actual_billing": False,
+                "last_billing_snapshot_at": None,
+            },
+            {
+                "account_label": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                "has_actual_billing": True,
+                "last_billing_snapshot_at": "2026-03-28T09:00:00+00:00",
+            },
+            {
+                "account_label": "ONEMIN_AI_API_KEY_FALLBACK_3",
+                "has_actual_billing": False,
+                "last_billing_snapshot_at": "2026-03-27T09:00:00+00:00",
+            },
+        ],
+    )
+
+    selected_orders: list[list[str]] = []
+
+    def fake_select(labels, *, limit: int):
+        selected_orders.append(list(labels))
+        return tuple(list(labels)[:limit])
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "select_billing_refresh_account_labels", fake_select)
+    monkeypatch.setattr(
+        providers_route,
+        "_invoke_browseract_tool",
+        lambda **kwargs: {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        if str(kwargs.get("tool_name") or "") == "browseract.onemin_billing_usage"
+        else {"refresh_backend": "browseract", "matched_owner_slots": 1},
+    )
+
+    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": False})
+
+    assert response.status_code == 200
+    assert selected_orders == [
+        [
+            "ONEMIN_AI_API_KEY_FALLBACK_1",
+            "ONEMIN_AI_API_KEY_FALLBACK_3",
+        ],
+        [
+            "ONEMIN_AI_API_KEY_FALLBACK_2",
+            "ONEMIN_AI_API_KEY",
+        ],
     ]
 
 
