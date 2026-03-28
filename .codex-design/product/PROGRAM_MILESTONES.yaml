@@ -165,7 +165,7 @@ program_phases:
     - Post-session coaching outputs remain distinct from session truth, moderation truth, and player scoring.
 - id: I
   title: Participation and bootstrap evolution
-  status: in_progress
+  status: complete
   release_blocking: false
   goal: Make the bounded participation lane and package bootstrap policy first-class and boring across design, Hub, Fleet, guide, and legacy consumers.
   milestones:
@@ -188,7 +188,7 @@ program_phases:
     - chummer6-hub
     - Chummer6
     - executive-assistant
-    status: in_progress
+    status: complete
     exit:
     - Fleet and guide verification consume design-owned participation canon directly.
     - User-facing participate copy is downstream of design rather than helper-script invention.
