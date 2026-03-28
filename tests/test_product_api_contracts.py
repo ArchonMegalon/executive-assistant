@@ -147,6 +147,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "approval_action_rate" in outcomes_body
     assert "commitment_close_rate" in outcomes_body
     assert "memo_loop" in outcomes_body
+    assert "office_loop_proof" in outcomes_body
     assert "counts" in outcomes_body
     trust = client.get("/app/api/trust")
     assert trust.status_code == 200
@@ -283,7 +284,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
     principal_id = "exec-product-google-sync"
     client = build_product_client(principal_id=principal_id)
-    seed_product_state(client, principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
 
     monkeypatch.setattr(
         google_oauth_service,
@@ -338,6 +339,29 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert events.status_code == 200
     event_types = {item["event_type"] for item in events.json()["items"]}
     assert "office_signal_email_thread" in event_types
+
+    candidates = client.get("/app/api/commitments/candidates")
+    assert candidates.status_code == 200
+    candidates_body = candidates.json()
+    gmail_candidate = next(row for row in candidates_body if row["source_ref"] == "gmail-thread:abc123")
+    assert gmail_candidate["channel_hint"] == "gmail"
+    assert gmail_candidate["signal_type"] == "email_thread"
+    calendar_candidate = next(row for row in candidates_body if row["source_ref"] == "calendar-event:prep-1")
+    assert calendar_candidate["channel_hint"] == "calendar"
+    assert calendar_candidate["signal_type"] == "calendar_note"
+    assert calendar_candidate["kind"] == "follow_up"
+    assert calendar_candidate["stakeholder_id"] == seeded["stakeholder_id"]
+
+    accepted = client.post(
+        f"/app/api/commitments/candidates/{calendar_candidate['candidate_id']}/accept",
+        json={"reviewer": "operator-office"},
+    )
+    assert accepted.status_code == 200
+    accepted_body = accepted.json()
+    assert accepted_body["id"].startswith("follow_up:")
+    assert accepted_body["channel_hint"] == "calendar"
+    assert accepted_body["source_type"] == "office_signal"
+    assert accepted_body["source_ref"] == "calendar-event:prep-1"
     assert "office_signal_calendar_note" in event_types
 
     candidates = client.get("/app/api/commitments/candidates")
@@ -554,6 +578,42 @@ def test_commitment_duplicate_detection_and_merge_acceptance() -> None:
     assert merged.status_code == 200
     merged_body = merged.json()
     assert merged_body["id"] == commitment_ref
+    assert duplicate["candidate_id"] in merged_body["merged_from_refs"]
+
+
+def test_office_signal_duplicate_merge_upgrades_commitment_provenance() -> None:
+    principal_id = "exec-product-duplicate-signal-merge"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    commitment_ref = f"commitment:{seeded['commitment_id']}"
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "text": "Please send board materials to Sofia tomorrow.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:dup-1",
+            "external_id": "gmail-message:dup-1",
+        },
+    )
+    assert signal.status_code == 200
+    signal_body = signal.json()
+    duplicate = next(row for row in signal_body["staged_candidates"] if row["duplicate_of_ref"] == commitment_ref)
+    assert duplicate["channel_hint"] == "gmail"
+    assert duplicate["source_ref"] == "gmail-thread:dup-1"
+
+    merged = client.post(
+        f"/app/api/commitments/candidates/{duplicate['candidate_id']}/accept",
+        json={"reviewer": "operator-office"},
+    )
+    assert merged.status_code == 200
+    merged_body = merged.json()
+    assert merged_body["id"] == commitment_ref
+    assert merged_body["channel_hint"] == "gmail"
+    assert merged_body["source_type"] == "office_signal"
+    assert merged_body["source_ref"] == "gmail-thread:dup-1"
     assert duplicate["candidate_id"] in merged_body["merged_from_refs"]
 
 
@@ -819,6 +879,7 @@ def test_product_diagnostics_include_value_events() -> None:
     assert outcomes_body["counts"]["commitment_closed"] >= 1
     assert outcomes_body["success_summary"]
     assert "memo_loop" in outcomes_body
+    assert outcomes_body["office_loop_proof"]["state"] in {"clear", "watch", "critical"}
 
     bundle = client.get("/app/api/diagnostics/export")
     assert bundle.status_code == 200

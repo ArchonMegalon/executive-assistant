@@ -54,10 +54,10 @@ def commitment_item_from_follow_up(row: FollowUp, stakeholders: dict[str, Stakeh
     stakeholder = stakeholders.get(str(row.stakeholder_ref or "").strip())
     return CommitmentItem(
         id=f"follow_up:{row.follow_up_id}",
-        source_type="follow_up",
-        source_ref=row.follow_up_id,
+        source_type=str(source.get("source_type") or "follow_up"),
+        source_ref=str(source.get("source_ref") or row.follow_up_id),
         statement=row.topic,
-        owner="office",
+        owner=str(source.get("owner") or "office"),
         counterparty=stakeholder.display_name if stakeholder is not None else str(row.stakeholder_ref or ""),
         due_at=row.due_at,
         status=product_commitment_status(row.status),
