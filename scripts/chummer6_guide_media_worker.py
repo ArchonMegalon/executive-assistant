@@ -3197,6 +3197,15 @@ def prompt_refinement_attempts_enabled() -> bool:
     return any(env_value(name) for name in explicit_env_names)
 
 
+def prompt_refinement_allowed_for_target(target: str) -> bool:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if not normalized:
+        return True
+    if quality_focus_target(normalized):
+        return False
+    return True
+
+
 def prompt_refinement_timeout_seconds() -> int:
     raw = env_value("CHUMMER6_PROMPT_REFINEMENT_TIMEOUT_SECONDS") or "25"
     try:
@@ -3229,6 +3238,8 @@ def refine_prompt_with_ooda(*, prompt: str, target: str) -> str:
     external_expected = prompt_refinement_attempts_enabled()
     refinement_required = prompt_refinement_required()
     if prompt_refinement_disabled():
+        return base_prompt
+    if not prompt_refinement_allowed_for_target(target) and not refinement_required:
         return base_prompt
     if not external_expected and not refinement_required:
         return base_prompt
