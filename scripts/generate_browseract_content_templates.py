@@ -58,6 +58,7 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
                 "optional": True,
                 "wait_timeout_ms": 2500,
                 "dom_click": True,
+                "react_click": True,
                 "post_click_wait_ms": 1200,
             },
         },
@@ -95,6 +96,7 @@ def onemin_login_modal_prefix() -> tuple[list[dict[str, object]], list[list[str]
             "config": {
                 "selector": 'button[type=submit], button:has-text("Log In")',
                 "password_selector": 'input[placeholder="Password"], input[aria-label="Password"], input[type=password]',
+                "react_click": True,
                 "auth_advance_timeout_ms": 12000,
                 "pre_submit_cookie_name": "cf_clearance",
                 "pre_submit_cookie_timeout_ms": 25000,

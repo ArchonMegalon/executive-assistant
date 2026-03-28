@@ -86,6 +86,7 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
     api_attempted = 0
     api_rate_limited = False
     error_count = 0
+    browseract_max_accounts = max(1, int(providers_route._onemin_browseract_max_accounts_per_refresh()))
     browseract_parallelism = max(1, int(providers_route._onemin_browseract_parallelism()))
     browseract_timeout_seconds = max(30, int(providers_route._onemin_browseract_timeout_seconds()))
 
@@ -95,7 +96,9 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             for binding in container.tool_runtime.list_connector_bindings_for_connector("browseract", limit=1000)
             if str(binding.status or "").strip().lower() == "enabled"
         ]
-        browseract_billing_jobs: list[dict[str, object]] = []
+        binding_jobs: list[dict[str, object]] = []
+        bound_account_label_order: list[str] = []
+        seen_account_labels: set[str] = set()
         for binding in bindings:
             binding_metadata = dict(binding.auth_metadata_json or {})
             billing_run_url = providers_route._binding_run_url(
@@ -122,6 +125,56 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             )
             account_labels = providers_route._resolve_onemin_account_labels(binding)
             for account_label in account_labels:
+                if account_label and account_label not in seen_account_labels:
+                    seen_account_labels.add(account_label)
+                    bound_account_label_order.append(account_label)
+            binding_jobs.append(
+                {
+                    "binding": binding,
+                    "binding_metadata": binding_metadata,
+                    "billing_run_url": billing_run_url,
+                    "billing_workflow_id": billing_workflow_id,
+                    "members_run_url": members_run_url,
+                    "members_workflow_id": members_workflow_id,
+                    "account_labels": tuple(account_labels),
+                }
+            )
+
+        stale_labels, actual_labels = providers_route._partition_onemin_browseract_account_labels(
+            container=container,
+            principal_id="codex-fleet",
+            binding_rows=bindings,
+            account_labels=bound_account_label_order,
+        )
+        selected_browseract_labels: set[str] = set()
+        if stale_labels:
+            selected_browseract_labels.update(
+                container.onemin_manager.select_billing_refresh_account_labels(
+                    stale_labels,
+                    limit=min(browseract_max_accounts, len(stale_labels)),
+                )
+            )
+        remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
+        if remaining_browseract_slots > 0 and actual_labels:
+            selected_browseract_labels.update(
+                container.onemin_manager.select_billing_refresh_account_labels(
+                    actual_labels,
+                    limit=min(remaining_browseract_slots, len(actual_labels)),
+                )
+            )
+
+        browseract_billing_jobs: list[dict[str, object]] = []
+        for job in binding_jobs:
+            binding = job["binding"]
+            binding_metadata = dict(job["binding_metadata"] or {})
+            billing_run_url = str(job["billing_run_url"] or "")
+            billing_workflow_id = str(job["billing_workflow_id"] or "")
+            members_run_url = str(job["members_run_url"] or "")
+            members_workflow_id = str(job["members_workflow_id"] or "")
+            account_labels = tuple(str(value or "").strip() for value in (job["account_labels"] or ()) if str(value or "").strip())
+            for account_label in account_labels:
+                if account_label not in selected_browseract_labels:
+                    continue
                 if not billing_run_url and not billing_workflow_id and not providers_route._browseract_onemin_login_ready(
                     account_label=account_label,
                     binding_metadata=binding_metadata,

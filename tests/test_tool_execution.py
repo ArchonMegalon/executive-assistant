@@ -3852,8 +3852,10 @@ def test_browseract_ui_template_spec_uses_explicit_onemin_billing_workflow() -> 
     assert "extract_billing_bonus_page" in node_ids
     open_login_entry = next(node for node in spec["nodes"] if node.get("id") == "open_login_entry")
     assert open_login_entry["config"]["dom_click"] is True
+    assert open_login_entry["config"]["react_click"] is True
     submit_node = next(node for node in spec["nodes"] if node.get("id") == "submit")
     assert submit_node["type"] == "submit_login_form"
+    assert submit_node["config"]["react_click"] is True
     assert submit_node["config"]["auth_advance_timeout_ms"] == 12000
     assert submit_node["config"]["pre_submit_cookie_name"] == "cf_clearance"
     assert submit_node["config"]["submit_retry_count"] == 1
@@ -3872,7 +3874,9 @@ def test_browseract_ui_template_spec_uses_explicit_onemin_members_workflow() -> 
     assert wait_login_entry["config"]["optional"] is True
     open_login_entry = next(node for node in spec["nodes"] if node.get("id") == "open_login_entry")
     assert open_login_entry["config"]["dom_click"] is True
+    assert open_login_entry["config"]["react_click"] is True
     submit_node = next(node for node in spec["nodes"] if node.get("id") == "submit")
+    assert submit_node["config"]["react_click"] is True
     assert submit_node["config"]["pre_submit_cookie_name"] == "cf_clearance"
     dismiss_node = next(node for node in spec["nodes"] if node.get("id") == "dismiss_overlay_01")
     assert dismiss_node["config"]["optional"] is True
