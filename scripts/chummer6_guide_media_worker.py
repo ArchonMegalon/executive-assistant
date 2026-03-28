@@ -89,6 +89,14 @@ FIRST_CONTACT_TARGETS = frozenset(
         "assets/horizons/karma-forge.png",
     }
 )
+QUALITY_FOCUS_TARGETS = frozenset(
+    {
+        "assets/pages/current-status.png",
+        "assets/pages/parts-index.png",
+        "assets/pages/public-surfaces.png",
+        "assets/pages/what-chummer6-is.png",
+    }
+)
 CRITICAL_VISUAL_TARGETS = FIRST_CONTACT_TARGETS
 SPARSE_HUMOR_TARGETS = frozenset(
     {
@@ -533,6 +541,10 @@ def media_row_requests_easter_egg(*, target: str, row: dict[str, object] | None)
 
 def first_contact_target(target: str) -> bool:
     return str(target or "").replace("\\", "/").strip() in FIRST_CONTACT_TARGETS
+
+
+def quality_focus_target(target: str) -> bool:
+    return str(target or "").replace("\\", "/").strip() in QUALITY_FOCUS_TARGETS
 
 
 def _media_briefs() -> dict[str, object]:
@@ -3020,7 +3032,7 @@ def normalize_banner_size(*, image_path: Path, width: int, height: int) -> str:
 
 
 def first_contact_variant_count(*, target: str) -> int:
-    if not first_contact_target(target):
+    if not first_contact_target(target) and not quality_focus_target(target):
         return 1
     raw = env_value("CHUMMER6_FIRST_CONTACT_VARIANTS")
     try:
@@ -3032,6 +3044,10 @@ def first_contact_variant_count(*, target: str) -> int:
                 "assets/hero/chummer6-hero.png": 8,
                 "assets/pages/horizons-index.png": 10,
                 "assets/horizons/karma-forge.png": 8,
+                "assets/pages/current-status.png": 4,
+                "assets/pages/parts-index.png": 4,
+                "assets/pages/public-surfaces.png": 4,
+                "assets/pages/what-chummer6-is.png": 4,
             }.get(normalized, 5)
     except Exception:
         value = 5
@@ -3039,7 +3055,7 @@ def first_contact_variant_count(*, target: str) -> int:
 
 
 def visual_audit_enabled(*, target: str) -> bool:
-    if not first_contact_target(target):
+    if not first_contact_target(target) and not quality_focus_target(target):
         return False
     if Image is not None:
         return True
