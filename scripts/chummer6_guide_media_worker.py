@@ -103,6 +103,13 @@ QUALITY_FOCUS_TARGETS = frozenset(
         "assets/parts/hub.png",
     }
 )
+DIRECT_ONEMIN_PREFERRED_TARGETS = frozenset({"assets/hero/chummer6-hero.png", *QUALITY_FOCUS_TARGETS})
+MEDIA_FACTORY_PREFERRED_TARGETS = frozenset(
+    {
+        "assets/pages/horizons-index.png",
+        "assets/horizons/karma-forge.png",
+    }
+)
 CRITICAL_VISUAL_TARGETS = FIRST_CONTACT_TARGETS
 SPARSE_HUMOR_TARGETS = frozenset(
     {
@@ -1393,6 +1400,25 @@ def provider_order() -> list[str]:
         if value not in filtered:
             filtered.append(value)
     return filtered or list(preferred)
+
+
+def routed_provider_order_for_target(target: str, *, providers: list[str] | None = None) -> list[str]:
+    ordered = [str(entry).strip().lower().replace("-", "_") for entry in (providers or provider_order()) if str(entry).strip()]
+    ordered = list(dict.fromkeys(ordered))
+    normalized_target = str(target or "").replace("\\", "/").strip()
+
+    def _prioritize(name: str) -> None:
+        lowered = str(name or "").strip().lower().replace("-", "_")
+        if lowered not in ordered:
+            return
+        ordered.remove(lowered)
+        ordered.insert(0, lowered)
+
+    if normalized_target in DIRECT_ONEMIN_PREFERRED_TARGETS:
+        _prioritize("onemin")
+    elif normalized_target in MEDIA_FACTORY_PREFERRED_TARGETS:
+        _prioritize("media_factory")
+    return ordered
 
 
 def _normalized_provider_order(values: list[str]) -> list[str]:
@@ -5511,7 +5537,8 @@ def ooda_variant_spec(
         return spec, []
     adjusted = dict(spec)
     current = adjusted.get("providers")
-    providers = [str(entry).strip().lower() for entry in current if str(entry).strip()] if isinstance(current, list) else provider_order()
+    requested = [str(entry).strip().lower() for entry in current if str(entry).strip()] if isinstance(current, list) else provider_order()
+    providers = routed_provider_order_for_target(target, providers=requested)
     notes = {str(note or "").strip() for note in [*previous_notes, *previous_gate_failures] if str(note or "").strip()}
     normalized = str(target or "").replace("\\", "/").strip()
     provider_tags: list[str] = []
@@ -5563,6 +5590,7 @@ def render_with_ooda(*, prompt: str, output_path: Path, width: int, height: int,
         providers = list(dict.fromkeys(requested)) or preferred
     else:
         providers = provider_order()
+    providers = routed_provider_order_for_target(target, providers=providers)
     for provider in providers:
         normalized = provider.strip().lower()
         cooldown_remaining = _provider_cooldown_remaining_seconds(normalized)
