@@ -75,6 +75,38 @@ def test_routed_provider_order_keeps_media_factory_first_for_forge() -> None:
     assert routed[0] == "media_factory"
 
 
+def test_routed_provider_order_demotes_unhealthy_provider_for_target_family(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_HEALTH_OUT", tmp_path / "provider-health.json")
+    media.write_json_file(
+        media.PROVIDER_HEALTH_OUT,
+        {
+            "providers": {
+                "onemin": {
+                    "families": {
+                        "weak_page": {
+                            "recent_attempts": [
+                                {"outcome": "timeout"},
+                                {"outcome": "no_output_watchdog"},
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    routed = media.routed_provider_order_for_target(
+        "assets/pages/parts-index.png",
+        providers=["onemin", "media_factory", "magixai"],
+    )
+
+    assert routed[0] != "onemin"
+    assert routed[-1] == "onemin"
+
+
 def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
@@ -297,6 +329,73 @@ def test_run_onemin_api_provider_uses_local_manager_fallback_when_http_manager_i
     assert released_local[0] == (local_manager, "lease-local", "released", 900, "")
 
 
+def test_run_onemin_api_provider_trips_no_output_watchdog(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [{"env_name": "ONEMIN_AI_API_KEY_FALLBACK_23", "key": "key-23"}],
+    )
+    monkeypatch.setattr(
+        media,
+        "_reserve_onemin_image_slot",
+        lambda **kwargs: {
+            "lease_id": "lease-1",
+            "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_23",
+            "account_id": "ONEMIN_AI_API_KEY_FALLBACK_23",
+        },
+    )
+    released: list[tuple[str, str, int | None, str]] = []
+    monkeypatch.setattr(
+        media,
+        "_release_onemin_image_slot",
+        lambda *, lease_id, status, actual_credits_delta=None, error="": released.append(
+            (lease_id, status, actual_credits_delta, error)
+        ),
+    )
+    monkeypatch.setattr(media, "_release_onemin_image_slot_locally", lambda **kwargs: None)
+    monkeypatch.setattr(media, "onemin_model_candidates", lambda **kwargs: ["gpt-image-1"])
+    monkeypatch.setattr(
+        media,
+        "onemin_payloads",
+        lambda *args, **kwargs: [{"type": "IMAGE_GENERATOR", "model": "gpt-image-1", "promptObject": {"size": "1536x1024"}}],
+    )
+    monkeypatch.setattr(media, "provider_busy_retries", lambda: 1)
+    monkeypatch.setattr(media, "provider_busy_delay_seconds", lambda: 0)
+    monkeypatch.setattr(media, "onemin_watchdog_seconds", lambda spec=None: 30)
+
+    clock = iter([0.0, 31.0, 31.0, 31.0, 31.0])
+    monkeypatch.setattr(media.time, "monotonic", lambda: next(clock))
+
+    class _HttpError(media.urllib.error.HTTPError):
+        def __init__(self) -> None:
+            super().__init__(
+                url="https://api.1min.ai/api/features",
+                code=400,
+                msg="bad request",
+                hdrs={},
+                fp=None,
+            )
+
+        def read(self) -> bytes:
+            return b'{"message":"OPEN_AI_UNEXPECTED_ERROR"}'
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(_HttpError()))
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is False
+    assert detail == "onemin:no_output_watchdog_timeout"
+    assert released[0][1] == "failed"
+
+
 def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reservation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -418,6 +517,39 @@ def test_run_command_provider_returns_timeout_when_subprocess_times_out(
 
     assert ok is False
     assert detail == "media_factory:timeout"
+
+
+def test_run_command_provider_appends_reference_image_for_media_factory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    output_path = tmp_path / "hero.png"
+    reference_path = tmp_path / "hero-reference.png"
+    reference_path.write_bytes(b"png")
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(media, "format_command", lambda parts, **kwargs: ["fake-render"])
+
+    def fake_run(command, **kwargs):
+        seen["command"] = list(command)
+        output_path.write_bytes(b"png")
+        return None
+
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+
+    ok, detail = media.run_command_provider(
+        "media_factory",
+        ["fake-render"],
+        prompt="room-first streetdoc clinic",
+        output_path=output_path,
+        width=1280,
+        height=720,
+        reference_image=reference_path,
+    )
+
+    assert ok is True
+    assert detail == "media_factory:rendered"
+    assert seen["command"] == ["fake-render", "--reference-image", str(reference_path)]
 
 
 def test_run_url_provider_returns_timeout_when_request_times_out(
@@ -2120,6 +2252,50 @@ def test_render_with_ooda_skips_provider_when_scheduler_slot_is_held(
 
     assert any(item.startswith("onemin:cooldown:") or item.startswith("onemin:scheduled_wait:") for item in result["attempts"])
     assert result["provider"] == "media_factory"
+
+
+def test_render_with_ooda_skips_provider_when_family_health_is_stalled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_HEALTH_OUT", tmp_path / "provider-health.json")
+    media.write_json_file(
+        media.PROVIDER_HEALTH_OUT,
+        {
+            "providers": {
+                "onemin": {
+                    "families": {
+                        "weak_page": {
+                            "recent_attempts": [
+                                {"outcome": "timeout"},
+                                {"outcome": "no_output_watchdog"},
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    )
+    output_path = tmp_path / "render.png"
+    monkeypatch.setattr(media, "build_safe_media_factory_prompt", lambda **kwargs: str(kwargs["prompt"]))
+    monkeypatch.setattr(media, "run_onemin_api_provider", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("should_not_run")))
+
+    def _run_command_provider(name: str, command: list[str], **kwargs: object) -> tuple[bool, str]:
+        Path(str(kwargs["output_path"])).write_bytes(b"png")
+        return True, f"{name}:rendered"
+
+    monkeypatch.setattr(media, "run_command_provider", _run_command_provider)
+
+    with pytest.raises(RuntimeError) as exc:
+        media.render_with_ooda(
+            prompt="render the room",
+            output_path=output_path,
+            width=960,
+            height=540,
+            spec={"providers": ["onemin"], "target": "assets/pages/parts-index.png"},
+        )
+
+    assert "onemin:health_skip:stalled" in str(exc.value)
 
 
 def test_champion_entry_for_target_seeds_from_repo_asset(
