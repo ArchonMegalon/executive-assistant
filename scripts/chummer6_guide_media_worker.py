@@ -336,6 +336,8 @@ def _estimate_onemin_image_credits(*, width: int, height: int) -> int:
         except Exception:
             pass
     primary_model = str(env_value("CHUMMER6_ONEMIN_MODEL") or "").strip().lower()
+    if primary_model in {"gpt-image-1-mini", "dall-e-3"}:
+        primary_model = "gpt-image-1"
     if primary_model == "black-forest-labs/flux-schnell":
         return 9000
     megapixels = max(1.0, (max(1, int(width)) * max(1, int(height))) / 1000000.0)
@@ -1153,8 +1155,14 @@ def provider_health_penalty(*, provider: str, target: str) -> int:
     providers = registry.get("providers") if isinstance(registry.get("providers"), dict) else {}
     provider_entry = dict(providers.get(str(provider or "").strip().lower()) or {})
     families = provider_entry.get("families") if isinstance(provider_entry.get("families"), dict) else {}
-    family_entry = dict(families.get(target_family_for(target)) or {})
+    family_key = target_family_for(target)
+    family_entry = dict(families.get(family_key) or {})
     attempts = [dict(entry) for entry in (family_entry.get("recent_attempts") or []) if isinstance(entry, dict)][-6:]
+    if not attempts and family_key in {"weak_page", "weak_horizon", "weak_part"}:
+        related: list[dict[str, object]] = []
+        for key in ("weak_page", "weak_horizon", "weak_part"):
+            related.extend(dict(entry) for entry in (dict(families.get(key) or {}).get("recent_attempts") or []) if isinstance(entry, dict))
+        attempts = related[-6:]
     penalty = 0
     for entry in attempts:
         outcome = str(entry.get("outcome") or "").strip()
@@ -1174,8 +1182,14 @@ def provider_should_skip_for_health(*, provider: str, target: str) -> str:
     providers = registry.get("providers") if isinstance(registry.get("providers"), dict) else {}
     provider_entry = dict(providers.get(str(provider or "").strip().lower()) or {})
     families = provider_entry.get("families") if isinstance(provider_entry.get("families"), dict) else {}
-    family_entry = dict(families.get(target_family_for(target)) or {})
+    family_key = target_family_for(target)
+    family_entry = dict(families.get(family_key) or {})
     attempts = [dict(entry) for entry in (family_entry.get("recent_attempts") or []) if isinstance(entry, dict)][-3:]
+    if not attempts and family_key in {"weak_page", "weak_horizon", "weak_part"}:
+        related: list[dict[str, object]] = []
+        for key in ("weak_page", "weak_horizon", "weak_part"):
+            related.extend(dict(entry) for entry in (dict(families.get(key) or {}).get("recent_attempts") or []) if isinstance(entry, dict))
+        attempts = related[-3:]
     outcomes = [str(entry.get("outcome") or "").strip() for entry in attempts]
     if len(outcomes) >= 2 and all(outcome in {"timeout", "no_output_watchdog", "empty_output"} for outcome in outcomes[-2:]):
         return "stalled"
@@ -2780,11 +2794,13 @@ def onemin_model_candidates(spec: dict[str, object] | None = None) -> list[str]:
         normalized = str(candidate or "").strip()
         if normalized and normalized not in candidates:
             candidates.append(normalized)
+    configured_model = str(env_value("CHUMMER6_ONEMIN_MODEL") or "").strip()
+    if configured_model.lower() in {"gpt-image-1-mini", "dall-e-3"}:
+        configured_model = ""
     for candidate in (
-        env_value("CHUMMER6_ONEMIN_MODEL"),
+        configured_model,
         "gpt-image-1",
         "black-forest-labs/flux-schnell",
-        "gpt-image-1-mini",
     ):
         normalized = str(candidate or "").strip()
         if normalized and normalized not in candidates:

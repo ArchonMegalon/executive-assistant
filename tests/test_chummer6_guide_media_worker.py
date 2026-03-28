@@ -63,7 +63,18 @@ def test_onemin_model_candidates_prefer_quality_ladder(monkeypatch: pytest.Monke
     assert media.onemin_model_candidates() == [
         "gpt-image-1",
         "black-forest-labs/flux-schnell",
-        "gpt-image-1-mini",
+    ]
+
+
+def test_onemin_model_candidates_ignore_low_tier_policy_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
+    media.LOCAL_ENV.pop("CHUMMER6_ONEMIN_MODEL", None)
+    media.POLICY_ENV["CHUMMER6_ONEMIN_MODEL"] = "gpt-image-1-mini"
+
+    assert media.onemin_model_candidates() == [
+        "gpt-image-1",
+        "black-forest-labs/flux-schnell",
     ]
 
 
@@ -120,6 +131,36 @@ def test_routed_provider_order_demotes_unhealthy_provider_for_target_family(
 
     assert routed[0] != "onemin"
     assert routed[-1] == "onemin"
+
+
+def test_routed_provider_order_carries_weak_family_penalty_across_weak_assets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_HEALTH_OUT", tmp_path / "provider-health.json")
+    media.write_json_file(
+        media.PROVIDER_HEALTH_OUT,
+        {
+            "providers": {
+                "magixai": {
+                    "families": {
+                        "weak_page": {
+                            "recent_attempts": [
+                                {"outcome": "failure"},
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    routed = media.routed_provider_order_for_target(
+        "assets/horizons/alice.png",
+        providers=["magixai", "media_factory", "onemin"],
+    )
+
+    assert routed[0] != "magixai"
 
 
 def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -821,10 +862,9 @@ def test_onemin_model_candidates_prefers_quality_before_mini(monkeypatch: pytest
     monkeypatch.setattr(media, "LOCAL_ENV", {})
     monkeypatch.setattr(media, "POLICY_ENV", {})
 
-    assert media.onemin_model_candidates()[:3] == [
+    assert media.onemin_model_candidates() == [
         "gpt-image-1",
         "black-forest-labs/flux-schnell",
-        "gpt-image-1-mini",
     ]
 
 
