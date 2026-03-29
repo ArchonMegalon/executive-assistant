@@ -320,6 +320,13 @@ def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
     assert drafts.status_code == 200
     assert any(item["id"] == body["staged_drafts"][0]["id"] for item in drafts.json())
 
+    channel_loop = client.get("/app/api/channel-loop")
+    assert channel_loop.status_code == 200
+    approvals_digest = next(item for item in channel_loop.json()["digests"] if item["key"] == "approvals")
+    assert any(item["tag"] == "Draft" and "Sofia N." in item["title"] for item in approvals_digest["items"])
+    assert all("board packet" not in item["title"].lower() for item in approvals_digest["items"] if item["tag"] == "Candidate")
+    assert approvals_digest["stats"]["pending_commitment_candidates"] == 0
+
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
     counts = dict(diagnostics.json()["analytics"]["counts"])
@@ -344,6 +351,59 @@ def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
     assert duplicate_body["staged_count"] >= 1
     assert duplicate_body["draft_count"] == 1
     assert duplicate_body["staged_drafts"][0]["id"] == body["staged_drafts"][0]["id"]
+
+
+def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> None:
+    principal_id = "exec-product-signal-draft-approve"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Signal Draft Approval Office")
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:signal-draft-approve",
+            "external_id": "gmail-message:signal-draft-approve",
+            "payload": {"from_email": "sofia@example.com", "from_name": "Sofia N."},
+        },
+    )
+    assert signal.status_code == 200
+    signal_body = signal.json()
+    draft_ref = signal_body["staged_drafts"][0]["id"]
+    candidate_id = signal_body["staged_candidates"][0]["candidate_id"]
+
+    pending_before = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert pending_before.status_code == 200
+    assert candidate_id in pending_before.text
+
+    approved = client.post(
+        f"/app/api/drafts/{draft_ref}/approve",
+        json={"reason": "Send it and track the follow-up."},
+    )
+    assert approved.status_code == 200
+    approved_body = approved.json()
+    assert approved_body["id"] == draft_ref
+    assert approved_body["approval_status"] == "approved"
+
+    pending_after = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert pending_after.status_code == 200
+    assert candidate_id not in pending_after.text
+
+    commitments = client.get("/app/api/commitments")
+    assert commitments.status_code == 200
+    promoted = next(item for item in commitments.json() if "board packet" in str(item.get("statement") or "").lower())
+    assert promoted["source_ref"] == "gmail-thread:signal-draft-approve"
+    assert promoted["channel_hint"] == "gmail"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    approved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_approved" and item["source_id"] == draft_ref.split(":", 1)[1])
+    assert candidate_id in approved_event["payload"]["accepted_candidate_ids"]
 
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
@@ -483,9 +543,9 @@ def test_channel_loop_approvals_digest_can_accept_and_reject_signal_candidates()
         json={
             "signal_type": "email_thread",
             "channel": "gmail",
-            "title": "Board packet follow-up",
-            "summary": "Send revised board packet to Sofia by EOD.",
-            "text": "Send revised board packet to Sofia by EOD.",
+            "title": "Board packet deadline",
+            "summary": "Board packet due for Sofia by EOD.",
+            "text": "Board packet due for Sofia by EOD.",
             "counterparty": "Sofia N.",
             "source_ref": "gmail-thread:inline-1",
             "external_id": "gmail-message:inline-1",
@@ -497,9 +557,9 @@ def test_channel_loop_approvals_digest_can_accept_and_reject_signal_candidates()
         json={
             "signal_type": "email_thread",
             "channel": "gmail",
-            "title": "Investor note",
-            "summary": "Reply to Sofia about the investor note today.",
-            "text": "Reply to Sofia about the investor note today.",
+            "title": "Investor note deadline",
+            "summary": "Investor note due for Sofia today.",
+            "text": "Investor note due for Sofia today.",
             "counterparty": "Sofia N.",
             "source_ref": "gmail-thread:inline-2",
             "external_id": "gmail-message:inline-2",
