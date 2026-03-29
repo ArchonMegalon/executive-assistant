@@ -450,7 +450,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         ),
     ]
     analytics_rows = [
-        _row("Draft approvals", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
+        _row("Draft approvals cleared", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
         _row("Drafts sent", str(analytics_counts.get("draft_sent") or 0), "Analytics"),
         _row("Send follow-ups resolved", str(analytics_counts.get("draft_send_followup_resolved") or 0), "Analytics"),
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),

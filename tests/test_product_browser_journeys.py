@@ -244,6 +244,7 @@ def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() ->
     assert handoff_page.status_code == 200
     assert "Delivery reason" in handoff_page.text
     assert "Retry send" in handoff_page.text
+    assert "Waiting on principal" in handoff_page.text
     assert "Connect Google" in handoff_page.text or "Reconnect Google" in handoff_page.text
 
     handoff_detail = client.get(f"/app/api/handoffs/{followup['id']}")

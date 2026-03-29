@@ -613,6 +613,49 @@ def test_delivery_followup_completion_can_record_reauth_needed() -> None:
     assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
 
 
+def test_delivery_followup_completion_can_record_waiting_on_principal() -> None:
+    principal_id = "exec-product-delivery-followup-waiting"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Approve and route to manual send"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    completed = client.post(
+        f"/app/api/handoffs/{followup['id']}/complete",
+        json={"operator_id": seeded["operator_id"], "resolution": "waiting_on_principal"},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["resolution"] == "waiting_on_principal"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    assert any(item["event_type"] == "draft_send_waiting_on_principal" for item in events.json()["items"])
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    outcomes_body = outcomes.json()
+    assert outcomes_body["approval_coverage_rate"] == 1.0
+    assert outcomes_body["approval_action_rate"] == 0.0
+    assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
+
+    handoff_page = client.get(f"/app/handoffs/{followup['id']}")
+    assert handoff_page.status_code == 200
+    assert "Waiting on principal" in handoff_page.text
+
+
 def test_delivery_followup_retry_send_reuses_saved_draft_payload(monkeypatch) -> None:
     principal_id = "exec-product-delivery-followup-retry"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
