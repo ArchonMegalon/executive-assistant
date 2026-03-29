@@ -611,6 +611,37 @@ def test_support_page_explains_current_memo_issue_and_fix_detail() -> None:
     assert "Open support" in support_page.text
 
 
+def test_channel_loop_memo_digest_surfaces_memo_issue_fix_action() -> None:
+    principal_id = "exec-browser-channel-loop-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Channel Loop Memo Issue Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    loop_page = client.get("/app/channel-loop")
+    assert loop_page.status_code == 200
+    assert "Fix memo delivery blocker" in loop_page.text
+    assert "Domain not verified" in loop_page.text
+    assert "Open support" in loop_page.text
+
+    memo_digest = client.get("/app/channel-loop/memo")
+    assert memo_digest.status_code == 200
+    assert "Fix memo delivery blocker" in memo_digest.text
+    assert "Domain not verified" in memo_digest.text
+    assert "Open support" in memo_digest.text
+
+
 def test_channel_loop_get_actions_work() -> None:
     principal_id = "exec-browser-channel-loop"
     client = build_product_client(principal_id=principal_id)
