@@ -83,3 +83,13 @@ def test_extract_commitment_candidates_normalizes_weekday_explicit_clock_deadlin
     assert candidates
     assert candidates[0].title == "Confirm the investor update"
     assert candidates[0].suggested_due_at == "2026-03-27T11:00:00+00:00"
+
+
+def test_extract_commitment_candidates_can_disable_generic_fallback() -> None:
+    candidates = extract_commitment_candidates(
+        "Investor newsletter and product updates",
+        counterparty="Newsletter",
+        allow_generic_fallback=False,
+    )
+
+    assert candidates == ()
