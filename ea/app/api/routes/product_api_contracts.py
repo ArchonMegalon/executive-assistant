@@ -257,6 +257,7 @@ class WorkspaceOutcomesOut(BaseModel):
     approval_coverage_rate: float = 0.0
     approval_action_rate: float = 0.0
     delivery_followup_resolution_rate: float | None = None
+    delivery_followup_blocked_rate: float | None = None
     commitment_close_rate: float = 0.0
     correction_rate: float = 0.0
     churn_risk: str = "watch"

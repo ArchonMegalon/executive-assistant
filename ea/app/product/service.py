@@ -1750,6 +1750,7 @@ class ProductService:
             "draft_send_followup_created": int(counts.get("draft_send_followup_created") or 0),
             "draft_send_followup_resolved": int(counts.get("draft_send_followup_resolved") or 0),
             "draft_send_reauth_needed": int(counts.get("draft_send_reauth_needed") or 0),
+            "draft_send_waiting_on_principal": int(counts.get("draft_send_waiting_on_principal") or 0),
             "commitment_created": int(counts.get("commitment_created") or 0),
             "commitment_closed": int(counts.get("commitment_closed") or 0),
             "handoff_completed": int(counts.get("handoff_completed") or 0),
@@ -1760,6 +1761,7 @@ class ProductService:
         approval_coverage_rate = float(analytics.get("approval_coverage_rate") or 0.0)
         approval_action_rate = float(analytics.get("approval_action_rate") or 0.0)
         delivery_followup_resolution_rate = analytics.get("delivery_followup_resolution_rate")
+        delivery_followup_blocked_rate = analytics.get("delivery_followup_blocked_rate")
         commitment_close_rate = float(analytics.get("commitment_close_rate") or 0.0)
         useful_loop_days = int(memo_loop.get("days_with_useful_loop") or 0)
         oldest_handoff_age_hours = int(queue_health.get("oldest_handoff_age_hours") or 0)
@@ -1826,6 +1828,11 @@ class ProductService:
             "delivery_followup_resolution_rate": (
                 float(delivery_followup_resolution_rate)
                 if delivery_followup_resolution_rate is not None
+                else None
+            ),
+            "delivery_followup_blocked_rate": (
+                float(delivery_followup_blocked_rate)
+                if delivery_followup_blocked_rate is not None
                 else None
             ),
             "commitment_close_rate": commitment_close_rate,
@@ -4439,6 +4446,8 @@ class ProductService:
         draft_sent_count = int(analytics_counts.get("draft_sent") or 0)
         draft_send_followup_created_count = int(analytics_counts.get("draft_send_followup_created") or 0)
         draft_send_followup_resolved_count = int(analytics_counts.get("draft_send_followup_resolved") or 0)
+        draft_send_reauth_needed_count = int(analytics_counts.get("draft_send_reauth_needed") or 0)
+        draft_send_waiting_on_principal_count = int(analytics_counts.get("draft_send_waiting_on_principal") or 0)
         commitment_closed_count = int(analytics_counts.get("commitment_closed") or 0)
         memory_corrected_count = int(analytics_counts.get("memory_corrected") or 0)
         scheduled_memo_sent_count = int(analytics_counts.get("scheduled_morning_memo_delivery_sent") or 0)
@@ -4532,8 +4541,18 @@ class ProductService:
             if approval_requested_count
             else (1.0 if draft_sent_count else 0.0)
         )
+        delivery_followup_blocked_count = draft_send_reauth_needed_count + draft_send_waiting_on_principal_count
+        delivery_followup_terminal_resolution_count = max(
+            draft_send_followup_resolved_count - delivery_followup_blocked_count,
+            0,
+        )
         delivery_followup_resolution_rate = (
-            round(draft_send_followup_resolved_count / draft_send_followup_created_count, 2)
+            round(delivery_followup_terminal_resolution_count / draft_send_followup_created_count, 2)
+            if draft_send_followup_created_count
+            else None
+        )
+        delivery_followup_blocked_rate = (
+            round(delivery_followup_blocked_count / draft_send_followup_created_count, 2)
             if draft_send_followup_created_count
             else None
         )
@@ -4632,6 +4651,7 @@ class ProductService:
                 "approval_coverage_rate": approval_coverage_rate,
                 "approval_action_rate": approval_action_rate,
                 "delivery_followup_resolution_rate": delivery_followup_resolution_rate,
+                "delivery_followup_blocked_rate": delivery_followup_blocked_rate,
                 "commitment_close_rate": commitment_close_rate,
                 "correction_rate": correction_rate,
                 "churn_risk": churn_risk,
