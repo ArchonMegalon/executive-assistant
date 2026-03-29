@@ -430,11 +430,12 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
     principal_id = "exec-product-signal-draft-send"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Signal Draft Send Office")
+    captured: dict[str, object] = {}
 
     monkeypatch.setattr(
         google_oauth_service,
         "send_google_gmail_message",
-        lambda **_: google_oauth_service.GoogleGmailSendResult(
+        lambda **kwargs: captured.update(kwargs) or google_oauth_service.GoogleGmailSendResult(
             binding=None,
             sender_email="tibor@myexternalbrain.com",
             recipient_email="sofia@example.com",
@@ -461,6 +462,8 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
                 "from_name": "Sofia N.",
                 "thread_id": "thread-123",
                 "message_id": "message-123",
+                "rfc822_message_id": "<sofia-thread@example.com>",
+                "references": "<older@example.com> <sofia-thread@example.com>",
             },
         },
     )
@@ -482,6 +485,8 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
     assert sent_event["payload"]["subject"] == "Re: Board packet follow-up"
     assert sent_event["payload"]["source_ref"] == "gmail-thread:signal-draft-send"
     assert sent_event["payload"]["thread_ref"] == "gmail-thread:signal-draft-send"
+    assert captured["reply_to_message_id"] == "<sofia-thread@example.com>"
+    assert captured["references"] == "<older@example.com> <sofia-thread@example.com>"
 
     approved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_approved")
     assert approved_event["payload"]["delivery"]["status"] == "sent"

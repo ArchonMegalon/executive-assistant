@@ -499,6 +499,8 @@ def send_google_gmail_message(
     body_text: str,
     thread_id: str | None = None,
     message_id: str | None = None,
+    reply_to_message_id: str | None = None,
+    references: str | None = None,
 ) -> GoogleGmailSendResult:
     binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
         container=container,
@@ -512,12 +514,20 @@ def send_google_gmail_message(
     if not normalized_body:
         raise RuntimeError("google_gmail_body_missing")
     rfc822_message_id = str(message_id or "").strip() or f"<ea-draft-{secrets.token_hex(8)}@ea.local>"
+    normalized_reply_to = str(reply_to_message_id or "").strip()
+    normalized_references = str(references or "").strip()
+    if normalized_reply_to and normalized_reply_to not in normalized_references.split():
+        normalized_references = " ".join(part for part in (normalized_references, normalized_reply_to) if part)
     raw_message = _build_gmail_message(
         sender_email=sender_email,
         recipient_email=to_email,
         subject=normalized_subject,
         body_text=normalized_body,
         message_id=rfc822_message_id,
+        extra_headers={
+            "In-Reply-To": normalized_reply_to,
+            "References": normalized_references,
+        },
     )
     gmail_message_id = _gmail_send_message(
         access_token=access_token,
@@ -712,6 +722,9 @@ def _list_recent_gmail_signals(*, access_token: str, max_results: int) -> list[G
                 payload={
                     "thread_id": thread_id,
                     "message_id": message_id,
+                    "rfc822_message_id": headers.get("message-id") or "",
+                    "in_reply_to": headers.get("in-reply-to") or "",
+                    "references": headers.get("references") or headers.get("message-id") or "",
                     "received_at": headers.get("date") or "",
                     "from_email": sender_email.strip().lower(),
                     "from_name": sender_name.strip(),
