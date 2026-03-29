@@ -469,6 +469,15 @@ def settings_outcomes_detail(
             _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Closure"),
             _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
             _object_detail_row("Scheduled memo loop", str(memo_loop.get("state") or "watch").replace("_", " "), "Memo"),
+            _object_detail_row(
+                "Last memo issue",
+                str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
+                "Memo",
+                href=str(memo_loop.get("last_issue_fix_href") or "/app/settings/outcomes"),
+                action_href=str(memo_loop.get("last_issue_fix_href") or ""),
+                action_label=str(memo_loop.get("last_issue_fix_label") or ""),
+                action_method="get" if str(memo_loop.get("last_issue_fix_href") or "").strip() else "",
+            ),
         ],
         object_sections=[
             {
@@ -515,6 +524,16 @@ def settings_outcomes_detail(
                     _object_detail_row("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo"),
                     _object_detail_row("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo"),
                     _object_detail_row("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo"),
+                    _object_detail_row("Last memo issue", str(memo_loop.get("last_issue_reason") or "No current memo blocker"), "Memo"),
+                    _object_detail_row(
+                        "Fix target",
+                        str(memo_loop.get("last_issue_fix_label") or "No action needed"),
+                        "Memo",
+                        href=str(memo_loop.get("last_issue_fix_href") or ""),
+                        action_href=str(memo_loop.get("last_issue_fix_href") or ""),
+                        action_label=str(memo_loop.get("last_issue_fix_label") or ""),
+                        action_method="get" if str(memo_loop.get("last_issue_fix_href") or "").strip() else "",
+                    ),
                 ],
             },
             {
