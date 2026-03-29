@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, HandoffNote, PersonProfile, ProductSnapshot, RuleItem, ThreadItem
+from app.product.projections.handoffs import handoff_action_plan
 
 
 def _row(
@@ -259,14 +260,17 @@ def _people_rows(values: tuple[PersonProfile, ...]) -> list[dict[str, str]]:
     return rows
 
 
-def _handoff_rows(values: tuple[HandoffNote, ...], *, actionable: bool = True, return_to: str = "/app/follow-ups") -> list[dict[str, str]]:
+def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", actionable: bool = True, return_to: str = "/app/follow-ups") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
+        action_plan = handoff_action_plan(value, operator_id=operator_id) if actionable else {}
+        action_kind = str(action_plan.get("kind") or "assign").strip()
         detail = " · ".join(
             part
             for part in (
                 value.owner,
                 f"Due {value.due_time[:10]}" if value.due_time else "",
+                value.recipient_email if value.task_type == "delivery_followup" and value.recipient_email else "",
                 value.evidence_refs[0].note if value.evidence_refs else "",
             )
             if part
@@ -277,13 +281,17 @@ def _handoff_rows(values: tuple[HandoffNote, ...], *, actionable: bool = True, r
                 detail or "Handoff remains open.",
                 value.escalation_status.capitalize(),
                 href=f"/app/handoffs/{value.id}",
-                action_href=f"/app/actions/handoffs/{value.id}/assign" if actionable else "",
-                action_label="Claim" if actionable else "",
-                action_value="assign" if actionable else "",
+                action_href=f"/app/actions/handoffs/{value.id}/{'complete' if action_kind == 'complete' else 'assign'}" if actionable else "",
+                action_label=str(action_plan.get("label") or "") if actionable else "",
+                action_value=str(action_plan.get("value") or "") if actionable else "",
                 return_to=return_to if actionable else "",
-                secondary_action_href=f"/app/actions/handoffs/{value.id}/complete" if actionable else "",
-                secondary_action_label="Complete" if actionable else "",
-                secondary_action_value="completed" if actionable else "",
+                secondary_action_href=(
+                    f"/app/actions/handoffs/{value.id}/complete"
+                    if actionable and action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip()
+                    else ""
+                ),
+                secondary_action_label=str(action_plan.get("secondary_label") or "") if actionable else "",
+                secondary_action_value=str(action_plan.get("secondary_value") or "") if actionable else "",
                 secondary_return_to=return_to if actionable else "",
             )
         )
@@ -591,7 +599,7 @@ def workspace_section_payload(
                     "eyebrow": "Open handoffs",
                     "title": "What is waiting on a human",
                     "body": "Handoffs are backed by real human tasks instead of suggestion copy.",
-                    "items": _handoff_rows(snapshot.handoffs[:8], return_to="/app/follow-ups"),
+                    "items": _handoff_rows(snapshot.handoffs[:8], operator_id=operator_key, return_to="/app/follow-ups"),
                 },
                 {
                     "eyebrow": "Still open",
@@ -758,13 +766,13 @@ def workspace_section_payload(
                     "eyebrow": "Assigned to me",
                     "title": "What already belongs to this operator lane",
                     "body": "Assigned work should stay separate from the claimable backlog.",
-                    "items": _handoff_rows(assigned_handoffs[:8], return_to="/app/activity"),
+                    "items": _handoff_rows(assigned_handoffs[:8], operator_id=operator_key, return_to="/app/activity"),
                 },
                 {
                     "eyebrow": "Unclaimed handoffs",
                     "title": "What can be claimed next",
                     "body": "Operator work should be explicit, claimable, and closable from the same queue.",
-                    "items": _handoff_rows(remaining_unclaimed_handoffs[:8], return_to="/app/activity")
+                    "items": _handoff_rows(remaining_unclaimed_handoffs[:8], operator_id=operator_key, return_to="/app/activity")
                     or [_row("No unclaimed handoffs", "Suggested claims already cover the current claimable backlog.", "Clear")],
                 },
                 {

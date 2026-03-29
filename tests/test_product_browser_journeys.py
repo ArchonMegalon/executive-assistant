@@ -209,6 +209,41 @@ def test_browser_handoff_and_people_memory_actions_work() -> None:
     assert "Memory Corrected" in person_page.text
 
 
+def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() -> None:
+    principal_id = "exec-browser-delivery-followup"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Route to manual delivery"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    followups_page = client.get("/app/follow-ups")
+    assert followups_page.status_code == 200
+    assert "Mark sent" in followups_page.text
+    assert "Needs reauth" in followups_page.text
+
+    handoff_page = client.get(f"/app/handoffs/{followup['id']}")
+    assert handoff_page.status_code == 200
+    assert "Delivery reason" in handoff_page.text
+
+    handoff_detail = client.get(f"/app/api/handoffs/{followup['id']}")
+    assert handoff_detail.status_code == 200
+    assert handoff_detail.json()["delivery_reason"].startswith("google_")
+
+
 def test_object_detail_routes_render_core_product_objects() -> None:
     principal_id = "exec-browser-object-details"
     client = build_product_client(principal_id=principal_id)

@@ -477,6 +477,8 @@ def settings_outcomes_detail(
                 "title": "Signals feeding the outcome posture",
                 "items": [
                     _object_detail_row("Draft approved", str(counts.get("draft_approved") or 0), "Drafts"),
+                    _object_detail_row("Draft sent", str(counts.get("draft_sent") or 0), "Drafts"),
+                    _object_detail_row("Send follow-up resolved", str(counts.get("draft_send_followup_resolved") or 0), "Drafts"),
                     _object_detail_row("Commitment created", str(counts.get("commitment_created") or 0), "Commitments"),
                     _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Commitments"),
                     _object_detail_row("Handoff completed", str(counts.get("handoff_completed") or 0), "Handoffs"),

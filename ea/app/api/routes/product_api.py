@@ -220,6 +220,19 @@ def list_threads(
     return ThreadResponse(generated_at=now_iso(), items=[thread_out(item) for item in items], total=len(items))
 
 
+@router.get("/threads/{thread_ref:path}/history", response_model=list[HistoryEntryOut])
+def get_thread_history(
+    thread_ref: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> list[HistoryEntryOut]:
+    service = build_product_service(container)
+    if service.get_thread(principal_id=context.principal_id, thread_ref=thread_ref) is None:
+        raise HTTPException(status_code=404, detail="thread_not_found")
+    return [history_out(item) for item in service.get_thread_history(principal_id=context.principal_id, thread_ref=thread_ref, limit=limit)]
+
+
 @router.get("/threads/{thread_ref:path}", response_model=ThreadItemOut)
 def get_thread(
     thread_ref: str,

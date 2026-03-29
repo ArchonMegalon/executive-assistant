@@ -277,6 +277,7 @@ def handoff_detail(
         object_meta=[
             {"label": "Owner", "value": handoff.owner or "Unassigned"},
             {"label": "Due", "value": str(handoff.due_time or "")[:10] or "No due date"},
+            {"label": "Task", "value": str(handoff.task_type or "handoff").replace("_", " ").title()},
             {"label": "Escalation", "value": str(handoff.escalation_status or "normal").title()},
             {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
         ],
@@ -284,6 +285,9 @@ def handoff_detail(
         object_sidebar_copy="A handoff should show who owns it, whether it is waiting on the principal, and what evidence supports the transfer.",
         object_sidebar_rows=[
             _object_detail_row("Queue item", handoff.queue_item_ref or "No queue item ref attached.", "Queue"),
+            _object_detail_row("Draft ref", handoff.draft_ref or "No draft is attached to this handoff.", "Draft"),
+            _object_detail_row("Recipient", handoff.recipient_email or "No recipient metadata attached.", "Recipient"),
+            _object_detail_row("Delivery reason", handoff.delivery_reason or "No delivery blocker is attached.", "Reason"),
             _object_detail_row("Evidence attached", f"{len(handoff.evidence_refs or [])} evidence refs attached to this handoff.", "Evidence"),
             _object_detail_row("Assignment state", str(handoff.status or "pending").replace("_", " "), "Status"),
         ],
@@ -330,6 +334,7 @@ def thread_detail(
     thread = product.get_thread(principal_id=context.principal_id, thread_ref=thread_ref)
     if thread is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
+    history = product.get_thread_history(principal_id=context.principal_id, thread_ref=thread_ref, limit=8)
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="thread_opened",
@@ -374,6 +379,26 @@ def thread_detail(
                 "eyebrow": "Evidence",
                 "title": "Supporting evidence",
                 "items": _evidence_detail_rows(thread.evidence_refs),
+            },
+            {
+                "eyebrow": "Thread history",
+                "title": "Recent thread history",
+                "items": [
+                    _object_detail_row(
+                        str(item.event_type or "history").replace("_", " ").title(),
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.detail or "").strip(),
+                                str(item.created_at or "")[:19] if item.created_at else "",
+                            )
+                            if part
+                        )
+                        or "Thread activity was recorded.",
+                        str(item.actor or "thread").strip() or "Thread",
+                    )
+                    for item in history
+                ] or [_object_detail_row("No thread history yet", "No thread events were recorded yet.", "History")],
             },
         ],
     )

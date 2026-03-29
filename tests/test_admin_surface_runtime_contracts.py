@@ -55,6 +55,29 @@ def _seed_admin_state(client: TestClient, *, principal_id: str) -> None:
         priority="high",
         sla_due_at="2026-03-25T12:00:00+00:00",
     )
+    delivery_task = container.orchestrator.create_human_task(
+        session_id=session.session_id,
+        principal_id=principal_id,
+        task_type="delivery_followup",
+        role_required="operator",
+        brief="Send approved reply to Sofia N.",
+        why_human="Automatic send did not complete (google_oauth_binding_not_found). Finish delivery manually.",
+        priority="high",
+        sla_due_at="2026-03-25T13:00:00+00:00",
+        input_json={
+            "draft_ref": "approval:delivery-followup-admin",
+            "recipient_email": "sofia@example.com",
+            "subject": "Re: Board packet follow-up",
+            "reason": "google_oauth_binding_not_found",
+        },
+    )
+    container.orchestrator.assign_human_task(
+        delivery_task.human_task_id,
+        principal_id=principal_id,
+        operator_id="operator-admin-1",
+        assignment_source="seed",
+        assigned_by_actor_id="fixture",
+    )
     returned_task = container.orchestrator.create_human_task(
         session_id=session.session_id,
         principal_id=principal_id,
@@ -114,6 +137,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     principal_id = "exec-admin-surface"
     client = _operator_client(principal_id=principal_id)
     _seed_admin_state(client, principal_id=principal_id)
+    client.headers.update({"X-EA-Operator-ID": "operator-admin-1"})
 
     policies = client.get("/admin/policies")
     assert policies.status_code == 200
@@ -136,6 +160,9 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert operators.status_code == 200
     assert "Tibor Ops" in operators.text
     assert "Review the executive follow-up before send" in operators.text
+    assert "Send approved reply to Sofia N." in operators.text
+    assert "Mark sent" in operators.text
+    assert "Needs reauth" in operators.text
     assert "Returned handoffs" in operators.text
     assert "Close investor dinner handoff" in operators.text
 
