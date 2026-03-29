@@ -194,6 +194,17 @@ class GoogleGmailSmokeResult:
 
 
 @dataclass(frozen=True)
+class GoogleGmailSendResult:
+    binding: ProviderBindingRecord
+    sender_email: str
+    recipient_email: str
+    subject: str
+    rfc822_message_id: str
+    gmail_message_id: str
+    sent_at: str
+
+
+@dataclass(frozen=True)
 class GoogleWorkspaceSignal:
     signal_type: str
     channel: str
@@ -442,36 +453,10 @@ def run_google_gmail_smoke_test(
     principal_id: str,
     recipient_email: str | None = None,
 ) -> GoogleGmailSmokeResult:
-    config = load_google_oauth_config()
-    binding = container.provider_registry.get_persisted_binding_record(
-        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+    binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
+        container=container,
         principal_id=principal_id,
     )
-    if binding is None:
-        raise RuntimeError("google_oauth_binding_not_found")
-    metadata = dict(binding.auth_metadata_json or {})
-    granted_scopes = {
-        str(scope or "").strip()
-        for scope in (metadata.get("granted_scopes") or [])
-        if str(scope or "").strip()
-    }
-    if GOOGLE_SCOPE_SEND not in granted_scopes:
-        raise RuntimeError("google_gmail_send_scope_missing")
-    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
-    if not refresh_token_ref:
-        raise RuntimeError("google_gmail_refresh_token_missing")
-    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
-    token_payload = _refresh_google_access_token(
-        refresh_token=refresh_token,
-        client_id=config.client_id,
-        client_secret=config.client_secret,
-    )
-    access_token = str(token_payload.get("access_token") or "").strip()
-    if not access_token:
-        raise RuntimeError("google_gmail_access_token_missing")
-    sender_email = str(metadata.get("google_email") or "").strip().lower()
-    if not sender_email:
-        raise RuntimeError("google_gmail_sender_missing")
     to_email = str(recipient_email or sender_email).strip().lower() or sender_email
     rfc822_message_id = f"<ea-smoke-{secrets.token_hex(8)}@ea.local>"
     raw_message = _build_gmail_smoke_message(
@@ -499,6 +484,66 @@ def run_google_gmail_smoke_test(
         binding=updated,
         sender_email=sender_email,
         recipient_email=to_email,
+        rfc822_message_id=rfc822_message_id,
+        gmail_message_id=gmail_message_id,
+        sent_at=updated_metadata["last_successful_api_call_at"],
+    )
+
+
+def send_google_gmail_message(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    recipient_email: str,
+    subject: str,
+    body_text: str,
+    thread_id: str | None = None,
+    message_id: str | None = None,
+) -> GoogleGmailSendResult:
+    binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
+        container=container,
+        principal_id=principal_id,
+    )
+    to_email = str(recipient_email or "").strip().lower()
+    if not to_email:
+        raise RuntimeError("google_gmail_recipient_missing")
+    normalized_subject = str(subject or "").strip() or "EA follow-up"
+    normalized_body = str(body_text or "").strip()
+    if not normalized_body:
+        raise RuntimeError("google_gmail_body_missing")
+    rfc822_message_id = str(message_id or "").strip() or f"<ea-draft-{secrets.token_hex(8)}@ea.local>"
+    raw_message = _build_gmail_message(
+        sender_email=sender_email,
+        recipient_email=to_email,
+        subject=normalized_subject,
+        body_text=normalized_body,
+        message_id=rfc822_message_id,
+    )
+    gmail_message_id = _gmail_send_message(
+        access_token=access_token,
+        raw_message=raw_message,
+        thread_id=str(thread_id or "").strip() or None,
+    )
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleGmailSendResult(
+        binding=updated,
+        sender_email=sender_email,
+        recipient_email=to_email,
+        subject=normalized_subject,
         rfc822_message_id=rfc822_message_id,
         gmail_message_id=gmail_message_id,
         sent_at=updated_metadata["last_successful_api_call_at"],
@@ -789,8 +834,12 @@ def _refresh_google_access_token(*, refresh_token: str, client_id: str, client_s
         return json.loads(response.read().decode("utf-8"))
 
 
-def _gmail_send_message(*, access_token: str, raw_message: str) -> str:
-    body = json.dumps({"raw": raw_message}).encode("utf-8")
+def _gmail_send_message(*, access_token: str, raw_message: str, thread_id: str | None = None) -> str:
+    payload = {"raw": raw_message}
+    normalized_thread_id = str(thread_id or "").strip()
+    if normalized_thread_id:
+        payload["threadId"] = normalized_thread_id
+    body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
         data=body,
@@ -921,13 +970,72 @@ def _b64url_decode(raw: str) -> bytes:
 
 
 def _build_gmail_smoke_message(*, sender_email: str, recipient_email: str, message_id: str) -> str:
+    return _build_gmail_message(
+        sender_email=sender_email,
+        recipient_email=recipient_email,
+        subject="EA Gmail smoke test",
+        body_text="This is an EA Gmail smoke test. If you received it, the send-only OAuth path is working.",
+        message_id=message_id,
+        extra_headers={"X-EA-Smoke-Test": "google-gmail-send"},
+    )
+
+
+def _build_gmail_message(
+    *,
+    sender_email: str,
+    recipient_email: str,
+    subject: str,
+    body_text: str,
+    message_id: str,
+    extra_headers: dict[str, str] | None = None,
+) -> str:
     message = EmailMessage()
     message["From"] = sender_email
     message["To"] = recipient_email
-    message["Subject"] = "EA Gmail smoke test"
+    message["Subject"] = subject
     message["Message-ID"] = message_id
-    message["X-EA-Smoke-Test"] = "google-gmail-send"
-    message.set_content(
-        "This is an EA Gmail smoke test. If you received it, the send-only OAuth path is working."
-    )
+    for key, value in dict(extra_headers or {}).items():
+        normalized_key = str(key or "").strip()
+        normalized_value = str(value or "").strip()
+        if normalized_key and normalized_value:
+            message[normalized_key] = normalized_value
+    message.set_content(body_text)
     return base64.urlsafe_b64encode(message.as_bytes()).decode("ascii").rstrip("=")
+
+
+def _load_google_send_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str, str]:
+    config = load_google_oauth_config()
+    binding = container.provider_registry.get_persisted_binding_record(
+        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+        principal_id=principal_id,
+    )
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = {
+        str(scope or "").strip()
+        for scope in (metadata.get("granted_scopes") or [])
+        if str(scope or "").strip()
+    }
+    if GOOGLE_SCOPE_SEND not in granted_scopes:
+        raise RuntimeError("google_gmail_send_scope_missing")
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_gmail_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    token_payload = _refresh_google_access_token(
+        refresh_token=refresh_token,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+    )
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_gmail_access_token_missing")
+    sender_email = str(metadata.get("google_email") or "").strip().lower()
+    if not sender_email:
+        raise RuntimeError("google_gmail_sender_missing")
+    return binding, metadata, token_payload, access_token, sender_email
