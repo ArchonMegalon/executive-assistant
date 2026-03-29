@@ -1037,6 +1037,12 @@ def workspace_section_payload(
                         _row("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo", href="/app/settings/outcomes"),
                         _row("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo", href="/app/settings/outcomes"),
                         _row("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo", href="/app/settings/outcomes"),
+                        _row(
+                            "Last memo issue",
+                            str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
+                            "Memo",
+                            href="/app/settings/outcomes",
+                        ),
                     ],
                 },
                 {

@@ -1487,6 +1487,75 @@ def test_product_diagnostics_include_value_events() -> None:
     assert isinstance(body["human_tasks"], list)
 
 
+def test_workspace_outcomes_expose_last_memo_issue_and_fix_target() -> None:
+    principal_id = "exec-product-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Memo Issue Office")
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "return_to": "/app/settings",
+            "enabled": "true",
+            "cadence": "daily_morning",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="scheduled_morning_memo_delivery_failed",
+        payload={
+            "schedule_key": "pref-memo-issue",
+            "local_day": "2026-03-29",
+            "email_delivery_status": "failed",
+            "email_delivery_error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="pref-memo-issue",
+        dedupe_key=f"{principal_id}|scheduled-memo-failed",
+    )
+
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    memo_loop = outcomes.json()["memo_loop"]
+    assert memo_loop["last_issue_kind"] == "failed"
+    assert memo_loop["last_issue_reason"] == "Domain not verified"
+    assert memo_loop["last_issue_fix_href"] == "/app/settings/support"
+    assert memo_loop["last_issue_fix_label"] == "Open support"
+
+
+def test_workspace_outcomes_expose_manual_memo_delivery_issue_and_fix_target() -> None:
+    principal_id = "exec-product-manual-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Manual Memo Issue Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    memo_loop = outcomes.json()["memo_loop"]
+    assert memo_loop["enabled"] is False
+    assert memo_loop["last_issue_kind"] == "failed"
+    assert memo_loop["last_issue_reason"] == "Domain not verified"
+    assert memo_loop["last_issue_fix_href"] == "/app/settings/support"
+    assert memo_loop["last_issue_fix_label"] == "Open support"
+
+
 def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     principal_id = "exec-product-delivery-public-host"
     client = build_product_client(principal_id=principal_id)

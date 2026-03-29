@@ -104,6 +104,49 @@ def _hours_since(value: str | None) -> int:
     return max(int((datetime.now(timezone.utc) - when).total_seconds() // 3600), 0)
 
 
+def _memo_issue_reason(*, reason: str = "", error: str = "") -> str:
+    normalized_error = str(error or "").strip()
+    normalized_reason = str(reason or "").strip().lower()
+    if normalized_error:
+        if "domain not verified" in normalized_error.lower():
+            return "Domain not verified"
+        detail = normalized_error
+        if normalized_error.startswith("registration_email_send_failed:"):
+            detail = normalized_error.split(":", 2)[-1]
+        if detail.startswith("{") and detail.endswith("}"):
+            try:
+                parsed = json.loads(detail)
+            except Exception:
+                parsed = {}
+            extracted = str(parsed.get("error") or "").strip()
+            if extracted:
+                return extracted
+        return compact_text(normalized_error, fallback="Memo delivery failed.", limit=160)
+    if normalized_reason == "quiet_hours":
+        return "Blocked by quiet hours"
+    if normalized_reason == "recipient_missing":
+        return "Recipient email missing"
+    if normalized_reason == "email_delivery_not_configured":
+        return "Email delivery is not configured"
+    if normalized_reason == "unsupported_delivery_channel":
+        return "Delivery channel is unsupported"
+    if normalized_reason == "digest_not_available":
+        return "Memo digest was not available"
+    return compact_text(normalized_reason.replace("_", " "), fallback="", limit=160)
+
+
+def _memo_issue_fix(*, reason: str = "", error: str = "") -> tuple[str, str]:
+    normalized_reason = str(reason or "").strip().lower()
+    normalized_error = str(error or "").strip().lower()
+    if "google_" in normalized_reason or "google_" in normalized_error:
+        return "/app/settings/google", "Open Google settings"
+    if "domain not verified" in normalized_error or normalized_reason in {"email_delivery_not_configured", "unsupported_delivery_channel"}:
+        return "/app/settings/support", "Open support"
+    if normalized_reason in {"recipient_missing", "quiet_hours"}:
+        return "/app/settings", "Open memo settings"
+    return "/app/settings/outcomes", "Open outcomes"
+
+
 def _action_label(action_json: dict[str, object]) -> str:
     raw = str(action_json.get("intent") or action_json.get("label") or action_json.get("action") or action_json.get("event_type") or "review").strip().replace("_", " ").replace(".", " ")
     return raw or "review"
@@ -4525,7 +4568,13 @@ class ProductService:
         first_value_event = ""
         first_scheduled_memo_sent_at = ""
         last_scheduled_memo_sent_at = ""
+        last_memo_delivery_sent_at = ""
         useful_loop_days: set[str] = set()
+        latest_memo_issue_at = ""
+        latest_memo_issue_kind = ""
+        latest_memo_issue_reason = ""
+        latest_memo_issue_fix_href = ""
+        latest_memo_issue_fix_label = ""
         first_value_types = {
             "draft_sent",
             "draft_send_followup_created",
@@ -4538,13 +4587,13 @@ class ProductService:
         for row in event_rows:
             analytics_counts[row.event_type] = int(analytics_counts.get(row.event_type, 0) or 0) + 1
             created_at = str(row.created_at or "").strip()
+            payload = dict(getattr(row, "payload", {}) or {})
             if row.event_type == "activation_opened" and created_at and not activation_started_at:
                 activation_started_at = created_at
             if row.event_type in first_value_types and created_at and not first_value_at:
                 first_value_at = created_at
                 first_value_event = row.event_type
             if row.event_type == "scheduled_morning_memo_delivery_sent":
-                payload = dict(getattr(row, "payload", {}) or {})
                 local_day = str(payload.get("local_day") or "").strip()
                 if local_day:
                     useful_loop_days.add(local_day)
@@ -4552,6 +4601,48 @@ class ProductService:
                     first_scheduled_memo_sent_at = created_at
                 if created_at:
                     last_scheduled_memo_sent_at = created_at
+                    last_memo_delivery_sent_at = created_at
+            if (
+                row.event_type == "channel_digest_delivery_email_sent"
+                and str(payload.get("digest_key") or "").strip().lower() == "memo"
+                and created_at
+            ):
+                sent_at = _parse_iso(created_at)
+                latest_sent_at = _parse_iso(last_memo_delivery_sent_at)
+                if latest_sent_at is None or (sent_at is not None and sent_at >= latest_sent_at):
+                    last_memo_delivery_sent_at = created_at
+            if row.event_type in {"scheduled_morning_memo_delivery_failed", "scheduled_morning_memo_delivery_blocked"} and created_at:
+                issue_at = _parse_iso(created_at)
+                latest_issue_at = _parse_iso(latest_memo_issue_at)
+                if latest_issue_at is None or (issue_at is not None and issue_at >= latest_issue_at):
+                    issue_reason = _memo_issue_reason(
+                        reason=str(payload.get("reason") or "").strip(),
+                        error=str(payload.get("email_delivery_error") or "").strip(),
+                    )
+                    fix_href, fix_label = _memo_issue_fix(
+                        reason=str(payload.get("reason") or "").strip(),
+                        error=str(payload.get("email_delivery_error") or "").strip(),
+                    )
+                    latest_memo_issue_at = created_at
+                    latest_memo_issue_kind = "failed" if row.event_type == "scheduled_morning_memo_delivery_failed" else "blocked"
+                    latest_memo_issue_reason = issue_reason
+                    latest_memo_issue_fix_href = fix_href if issue_reason else ""
+                    latest_memo_issue_fix_label = fix_label if issue_reason else ""
+            if (
+                row.event_type == "channel_digest_delivery_email_failed"
+                and str(payload.get("digest_key") or "").strip().lower() == "memo"
+                and created_at
+            ):
+                issue_at = _parse_iso(created_at)
+                latest_issue_at = _parse_iso(latest_memo_issue_at)
+                if latest_issue_at is None or (issue_at is not None and issue_at >= latest_issue_at):
+                    issue_reason = _memo_issue_reason(error=str(payload.get("error") or "").strip())
+                    fix_href, fix_label = _memo_issue_fix(error=str(payload.get("error") or "").strip())
+                    latest_memo_issue_at = created_at
+                    latest_memo_issue_kind = "failed"
+                    latest_memo_issue_reason = issue_reason
+                    latest_memo_issue_fix_href = fix_href if issue_reason else ""
+                    latest_memo_issue_fix_label = fix_label if issue_reason else ""
         first_value_seconds: int | None = None
         if activation_started_at and first_value_at:
             try:
@@ -4757,6 +4848,15 @@ class ProductService:
             if scheduled_memo_sent_count == 0
             else "clear"
         )
+        if latest_memo_issue_at and last_memo_delivery_sent_at:
+            latest_issue_at = _parse_iso(latest_memo_issue_at)
+            last_sent_at = _parse_iso(last_memo_delivery_sent_at)
+            if latest_issue_at is not None and last_sent_at is not None and latest_issue_at <= last_sent_at:
+                latest_memo_issue_at = ""
+                latest_memo_issue_kind = ""
+                latest_memo_issue_reason = ""
+                latest_memo_issue_fix_href = ""
+                latest_memo_issue_fix_label = ""
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -4848,6 +4948,11 @@ class ProductService:
                     "days_with_useful_loop": len(useful_loop_days),
                     "first_scheduled_sent_at": first_scheduled_memo_sent_at,
                     "last_scheduled_sent_at": last_scheduled_memo_sent_at,
+                    "last_issue_at": latest_memo_issue_at,
+                    "last_issue_kind": latest_memo_issue_kind,
+                    "last_issue_reason": latest_memo_issue_reason,
+                    "last_issue_fix_href": latest_memo_issue_fix_href,
+                    "last_issue_fix_label": latest_memo_issue_fix_label,
                     "state": memo_loop_state,
                 },
                 "delivery": {
