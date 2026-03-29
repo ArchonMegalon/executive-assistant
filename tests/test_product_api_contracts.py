@@ -1565,6 +1565,49 @@ def test_workspace_outcomes_expose_manual_memo_delivery_issue_and_fix_target() -
     assert proof["summary"] == "Office-loop proof is blocked by a current memo delivery issue."
 
 
+def test_channel_loop_surfaces_memo_delivery_blocker_fix_action() -> None:
+    principal_id = "exec-product-channel-loop-memo-blocker"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Channel Loop Memo Blocker Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    body = loop.json()
+    root_blocker = next(item for item in body["items"] if item["title"] == "Fix memo delivery blocker")
+    assert "Domain not verified" in root_blocker["detail"]
+    assert root_blocker["action_label"] == "Open support"
+    assert root_blocker["action_href"] == "/app/settings/support"
+    memo_digest = next(item for item in body["digests"] if item["key"] == "memo")
+    memo_blocker = next(item for item in memo_digest["items"] if item["title"] == "Fix memo delivery blocker")
+    assert "Domain not verified" in memo_blocker["detail"]
+    assert memo_blocker["action_label"] == "Open support"
+    assert memo_blocker["action_href"] == "/app/settings/support"
+    assert int(memo_digest["stats"]["memo_blockers"]) == 1
+    assert "memo blocker" in memo_digest["preview_text"].lower()
+    operator_digest = next(item for item in body["digests"] if item["key"] == "operator")
+    assert any(item["title"] == "Fix memo delivery blocker" for item in operator_digest["items"])
+    memo_plain = client.get("/app/api/channel-loop/memo/plain")
+    assert memo_plain.status_code == 200
+    assert "Fix memo delivery blocker" in memo_plain.text
+    assert "Domain not verified" in memo_plain.text
+    assert "/app/settings/support" in memo_plain.text
+    assert "Open support:" in memo_plain.text
+    assert "Open: http://testserver/app/settings/support" not in memo_plain.text
+
+
 def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     principal_id = "exec-product-delivery-public-host"
     client = build_product_client(principal_id=principal_id)

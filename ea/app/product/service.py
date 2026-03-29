@@ -167,6 +167,32 @@ def _memo_issue_fix_detail(*, reason: str = "", error: str = "") -> str:
     return ""
 
 
+def _memo_issue_channel_item(*, memo_loop: dict[str, object]) -> dict[str, str] | None:
+    issue_reason = str(memo_loop.get("last_issue_reason") or "").strip()
+    if not issue_reason:
+        return None
+    fix_href = str(memo_loop.get("last_issue_fix_href") or "/app/settings/outcomes").strip() or "/app/settings/outcomes"
+    fix_label = str(memo_loop.get("last_issue_fix_label") or "Open outcomes").strip() or "Open outcomes"
+    fix_detail = str(memo_loop.get("last_issue_fix_detail") or "").strip()
+    detail = " ".join(
+        part
+        for part in (
+            issue_reason.rstrip(".") + ".",
+            fix_detail,
+        )
+        if str(part or "").strip()
+    ).strip()
+    return {
+        "title": "Fix memo delivery blocker",
+        "detail": detail or issue_reason,
+        "tag": "Memo",
+        "href": fix_href,
+        "action_href": fix_href,
+        "action_label": fix_label,
+        "action_method": "get",
+    }
+
+
 def _action_label(action_json: dict[str, object]) -> str:
     raw = str(action_json.get("intent") or action_json.get("label") or action_json.get("action") or action_json.get("event_type") or "review").strip().replace("_", " ").replace(".", " ")
     return raw or "review"
@@ -5582,7 +5608,12 @@ class ProductService:
     def channel_loop_pack(self, *, principal_id: str, operator_id: str = "") -> dict[str, object]:
         snapshot = self.workspace_snapshot(principal_id=principal_id, operator_id=operator_id)
         operator_key = str(operator_id or "").strip()
+        diagnostics = self.workspace_diagnostics(principal_id=principal_id)
+        memo_loop = dict(dict(diagnostics.get("analytics") or {}).get("memo_loop") or {})
         items: list[dict[str, str]] = []
+        memo_blocker_item = _memo_issue_channel_item(memo_loop=memo_loop)
+        if memo_blocker_item is not None:
+            items.append(dict(memo_blocker_item))
         if snapshot.brief_items:
             memo = snapshot.brief_items[0]
             items.append(
@@ -5747,7 +5778,12 @@ class ProductService:
                     "secondary_action_method": "get",
                 }
             )
-        digests = self._channel_digests(snapshot=snapshot, operator_key=operator_key, principal_id=principal_id)
+        digests = self._channel_digests(
+            snapshot=snapshot,
+            operator_key=operator_key,
+            principal_id=principal_id,
+            memo_loop=memo_loop,
+        )
         return {
             "headline": "Inline loop",
             "summary": "Use a compact, mobile-safe surface for the memo, approvals, commitments, handoffs, and the next decision that still matters.",
@@ -5812,19 +5848,24 @@ class ProductService:
             quaternary_label = str(item.get("quaternary_action_label") or "").strip()
             quaternary_href = absolute(str(item.get("quaternary_action_href") or "").strip())
             href = absolute(str(item.get("href") or "").strip())
+            wrote_action = False
             header = f"{index}. [{tag}] {title}" if tag else f"{index}. {title}"
             lines.append(header)
             if detail:
                 lines.append(f"   {detail}")
             if action_label and action_href:
                 lines.append(f"   {action_label}: {action_href}")
+                wrote_action = True
             if secondary_label and secondary_href:
                 lines.append(f"   {secondary_label}: {secondary_href}")
+                wrote_action = True
             if tertiary_label and tertiary_href:
                 lines.append(f"   {tertiary_label}: {tertiary_href}")
+                wrote_action = True
             if quaternary_label and quaternary_href:
                 lines.append(f"   {quaternary_label}: {quaternary_href}")
-            elif href:
+                wrote_action = True
+            if not wrote_action and href:
                 lines.append(f"   Open: {href}")
             lines.append("")
         return "\n".join(line for line in lines if line or (lines and line == ""))
@@ -6066,12 +6107,21 @@ class ProductService:
             ),
         }
 
-    def _channel_digests(self, *, snapshot: ProductSnapshot, operator_key: str, principal_id: str) -> list[dict[str, object]]:
+    def _channel_digests(
+        self,
+        *,
+        snapshot: ProductSnapshot,
+        operator_key: str,
+        principal_id: str,
+        memo_loop: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
         at_risk_commitments = [
             item
             for item in snapshot.commitments
             if _is_past_due(item.due_at) or item.risk_level in {"high", "critical", "due_now"}
         ]
+        resolved_memo_loop = dict(memo_loop or {})
+        memo_blocker_item = _memo_issue_channel_item(memo_loop=resolved_memo_loop)
         open_decisions = [item for item in snapshot.decisions if item.status != "decided"]
         principal_queue = [item for item in snapshot.queue_items if item.requires_principal]
         review_candidates = [
@@ -6089,6 +6139,8 @@ class ProductService:
         if not visible_handoffs:
             visible_handoffs = list(snapshot.handoffs[:2])
         memo_items: list[dict[str, str]] = []
+        if memo_blocker_item is not None:
+            memo_items.append(dict(memo_blocker_item))
         for item in snapshot.brief_items[:2]:
             memo_items.append(
                 {
@@ -6252,6 +6304,8 @@ class ProductService:
                 }
             )
         operator_items: list[dict[str, str]] = []
+        if memo_blocker_item is not None:
+            operator_items.append(dict(memo_blocker_item))
         for handoff in visible_handoffs:
             actions = self._handoff_channel_actions(
                 principal_id=principal_id,
@@ -6334,12 +6388,16 @@ class ProductService:
                 "key": "memo",
                 "headline": "Morning memo digest",
                 "summary": "Forward or open the ranked day brief from a mobile-safe surface.",
-                "preview_text": f"{len(snapshot.brief_items)} memo items, {len(at_risk_commitments)} commitments at risk, {len(open_decisions)} open decisions.",
+                "preview_text": (
+                    f"{len(snapshot.brief_items)} memo items, {len(at_risk_commitments)} commitments at risk, {len(open_decisions)} open decisions."
+                    + (" 1 memo blocker needs a fix action." if memo_blocker_item is not None else "")
+                ),
                 "items": memo_items,
                 "stats": {
                     "memo_items": len(snapshot.brief_items),
                     "at_risk_commitments": len(at_risk_commitments),
                     "open_decisions": len(open_decisions),
+                    "memo_blockers": 1 if memo_blocker_item is not None else 0,
                 },
             },
             {
@@ -6363,12 +6421,16 @@ class ProductService:
                 "key": "operator",
                 "headline": "Operator handoff digest",
                 "summary": "Claim, complete, and close the next office item from a compact operator surface.",
-                "preview_text": f"{len(assigned_handoffs)} assigned handoffs, {len(unclaimed_handoffs)} unclaimed handoffs, {len(snapshot.commitments)} open commitments.",
+                "preview_text": (
+                    f"{len(assigned_handoffs)} assigned handoffs, {len(unclaimed_handoffs)} unclaimed handoffs, {len(snapshot.commitments)} open commitments."
+                    + (" Active memo blocker needs an operator-visible fix path." if memo_blocker_item is not None else "")
+                ),
                 "items": operator_items,
                 "stats": {
                     "assigned_handoffs": len(assigned_handoffs),
                     "unclaimed_handoffs": len(unclaimed_handoffs),
                     "open_commitments": len(snapshot.commitments),
+                    "memo_blockers": 1 if memo_blocker_item is not None else 0,
                 },
             },
         ]
