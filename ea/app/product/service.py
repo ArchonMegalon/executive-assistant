@@ -515,6 +515,64 @@ class ProductService:
         )
         return self._draft_from_approval(approval)
 
+    def _matching_staged_signal_candidates(
+        self,
+        *,
+        principal_id: str,
+        source_ref: str,
+    ) -> tuple[CommitmentCandidate, ...]:
+        normalized_source = str(source_ref or "").strip()
+        if not normalized_source:
+            return ()
+        return tuple(
+            row
+            for row in self.list_commitment_candidates(principal_id=principal_id, limit=200, status=None)
+            if str(row.source_ref or "").strip() == normalized_source
+            and str(row.status or "").strip().lower() in {"pending", "duplicate"}
+        )
+
+    def _commitment_candidate_payload(self, row: CommitmentCandidate) -> dict[str, object]:
+        return {
+            "candidate_id": row.candidate_id,
+            "title": row.title,
+            "details": row.details,
+            "source_text": row.source_text,
+            "confidence": row.confidence,
+            "suggested_due_at": row.suggested_due_at,
+            "counterparty": row.counterparty,
+            "channel_hint": row.channel_hint,
+            "source_ref": row.source_ref,
+            "signal_type": row.signal_type,
+            "status": row.status,
+            "kind": row.kind,
+            "stakeholder_id": row.stakeholder_id,
+            "duplicate_of_ref": row.duplicate_of_ref,
+            "merge_strategy": row.merge_strategy,
+        }
+
+    def _draft_payload(self, row: DraftCandidate) -> dict[str, object]:
+        return {
+            "id": row.id,
+            "thread_ref": row.thread_ref,
+            "recipient_summary": row.recipient_summary,
+            "intent": row.intent,
+            "draft_text": row.draft_text,
+            "tone": row.tone,
+            "requires_approval": row.requires_approval,
+            "approval_status": row.approval_status,
+            "provenance_refs": [
+                {
+                    "ref_id": ref.ref_id,
+                    "label": ref.label,
+                    "href": ref.href,
+                    "source_type": ref.source_type,
+                    "note": ref.note,
+                }
+                for ref in row.provenance_refs
+            ],
+            "send_channel": row.send_channel,
+        }
+
     def _commitment_item_from_commitment(self, row: Commitment) -> CommitmentItem:
         return commitment_item_from_commitment(row)
 
@@ -899,6 +957,16 @@ class ProductService:
             principal_id=principal_id,
         )
         if existing_event is not None:
+            existing_candidates = self._matching_staged_signal_candidates(
+                principal_id=principal_id,
+                source_ref=str(source_ref or "").strip(),
+            )
+            existing_draft_approval = self._find_pending_signal_draft_approval(
+                principal_id=principal_id,
+                source_ref=str(source_ref or "").strip(),
+                recipient_email=str(dict(payload or {}).get("from_email") or "").strip().lower(),
+            )
+            existing_drafts = (self._draft_from_approval(existing_draft_approval),) if existing_draft_approval is not None else ()
             return {
                 "observation_id": str(existing_event.observation_id or ""),
                 "channel": str(existing_event.channel or normalized_channel),
@@ -906,10 +974,10 @@ class ProductService:
                 "source_id": str(existing_event.source_id or source_ref or "").strip(),
                 "external_id": str(existing_event.external_id or external_id or "").strip(),
                 "created_at": str(existing_event.created_at or ""),
-                "staged_candidates": [],
-                "staged_drafts": [],
-                "staged_count": 0,
-                "draft_count": 0,
+                "staged_candidates": [self._commitment_candidate_payload(row) for row in existing_candidates],
+                "staged_drafts": [self._draft_payload(row) for row in existing_drafts],
+                "staged_count": len(existing_candidates),
+                "draft_count": len(existing_drafts),
                 "deduplicated": True,
             }
         staged = self.stage_extracted_commitments(
@@ -996,50 +1064,8 @@ class ProductService:
             "source_id": str(event.source_id or ""),
             "external_id": str(event.external_id or ""),
             "created_at": str(event.created_at or ""),
-            "staged_candidates": [
-                {
-                    "candidate_id": row.candidate_id,
-                    "title": row.title,
-                    "details": row.details,
-                    "source_text": row.source_text,
-                    "confidence": row.confidence,
-                    "suggested_due_at": row.suggested_due_at,
-                    "counterparty": row.counterparty,
-                    "channel_hint": row.channel_hint,
-                    "source_ref": row.source_ref,
-                    "signal_type": row.signal_type,
-                    "status": row.status,
-                    "kind": row.kind,
-                    "stakeholder_id": row.stakeholder_id,
-                    "duplicate_of_ref": row.duplicate_of_ref,
-                    "merge_strategy": row.merge_strategy,
-                }
-                for row in staged
-            ],
-            "staged_drafts": [
-                {
-                    "id": staged_draft.id,
-                    "thread_ref": staged_draft.thread_ref,
-                    "recipient_summary": staged_draft.recipient_summary,
-                    "intent": staged_draft.intent,
-                    "draft_text": staged_draft.draft_text,
-                    "tone": staged_draft.tone,
-                    "requires_approval": staged_draft.requires_approval,
-                    "approval_status": staged_draft.approval_status,
-                    "provenance_refs": [
-                        {
-                            "ref_id": ref.ref_id,
-                            "label": ref.label,
-                            "href": ref.href,
-                            "source_type": ref.source_type,
-                            "note": ref.note,
-                        }
-                        for ref in staged_draft.provenance_refs
-                    ],
-                    "send_channel": staged_draft.send_channel,
-                }
-                for staged_draft in (staged_draft,) if staged_draft is not None
-            ],
+            "staged_candidates": [self._commitment_candidate_payload(row) for row in staged],
+            "staged_drafts": [self._draft_payload(row) for row in (staged_draft,) if staged_draft is not None],
             "staged_count": len(staged),
             "draft_count": 1 if staged_draft is not None else 0,
             "deduplicated": False,

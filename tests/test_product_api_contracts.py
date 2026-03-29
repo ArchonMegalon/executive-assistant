@@ -325,6 +325,26 @@ def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
     counts = dict(diagnostics.json()["analytics"]["counts"])
     assert int(counts.get("approval_requested") or 0) >= 1
 
+    duplicate = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:signal-draft-1",
+            "external_id": "gmail-message:signal-draft-1",
+        },
+    )
+    assert duplicate.status_code == 200
+    duplicate_body = duplicate.json()
+    assert duplicate_body["deduplicated"] is True
+    assert duplicate_body["staged_count"] >= 1
+    assert duplicate_body["draft_count"] == 1
+    assert duplicate_body["staged_drafts"][0]["id"] == body["staged_drafts"][0]["id"]
+
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
     principal_id = "exec-product-google-sync"
@@ -420,6 +440,9 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert deduplicated_body["synced_total"] == 0
     assert deduplicated_body["deduplicated_total"] == 2
     assert all(item["deduplicated"] is True for item in deduplicated_body["items"])
+    deduplicated_gmail = next(item for item in deduplicated_body["items"] if item["channel"] == "gmail")
+    assert deduplicated_gmail["staged_count"] >= 1
+    assert deduplicated_gmail["draft_count"] >= 1
     diagnostics = client.get("/app/api/usage")
     assert diagnostics.status_code == 200
     sync_analytics = diagnostics.json()["analytics"]["sync"]
