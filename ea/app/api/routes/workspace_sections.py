@@ -46,6 +46,43 @@ def _row(
     return row
 
 
+def _google_settings_action_row(sync: dict[str, object], *, return_to: str) -> dict[str, str]:
+    connected = bool(sync.get("google_connected"))
+    token_status = str(sync.get("google_token_status") or "missing").strip()
+    freshness = str(sync.get("google_sync_freshness_state") or "watch").strip()
+    if not connected:
+        return _row(
+            "Connected",
+            "No",
+            "Sync",
+            href="/app/settings/google",
+            action_href=f"/app/actions/google/connect?return_to={return_to}",
+            action_label="Connect now",
+            action_method="get",
+        )
+    if token_status not in {"active", "unknown"}:
+        return _row(
+            "Connected",
+            "Yes",
+            "Sync",
+            href="/app/settings/google",
+            action_href=f"/app/actions/google/connect?return_to={return_to}",
+            action_label="Reconnect now",
+            action_method="get",
+        )
+    if freshness != "clear":
+        return _row(
+            "Connected",
+            "Yes",
+            "Sync",
+            href="/app/settings/google",
+            action_href=f"/app/actions/signals/google/sync?return_to={return_to}",
+            action_label="Run now",
+            action_method="get",
+        )
+    return _row("Connected", "Yes", "Sync", href="/app/settings/google")
+
+
 def _brief_rows(values: tuple[BriefItem, ...], *, tag: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
@@ -910,7 +947,7 @@ def workspace_section_payload(
                     "title": "What is feeding the office loop",
                     "body": "Gmail and Calendar should explain whether fresh signals are entering the queue and whether staged work is ready for review.",
                     "items": [
-                        _row("Connected", "Yes" if analytics_sync.get("google_connected") else "No", "Sync", href="/app/settings/google"),
+                        _google_settings_action_row(analytics_sync, return_to="/app/settings/google"),
                         _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
                         _row(
                             "Freshness",
@@ -948,7 +985,20 @@ def workspace_section_payload(
                         ),
                         _row("Summary", str(office_loop_proof.get("summary") or "No proof summary yet."), "Gate", href="/app/settings/outcomes"),
                         _row("Memo open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Memo", href="/app/settings/outcomes"),
-                        _row("Approval action rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
+                        _row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or analytics.get("approval_coverage_rate") or 0), "Approvals", href="/app/settings/outcomes"),
+                        _row("Approval send rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
+                        _row(
+                            "Follow-up resolution rate",
+                            str(
+                                outcomes.get("delivery_followup_resolution_rate")
+                                if outcomes.get("delivery_followup_resolution_rate") is not None
+                                else analytics.get("delivery_followup_resolution_rate")
+                                if analytics.get("delivery_followup_resolution_rate") is not None
+                                else "n/a"
+                            ),
+                            "Operators",
+                            href="/app/settings/outcomes",
+                        ),
                         _row("Commitment close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Commitments", href="/app/settings/outcomes"),
                         *[
                             _row(

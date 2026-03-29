@@ -1623,7 +1623,9 @@ class ProductService:
             "support_bundle_opened": int(counts.get("support_bundle_opened") or 0),
         }
         memo_open_rate = float(analytics.get("memo_open_rate") or 0.0)
+        approval_coverage_rate = float(analytics.get("approval_coverage_rate") or 0.0)
         approval_action_rate = float(analytics.get("approval_action_rate") or 0.0)
+        delivery_followup_resolution_rate = analytics.get("delivery_followup_resolution_rate")
         commitment_close_rate = float(analytics.get("commitment_close_rate") or 0.0)
         useful_loop_days = int(memo_loop.get("days_with_useful_loop") or 0)
         oldest_handoff_age_hours = int(queue_health.get("oldest_handoff_age_hours") or 0)
@@ -1637,7 +1639,7 @@ class ProductService:
             },
             {
                 "key": "approval_action_rate",
-                "label": "Approval action rate",
+                "label": "Approval send rate",
                 "actual": approval_action_rate,
                 "target": 0.6,
                 "state": "clear" if approval_action_rate >= 0.6 else "watch" if approval_action_rate >= 0.3 else "critical",
@@ -1685,7 +1687,13 @@ class ProductService:
             "time_to_first_value_seconds": analytics.get("time_to_first_value_seconds"),
             "first_value_event": str(analytics.get("first_value_event") or "").strip(),
             "memo_open_rate": memo_open_rate,
+            "approval_coverage_rate": approval_coverage_rate,
             "approval_action_rate": approval_action_rate,
+            "delivery_followup_resolution_rate": (
+                float(delivery_followup_resolution_rate)
+                if delivery_followup_resolution_rate is not None
+                else None
+            ),
             "commitment_close_rate": commitment_close_rate,
             "correction_rate": float(analytics.get("correction_rate") or 0.0),
             "churn_risk": str(analytics.get("churn_risk") or "watch").strip() or "watch",
@@ -4296,6 +4304,7 @@ class ProductService:
         draft_approved_count = int(analytics_counts.get("draft_approved") or 0)
         draft_sent_count = int(analytics_counts.get("draft_sent") or 0)
         draft_send_followup_created_count = int(analytics_counts.get("draft_send_followup_created") or 0)
+        draft_send_followup_resolved_count = int(analytics_counts.get("draft_send_followup_resolved") or 0)
         commitment_closed_count = int(analytics_counts.get("commitment_closed") or 0)
         memory_corrected_count = int(analytics_counts.get("memory_corrected") or 0)
         scheduled_memo_sent_count = int(analytics_counts.get("scheduled_morning_memo_delivery_sent") or 0)
@@ -4378,11 +4387,21 @@ class ProductService:
         current_commitments = int(usage_stats.get("commitments") or 0)
         current_queue_items = int(usage_stats.get("queue_items") or 0)
         memo_open_rate = 1.0 if memo_opened_count else 0.0
-        resolved_draft_action_count = draft_sent_count + draft_send_followup_created_count
-        approval_action_rate = (
-            round(resolved_draft_action_count / approval_requested_count, 2)
+        approval_coverage_count = draft_sent_count + draft_send_followup_created_count
+        approval_coverage_rate = (
+            round(approval_coverage_count / approval_requested_count, 2)
             if approval_requested_count
-            else (1.0 if resolved_draft_action_count else 0.0)
+            else (1.0 if approval_coverage_count else 0.0)
+        )
+        approval_action_rate = (
+            round(draft_sent_count / approval_requested_count, 2)
+            if approval_requested_count
+            else (1.0 if draft_sent_count else 0.0)
+        )
+        delivery_followup_resolution_rate = (
+            round(draft_send_followup_resolved_count / draft_send_followup_created_count, 2)
+            if draft_send_followup_created_count
+            else None
         )
         commitment_close_rate = round(commitment_closed_count / max(commitment_closed_count + current_commitments, 1), 2)
         correction_rate = round(memory_corrected_count / max(memo_opened_count, 1), 2)
@@ -4476,7 +4495,9 @@ class ProductService:
                 "first_value_event": first_value_event,
                 "time_to_first_value_seconds": first_value_seconds,
                 "memo_open_rate": memo_open_rate,
+                "approval_coverage_rate": approval_coverage_rate,
                 "approval_action_rate": approval_action_rate,
+                "delivery_followup_resolution_rate": delivery_followup_resolution_rate,
                 "commitment_close_rate": commitment_close_rate,
                 "correction_rate": correction_rate,
                 "churn_risk": churn_risk,
@@ -4772,7 +4793,11 @@ class ProductService:
                 {
                     "label": "Connect Google",
                     "detail": "Workspace sync cannot run until a Google workspace account is connected.",
-                    "href": "/app/settings/usage",
+                    "href": "/app/settings/google",
+                    "action_href": "/app/actions/google/connect?return_to=/app/settings/google",
+                    "action_label": "Connect now",
+                    "action_method": "get",
+                    "return_to": "/app/settings/google",
                 }
             )
         elif str(sync.get("google_token_status") or "") not in {"active", "unknown"}:
@@ -4780,7 +4805,11 @@ class ProductService:
                 {
                     "label": "Reconnect Google",
                     "detail": str(sync.get("google_reauth_required_reason") or "Google access needs attention before the next sync."),
-                    "href": "/app/settings/usage",
+                    "href": "/app/settings/google",
+                    "action_href": "/app/actions/google/connect?return_to=/app/settings/google",
+                    "action_label": "Reconnect now",
+                    "action_method": "get",
+                    "return_to": "/app/settings/google",
                 }
             )
         elif str(sync.get("google_sync_freshness_state") or "") != "clear":
@@ -4792,11 +4821,11 @@ class ProductService:
                         if str(sync.get("google_sync_last_completed_at") or "").strip()
                         else "This workspace has not completed a Google signal sync yet."
                     ),
-                    "href": "/app/settings/usage",
+                    "href": "/app/settings/google",
                     "action_href": "/app/api/signals/google/sync",
                     "action_label": "Sync now",
                     "action_method": "post",
-                    "return_to": "/app/settings/usage",
+                    "return_to": "/app/settings/google",
                 }
             )
         if int(sync.get("pending_commitment_candidates") or 0):

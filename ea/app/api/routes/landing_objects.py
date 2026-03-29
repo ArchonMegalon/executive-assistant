@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -17,6 +19,16 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(tags=["landing"])
+
+
+def _google_delivery_action(reason: str, *, return_to: str) -> dict[str, str]:
+    normalized = str(reason or "").strip()
+    label = "Connect Google" if normalized in {"google_oauth_binding_not_found", "google_account_missing"} else "Reconnect Google"
+    return {
+        "label": label,
+        "href": f"/app/actions/google/connect?return_to={urllib.parse.quote(return_to, safe='/?:=&')}",
+        "method": "get",
+    }
 
 
 @router.get("/app/people", response_class=HTMLResponse)
@@ -257,6 +269,11 @@ def handoff_detail(
         raise HTTPException(status_code=404, detail="handoff_not_found")
     task_id = handoff.id.split(":", 1)[1] if handoff.id.startswith("human_task:") else handoff.id
     history_rows = container.orchestrator.list_human_task_assignment_history(task_id, principal_id=context.principal_id, limit=8)
+    google_delivery_action = (
+        _google_delivery_action(str(handoff.delivery_reason or ""), return_to=f"/app/handoffs/{handoff_ref}")
+        if str(handoff.task_type or "").strip() == "delivery_followup" and str(handoff.delivery_reason or "").strip().startswith("google_")
+        else {}
+    )
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="handoff_opened",
@@ -288,6 +305,18 @@ def handoff_detail(
             _object_detail_row("Draft ref", handoff.draft_ref or "No draft is attached to this handoff.", "Draft"),
             _object_detail_row("Recipient", handoff.recipient_email or "No recipient metadata attached.", "Recipient"),
             _object_detail_row("Delivery reason", handoff.delivery_reason or "No delivery blocker is attached.", "Reason"),
+            _object_detail_row(
+                str(google_delivery_action.get("label") or "Google delivery action"),
+                "Repair Google access for this workspace before retrying delivery."
+                if google_delivery_action
+                else "No Google reconnect is required for this handoff.",
+                "Google",
+                href="/app/settings/google" if google_delivery_action else "",
+                action_href=str(google_delivery_action.get("href") or ""),
+                action_label=str(google_delivery_action.get("label") or ""),
+                action_method=str(google_delivery_action.get("method") or ""),
+                return_to=f"/app/handoffs/{handoff_ref}" if google_delivery_action else "",
+            ),
             _object_detail_row("Evidence attached", f"{len(handoff.evidence_refs or [])} evidence refs attached to this handoff.", "Evidence"),
             _object_detail_row("Assignment state", str(handoff.status or "pending").replace("_", " "), "Status"),
         ],
@@ -335,6 +364,11 @@ def thread_detail(
     if thread is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
     history = product.get_thread_history(principal_id=context.principal_id, thread_ref=thread_ref, limit=8)
+    thread_google_action = (
+        _google_delivery_action(str(thread.summary or ""), return_to=f"/app/threads/{thread_ref}")
+        if str(thread.status or "").strip() in {"delivery_followup", "reauth_needed"} and str(thread.summary or "").strip().startswith("google_")
+        else {}
+    )
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="thread_opened",
@@ -364,6 +398,18 @@ def thread_detail(
             _object_detail_row("Counterparties", " · ".join(thread.counterparties or []) or "No counterparties projected.", "People"),
             _object_detail_row("Drafts", ", ".join(thread.draft_ids or []) or "No active draft ids.", "Drafts"),
             _object_detail_row("Commitments", ", ".join(thread.related_commitment_ids or []) or "No linked commitments yet.", "Ledger"),
+            _object_detail_row(
+                str(thread_google_action.get("label") or "Google delivery action"),
+                "Repair Google access before retrying the send path attached to this thread."
+                if thread_google_action
+                else "No Google reconnect is required for this thread.",
+                "Google",
+                href="/app/settings/google" if thread_google_action else "",
+                action_href=str(thread_google_action.get("href") or ""),
+                action_label=str(thread_google_action.get("label") or ""),
+                action_method=str(thread_google_action.get("method") or ""),
+                return_to=f"/app/threads/{thread_ref}" if thread_google_action else "",
+            ),
         ],
         object_sections=[
             {

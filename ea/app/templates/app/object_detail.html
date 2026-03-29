@@ -65,9 +65,22 @@
     font-size: 14px;
     margin-bottom: 3px;
   }
+  .object-row strong a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .object-row strong a:hover {
+    text-decoration: underline;
+  }
   .object-row small {
     color: var(--text-dim);
     font-size: 13px;
+  }
+  .object-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
   }
   .object-tag {
     white-space: nowrap;
@@ -108,10 +121,29 @@
     <p class="object-copy">{{ object_sidebar_copy }}</p>
     <div class="object-list">
       {% for item in object_sidebar_rows %}
+      {% set href = item.get('href') or '' %}
+      {% set action_href = item.get('action_href') or '' %}
+      {% set action_label = item.get('action_label') or '' %}
+      {% set action_value = item.get('action_value') or '' %}
+      {% set action_method = (item.get('action_method') or 'post')|lower %}
+      {% set return_to = item.get('return_to') or '' %}
       <div class="object-row">
         <div>
-          <strong>{{ item.title }}</strong>
+          <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
           <small>{{ item.detail }}</small>
+          {% if action_href %}
+          <div class="object-actions">
+            {% if action_method == 'get' %}
+            <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+            {% else %}
+            <form method="post" action="{{ action_href }}">
+              {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
+              {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ action_label }}</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
         </div>
         <div class="object-tag">{{ item.tag }}</div>
       </div>
@@ -127,10 +159,29 @@
     <h2>{{ section["title"] }}</h2>
     <div class="object-list">
       {% for item in section["items"] %}
+      {% set href = item.get('href') or '' %}
+      {% set action_href = item.get('action_href') or '' %}
+      {% set action_label = item.get('action_label') or '' %}
+      {% set action_value = item.get('action_value') or '' %}
+      {% set action_method = (item.get('action_method') or 'post')|lower %}
+      {% set return_to = item.get('return_to') or '' %}
       <div class="object-row">
         <div>
-          <strong>{{ item.title }}</strong>
+          <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
           <small>{{ item.detail }}</small>
+          {% if action_href %}
+          <div class="object-actions">
+            {% if action_method == 'get' %}
+            <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
+            {% else %}
+            <form method="post" action="{{ action_href }}">
+              {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
+              {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ action_label }}</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
         </div>
         <div class="object-tag">{{ item.tag }}</div>
       </div>

@@ -145,7 +145,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert outcomes.status_code == 200
     outcomes_body = outcomes.json()
     assert "memo_open_rate" in outcomes_body
+    assert "approval_coverage_rate" in outcomes_body
     assert "approval_action_rate" in outcomes_body
+    assert "delivery_followup_resolution_rate" in outcomes_body
     assert "commitment_close_rate" in outcomes_body
     assert "memo_loop" in outcomes_body
     assert "office_loop_proof" in outcomes_body
@@ -559,6 +561,12 @@ def test_delivery_followup_completion_can_record_manual_send() -> None:
     sent_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_sent")
     assert sent_event["payload"]["delivery_mode"] == "manual_followup"
     assert sent_event["payload"]["draft_ref"] == f"approval:{seeded['approval_id']}"
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    outcomes_body = outcomes.json()
+    assert outcomes_body["approval_coverage_rate"] == 1.0
+    assert outcomes_body["approval_action_rate"] == 1.0
+    assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
 
 
 def test_delivery_followup_completion_can_record_reauth_needed() -> None:
@@ -592,6 +600,12 @@ def test_delivery_followup_completion_can_record_reauth_needed() -> None:
     events = client.get("/app/api/events")
     assert events.status_code == 200
     assert any(item["event_type"] == "draft_send_reauth_needed" for item in events.json()["items"])
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    outcomes_body = outcomes.json()
+    assert outcomes_body["approval_coverage_rate"] == 1.0
+    assert outcomes_body["approval_action_rate"] == 0.0
+    assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
 
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
@@ -1269,6 +1283,9 @@ def test_product_diagnostics_include_value_events() -> None:
     outcomes_body = outcomes.json()
     assert outcomes_body["counts"]["draft_approved"] >= 1
     assert outcomes_body["counts"]["draft_send_followup_created"] >= 1
+    assert outcomes_body["approval_coverage_rate"] >= outcomes_body["approval_action_rate"]
+    assert outcomes_body["approval_action_rate"] == 0.0
+    assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
     assert outcomes_body["counts"]["commitment_closed"] >= 1
     assert outcomes_body["success_summary"]
     assert "memo_loop" in outcomes_body

@@ -673,12 +673,35 @@ def app_root() -> RedirectResponse:
     return RedirectResponse("/app/today", status_code=307)
 
 
-def _object_detail_row(title: str, detail: str, tag: str) -> dict[str, str]:
-    return {
+def _object_detail_row(
+    title: str,
+    detail: str,
+    tag: str,
+    href: str = "",
+    action_href: str = "",
+    action_label: str = "",
+    action_value: str = "",
+    action_method: str = "",
+    return_to: str = "",
+) -> dict[str, str]:
+    row = {
         "title": str(title or "").strip(),
         "detail": str(detail or "").strip(),
         "tag": str(tag or "").strip(),
     }
+    if href:
+        row["href"] = href
+    if action_href:
+        row["action_href"] = action_href
+    if action_label:
+        row["action_label"] = action_label
+    if action_value:
+        row["action_value"] = action_value
+    if action_method:
+        row["action_method"] = action_method
+    if return_to:
+        row["return_to"] = return_to
+    return row
 
 
 def _evidence_detail_rows(items) -> list[dict[str, str]]:  # type: ignore[no-untyped-def]
