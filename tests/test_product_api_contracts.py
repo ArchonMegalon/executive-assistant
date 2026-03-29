@@ -407,10 +407,21 @@ def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> 
     assert approved_event["payload"]["delivery"]["status"] == "skipped"
     assert approved_event["payload"]["delivery"]["reason"].startswith("google_")
     assert approved_event["payload"]["followup_ref"].startswith("human_task:")
+    assert approved_event["payload"]["source_ref"] == "gmail-thread:signal-draft-approve"
+    assert approved_event["payload"]["thread_ref"] == "gmail-thread:signal-draft-approve"
 
     handoffs = client.get("/app/api/handoffs")
     assert handoffs.status_code == 200
     assert any(item["id"] == approved_event["payload"]["followup_ref"] for item in handoffs.json())
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    projected_thread = next(item for item in threads.json()["items"] if item["id"] == "thread:gmail-thread:signal-draft-approve")
+    assert projected_thread["status"] == "delivery_followup"
+
+    thread_history = client.get("/app/api/threads/gmail-thread:signal-draft-approve/history")
+    assert thread_history.status_code == 200
+    assert any(row["event_type"] == "draft_send_followup_created" for row in thread_history.json())
 
 
 def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(monkeypatch) -> None:
@@ -452,7 +463,8 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
         },
     )
     assert signal.status_code == 200
-    draft_ref = signal.json()["staged_drafts"][0]["id"]
+    signal_body = signal.json()
+    draft_ref = signal_body["staged_drafts"][0]["id"]
 
     approved = client.post(
         f"/app/api/drafts/{draft_ref}/approve",
@@ -466,11 +478,120 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
     assert sent_event["payload"]["recipient_email"] == "sofia@example.com"
     assert sent_event["payload"]["gmail_message_id"] == "gmail-sent-123"
     assert sent_event["payload"]["subject"] == "Re: Board packet follow-up"
+    assert sent_event["payload"]["source_ref"] == "gmail-thread:signal-draft-send"
+    assert sent_event["payload"]["thread_ref"] == "gmail-thread:signal-draft-send"
 
     approved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_approved")
     assert approved_event["payload"]["delivery"]["status"] == "sent"
     assert approved_event["payload"]["delivery"]["gmail_message_id"] == "gmail-sent-123"
     assert approved_event["payload"]["followup_ref"] == ""
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    projected_thread = next(item for item in threads.json()["items"] if item["id"] == "thread:gmail-thread:signal-draft-send")
+    assert projected_thread["status"] == "sent"
+
+    thread_history = client.get("/app/api/threads/gmail-thread:signal-draft-send/history")
+    assert thread_history.status_code == 200
+    assert any(row["event_type"] == "draft_sent" for row in thread_history.json())
+
+
+def test_queue_approval_resolution_uses_draft_delivery_runtime() -> None:
+    principal_id = "exec-product-queue-draft-delivery"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    draft_ref = f"approval:{seeded['approval_id']}"
+
+    resolved = client.post(
+        f"/app/api/queue/{draft_ref}/resolve",
+        json={"action": "approve", "reason": "Approve from queue"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["resolution_state"] == "approved"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    approved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_approved")
+    assert approved_event["payload"]["delivery"]["status"] == "skipped"
+    assert approved_event["payload"]["followup_ref"].startswith("human_task:")
+    assert any(item["event_type"] == "draft_send_followup_created" for item in events.json()["items"])
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["id"] == approved_event["payload"]["followup_ref"])
+    assert followup["task_type"] == "delivery_followup"
+    assert followup["draft_ref"] == draft_ref
+
+
+def test_delivery_followup_completion_can_record_manual_send() -> None:
+    principal_id = "exec-product-delivery-followup-sent"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Approve and route to manual send"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["owner"] == seeded["operator_id"]
+
+    completed = client.post(
+        f"/app/api/handoffs/{followup['id']}/complete",
+        json={"operator_id": seeded["operator_id"], "resolution": "sent"},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["resolution"] == "sent"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    resolved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_send_followup_resolved")
+    assert resolved_event["payload"]["draft_ref"] == f"approval:{seeded['approval_id']}"
+    sent_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_sent")
+    assert sent_event["payload"]["delivery_mode"] == "manual_followup"
+    assert sent_event["payload"]["draft_ref"] == f"approval:{seeded['approval_id']}"
+
+
+def test_delivery_followup_completion_can_record_reauth_needed() -> None:
+    principal_id = "exec-product-delivery-followup-reauth"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Approve and route to manual send"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    completed = client.post(
+        f"/app/api/handoffs/{followup['id']}/complete",
+        json={"operator_id": seeded["operator_id"], "resolution": "reauth_needed"},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["resolution"] == "reauth_needed"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    assert any(item["event_type"] == "draft_send_reauth_needed" for item in events.json()["items"])
 
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:

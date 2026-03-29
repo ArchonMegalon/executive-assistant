@@ -38,6 +38,7 @@ from app.product.projections import (
     decision_item_from_window,
     due_bonus,
     evidence_items_from_objects,
+    handoff_action_plan,
     handoff_from_human_task,
     priority_weight,
     rule_items_from_workspace,
@@ -500,6 +501,7 @@ class ProductService:
                 "thread_ref": str(source_ref or external_id or session_id).strip(),
                 "source_ref": str(source_ref or "").strip(),
                 "external_id": str(external_id or "").strip(),
+                "stakeholder_id": resolved_stakeholder_id,
                 "gmail_thread_id": gmail_thread_id,
                 "gmail_message_id": gmail_message_id,
                 "signal_type": normalized_signal,
@@ -607,15 +609,25 @@ class ProductService:
         if channel not in {"email", "gmail"}:
             return {"status": "skipped", "reason": "unsupported_channel", "channel": channel}
         recipient_email = str(action_json.get("recipient_email") or action_json.get("recipient") or "").strip().lower()
+        recipient_label = str(action_json.get("recipient_label") or "").strip()
         subject = str(action_json.get("subject") or "").strip()
         body_text = str(action_json.get("draft_text") or action_json.get("content") or "").strip()
+        thread_ref = str(action_json.get("thread_ref") or "").strip()
+        source_ref = str(action_json.get("source_ref") or "").strip()
+        person_id = str(action_json.get("stakeholder_id") or "").strip()
+        signal_type = str(action_json.get("signal_type") or "").strip()
         if not recipient_email or not body_text:
             return {
                 "status": "skipped",
                 "reason": "draft_send_missing_recipient_or_content",
                 "channel": channel,
                 "recipient_email": recipient_email,
+                "recipient_label": recipient_label,
                 "subject": subject,
+                "thread_ref": thread_ref,
+                "source_ref": source_ref,
+                "person_id": person_id,
+                "signal_type": signal_type,
             }
         if not subject:
             subject = compact_text(body_text, fallback="EA follow-up", limit=120)
@@ -654,19 +666,29 @@ class ProductService:
                 "reason": reason,
                 "channel": channel,
                 "recipient_email": recipient_email,
+                "recipient_label": recipient_label,
                 "subject": subject,
                 "draft_ref": draft_ref,
+                "thread_ref": thread_ref,
+                "source_ref": source_ref,
+                "person_id": person_id,
+                "signal_type": signal_type,
             }
         return {
             "status": "sent",
             "channel": "gmail",
             "recipient_email": receipt.recipient_email,
+            "recipient_label": recipient_label,
             "sender_email": receipt.sender_email,
             "subject": receipt.subject,
             "gmail_message_id": receipt.gmail_message_id,
             "rfc822_message_id": receipt.rfc822_message_id,
             "sent_at": receipt.sent_at,
             "draft_ref": draft_ref,
+            "thread_ref": thread_ref,
+            "source_ref": source_ref,
+            "person_id": person_id,
+            "signal_type": signal_type,
         }
 
     def _ensure_draft_delivery_followup(
@@ -703,8 +725,12 @@ class ProductService:
             input_json={
                 "draft_ref": draft_ref,
                 "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
+                "recipient_label": str(delivery.get("recipient_label") or action_json.get("recipient_label") or "").strip(),
                 "subject": subject,
                 "reason": reason,
+                "thread_ref": str(delivery.get("thread_ref") or action_json.get("thread_ref") or "").strip(),
+                "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
+                "stakeholder_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
             },
             desired_output_json={
                 "resolution": "sent",
@@ -719,11 +745,102 @@ class ProductService:
                 "handoff_ref": f"human_task:{task.human_task_id}",
                 "reason": reason,
                 "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
+                "recipient_label": str(delivery.get("recipient_label") or action_json.get("recipient_label") or "").strip(),
                 "subject": subject,
+                "thread_ref": str(delivery.get("thread_ref") or action_json.get("thread_ref") or "").strip(),
+                "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
+                "person_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
             },
             source_id=request.approval_id,
         )
         return self._handoff_from_human_task(task)
+
+    def _draft_source_id(self, draft_ref: str) -> str:
+        normalized = str(draft_ref or "").strip()
+        if normalized.startswith("approval:"):
+            return normalized.split(":", 1)[1].strip()
+        return normalized
+
+    def _normalize_delivery_followup_resolution(self, resolution: str) -> str:
+        normalized = str(resolution or "").strip().lower()
+        if normalized in {"", "completed", "complete", "done"}:
+            return "sent"
+        if normalized in {"sent", "delivered", "manual_sent"}:
+            return "sent"
+        if normalized in {"reauth", "needs_reauth", "reauth_needed"}:
+            return "reauth_needed"
+        if normalized in {"failed", "unable_to_send", "delivery_failed"}:
+            return "failed"
+        if normalized in {"waiting", "waiting_on_principal", "principal"}:
+            return "waiting_on_principal"
+        return normalized or "sent"
+
+    def _record_delivery_followup_resolution(
+        self,
+        *,
+        principal_id: str,
+        handoff_ref: str,
+        task: HumanTask,
+        operator_id: str,
+        actor: str,
+        resolution: str,
+    ) -> None:
+        input_json = dict(task.input_json or {})
+        draft_ref = str(input_json.get("draft_ref") or "").strip()
+        source_id = self._draft_source_id(draft_ref) or task.human_task_id
+        payload = {
+            "draft_ref": draft_ref,
+            "handoff_ref": handoff_ref,
+            "operator_id": operator_id,
+            "actor": actor,
+            "resolution": resolution,
+            "channel": "manual_followup",
+            "delivery_mode": "manual_followup",
+            "recipient_email": str(input_json.get("recipient_email") or "").strip(),
+            "recipient_label": str(input_json.get("recipient_label") or "").strip(),
+            "subject": str(input_json.get("subject") or "").strip(),
+            "reason": str(input_json.get("reason") or "").strip(),
+            "thread_ref": str(input_json.get("thread_ref") or "").strip(),
+            "source_ref": str(input_json.get("source_ref") or "").strip(),
+            "person_id": str(input_json.get("stakeholder_id") or "").strip(),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="draft_send_followup_resolved",
+            payload=payload,
+            source_id=source_id,
+        )
+        if resolution == "sent":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="draft_sent",
+                payload={**payload, "status": "sent"},
+                source_id=source_id,
+            )
+            return
+        if resolution == "reauth_needed":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="draft_send_reauth_needed",
+                payload=payload,
+                source_id=source_id,
+            )
+            return
+        if resolution == "waiting_on_principal":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="draft_send_waiting_on_principal",
+                payload=payload,
+                source_id=source_id,
+            )
+            return
+        if resolution == "failed":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="draft_send_failed",
+                payload={**payload, "status": "failed"},
+                source_id=source_id,
+            )
 
     def _pending_signal_draft_candidate_ids(self, *, principal_id: str) -> set[str]:
         hidden: set[str] = set()
@@ -1028,6 +1145,19 @@ class ProductService:
             return self._commitment_item_from_follow_up(found, self._stakeholder_lookup(principal_id))
         return None
 
+    def _event_matches_source_ids(self, *, wanted: set[str], source_id: str, payload: dict[str, object]) -> bool:
+        if not wanted:
+            return True
+        refs = [
+            source_id,
+            str(payload.get("person_id") or "").strip(),
+            str(payload.get("thread_ref") or "").strip(),
+            str(payload.get("source_ref") or "").strip(),
+            str(payload.get("draft_ref") or "").strip(),
+            str(payload.get("handoff_ref") or "").strip(),
+        ]
+        return any(ref in wanted for ref in refs if ref)
+
     def _history_entries(self, *, principal_id: str, source_ids: tuple[str, ...] = (), limit: int = 20) -> tuple[HistoryEntry, ...]:
         wanted = {str(value).strip() for value in source_ids if str(value).strip()}
         rows: list[HistoryEntry] = []
@@ -1036,7 +1166,7 @@ class ProductService:
                 continue
             source_id = str(row.source_id or "").strip()
             payload = dict(row.payload or {})
-            if wanted and source_id not in wanted and str(payload.get("person_id") or "").strip() not in wanted:
+            if not self._event_matches_source_ids(wanted=wanted, source_id=source_id, payload=payload):
                 continue
             rows.append(
                 HistoryEntry(
@@ -1044,7 +1174,15 @@ class ProductService:
                     created_at=str(row.created_at or ""),
                     source_id=source_id,
                     actor=str(payload.get("actor") or payload.get("reviewer") or payload.get("decided_by") or ""),
-                    detail=str(payload.get("reason") or payload.get("surface") or payload.get("candidate_id") or ""),
+                    detail=str(
+                        payload.get("reason")
+                        or payload.get("subject")
+                        or payload.get("recipient_email")
+                        or payload.get("resolution")
+                        or payload.get("surface")
+                        or payload.get("candidate_id")
+                        or ""
+                    ),
                 )
             )
         rows.sort(key=lambda item: (str(item.created_at or ""), str(item.event_type or "")), reverse=True)
@@ -1056,6 +1194,114 @@ class ProductService:
         else:
             source_id = commitment_ref
         return self._history_entries(principal_id=principal_id, source_ids=(source_id,), limit=limit)
+
+    def _thread_item_from_event(
+        self,
+        *,
+        event_type: str,
+        created_at: str,
+        payload: dict[str, object],
+        commitments: tuple[CommitmentItem, ...],
+        decisions: tuple[DecisionItem, ...],
+    ) -> ThreadItem | None:
+        thread_ref = str(payload.get("thread_ref") or payload.get("source_ref") or payload.get("draft_ref") or "").strip()
+        if not thread_ref:
+            return None
+        thread_id = thread_ref if thread_ref.startswith("thread:") else f"thread:{thread_ref}"
+        recipient_label = str(payload.get("recipient_label") or payload.get("recipient_email") or "").strip()
+        recipient_email = str(payload.get("recipient_email") or "").strip()
+        subject = str(payload.get("subject") or "").strip()
+        resolution = str(payload.get("resolution") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+        draft_ref = str(payload.get("draft_ref") or "").strip()
+        handoff_ref = str(payload.get("handoff_ref") or "").strip()
+        source_ref = str(payload.get("source_ref") or "").strip()
+        counterparties = self._append_unique_refs((), recipient_label, recipient_email)
+        related_commitments = tuple(
+            item.id
+            for item in commitments
+            if contains_token(item.counterparty, recipient_label)
+            or contains_token(item.counterparty, recipient_email)
+            or contains_token(item.statement, recipient_label)
+            or contains_token(item.statement, thread_ref)
+            or contains_token(item.source_ref, thread_ref)
+        )
+        related_decisions = tuple(
+            item.id
+            for item in decisions
+            if contains_token(item.title, recipient_label)
+            or contains_token(item.summary, recipient_label)
+            or contains_token(item.summary, thread_ref)
+        )
+        status = {
+            "draft_sent": "sent",
+            "draft_send_followup_created": "delivery_followup",
+            "draft_send_followup_resolved": "sent" if resolution == "sent" else resolution or "delivery_followup",
+            "draft_send_reauth_needed": "reauth_needed",
+            "draft_send_failed": "delivery_failed",
+        }.get(event_type, "active")
+        summary = {
+            "draft_sent": compact_text(subject, fallback="Reply was sent.", limit=160),
+            "draft_send_followup_created": compact_text(reason, fallback="Manual send follow-up was created.", limit=160),
+            "draft_send_followup_resolved": compact_text(
+                reason or resolution,
+                fallback="Manual send follow-up was resolved.",
+                limit=160,
+            ),
+            "draft_send_reauth_needed": compact_text(reason, fallback="Google reauth is required before send.", limit=160),
+            "draft_send_failed": compact_text(reason, fallback="Reply send failed.", limit=160),
+        }.get(event_type, compact_text(subject or reason, fallback="Thread activity was recorded.", limit=160))
+        evidence_refs: list[EvidenceRef] = []
+        for ref_id, label, source_type, note in (
+            (draft_ref, "Draft", "approval", event_type.replace("_", " ")),
+            (source_ref, "Source", "signal", subject or reason),
+            (handoff_ref, "Delivery follow-up", "human_task", reason or resolution),
+        ):
+            if ref_id and all(existing.ref_id != ref_id for existing in evidence_refs):
+                evidence_refs.append(EvidenceRef(ref_id=ref_id, label=label, source_type=source_type, note=note))
+        return ThreadItem(
+            id=thread_id,
+            title=recipient_label or recipient_email or subject or thread_ref,
+            channel=str(payload.get("channel") or "email"),
+            status=status,
+            last_activity_at=created_at or None,
+            summary=summary,
+            counterparties=counterparties,
+            draft_ids=(draft_ref,) if draft_ref else (),
+            related_commitment_ids=related_commitments,
+            related_decision_ids=related_decisions,
+            evidence_refs=tuple(evidence_refs),
+        )
+
+    def _thread_items_from_events(
+        self,
+        *,
+        principal_id: str,
+        commitments: tuple[CommitmentItem, ...],
+        decisions: tuple[DecisionItem, ...],
+        limit: int,
+    ) -> tuple[ThreadItem, ...]:
+        rows: dict[str, ThreadItem] = {}
+        for row in self._container.channel_runtime.list_recent_observations(limit=max(limit * 10, 200), principal_id=principal_id):
+            if str(row.channel or "").strip() != "product":
+                continue
+            event_type = str(row.event_type or "").strip().lower()
+            if event_type not in {"draft_sent", "draft_send_followup_created", "draft_send_followup_resolved", "draft_send_reauth_needed", "draft_send_failed"}:
+                continue
+            projected = self._thread_item_from_event(
+                event_type=event_type,
+                created_at=str(row.created_at or ""),
+                payload=dict(row.payload or {}),
+                commitments=commitments,
+                decisions=decisions,
+            )
+            if projected is None:
+                continue
+            current = rows.get(projected.id)
+            if current is None or str(projected.last_activity_at or "") > str(current.last_activity_at or ""):
+                rows[projected.id] = projected
+        ordered = sorted(rows.values(), key=lambda item: (str(item.last_activity_at or ""), item.title.lower()), reverse=True)
+        return tuple(ordered[:limit])
 
     def _event_object_refs(self, *, source_id: str, payload: dict[str, object]) -> tuple[str, ...]:
         refs: list[str] = []
@@ -1368,6 +1614,8 @@ class ProductService:
             "draft_approved": int(counts.get("draft_approved") or 0),
             "draft_sent": int(counts.get("draft_sent") or 0),
             "draft_send_followup_created": int(counts.get("draft_send_followup_created") or 0),
+            "draft_send_followup_resolved": int(counts.get("draft_send_followup_resolved") or 0),
+            "draft_send_reauth_needed": int(counts.get("draft_send_reauth_needed") or 0),
             "commitment_created": int(counts.get("commitment_created") or 0),
             "commitment_closed": int(counts.get("commitment_closed") or 0),
             "handoff_completed": int(counts.get("handoff_completed") or 0),
@@ -1618,7 +1866,8 @@ class ProductService:
             )
 
         for handoff in self.list_handoffs(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id, status=None):
-            actionable_value = "completed" if operator_id and handoff.owner == operator_id else "assign"
+            action_plan = handoff_action_plan(handoff, operator_id=operator_id)
+            action_kind = str(action_plan.get("kind") or "assign").strip()
             add_result(
                 id=handoff.id,
                 kind="handoff",
@@ -1628,10 +1877,10 @@ class ProductService:
                 secondary_label=handoff.escalation_status,
                 related_object_refs=(handoff.id,),
                 extra=(handoff.owner, handoff.status, handoff.escalation_status, handoff.due_time or ""),
-                action_href=f"/app/actions/handoffs/{urllib.parse.quote(handoff.id, safe='')}/{'complete' if actionable_value == 'completed' else 'assign'}",
-                action_label="Complete" if actionable_value == "completed" else "Claim",
+                action_href=f"/app/actions/handoffs/{urllib.parse.quote(handoff.id, safe='')}/{'complete' if action_kind == 'complete' else 'assign'}",
+                action_label=str(action_plan.get("label") or "Claim"),
                 action_method="post",
-                action_value=actionable_value,
+                action_value=str(action_plan.get("value") or "assign"),
             )
 
         for evidence in self.list_evidence(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id):
@@ -2855,6 +3104,9 @@ class ProductService:
                 "decided_by": decided_by,
                 "reason": reason or "",
                 "accepted_candidate_ids": list(accepted_candidate_ids),
+                "person_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
+                "thread_ref": str(delivery.get("thread_ref") or action_json.get("thread_ref") or "").strip(),
+                "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
                 "delivery": dict(delivery),
                 "followup_ref": followup.id if followup is not None else "",
             },
@@ -3013,25 +3265,44 @@ class ProductService:
         normalized = str(action or "").strip().lower()
         if item_ref.startswith("approval:"):
             decision = "approved" if normalized in {"approve", "approved", "close"} else "rejected"
-            allowed = {row.approval_id for row in self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=500)}
             approval_id = item_ref.split(":", 1)[1]
-            if approval_id not in allowed:
-                return None
-            decided = self._container.orchestrator.decide_approval(
-                approval_id,
-                decision=decision,
-                decided_by=actor,
-                reason=reason or f"{decision.capitalize()} from decision queue.",
+            decision_reason = reason or f"{decision.capitalize()} from decision queue."
+            decided = (
+                self.approve_draft(
+                    principal_id=principal_id,
+                    draft_ref=item_ref,
+                    decided_by=actor,
+                    reason=decision_reason,
+                )
+                if decision == "approved"
+                else self.reject_draft(
+                    principal_id=principal_id,
+                    draft_ref=item_ref,
+                    decided_by=actor,
+                    reason=decision_reason,
+                )
             )
             if decided is None:
                 return None
-            request, decision_row = decided
+            request = self._container.orchestrator.fetch_approval_request_for_principal(approval_id, principal_id=principal_id)
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="queue_resolved",
                 payload={"item_ref": item_ref, "action": decision, "actor": actor, "reason": reason or ""},
-                source_id=request.approval_id,
+                source_id=approval_id,
             )
+            if request is None:
+                return DecisionQueueItem(
+                    id=item_ref,
+                    queue_kind="approve_draft",
+                    title=f"{decision.capitalize()} draft",
+                    summary=decided.draft_text,
+                    priority="high",
+                    owner_role="principal",
+                    requires_principal=True,
+                    evidence_refs=decided.provenance_refs,
+                    resolution_state=decision,
+                )
             updated = self._queue_item_from_approval(request)
             return DecisionQueueItem(
                 id=updated.id,
@@ -3043,7 +3314,7 @@ class ProductService:
                 owner_role=updated.owner_role,
                 requires_principal=updated.requires_principal,
                 evidence_refs=updated.evidence_refs,
-                resolution_state=decision_row.decision,
+                resolution_state=decision,
             )
         if item_ref.startswith("commitment:"):
             updated = self.resolve_commitment(
@@ -3073,31 +3344,30 @@ class ProductService:
                 return None
             operator_id = str(current.assigned_operator_id or actor or "").strip()
             if normalized in {"assign", "claim"}:
-                updated = self._container.orchestrator.assign_human_task(
-                    current.human_task_id,
+                result = self.assign_handoff(
                     principal_id=principal_id,
+                    handoff_ref=item_ref,
                     operator_id=operator_id,
-                    assignment_source="manual",
-                    assigned_by_actor_id=actor,
+                    actor=actor,
                 )
             else:
-                updated = self._container.orchestrator.return_human_task(
-                    current.human_task_id,
+                result = self.complete_handoff(
                     principal_id=principal_id,
+                    handoff_ref=item_ref,
                     operator_id=operator_id,
-                    resolution=reason or "completed",
-                    returned_payload_json={"action": normalized or "complete"},
-                    provenance_json={"source": "product_queue"},
+                    actor=actor,
+                    resolution=normalized or "completed",
                 )
-            if updated is None:
+            if result is None:
                 return None
             self._record_product_event(
                 principal_id=principal_id,
-                event_type="handoff_completed" if normalized not in {"assign", "claim"} else "handoff_assigned",
+                event_type="queue_resolved",
                 payload={"item_ref": item_ref, "action": normalized or "complete", "actor": actor, "operator_id": operator_id},
                 source_id=current.human_task_id,
             )
-            return self._queue_item_from_human_task(updated)
+            refreshed = self._container.orchestrator.fetch_human_task(current.human_task_id, principal_id=principal_id)
+            return None if refreshed is None else self._queue_item_from_human_task(refreshed)
         if item_ref.startswith("decision:"):
             current = self._container.memory_runtime.get_decision_window(item_ref.split(":", 1)[1], principal_id=principal_id)
             if current is None:
@@ -3220,7 +3490,29 @@ class ProductService:
         drafts = self.list_drafts(principal_id=principal_id, limit=max(limit, 20))
         commitments = self.list_commitments(principal_id=principal_id, limit=max(limit, 20))
         decisions = self.list_decisions(principal_id=principal_id, limit=max(limit, 20), include_closed=True)
-        return thread_items_from_objects(drafts, commitments, decisions, limit=limit)
+        active_threads = thread_items_from_objects(drafts, commitments, decisions, limit=max(limit, 20))
+        event_threads = self._thread_items_from_events(
+            principal_id=principal_id,
+            commitments=commitments,
+            decisions=decisions,
+            limit=max(limit, 20),
+        )
+        rows: list[ThreadItem] = list(active_threads)
+        seen = {item.id for item in active_threads}
+        for item in event_threads:
+            if item.id in seen:
+                continue
+            seen.add(item.id)
+            rows.append(item)
+        rows.sort(
+            key=lambda item: (
+                1 if item.draft_ids else 0,
+                str(item.last_activity_at or ""),
+                item.title.lower(),
+            ),
+            reverse=True,
+        )
+        return tuple(rows[:limit])
 
     def get_thread(self, *, principal_id: str, thread_ref: str) -> ThreadItem | None:
         normalized = thread_ref if thread_ref.startswith("thread:") else f"thread:{thread_ref}"
@@ -3228,6 +3520,13 @@ class ProductService:
             if row.id == normalized:
                 return row
         return None
+
+    def get_thread_history(self, *, principal_id: str, thread_ref: str, limit: int = 20) -> tuple[HistoryEntry, ...]:
+        normalized = str(thread_ref or "").strip()
+        if not normalized:
+            return ()
+        source_ids = (normalized, normalized.split(":", 1)[1] if normalized.startswith("thread:") else f"thread:{normalized}")
+        return self._history_entries(principal_id=principal_id, source_ids=source_ids, limit=limit)
 
     def list_evidence(
         self,
@@ -3689,20 +3988,47 @@ class ProductService:
     ) -> HandoffNote | None:
         if not handoff_ref.startswith("human_task:"):
             return None
+        task_id = handoff_ref.split(":", 1)[1]
+        current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id)
+        if current is None:
+            return None
+        normalized_resolution = (
+            self._normalize_delivery_followup_resolution(resolution)
+            if str(current.task_type or "").strip() == "delivery_followup"
+            else str(resolution or "").strip() or "completed"
+        )
         updated = self._container.orchestrator.return_human_task(
-            handoff_ref.split(":", 1)[1],
+            task_id,
             principal_id=principal_id,
             operator_id=operator_id,
-            resolution=resolution or "completed",
-            returned_payload_json={"source": "product_handoffs", "actor": actor},
+            resolution=normalized_resolution,
+            returned_payload_json={
+                "source": "product_handoffs",
+                "actor": actor,
+                "task_type": str(current.task_type or "").strip(),
+                "draft_ref": str(dict(current.input_json or {}).get("draft_ref") or "").strip(),
+                "recipient_email": str(dict(current.input_json or {}).get("recipient_email") or "").strip(),
+                "subject": str(dict(current.input_json or {}).get("subject") or "").strip(),
+                "reason": str(dict(current.input_json or {}).get("reason") or "").strip(),
+                "resolution": normalized_resolution,
+            },
             provenance_json={"source": "product_handoffs"},
         )
         if updated is None:
             return None
+        if str(current.task_type or "").strip() == "delivery_followup":
+            self._record_delivery_followup_resolution(
+                principal_id=principal_id,
+                handoff_ref=handoff_ref,
+                task=current,
+                operator_id=operator_id,
+                actor=actor,
+                resolution=normalized_resolution,
+            )
         self._record_product_event(
             principal_id=principal_id,
             event_type="handoff_completed",
-            payload={"handoff_ref": handoff_ref, "operator_id": operator_id, "actor": actor, "resolution": resolution},
+            payload={"handoff_ref": handoff_ref, "operator_id": operator_id, "actor": actor, "resolution": normalized_resolution},
             source_id=updated.human_task_id,
         )
         return self._handoff_from_human_task(updated)
@@ -4685,27 +5011,18 @@ class ProductService:
             )
         if snapshot.handoffs:
             preferred_handoff = next((row for row in snapshot.handoffs if operator_key and row.owner == operator_key), snapshot.handoffs[0])
+            action_plan = handoff_action_plan(preferred_handoff, operator_id=operator_key)
+            action_kind = str(action_plan.get("kind") or "assign").strip()
+            action_value = str(action_plan.get("value") or "assign").strip() or "assign"
             action_href = self.channel_action_href(
                 principal_id=principal_id,
                 object_kind="handoff",
                 object_ref=preferred_handoff.id,
-                action="assign",
+                action=action_value,
                 return_to="/app/channel-loop",
                 operator_id=operator_key or preferred_handoff.owner,
-                reason="Claimed from inline loop.",
+                reason="Resolved from inline loop." if action_kind == "complete" else "Claimed from inline loop.",
             )
-            action_label = "Claim"
-            if operator_key and preferred_handoff.owner == operator_key:
-                action_href = self.channel_action_href(
-                    principal_id=principal_id,
-                    object_kind="handoff",
-                    object_ref=preferred_handoff.id,
-                    action="complete",
-                    return_to="/app/channel-loop",
-                    operator_id=operator_key,
-                    reason="Completed from inline loop.",
-                )
-                action_label = "Complete"
             items.append(
                 {
                     "title": preferred_handoff.summary,
@@ -4722,7 +5039,7 @@ class ProductService:
                     "tag": "Handoff",
                     "href": f"/app/handoffs/{preferred_handoff.id}",
                     "action_href": action_href,
-                    "action_label": action_label,
+                    "action_label": str(action_plan.get("label") or "Claim"),
                     "action_method": "get",
                 }
             )
@@ -5256,27 +5573,18 @@ class ProductService:
             )
         operator_items: list[dict[str, str]] = []
         for handoff in visible_handoffs:
+            action_plan = handoff_action_plan(handoff, operator_id=operator_key)
+            action_kind = str(action_plan.get("kind") or "assign").strip()
+            action_value = str(action_plan.get("value") or "assign").strip() or "assign"
             action_href = self.channel_action_href(
                 principal_id=principal_id,
                 object_kind="handoff",
                 object_ref=handoff.id,
-                action="assign",
+                action=action_value,
                 return_to="/app/channel-loop/operator",
                 operator_id=operator_key or handoff.owner,
-                reason="Claimed from operator digest.",
+                reason="Resolved from operator digest." if action_kind == "complete" else "Claimed from operator digest.",
             )
-            action_label = "Claim"
-            if operator_key and handoff.owner == operator_key:
-                action_href = self.channel_action_href(
-                    principal_id=principal_id,
-                    object_kind="handoff",
-                    object_ref=handoff.id,
-                    action="complete",
-                    return_to="/app/channel-loop/operator",
-                    operator_id=operator_key,
-                    reason="Completed from operator digest.",
-                )
-                action_label = "Complete"
             operator_items.append(
                 {
                     "title": handoff.summary,
@@ -5293,8 +5601,23 @@ class ProductService:
                     "tag": "Handoff",
                     "href": f"/app/handoffs/{handoff.id}",
                     "action_href": action_href,
-                    "action_label": action_label,
+                    "action_label": str(action_plan.get("label") or "Claim"),
                     "action_method": "get",
+                    "secondary_action_href": (
+                        self.channel_action_href(
+                            principal_id=principal_id,
+                            object_kind="handoff",
+                            object_ref=handoff.id,
+                            action=str(action_plan.get("secondary_value") or "").strip(),
+                            return_to="/app/channel-loop/operator",
+                            operator_id=operator_key,
+                            reason="Escalated from operator digest.",
+                        )
+                        if action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip()
+                        else ""
+                    ),
+                    "secondary_action_label": str(action_plan.get("secondary_label") or "") if action_kind == "complete" else "",
+                    "secondary_action_method": "get" if action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip() else "",
                 }
             )
         if snapshot.commitments:
@@ -5480,20 +5803,20 @@ class ProductService:
                 operator_id = str(active[0].operator_id or "").strip() if active else ""
             if not operator_id:
                 return None
-            if action == "complete":
-                result = self.complete_handoff(
-                    principal_id=principal_id,
-                    handoff_ref=object_ref,
-                    operator_id=operator_id,
-                    actor=resolved_actor,
-                    resolution="completed",
-                )
-            else:
+            if action in {"assign", "claim"}:
                 result = self.assign_handoff(
                     principal_id=principal_id,
                     handoff_ref=object_ref,
                     operator_id=operator_id,
                     actor=resolved_actor,
+                )
+            else:
+                result = self.complete_handoff(
+                    principal_id=principal_id,
+                    handoff_ref=object_ref,
+                    operator_id=operator_id,
+                    actor=resolved_actor,
+                    resolution=action,
                 )
         if result is None:
             return None

@@ -141,6 +141,12 @@ class HandoffNoteOut(BaseModel):
     due_time: str | None = None
     escalation_status: str
     status: str
+    task_type: str = ""
+    resolution: str = ""
+    draft_ref: str = ""
+    recipient_email: str = ""
+    subject: str = ""
+    delivery_reason: str = ""
     evidence_refs: list[EvidenceRefOut]
 
 
@@ -855,6 +861,12 @@ def handoff_out(value: HandoffNote) -> HandoffNoteOut:
         due_time=value.due_time,
         escalation_status=value.escalation_status,
         status=value.status,
+        task_type=value.task_type,
+        resolution=value.resolution,
+        draft_ref=value.draft_ref,
+        recipient_email=value.recipient_email,
+        subject=value.subject,
+        delivery_reason=value.delivery_reason,
         evidence_refs=evidence_out(value.evidence_refs),
     )
 

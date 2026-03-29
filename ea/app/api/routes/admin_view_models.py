@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.container import AppContainer
+from app.product.projections.handoffs import handoff_action_plan, handoff_from_human_task
 from app.product.service import build_product_service
 
 
@@ -75,11 +76,16 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
     for value in values if isinstance(values, (list, tuple)) else []:
         handoff_id = str(getattr(value, "id", "") or "").strip()
         owner = str(getattr(value, "owner", "") or "").strip()
+        action_plan = handoff_action_plan(value, operator_id=operator_key) if actionable else {}
+        action_kind = str(action_plan.get("kind") or "assign").strip()
         detail = " · ".join(
             part
             for part in (
                 owner or "Unassigned",
                 f"due {str(getattr(value, 'due_time', '') or '')[:10]}" if getattr(value, "due_time", None) else "",
+                str(getattr(value, "recipient_email", "") or "").strip()
+                if str(getattr(value, "task_type", "") or "").strip() == "delivery_followup"
+                else "",
                 str(getattr(value, "escalation_status", "") or "").replace("_", " ").title(),
             )
             if str(part or "").strip()
@@ -87,15 +93,17 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
         action_href = ""
         action_label = ""
         action_value = ""
+        secondary_action_href = ""
+        secondary_action_label = ""
+        secondary_action_value = ""
         if actionable and handoff_id:
-            if operator_key and owner == operator_key:
-                action_href = f"/app/actions/handoffs/{handoff_id}/complete"
-                action_label = "Complete"
-                action_value = "completed"
-            else:
-                action_href = f"/app/actions/handoffs/{handoff_id}/assign"
-                action_label = "Claim"
-                action_value = "assign"
+            action_href = f"/app/actions/handoffs/{handoff_id}/{'complete' if action_kind == 'complete' else 'assign'}"
+            action_label = str(action_plan.get("label") or "")
+            action_value = str(action_plan.get("value") or "")
+            if action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip():
+                secondary_action_href = f"/app/actions/handoffs/{handoff_id}/complete"
+                secondary_action_label = str(action_plan.get("secondary_label") or "")
+                secondary_action_value = str(action_plan.get("secondary_value") or "")
         rows.append(
             _row(
                 str(getattr(value, "summary", "") or "Handoff"),
@@ -106,9 +114,46 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
                 action_label=action_label,
                 action_value=action_value,
                 return_to=return_to if action_href else "",
+                secondary_action_href=secondary_action_href,
+                secondary_action_label=secondary_action_label,
+                secondary_action_value=secondary_action_value,
+                secondary_return_to=return_to if secondary_action_href else "",
             )
         )
     return rows
+
+
+def _human_task_row(value: object, *, operator_id: str, return_to: str) -> dict[str, str]:
+    handoff = handoff_from_human_task(value)
+    action_plan = handoff_action_plan(handoff, operator_id=operator_id)
+    action_kind = str(action_plan.get("kind") or "assign").strip()
+    return _row(
+        str(getattr(value, "brief", "") or "Human task"),
+        " · ".join(
+            part
+            for part in (
+                _humanize(getattr(value, "role_required", "")),
+                f"priority {getattr(value, 'priority', '')}",
+                f"due {str(getattr(value, 'sla_due_at', '') or '')[:10]}" if getattr(value, "sla_due_at", None) else "",
+                handoff.recipient_email if handoff.task_type == "delivery_followup" and handoff.recipient_email else "",
+            )
+            if str(part or "").strip()
+        )
+        or "Human task remains open.",
+        "Task",
+        action_href=f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{'complete' if action_kind == 'complete' else 'assign'}",
+        action_label=str(action_plan.get("label") or ""),
+        action_value=str(action_plan.get("value") or ""),
+        return_to=return_to,
+        secondary_action_href=(
+            f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/complete"
+            if str(action_plan.get("secondary_value") or "").strip()
+            else ""
+        ),
+        secondary_action_label=str(action_plan.get("secondary_label") or ""),
+        secondary_action_value=str(action_plan.get("secondary_value") or ""),
+        secondary_return_to=return_to,
+    )
 
 def build_admin_section_payload(section: str, *, container: AppContainer, principal_id: str, operator_id: str = "") -> dict[str, object]:
     readiness_ok, readiness_label = container.readiness.check()
@@ -198,31 +243,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for row in approval_history
     ]
-    task_rows = [
-        _row(
-            str(getattr(row, "brief", "") or "Human task"),
-            " · ".join(
-                part
-                for part in (
-                    _humanize(getattr(row, "role_required", "")),
-                    f"priority {getattr(row, 'priority', '')}",
-                    f"due {str(getattr(row, 'sla_due_at', '') or '')[:10]}" if getattr(row, "sla_due_at", None) else "",
-                )
-                if str(part or "").strip()
-            )
-            or "Human task remains open.",
-            "Task",
-            action_href=f"/app/actions/handoffs/human_task:{getattr(row, 'human_task_id', '')}/assign",
-            action_label="Claim",
-            action_value="assign",
-            return_to="/admin/operators",
-            secondary_action_href=f"/app/actions/handoffs/human_task:{getattr(row, 'human_task_id', '')}/complete",
-            secondary_action_label="Complete",
-            secondary_action_value="completed",
-            secondary_return_to="/admin/operators",
-        )
-        for row in human_tasks
-    ]
+    task_rows = [_human_task_row(row, operator_id=operator_id, return_to="/admin/operators") for row in human_tasks]
     returned_task_rows = [
         _row(
             str(getattr(row, "brief", "") or "Returned handoff"),
@@ -362,6 +383,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     ]
     analytics_rows = [
         _row("Draft approvals", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
+        _row("Drafts sent", str(analytics_counts.get("draft_sent") or 0), "Analytics"),
+        _row("Send follow-ups resolved", str(analytics_counts.get("draft_send_followup_resolved") or 0), "Analytics"),
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),
         _row("Commitments created", str(analytics_counts.get("commitment_created") or 0), "Analytics"),
         _row("Commitments closed", str(analytics_counts.get("commitment_closed") or 0), "Analytics"),

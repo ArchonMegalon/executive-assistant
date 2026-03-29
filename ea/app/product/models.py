@@ -189,6 +189,12 @@ class HandoffNote:
     due_time: str | None
     escalation_status: str
     status: str = "open"
+    task_type: str = ""
+    resolution: str = ""
+    draft_ref: str = ""
+    recipient_email: str = ""
+    subject: str = ""
+    delivery_reason: str = ""
     evidence_refs: tuple[EvidenceRef, ...] = ()
 
 
