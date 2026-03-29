@@ -1401,6 +1401,9 @@ def _redacted_provider_health(provider_health: dict[str, object], *, include_sen
             slot = dict(item)
             slot["account_name"] = ""
             slot["slot_owner"] = ""
+            slot["owner_label"] = ""
+            slot["owner_name"] = ""
+            slot["owner_email"] = ""
             slot["lease_holder"] = ""
             slot["lease_holder_label"] = ""
             slot["lease_holder_owner_category"] = ""
