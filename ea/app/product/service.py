@@ -382,15 +382,23 @@ class ProductService:
             normalized_channel = str(signal.channel or "").strip().lower()
             normalized_signal = str(signal.signal_type or "").strip().lower()
             normalized_source = str(signal.source_ref or "").strip()
+            normalized_payload = dict(signal.payload or {})
+            normalized_thread_ref = str(
+                normalized_payload.get("thread_id")
+                or normalized_payload.get("gmail_thread_id")
+                or normalized_payload.get("thread_ref")
+                or ""
+            ).strip()
             if normalized_channel == "gmail" and normalized_signal == "email_thread":
                 if self._gmail_signal_labels(signal=signal) & _LOW_SIGNAL_GMAIL_LABELS:
                     suppressed_total += 1
                     continue
-                if normalized_source and normalized_source in seen_gmail_threads:
+                thread_key = normalized_thread_ref or normalized_source
+                if thread_key and thread_key in seen_gmail_threads:
                     suppressed_total += 1
                     continue
-                if normalized_source:
-                    seen_gmail_threads.add(normalized_source)
+                if thread_key:
+                    seen_gmail_threads.add(thread_key)
             curated.append(signal)
         return tuple(curated), suppressed_total
 

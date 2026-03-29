@@ -1233,6 +1233,72 @@ def test_google_signal_sync_collapses_duplicate_gmail_threads(monkeypatch) -> No
     assert sync_status_body["last_suppressed_total"] == 1
 
 
+def test_google_signal_sync_collapses_duplicate_gmail_threads_by_thread_id(monkeypatch) -> None:
+    principal_id = "exec-product-google-thread-dupes-thread-id"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="exec@example.com",
+            granted_scopes=(
+                google_oauth_service.GOOGLE_SCOPE_METADATA,
+                google_oauth_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+            ),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up",
+                    summary="Please send the revised board packet tomorrow morning.",
+                    text="Please send the revised board packet tomorrow morning.",
+                    source_ref="gmail-message:thread-first",
+                    external_id="gmail-message:first",
+                    due_at=None,
+                    counterparty="Sofia N.",
+                    payload={
+                        "thread_id": "shared-thread-id",
+                        "message_id": "first",
+                        "from_email": "sofia@example.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up (duplicate thread)",
+                    summary="Follow-up duplicate in same Gmail thread.",
+                    text="Follow-up duplicate in same Gmail thread.",
+                    source_ref="gmail-message:thread-second",
+                    external_id="gmail-message:second",
+                    due_at=None,
+                    counterparty="Sofia N.",
+                    payload={
+                        "thread_id": "shared-thread-id",
+                        "message_id": "second",
+                        "from_email": "sofia@example.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 2, "calendar_limit": 0})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["total"] == 1
+    assert body["synced_total"] == 1
+    assert body["deduplicated_total"] == 0
+    assert body["suppressed_total"] == 1
+    assert len(body["items"]) == 1
+
+    sync_status = client.get("/app/api/signals/google/status")
+    assert sync_status.status_code == 200
+    sync_status_body = sync_status.json()
+    assert sync_status_body["last_suppressed_total"] == 1
 def test_channel_loop_approvals_digest_counts_reviewable_candidates_not_rejected_history() -> None:
     principal_id = "exec-product-channel-loop-reviewable-candidates"
     client = build_product_client(principal_id=principal_id)
