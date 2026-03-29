@@ -267,6 +267,7 @@ def settings_support_detail(
     )
     bundle = product.workspace_support_bundle(principal_id=context.principal_id)
     analytics = dict(bundle.get("analytics") or {})
+    memo_loop = dict(analytics.get("memo_loop") or {})
     reliability = dict(analytics.get("reliability") or {})
     billing = dict(bundle.get("billing") or {})
     approvals = dict(bundle.get("approvals") or {})
@@ -302,6 +303,7 @@ def settings_support_detail(
             _object_detail_row("Churn risk", str(bundle.get("analytics", {}).get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
+            _object_detail_row("Last memo issue", str(memo_loop.get("last_issue_reason") or "No current memo blocker"), "Memo"),
             _object_detail_row(
                 "Blocked actions",
                 ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
@@ -362,6 +364,17 @@ def settings_support_detail(
                 "items": [
                     _object_detail_row("Delivery reliability", str(reliability.get("delivery_reliability_state") or "watch"), "Runtime"),
                     _object_detail_row("Delivery success rate", str(reliability.get("delivery_success_rate") if reliability.get("delivery_success_rate") is not None else "n/a"), "Runtime"),
+                    _object_detail_row("Last memo issue", str(memo_loop.get("last_issue_reason") or "No current memo blocker"), "Memo"),
+                    _object_detail_row("Memo fix detail", str(memo_loop.get("last_issue_fix_detail") or "No memo fix needed"), "Memo"),
+                    _object_detail_row(
+                        "Memo fix target",
+                        str(memo_loop.get("last_issue_fix_label") or "No action needed"),
+                        "Memo",
+                        href=str(memo_loop.get("last_issue_fix_href") or ""),
+                        action_href=str(memo_loop.get("last_issue_fix_href") or ""),
+                        action_label=str(memo_loop.get("last_issue_fix_label") or ""),
+                        action_method="get" if str(memo_loop.get("last_issue_fix_href") or "").strip() else "",
+                    ),
                     _object_detail_row("Access reliability", str(reliability.get("access_reliability_state") or "watch"), "Runtime"),
                     _object_detail_row("Access open rate", str(reliability.get("workspace_access_open_rate") if reliability.get("workspace_access_open_rate") is not None else "n/a"), "Runtime"),
                     _object_detail_row("Sync reliability", str(reliability.get("sync_reliability_state") or "watch"), "Runtime"),

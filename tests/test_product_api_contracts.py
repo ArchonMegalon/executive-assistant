@@ -1554,6 +1554,15 @@ def test_workspace_outcomes_expose_manual_memo_delivery_issue_and_fix_target() -
     assert memo_loop["last_issue_reason"] == "Domain not verified"
     assert memo_loop["last_issue_fix_href"] == "/app/settings/support"
     assert memo_loop["last_issue_fix_label"] == "Open support"
+    assert memo_loop["last_issue_fix_detail"] == "Verify the sending domain in the email provider before the next memo cycle."
+    proof = outcomes.json()["office_loop_proof"]
+    blocker_check = next(item for item in proof["checks"] if item["key"] == "memo_delivery_blocker")
+    assert blocker_check["state"] == "critical"
+    assert blocker_check["actual"] == "Domain not verified"
+    assert blocker_check["target"] == "no blocker"
+    assert blocker_check["detail"] == "Verify the sending domain in the email provider before the next memo cycle."
+    assert proof["state"] == "critical"
+    assert proof["summary"] == "Office-loop proof is blocked by a current memo delivery issue."
 
 
 def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
@@ -1714,6 +1723,35 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
         }
         for item in body["recent_runtime"]
     )
+
+
+def test_operator_center_surfaces_memo_delivery_blocker_fix_action() -> None:
+    principal_id = "exec-operator-center-memo-blocker"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seed_product_state(client, principal_id=principal_id)
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    center = client.get("/app/api/operator-center")
+    assert center.status_code == 200
+    blocker = next(item for item in center.json()["next_actions"] if item["label"] == "Fix memo delivery blocker")
+    assert "Domain not verified" in blocker["detail"]
+    assert "Verify the sending domain in the email provider before the next memo cycle." in blocker["detail"]
+    assert blocker["href"] == "/app/settings/support"
+    assert blocker["action_label"] == "Open support"
+    assert blocker["action_href"] == "/app/settings/support"
+    assert blocker["action_method"] == "get"
 
 
 def test_workspace_invitation_lifecycle_is_seat_aware() -> None:

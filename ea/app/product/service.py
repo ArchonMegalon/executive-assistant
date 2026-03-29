@@ -147,6 +147,26 @@ def _memo_issue_fix(*, reason: str = "", error: str = "") -> tuple[str, str]:
     return "/app/settings/outcomes", "Open outcomes"
 
 
+def _memo_issue_fix_detail(*, reason: str = "", error: str = "") -> str:
+    normalized_reason = str(reason or "").strip().lower()
+    normalized_error = str(error or "").strip().lower()
+    if "google_" in normalized_reason or "google_" in normalized_error:
+        return "Reconnect Google before the next sync or approved send."
+    if "domain not verified" in normalized_error:
+        return "Verify the sending domain in the email provider before the next memo cycle."
+    if normalized_reason == "email_delivery_not_configured":
+        return "Configure outbound email delivery before the next memo cycle."
+    if normalized_reason == "unsupported_delivery_channel":
+        return "Use a supported delivery channel for memo email delivery."
+    if normalized_reason == "recipient_missing":
+        return "Set the memo recipient in morning memo settings."
+    if normalized_reason == "quiet_hours":
+        return "Adjust quiet hours or wait for the allowed delivery window."
+    if normalized_reason == "digest_not_available":
+        return "Regenerate the memo after the workspace loop refreshes."
+    return ""
+
+
 def _action_label(action_json: dict[str, object]) -> str:
     raw = str(action_json.get("intent") or action_json.get("label") or action_json.get("action") or action_json.get("event_type") or "review").strip().replace("_", " ").replace(".", " ")
     return raw or "review"
@@ -1935,6 +1955,8 @@ class ProductService:
         delivery_followup_blocked_rate = analytics.get("delivery_followup_blocked_rate")
         commitment_close_rate = float(analytics.get("commitment_close_rate") or 0.0)
         useful_loop_days = int(memo_loop.get("days_with_useful_loop") or 0)
+        memo_issue_reason = str(memo_loop.get("last_issue_reason") or "").strip()
+        memo_issue_fix_detail = str(memo_loop.get("last_issue_fix_detail") or "").strip()
         oldest_handoff_age_hours = int(queue_health.get("oldest_handoff_age_hours") or 0)
         office_loop_checks = [
             {
@@ -1966,6 +1988,14 @@ class ProductService:
                 "state": "clear" if useful_loop_days >= 3 else "watch" if useful_loop_days >= 1 else "critical",
             },
             {
+                "key": "memo_delivery_blocker",
+                "label": "Memo delivery blocker",
+                "actual": memo_issue_reason or "clear",
+                "target": "no blocker",
+                "state": "critical" if memo_issue_reason else "clear",
+                "detail": memo_issue_fix_detail,
+            },
+            {
                 "key": "oldest_handoff_age_hours",
                 "label": "Oldest handoff age",
                 "actual": oldest_handoff_age_hours,
@@ -1979,12 +2009,14 @@ class ProductService:
             "clear"
             if passed_checks == len(office_loop_checks)
             else "critical"
-            if critical_checks >= 2 or not bool(memo_loop.get("enabled"))
+            if critical_checks >= 2 or not bool(memo_loop.get("enabled")) or bool(memo_issue_reason)
             else "watch"
         )
         office_loop_summary = (
             "Office-loop proof is strong enough to hold the wedge."
             if office_loop_state == "clear"
+            else "Office-loop proof is blocked by a current memo delivery issue."
+            if memo_issue_reason
             else "Office-loop proof is incomplete and needs another clean cycle."
             if office_loop_state == "critical"
             else "Office-loop proof is forming, but one or two gates still need work."
@@ -4575,6 +4607,7 @@ class ProductService:
         latest_memo_issue_reason = ""
         latest_memo_issue_fix_href = ""
         latest_memo_issue_fix_label = ""
+        latest_memo_issue_fix_detail = ""
         first_value_types = {
             "draft_sent",
             "draft_send_followup_created",
@@ -4623,11 +4656,16 @@ class ProductService:
                         reason=str(payload.get("reason") or "").strip(),
                         error=str(payload.get("email_delivery_error") or "").strip(),
                     )
+                    fix_detail = _memo_issue_fix_detail(
+                        reason=str(payload.get("reason") or "").strip(),
+                        error=str(payload.get("email_delivery_error") or "").strip(),
+                    )
                     latest_memo_issue_at = created_at
                     latest_memo_issue_kind = "failed" if row.event_type == "scheduled_morning_memo_delivery_failed" else "blocked"
                     latest_memo_issue_reason = issue_reason
                     latest_memo_issue_fix_href = fix_href if issue_reason else ""
                     latest_memo_issue_fix_label = fix_label if issue_reason else ""
+                    latest_memo_issue_fix_detail = fix_detail if issue_reason else ""
             if (
                 row.event_type == "channel_digest_delivery_email_failed"
                 and str(payload.get("digest_key") or "").strip().lower() == "memo"
@@ -4638,11 +4676,13 @@ class ProductService:
                 if latest_issue_at is None or (issue_at is not None and issue_at >= latest_issue_at):
                     issue_reason = _memo_issue_reason(error=str(payload.get("error") or "").strip())
                     fix_href, fix_label = _memo_issue_fix(error=str(payload.get("error") or "").strip())
+                    fix_detail = _memo_issue_fix_detail(error=str(payload.get("error") or "").strip())
                     latest_memo_issue_at = created_at
                     latest_memo_issue_kind = "failed"
                     latest_memo_issue_reason = issue_reason
                     latest_memo_issue_fix_href = fix_href if issue_reason else ""
                     latest_memo_issue_fix_label = fix_label if issue_reason else ""
+                    latest_memo_issue_fix_detail = fix_detail if issue_reason else ""
         first_value_seconds: int | None = None
         if activation_started_at and first_value_at:
             try:
@@ -4857,6 +4897,7 @@ class ProductService:
                 latest_memo_issue_reason = ""
                 latest_memo_issue_fix_href = ""
                 latest_memo_issue_fix_label = ""
+                latest_memo_issue_fix_detail = ""
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -4953,6 +4994,7 @@ class ProductService:
                     "last_issue_reason": latest_memo_issue_reason,
                     "last_issue_fix_href": latest_memo_issue_fix_href,
                     "last_issue_fix_label": latest_memo_issue_fix_label,
+                    "last_issue_fix_detail": latest_memo_issue_fix_detail,
                     "state": memo_loop_state,
                 },
                 "delivery": {
@@ -5023,6 +5065,7 @@ class ProductService:
         delivery = dict(analytics.get("delivery") or {})
         access = dict(analytics.get("access") or {})
         sync = dict(analytics.get("sync") or {})
+        memo_loop = dict(analytics.get("memo_loop") or {})
         counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
         blocked_actions = [str(value).replace("_", " ") for value in list(commercial.get("blocked_actions") or []) if str(value).strip()]
         warning_messages = [str(value) for value in list(commercial.get("warnings") or []) if str(value).strip()]
@@ -5204,6 +5247,25 @@ class ProductService:
                     "quaternary_action_value": str(delivery_actions[3].get("value") or "") if len(delivery_actions) > 3 else "",
                     "quaternary_action_method": str(delivery_actions[3].get("method") or "") if len(delivery_actions) > 3 else "",
                     "quaternary_return_to": "/admin/office" if len(delivery_actions) > 3 else "",
+                }
+            )
+        if str(memo_loop.get("last_issue_reason") or "").strip():
+            next_actions.append(
+                {
+                    "label": "Fix memo delivery blocker",
+                    "detail": " ".join(
+                        part
+                        for part in (
+                            str(memo_loop.get("last_issue_reason") or "").strip().rstrip(".") + ".",
+                            str(memo_loop.get("last_issue_fix_detail") or "").strip(),
+                        )
+                        if str(part or "").strip()
+                    ).strip(),
+                    "href": str(memo_loop.get("last_issue_fix_href") or "/app/settings/outcomes"),
+                    "action_href": str(memo_loop.get("last_issue_fix_href") or ""),
+                    "action_label": str(memo_loop.get("last_issue_fix_label") or ""),
+                    "action_method": "get" if str(memo_loop.get("last_issue_fix_href") or "").strip() else "",
+                    "return_to": str(memo_loop.get("last_issue_fix_href") or "") if str(memo_loop.get("last_issue_fix_href") or "").strip() else "",
                 }
             )
         for item in assignment_suggestions:
