@@ -3860,6 +3860,8 @@ def test_browseract_ui_template_spec_uses_explicit_onemin_billing_workflow() -> 
     assert submit_node["config"]["auth_advance_timeout_ms"] == 12000
     assert submit_node["config"]["pre_submit_cookie_name"] == "cf_clearance"
     assert submit_node["config"]["submit_retry_count"] == 1
+    assert "wait_pre_auth_dismiss_overlay_01" in node_ids
+    assert ["open_login_entry", "wait_pre_auth_dismiss_overlay_01"] in spec["edges"]
     assert "otlp.1min.ai" in spec["meta"]["blocked_url_markers"]
     output_node = next(node for node in spec["nodes"] if node.get("id") == "output_result")
     assert output_node["config"]["field_name"] == "billing_usage_bonus_page"
@@ -3880,6 +3882,8 @@ def test_browseract_ui_template_spec_uses_explicit_onemin_members_workflow() -> 
     assert submit_node["config"]["react_click"] is True
     assert submit_node["config"]["form_selector"] == "form[name='login'], .ant-modal form, .ant-modal-root form, form"
     assert submit_node["config"]["pre_submit_cookie_name"] == "cf_clearance"
+    assert "wait_pre_auth_dismiss_overlay_01" in node_ids
+    assert ["open_login_entry", "wait_pre_auth_dismiss_overlay_01"] in spec["edges"]
     dismiss_node = next(node for node in spec["nodes"] if node.get("id") == "dismiss_overlay_01")
     assert dismiss_node["config"]["optional"] is True
 

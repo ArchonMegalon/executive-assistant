@@ -835,7 +835,11 @@ def app_shell(
         "channels": "settings",
         "automations": "settings",
     }.get(section, section)
-    if resolved_section == "activity" and is_operator_context(context):
+    if (
+        resolved_section == "activity"
+        and is_operator_context(context)
+        and context.auth_source != "loopback_no_auth"
+    ):
         return RedirectResponse("/admin/office", status_code=303)
     status = container.onboarding.status(principal_id=context.principal_id)
     if resolved_section == "channel-loop":

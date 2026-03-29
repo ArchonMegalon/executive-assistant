@@ -48,6 +48,17 @@ def _internal_links(html: str) -> list[str]:
     return [ref for ref in refs if ref.startswith("/") and not ref.startswith("//")]
 
 
+def test_onemin_browseract_failure_code_detects_invalid_credentials() -> None:
+    from app.api.routes import providers as providers_route
+
+    assert providers_route._onemin_browseract_failure_code(
+        "ui_lane_failure:onemin_billing_usage:invalid_credentials"
+    ) == "invalid_credentials"
+    assert providers_route._onemin_browseract_failure_code(
+        "The email or password you entered is incorrect. Please try again."
+    ) == "invalid_credentials"
+
+
 def test_provider_bindings_are_principal_scoped_and_support_probe_updates() -> None:
     owner = _client(principal_id="exec-1")
     created = owner.post(
@@ -181,6 +192,38 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     disconnected_body = disconnected.json()
     assert disconnected_body["token_status"] == "revoked"
     assert disconnected_body["reauth_required_reason"] == "disconnected_by_operator"
+
+
+def test_onboarding_google_start_reports_missing_oauth_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.delenv("EA_PROVIDER_SECRET_KEY", raising=False)
+    owner = _client(principal_id="exec-onboarding-missing")
+
+    owner.post(
+        "/v1/onboarding/start",
+        json={
+            "workspace_name": "No Config",
+            "workspace_mode": "personal",
+            "region": "AT",
+            "language": "en",
+            "timezone": "Europe/Vienna",
+            "selected_channels": ["google"],
+        },
+    )
+
+    google = owner.post("/v1/onboarding/google/start", json={"scope_bundle": "core"})
+    assert google.status_code == 200
+    body = google.json()
+    google_start = dict(body["google_start"])
+    assert google_start["ready"] is False
+    assert google_start["error"] == "google_oauth_client_id_missing"
+    assert "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET." in google_start["detail"]
+    assert body["channels"]["google"]["status"] == "credentials_missing"
 
 
 def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -788,7 +831,8 @@ def test_onemin_billing_refresh_forwards_full_provider_api_flags(
     )
     assert response.status_code == 200
     assert observed["include_members"] is True
-    assert observed["all_accounts"] is True
+    assert observed["all_accounts"] is False
+    assert observed["account_labels"] == {"ONEMIN_AI_API_KEY"}
     assert observed["continue_on_rate_limit"] is True
 
 
@@ -1004,6 +1048,162 @@ def test_onemin_billing_refresh_uses_browseract_login_fallback_and_skips_direct_
     assert "BrowserAct login-backed billing pages" in body["note"]
 
 
+def test_onemin_billing_refresh_uses_owner_ledger_browseract_scope_for_global_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}},
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    invoked: list[tuple[str, str]] = []
+    observed: dict[str, object] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        invoked.append((tool_name, account_label))
+        if tool_name == "browseract.onemin_billing_usage":
+            return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        return {"refresh_backend": "browseract", "matched_owner_slots": 1}
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return ([], [], [], 0, 0, False)
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True, "provider_api_all_accounts": True},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert observed == {}
+    assert body["browseract_scope"] == "all_owner_accounts"
+    assert body["browseract_target_labels"] == ["ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"]
+    assert body["provider_api_scope"] == "global"
+    assert body["provider_api_target_labels"] == []
+    assert body["global_aggregate_snapshot"]["provider_key"] == "onemin"
+    assert invoked == [
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
+        ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+        ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY"),
+        ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+    ]
+
+
+def test_onemin_billing_refresh_uses_fleet_browseract_binding_for_operator_targeted_owner_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
+
+    from app.api.routes import providers as providers_route
+
+    owner_binding = SimpleNamespace(
+        binding_id="owner-binding",
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        auth_metadata_json={
+            "trusted_onemin_mapping": True,
+            "service_accounts_json": {"BrowserAct": {"tier": "Tier 3"}},
+        },
+        status="enabled",
+    )
+    fleet_binding = SimpleNamespace(
+        binding_id="fleet-binding",
+        principal_id="codex-fleet",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        auth_metadata_json={
+            "trusted_onemin_mapping": True,
+            "onemin_account_names": ["ONEMIN_AI_API_KEY_FALLBACK_1"],
+        },
+        status="enabled",
+    )
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_: True)
+    monkeypatch.setattr(
+        providers_route,
+        "_normalized_onemin_owner_rows",
+        lambda account_labels=None: [
+            {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"}
+        ],
+    )
+    monkeypatch.setattr(providers_route, "_enabled_browseract_bindings", lambda _container, _principal_id: [owner_binding])
+    monkeypatch.setattr(providers_route, "_all_enabled_browseract_bindings", lambda _container: [owner_binding, fleet_binding])
+    observed: dict[str, object] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        observed["principal_id"] = kwargs.get("principal_id")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        observed["binding_id"] = payload_json.get("binding_id")
+        observed["account_label"] = payload_json.get("account_label")
+        return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={
+            "include_members": False,
+            "include_provider_api": False,
+            "account_labels": ["ONEMIN_AI_API_KEY_FALLBACK_1"],
+        },
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert observed["principal_id"] == "codex-fleet"
+    assert observed["binding_id"] == "fleet-binding"
+    assert observed["account_label"] == "ONEMIN_AI_API_KEY_FALLBACK_1"
+    assert body["selected_binding_ids"] == ["fleet-binding"]
+    assert body["billing_refresh_count"] == 1
+    assert body["browseract_target_labels"] == ["ONEMIN_AI_API_KEY_FALLBACK_1"]
+
+
 def test_onemin_billing_refresh_caps_browseract_login_pass_per_cycle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1067,7 +1267,14 @@ def test_onemin_billing_refresh_caps_browseract_login_pass_per_cycle(
     response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": True})
     assert response.status_code == 200
     body = response.json()
-    assert observed == {}
+    assert observed == {
+        "include_members": True,
+        "timeout_seconds": 75,
+        "all_accounts": False,
+        "continue_on_rate_limit": False,
+        "account_labels": {"ONEMIN_AI_API_KEY_FALLBACK_2", "ONEMIN_AI_API_KEY_FALLBACK_3"},
+        "account_login_credentials": {},
+    }
     assert invoked == [
         ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
         ("browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
@@ -1077,8 +1284,9 @@ def test_onemin_billing_refresh_caps_browseract_login_pass_per_cycle(
     assert body["billing_refresh_count"] == 2
     assert body["member_reconciliation_count"] == 2
     assert body["api_account_attempted"] == 0
-    assert body["api_account_skipped"] == 4
-    assert "for 2 of 4 bound accounts this cycle" in body["note"]
+    assert body["api_account_skipped"] == 0
+    assert body["provider_api_target_labels"] == ["ONEMIN_AI_API_KEY_FALLBACK_2", "ONEMIN_AI_API_KEY_FALLBACK_3"]
+    assert "skipped 2 bound 1min account(s)" in body["note"]
 
 
 def test_onemin_billing_refresh_can_target_specific_account_labels(
@@ -1227,24 +1435,27 @@ def test_onemin_billing_refresh_fans_out_browseract_jobs_in_parallel(
 ) -> None:
     owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv("ONEMIN_BROWSERACT_PARALLELISM", "3")
-
-    created = owner.post(
-        "/v1/connectors/bindings",
-        json={
-            "connector_name": "browseract",
-            "external_account_ref": "browseract-main",
-            "scope_json": {"services": ["BrowserAct"]},
-            "auth_metadata_json": {
-                "onemin_account_names": [
-                    "ONEMIN_AI_API_KEY",
-                    "ONEMIN_AI_API_KEY_FALLBACK_1",
-                    "ONEMIN_AI_API_KEY_FALLBACK_2",
-                ]
+    for index, account_label in enumerate(
+        [
+            "ONEMIN_AI_API_KEY",
+            "ONEMIN_AI_API_KEY_FALLBACK_1",
+            "ONEMIN_AI_API_KEY_FALLBACK_2",
+        ],
+        start=1,
+    ):
+        created = owner.post(
+            "/v1/connectors/bindings",
+            json={
+                "connector_name": "browseract",
+                "external_account_ref": f"browseract-main-{index}",
+                "scope_json": {"services": ["BrowserAct"]},
+                "auth_metadata_json": {
+                    "onemin_account_name": account_label,
+                },
+                "status": "enabled",
             },
-            "status": "enabled",
-        },
-    )
-    assert created.status_code == 200
+        )
+        assert created.status_code == 200
 
     from app.api.routes import providers as providers_route
 
@@ -1329,6 +1540,79 @@ def test_onemin_billing_refresh_only_reconciles_members_after_successful_billing
     assert ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY") in invoked
     assert ("browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY_FALLBACK_1") not in invoked
     assert response.json()["member_reconciliation_count"] == 1
+
+
+def test_onemin_billing_refresh_stops_after_systemic_browseract_failures_and_targets_remaining_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("ONEMIN_BROWSERACT_SYSTEMIC_FAILURE_THRESHOLD", "2")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY",
+                    "ONEMIN_AI_API_KEY_FALLBACK_1",
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                    "ONEMIN_AI_API_KEY_FALLBACK_3",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    observed: dict[str, object] = {}
+    invoked: list[str] = []
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_: True)
+
+    def fake_invoke_browseract_tool(**kwargs):
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        invoked.append(account_label)
+        raise providers_route.ToolExecutionError("ui_service_worker_failed:onemin_billing_usage:auth_request_failed")
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return ([], [], [], 0, 0, False)
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post("/v1/providers/onemin/billing-refresh", json={"include_members": False})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert invoked == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+    ]
+    assert body["browseract_failed_labels"] == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+    ]
+    assert body["provider_api_target_labels"] == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+    ]
+    assert observed["account_labels"] == {
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+    }
 
 
 def test_onemin_billing_refresh_recovers_browseract_failures_via_targeted_provider_api(

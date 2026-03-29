@@ -1189,8 +1189,8 @@ def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug
     assert normalized["note"] == "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature."
     assert normalized["meta"] == "Concept lane | expensive experiments, no promises"
     assert normalized["overlay_hint"] == "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
-    assert normalized["scene_contract"]["subject"] == "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench"
-    assert normalized["scene_contract"]["environment"] == "an industrial approval rail lit by sodium spill, rollback cassettes, provenance seals, and hard task light"
+    assert normalized["scene_contract"]["subject"] == "a standing rulesmith and skeptical reviewer forcing unstable house-rule packs through an industrial approval rail while the apparatus looms larger than they do"
+    assert normalized["scene_contract"]["environment"] == "an improvised industrial rules lab with approval rails, rollback rig hardware, provenance seals, consequence chambers, assay racks, cassette bins, gantry hooks, sample lockers, and hard sodium spill"
     assert normalized["scene_contract"]["composition"] == "approval_rail"
 
 
@@ -1255,7 +1255,7 @@ def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hint
     assert "concept" in normalized["meta"].lower()
     assert normalized["overlay_callouts"] == [
         "cyberlimb calibration",
-        "wound stabilized",
+        "Wound stabilized",
         "Neural link resync",
     ]
     assert "runner" in normalized["scene_contract"]["subject"].lower()
@@ -1684,6 +1684,20 @@ def test_build_horizon_prompt_includes_rollout_access_canon() -> None:
     assert "avoid the default symmetrical five-line GM/player exchange" in prompt
 
 
+def test_build_media_prompt_hardens_hero_and_forge_scene_requirements() -> None:
+    worker = _load_worker_module()
+
+    hero_prompt = worker.build_media_prompt("hero", "hero", {})
+    forge_prompt = worker.build_media_prompt("horizon", "karma-forge", worker.HORIZONS["karma-forge"])
+
+    assert "ugly troll patient" in hero_prompt
+    assert "improvised garage clinic" in hero_prompt
+    assert "white-coat doctor staging" in hero_prompt
+    assert "standing rulesmith plus reviewer or witness" in forge_prompt
+    assert "industrial approval rail" in forge_prompt
+    assert "quiet workbench or paperwork table" in forge_prompt
+
+
 def test_build_horizons_bundle_prompt_requires_scene_cadence_variation() -> None:
     worker = _load_worker_module()
 
@@ -1967,6 +1981,28 @@ def test_section_ooda_defaults_no_longer_force_troll_easter_eggs() -> None:
 
     visual_devices = " ".join(defaults["orient"]["visual_devices"]).lower()
     assert "troll easter egg" not in visual_devices
+
+
+def test_section_ooda_defaults_rebrief_index_pages_as_environment_first_maps() -> None:
+    worker = _load_worker_module()
+
+    parts_defaults = worker._section_ooda_defaults(
+        section_type="page",
+        name="parts_index",
+        item=worker.PAGE_PROMPTS["parts_index"],
+        global_ooda={},
+    )
+    horizons_defaults = worker._section_ooda_defaults(
+        section_type="page",
+        name="horizons_index",
+        item=worker.PAGE_PROMPTS["horizons_index"],
+        global_ooda={},
+    )
+
+    assert "differentiated work zones" in parts_defaults["act"]["visual_prompt_seed"]
+    assert "no centered signboard" in parts_defaults["act"]["visual_prompt_seed"]
+    assert "at least four differentiated future lanes" in horizons_defaults["act"]["visual_prompt_seed"]
+    assert "no lone centered silhouette" in horizons_defaults["act"]["visual_prompt_seed"]
 
 
 def test_editorial_self_audit_rejects_overplayed_ooda_snark() -> None:

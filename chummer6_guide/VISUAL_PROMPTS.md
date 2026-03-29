@@ -213,7 +213,7 @@ Do not use the motif on the README hero, the horizons index, or `KARMA FORGE`. T
 ### Chummer6 hero
 
 ```text
-Rainy street-side or transit-shelter truth moment where one runner sees the receipt trail that settles a tense rules call. Prefer over-shoulder proof, visible tactile props, and one in-world troll motif on hardware or public signage. Do not default to a committee around a table.
+Flagship first-contact poster in an improvised streetdoc garage clinic: an ork or other metahuman clinician stabilizes a troll runner under medscan rails while hacked gear, dice, cyberware parts, and runner-life proof props fill the room. Treat it like a dense cover image with at least two active people, visible trust pressure, and no mascot motif.
 ```
 
 ### Start Here
@@ -231,7 +231,7 @@ One trustworthy rules-truth moment: a runner gets an answer with receipts, and t
 ### Horizons index
 
 ```text
-A neon horizon boulevard of future districts and signposts, with each lane hinting at a different table pain. The troll motif appears as a transit ad or distant station mascot.
+A dense branching future map with multiple grounded districts, lane cues, and differentiated table-pain hints, where the environment carries the plurality instead of one sign or mascot. No troll motif here; use layered street-level clues and branching path energy instead.
 ```
 
 ### NEXUS-PAN
@@ -255,7 +255,7 @@ Dice pool breakdown hovering over a real character sheet like forensic evidence.
 ### KARMA FORGE
 
 ```text
-Workshop-bench rulesmithing scene with overlay shards, rollback markers, and conflict receipts made physical. Prefer a forge bench, tool wall, or one operator in the act over a whole group staring at a glowing table. The troll motif appears as a stitched patch on an apron or a decal on the bench hardware.
+Flagship industrial rules-lab scene where a standing rulesmith and reviewer work an approval rail, rollback rig, and consequence hardware under pressure. Make approval, provenance, rollback, compatibility, and witness logic legible at a glance, but keep the base art free of readable callout boxes, right-margin label stacks, provenance tags, and approval words; no mascot motif and no quiet workshop-bench still.
 ```
 
 ## Two-pass fallback

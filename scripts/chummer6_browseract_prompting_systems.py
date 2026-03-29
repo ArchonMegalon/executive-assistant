@@ -118,6 +118,9 @@ def resolve_workflow(kind: str) -> tuple[str, str]:
     default_queries = {
         "REFINE": [
             "chummer6 prompting systems refine",
+            "prompting_systems_prompt_forge_live",
+            "prompting_systems_prompt_forge",
+            "prompting systems prompt forge",
             "prompting systems refine",
             "prompt refine",
         ],
@@ -226,7 +229,28 @@ def wait_for_task(task_id: str, *, timeout_seconds: int = 600) -> dict[str, obje
         if status in {"done", "completed", "success", "succeeded", "finished"}:
             return api_request("GET", "/get-task", query={"task_id": task_id})
         if status in {"failed", "error", "cancelled", "canceled"}:
-            detail = json.dumps(status_body, ensure_ascii=True)[:400]
+            detail_body = status_body
+            try:
+                detail_body = api_request("GET", "/get-task", query={"task_id": task_id})
+            except Exception:
+                detail_body = status_body
+            failure_info = ""
+            if isinstance(detail_body, dict):
+                task_failure = detail_body.get("task_failure_info")
+                if isinstance(task_failure, dict):
+                    failure_info = str(task_failure.get("message") or task_failure.get("code") or "").strip()
+                if not failure_info:
+                    for step in reversed(list(detail_body.get("steps") or [])):
+                        if not isinstance(step, dict):
+                            continue
+                        if str(step.get("status") or "").strip().lower() != "failed":
+                            continue
+                        failure_info = str(step.get("step_goal") or "").strip()
+                        if failure_info:
+                            break
+            detail = json.dumps(detail_body, ensure_ascii=True)[:400]
+            if failure_info:
+                detail = f"{failure_info} | {detail}"
             raise RuntimeError(f"browseract:task_failed:{detail}")
         time.sleep(5)
     raise RuntimeError(f"browseract:task_timeout:{last_status or 'unknown'}")

@@ -71,13 +71,216 @@ def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep
     assert summary["browseract_attempted"] == 1
     assert summary["browseract_refreshed"] == 1
     assert summary["member_reconciled"] == 1
-    assert summary["api_attempted"] == 4
+    assert summary["api_attempted"] == 0
     assert summary["api_rate_limited"] is False
     assert summary["errors"] == 0
     assert calls == [
         ("principal-1", "browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
         ("principal-1", "browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY"),
     ]
+    assert finished == [True]
+
+
+def test_scheduler_onemin_billing_refresh_recovers_browseract_failures_via_provider_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+    runner = _load_runner_module(monkeypatch)
+
+    calls: list[tuple[str, str, str]] = []
+    refresh_calls: list[dict[str, object]] = []
+    finished: list[bool] = []
+
+    binding = ConnectorBinding(
+        binding_id="binding-1",
+        principal_id="principal-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "onemin_account_names": [
+                "ONEMIN_AI_API_KEY",
+                "ONEMIN_AI_API_KEY_FALLBACK_1",
+            ]
+        },
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+
+    container = SimpleNamespace(
+        onemin_manager=SimpleNamespace(
+            begin_billing_refresh=lambda: (True, 0.0, ""),
+            finish_billing_refresh=lambda: finished.append(True),
+            select_billing_refresh_account_labels=lambda labels, limit: tuple(list(labels)[:limit]),
+        ),
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [binding]
+        ),
+    )
+
+    monkeypatch.setattr(providers_route, "_onemin_browseract_max_accounts_per_refresh", lambda: 4)
+    monkeypatch.setattr(providers_route, "_onemin_direct_api_batch_backoff_seconds", lambda: 0.0)
+    monkeypatch.setattr(providers_route, "_binding_run_url", lambda *args, **kwargs: "")
+    monkeypatch.setattr(providers_route, "_binding_workflow_id", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        providers_route,
+        "_resolve_onemin_account_labels",
+        lambda _binding: {"ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"},
+    )
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_kwargs: True)
+    monkeypatch.setattr(
+        providers_route,
+        "_partition_onemin_browseract_account_labels",
+        lambda **_kwargs: (
+            ["ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"],
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_account_login_credentials",
+        lambda **_kwargs: {"login_email": "owner@example.com", "login_password": "slotpass"},
+    )
+
+    def fake_invoke_browseract_tool(*, container, principal_id: str, tool_name: str, action_kind: str, payload_json: dict[str, object]):
+        account_label = str(payload_json.get("account_label") or "")
+        calls.append((principal_id, tool_name, account_label))
+        if tool_name == "browseract.onemin_billing_usage" and account_label == "ONEMIN_AI_API_KEY_FALLBACK_1":
+            raise providers_route.ToolExecutionError(
+                "ui_service_worker_failed:onemin_billing_usage:auth_request_failed"
+            )
+        return {"account_label": account_label, "refresh_backend": tool_name}
+
+    def fake_refresh(**kwargs):
+        refresh_calls.append(dict(kwargs))
+        return (
+            [{"account_label": "ONEMIN_AI_API_KEY_FALLBACK_1"}],
+            [{"account_label": "ONEMIN_AI_API_KEY_FALLBACK_1"}],
+            [],
+            1,
+            0,
+            False,
+        )
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+    monkeypatch.setenv("EA_SCHEDULER_ONEMIN_GLOBAL_PROVIDER_API_SWEEP", "0")
+
+    summary = runner._run_scheduler_onemin_billing_refresh(container, logging.getLogger("test.runner"))
+
+    assert summary["ran"] is True
+    assert summary["browseract_attempted"] == 2
+    assert summary["browseract_refreshed"] == 1
+    assert summary["browseract_failed"] == 1
+    assert summary["member_reconciled"] == 2
+    assert summary["api_attempted"] == 1
+    assert summary["api_recovered"] == 1
+    assert summary["errors"] == 0
+    assert refresh_calls == [
+        {
+            "include_members": True,
+            "timeout_seconds": 180,
+            "all_accounts": False,
+            "continue_on_rate_limit": False,
+            "account_labels": {"ONEMIN_AI_API_KEY_FALLBACK_1"},
+            "account_login_credentials": {
+                "ONEMIN_AI_API_KEY_FALLBACK_1": {
+                    "login_email": "owner@example.com",
+                    "login_password": "slotpass",
+                }
+            },
+        }
+    ]
+    assert sorted(calls) == sorted(
+        [
+            ("principal-1", "browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
+            ("principal-1", "browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+            ("principal-1", "browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY"),
+        ]
+    )
+    assert finished == [True]
+
+
+def test_scheduler_onemin_billing_refresh_uses_owner_ledger_accounts_without_trusted_binding_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+    runner = _load_runner_module(monkeypatch)
+
+    calls: list[tuple[str, str, str]] = []
+    finished: list[bool] = []
+
+    binding = ConnectorBinding(
+        binding_id="binding-1",
+        principal_id="principal-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={},
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+
+    container = SimpleNamespace(
+        onemin_manager=SimpleNamespace(
+            begin_billing_refresh=lambda: (True, 0.0, ""),
+            finish_billing_refresh=lambda: finished.append(True),
+            select_billing_refresh_account_labels=lambda labels, limit: tuple(list(labels)[:limit]),
+        ),
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [binding]
+        ),
+    )
+
+    monkeypatch.setattr(providers_route, "_onemin_browseract_max_accounts_per_refresh", lambda: 4)
+    monkeypatch.setattr(providers_route, "_binding_run_url", lambda *args, **kwargs: "")
+    monkeypatch.setattr(providers_route, "_binding_workflow_id", lambda *args, **kwargs: "")
+    monkeypatch.setattr(providers_route, "_resolve_onemin_account_labels", lambda _binding: ())
+    monkeypatch.setattr(
+        providers_route,
+        "_normalized_onemin_owner_rows",
+        lambda **_kwargs: [
+            {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+            {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "owner_email": "owner-2@example.com"},
+        ],
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "_partition_onemin_browseract_account_labels",
+        lambda **_kwargs: (
+            ["ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"],
+            [],
+        ),
+    )
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_kwargs: True)
+    monkeypatch.setattr(providers_route.upstream, "onemin_account_login_credentials", lambda **_kwargs: {})
+    monkeypatch.setenv("EA_SCHEDULER_ONEMIN_GLOBAL_PROVIDER_API_SWEEP", "0")
+
+    def fake_invoke_browseract_tool(*, container, principal_id: str, tool_name: str, action_kind: str, payload_json: dict[str, object]):
+        account_label = str(payload_json.get("account_label") or "")
+        calls.append((principal_id, tool_name, account_label))
+        return {"account_label": account_label, "refresh_backend": tool_name}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_kwargs: ([], [], [], 0, 0, False))
+
+    summary = runner._run_scheduler_onemin_billing_refresh(container, logging.getLogger("test.runner"))
+
+    assert summary["ran"] is True
+    assert summary["browseract_attempted"] == 2
+    assert summary["browseract_refreshed"] == 2
+    assert summary["member_reconciled"] == 2
+    assert summary["api_attempted"] == 0
+    assert sorted(calls) == sorted(
+        [
+            ("principal-1", "browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY"),
+            ("principal-1", "browseract.onemin_billing_usage", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+            ("principal-1", "browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY"),
+            ("principal-1", "browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+        ]
+    )
     assert finished == [True]
 
 

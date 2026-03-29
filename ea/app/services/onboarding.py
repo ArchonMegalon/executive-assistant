@@ -28,6 +28,22 @@ GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
     "full_workspace": "full_workspace",
 }
 
+_GOOGLE_OAUTH_MISSING_CONFIG_HELP: dict[str, str] = {
+    "google_oauth_client_id_missing": "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET.",
+    "google_oauth_client_secret_missing": "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET.",
+    "google_oauth_redirect_uri_missing": "Set EA_GOOGLE_OAUTH_REDIRECT_URI.",
+    "google_oauth_state_secret_missing": "Set EA_GOOGLE_OAUTH_STATE_SECRET.",
+    "google_oauth_provider_secret_key_missing": "Set EA_PROVIDER_SECRET_KEY.",
+}
+
+
+def _google_oauth_missing_config_detail(error_code: str) -> str:
+    normalized = str(error_code or "").strip()
+    return _GOOGLE_OAUTH_MISSING_CONFIG_HELP.get(
+        normalized,
+        normalized or "Google OAuth is not configured for this host.",
+    )
+
 WORKSPACE_MODE_ALIASES = {
     "personal": "personal",
     "team": "team",
@@ -167,17 +183,29 @@ class OnboardingService(AssistantOnboardingService):
             return payload
         except RuntimeError as exc:
             google_pref["status"] = "credentials_missing"
-            google_pref["next_step"] = str(exc)
+            reason = str(exc or "").strip() or "google_oauth_not_ready"
+            help_text = _google_oauth_missing_config_detail(reason)
+            google_pref["next_step"] = f"{reason}: {help_text}" if reason else help_text
             updated = self._replace_channel_pref(state, "google", google_pref, status="in_progress")
             payload = self.status(principal_id=principal_id, state_override=updated)
+            google_channel_status = dict(payload.get("channels", {}).get("google") or {})
             payload["google_start"] = {
                 "ready": False,
                 "requested_bundle": requested_bundle,
                 "start_url": "",
                 "auth_url": "",
                 "requested_scopes": [],
-                "detail": str(exc),
+                "error": reason,
+                "detail": help_text,
             }
+            google_channel_status.update(
+                {
+                    "status": "credentials_missing",
+                    "detail": help_text,
+                    "next_step": help_text,
+                }
+            )
+            payload.setdefault("channels", {})["google"] = google_channel_status
             return payload
 
     def start_telegram(
@@ -599,7 +627,11 @@ class OnboardingService(AssistantOnboardingService):
                 google_detail = "Google onboarding is available. Choose the smallest bundle that unlocks the assistant behavior you actually want."
         elif google_state is not None:
             google_status = "credentials_missing"
-            google_detail = "Google OAuth credentials are not configured for this EA host yet."
+            google_detail = (
+                "Google OAuth credentials are not configured for this EA host yet. "
+                "Set EA_GOOGLE_OAUTH_CLIENT_ID, EA_GOOGLE_OAUTH_CLIENT_SECRET, "
+                "EA_GOOGLE_OAUTH_REDIRECT_URI, EA_GOOGLE_OAUTH_STATE_SECRET, and EA_PROVIDER_SECRET_KEY."
+            )
         telegram_pref = dict(channel_prefs.get("telegram") or {})
         telegram_status = str(telegram_pref.get("status") or "").strip() or "not_selected"
         telegram_detail = str(telegram_pref.get("next_step") or "").strip() or (

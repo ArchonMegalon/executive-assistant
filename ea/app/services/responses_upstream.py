@@ -1106,7 +1106,33 @@ def _onemin_owner_ledger_path() -> Path | None:
         path = Path(raw)
     except Exception:
         return None
-    return path if path.exists() else None
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+        if str(path).startswith("/config/"):
+            relative = Path(*path.parts[2:])
+            candidates.extend(
+                [
+                    Path("/docker/EA") / "config" / relative.name,
+                    Path(__file__).resolve().parents[3] / "config" / relative.name,
+                ]
+            )
+    else:
+        candidates.extend(
+            [
+                path,
+                Path(__file__).resolve().parents[3] / path,
+            ]
+        )
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            return normalized
+    return None
 
 
 def _load_onemin_owner_ledger_payload() -> object:
