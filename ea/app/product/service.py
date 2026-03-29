@@ -715,19 +715,42 @@ class ProductService:
         status = str(delivery.get("status") or "").strip().lower()
         if status not in {"skipped", "failed"}:
             return None
-        draft_ref = str(delivery.get("draft_ref") or f"approval:{request.approval_id}").strip()
+        return self._open_delivery_followup(
+            principal_id=principal_id,
+            session_id=request.session_id,
+            source_id=request.approval_id,
+            draft_ref=str(delivery.get("draft_ref") or f"approval:{request.approval_id}").strip(),
+            action_json=action_json,
+            reason=str(delivery.get("reason") or "draft_send_pending_manual_followup").strip(),
+            event_type="draft_send_followup_created",
+        )
+
+    def _open_delivery_followup(
+        self,
+        *,
+        principal_id: str,
+        session_id: str,
+        source_id: str,
+        draft_ref: str,
+        action_json: dict[str, object],
+        reason: str,
+        event_type: str,
+        previous_resolution: str = "",
+    ) -> HandoffNote | None:
+        draft_ref = str(draft_ref or "").strip()
+        if not draft_ref:
+            return None
         for task in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
             input_json = dict(task.input_json or {})
             if str(input_json.get("draft_ref") or "").strip() == draft_ref and str(task.task_type or "").strip() == "delivery_followup":
                 return self._handoff_from_human_task(task)
         recipient_label = str(action_json.get("recipient_label") or action_json.get("recipient_email") or action_json.get("recipient") or "recipient").strip()
-        subject = str(delivery.get("subject") or action_json.get("subject") or "").strip()
-        reason = str(delivery.get("reason") or "draft_send_pending_manual_followup").strip()
+        subject = str(action_json.get("subject") or "").strip()
         brief = f"Send approved reply to {recipient_label}"
         if subject:
             brief = f"{brief}: {compact_text(subject, fallback=subject, limit=72)}"
         task = self._container.orchestrator.create_human_task(
-            session_id=request.session_id,
+            session_id=session_id,
             principal_id=principal_id,
             task_type="delivery_followup",
             role_required="operator",
@@ -738,18 +761,18 @@ class ProductService:
             input_json={
                 "draft_ref": draft_ref,
                 "channel": str(action_json.get("channel") or "email").strip().lower(),
-                "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
-                "recipient_label": str(delivery.get("recipient_label") or action_json.get("recipient_label") or "").strip(),
+                "recipient_email": str(action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
+                "recipient_label": str(action_json.get("recipient_label") or "").strip(),
                 "subject": subject,
                 "draft_text": str(action_json.get("draft_text") or action_json.get("content") or "").strip(),
                 "reason": reason,
-                "thread_ref": str(delivery.get("thread_ref") or action_json.get("thread_ref") or "").strip(),
-                "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
-                "stakeholder_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
+                "thread_ref": str(action_json.get("thread_ref") or "").strip(),
+                "source_ref": str(action_json.get("source_ref") or "").strip(),
+                "stakeholder_id": str(action_json.get("stakeholder_id") or "").strip(),
                 "gmail_thread_id": str(action_json.get("gmail_thread_id") or "").strip(),
                 "gmail_rfc822_message_id": str(action_json.get("gmail_rfc822_message_id") or "").strip(),
                 "gmail_references": str(action_json.get("gmail_references") or "").strip(),
-                "signal_type": str(delivery.get("signal_type") or action_json.get("signal_type") or "").strip(),
+                "signal_type": str(action_json.get("signal_type") or "").strip(),
             },
             desired_output_json={
                 "resolution": "sent",
@@ -758,19 +781,20 @@ class ProductService:
         )
         self._record_product_event(
             principal_id=principal_id,
-            event_type="draft_send_followup_created",
+            event_type=event_type,
             payload={
                 "draft_ref": draft_ref,
                 "handoff_ref": f"human_task:{task.human_task_id}",
                 "reason": reason,
-                "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
-                "recipient_label": str(delivery.get("recipient_label") or action_json.get("recipient_label") or "").strip(),
+                "recipient_email": str(action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
+                "recipient_label": str(action_json.get("recipient_label") or "").strip(),
                 "subject": subject,
-                "thread_ref": str(delivery.get("thread_ref") or action_json.get("thread_ref") or "").strip(),
-                "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
-                "person_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
+                "thread_ref": str(action_json.get("thread_ref") or "").strip(),
+                "source_ref": str(action_json.get("source_ref") or "").strip(),
+                "person_id": str(action_json.get("stakeholder_id") or "").strip(),
+                "previous_resolution": previous_resolution,
             },
-            source_id=request.approval_id,
+            source_id=source_id,
         )
         return self._handoff_from_human_task(task)
 
@@ -779,6 +803,106 @@ class ProductService:
         if normalized.startswith("approval:"):
             return normalized.split(":", 1)[1].strip()
         return normalized
+
+    def _delivery_thread_ref_from_payload(self, payload: dict[str, object]) -> str:
+        return str(payload.get("thread_ref") or payload.get("source_ref") or payload.get("draft_ref") or "").strip()
+
+    def _latest_delivery_followup_observation_for_thread(
+        self,
+        *,
+        principal_id: str,
+        thread_ref: str,
+    ) -> tuple[dict[str, object], str, str]:
+        normalized = str(thread_ref or "").strip()
+        if not normalized:
+            return {}, "", ""
+        wanted = {normalized}
+        if normalized.startswith("thread:"):
+            wanted.add(normalized.split(":", 1)[1])
+        rows = []
+        for row in self._container.channel_runtime.list_recent_observations(limit=400, principal_id=principal_id):
+            if str(row.channel or "").strip() != "product":
+                continue
+            event_type = str(row.event_type or "").strip().lower()
+            if event_type not in {
+                "draft_send_followup_created",
+                "draft_send_followup_reopened",
+                "draft_send_followup_resolved",
+                "draft_send_reauth_needed",
+                "draft_send_waiting_on_principal",
+                "draft_send_failed",
+            }:
+                continue
+            payload = dict(row.payload or {})
+            if self._delivery_thread_ref_from_payload(payload) not in wanted:
+                continue
+            rows.append((str(row.created_at or ""), str(row.source_id or "").strip(), event_type, payload))
+        rows.sort(key=lambda item: item[0], reverse=True)
+        if not rows:
+            return {}, "", ""
+        _created_at, source_id, event_type, payload = rows[0]
+        return payload, source_id, event_type
+
+    def resume_thread_delivery_followup(
+        self,
+        *,
+        principal_id: str,
+        thread_ref: str,
+        actor: str,
+        operator_id: str = "",
+    ) -> HandoffNote | None:
+        payload, source_id, event_type = self._latest_delivery_followup_observation_for_thread(
+            principal_id=principal_id,
+            thread_ref=thread_ref,
+        )
+        if not payload:
+            raise RuntimeError("thread_delivery_followup_not_resumable")
+        draft_ref = str(payload.get("draft_ref") or self._delivery_thread_ref_from_payload(payload) or "").strip()
+        if not draft_ref.startswith("approval:"):
+            raise RuntimeError("thread_delivery_followup_request_not_found")
+        approval_id = draft_ref.split(":", 1)[1].strip()
+        request = self._container.orchestrator.fetch_approval_request_for_principal(approval_id, principal_id=principal_id)
+        if request is None:
+            raise RuntimeError("thread_delivery_followup_request_not_found")
+        reopened = self._open_delivery_followup(
+            principal_id=principal_id,
+            session_id=request.session_id,
+            source_id=source_id or approval_id,
+            draft_ref=draft_ref,
+            action_json=dict(request.requested_action_json or {}),
+            reason=str(payload.get("reason") or "draft_send_pending_manual_followup").strip(),
+            event_type="draft_send_followup_reopened",
+            previous_resolution=(
+                str(payload.get("resolution") or "").strip()
+                or (
+                    "reauth_needed"
+                    if event_type == "draft_send_reauth_needed"
+                    else "waiting_on_principal"
+                    if event_type == "draft_send_waiting_on_principal"
+                    else "failed"
+                    if event_type == "draft_send_failed"
+                    else ""
+                )
+            ),
+        )
+        if reopened is None:
+            raise RuntimeError("thread_delivery_followup_not_resumable")
+        if operator_id:
+            task_id = reopened.id.split(":", 1)[1] if reopened.id.startswith("human_task:") else reopened.id
+            current_task = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id)
+            if current_task is not None:
+                current_owner = str(current_task.assigned_operator_id or "").strip()
+                if current_owner and current_owner != operator_id:
+                    raise RuntimeError("delivery_followup_owned_by_other_operator")
+            assigned = self.assign_handoff(
+                principal_id=principal_id,
+                handoff_ref=reopened.id,
+                operator_id=operator_id,
+                actor=actor,
+            )
+            if assigned is not None:
+                return assigned
+        return reopened
 
     def _normalize_delivery_followup_resolution(self, resolution: str) -> str:
         normalized = str(resolution or "").strip().lower()
@@ -1370,6 +1494,7 @@ class ProductService:
         status = {
             "draft_sent": "sent",
             "draft_send_followup_created": "delivery_followup",
+            "draft_send_followup_reopened": "delivery_followup",
             "draft_send_followup_resolved": "sent" if resolution == "sent" else resolution or "delivery_followup",
             "draft_send_reauth_needed": "reauth_needed",
             "draft_send_failed": "delivery_failed",
@@ -1377,6 +1502,7 @@ class ProductService:
         summary = {
             "draft_sent": compact_text(subject, fallback="Reply was sent.", limit=160),
             "draft_send_followup_created": compact_text(reason, fallback="Manual send follow-up was created.", limit=160),
+            "draft_send_followup_reopened": compact_text(reason, fallback="Manual send follow-up was reopened.", limit=160),
             "draft_send_followup_resolved": compact_text(
                 reason or resolution,
                 fallback="Manual send follow-up was resolved.",
@@ -1420,7 +1546,7 @@ class ProductService:
             if str(row.channel or "").strip() != "product":
                 continue
             event_type = str(row.event_type or "").strip().lower()
-            if event_type not in {"draft_sent", "draft_send_followup_created", "draft_send_followup_resolved", "draft_send_reauth_needed", "draft_send_failed"}:
+            if event_type not in {"draft_sent", "draft_send_followup_created", "draft_send_followup_reopened", "draft_send_followup_resolved", "draft_send_reauth_needed", "draft_send_failed"}:
                 continue
             projected = self._thread_item_from_event(
                 event_type=event_type,

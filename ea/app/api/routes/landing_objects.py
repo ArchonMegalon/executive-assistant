@@ -423,11 +423,58 @@ def thread_detail(
     history = product.get_thread_history(principal_id=context.principal_id, thread_ref=thread_ref, limit=8)
     send_error = str(request.query_params.get("send_error") or "").strip()
     send_status = str(request.query_params.get("send_status") or "").strip()
+    linked_handoff_ref = next(
+        (str(ref.ref_id or "").strip() for ref in thread.evidence_refs if str(ref.ref_id or "").strip().startswith("human_task:")),
+        "",
+    )
+    linked_handoff = (
+        product.get_handoff(principal_id=context.principal_id, handoff_ref=linked_handoff_ref)
+        if linked_handoff_ref
+        else None
+    )
+    delivery_followup_open = (
+        linked_handoff is not None
+        and str(linked_handoff.task_type or "").strip() == "delivery_followup"
+        and str(linked_handoff.status or "").strip() in {"pending", "claimed"}
+        and str(linked_handoff.resolution or "").strip() != "sent"
+    )
+    resume_followup_available = (
+        not delivery_followup_open
+        and str(thread.status or "").strip() in {"waiting_on_principal", "reauth_needed", "delivery_failed"}
+    )
+    delivery_reason = (
+        str(linked_handoff.delivery_reason or "").strip()
+        if linked_handoff is not None
+        else str(thread.summary or "").strip()
+    )
     thread_google_action = (
-        _google_delivery_action(str(thread.summary or ""), return_to=f"/app/threads/{thread_ref}")
-        if str(thread.status or "").strip() in {"delivery_followup", "reauth_needed"} and str(thread.summary or "").strip().startswith("google_")
+        _google_delivery_action(delivery_reason, return_to=f"/app/threads/{thread_ref}")
+        if (delivery_followup_open or str(thread.status or "").strip() in {"delivery_followup", "reauth_needed"})
+        and delivery_reason.startswith("google_")
         else {}
     )
+    if send_error:
+        retry_detail = send_error
+    elif send_status == "sent" or str(thread.status or "").strip() == "sent" or str(getattr(linked_handoff, "resolution", "") or "").strip() == "sent":
+        retry_detail = "Retry send completed."
+    elif send_status == "resumed":
+        retry_detail = "Delivery follow-up was reopened for this thread."
+    elif delivery_followup_open:
+        retry_detail = "Try the stored approved draft again after reconnecting Google."
+    elif resume_followup_available:
+        retry_detail = "Resume the blocked delivery follow-up so the operator can retry or close it from the thread context."
+    else:
+        retry_detail = "Retry send is no longer needed for this thread."
+    manual_resolution_secondary_value = "reauth_needed" if delivery_reason.startswith("google_") else "failed"
+    manual_resolution_secondary_label = (
+        "Needs reauth" if manual_resolution_secondary_value == "reauth_needed" else "Unable to send"
+    )
+    resolved_manual_detail = {
+        "sent": "Manual send was recorded for this thread.",
+        "reauth_needed": "Google access still needs reauth before this thread can proceed.",
+        "failed": "This thread was marked unable to send.",
+        "waiting_on_principal": "Waiting on principal input before delivery can continue.",
+    }.get(str(getattr(linked_handoff, "resolution", "") or thread.status or "").strip(), "")
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="thread_opened",
@@ -458,9 +505,29 @@ def thread_detail(
             _object_detail_row("Drafts", ", ".join(thread.draft_ids or []) or "No active draft ids.", "Drafts"),
             _object_detail_row("Commitments", ", ".join(thread.related_commitment_ids or []) or "No linked commitments yet.", "Ledger"),
             _object_detail_row(
+                "Delivery follow-up",
+                linked_handoff.summary if linked_handoff is not None else "No linked delivery follow-up is attached to this thread.",
+                "Handoff",
+                href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
+            ),
+            _object_detail_row(
                 "Retry send in EA",
-                send_error or ("Retry send completed." if send_status == "sent" else "Use the linked delivery follow-up to retry inside EA after reconnecting Google."),
+                retry_detail,
                 "Action",
+                href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
+                action_href=(
+                    f"/app/actions/handoffs/{linked_handoff_ref}/retry-send"
+                    if delivery_followup_open
+                    else f"/app/actions/threads/{thread_ref}/resume-delivery"
+                    if resume_followup_available
+                    else ""
+                ),
+                action_label="Retry send" if delivery_followup_open else "Resume follow-up" if resume_followup_available else "",
+                action_method="post" if delivery_followup_open or resume_followup_available else "",
+                return_to=f"/app/threads/{thread_ref}" if delivery_followup_open or resume_followup_available else "",
+                secondary_action_href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
+                secondary_action_label="Open handoff" if linked_handoff_ref else "",
+                secondary_action_method="get" if linked_handoff_ref else "",
             ),
             _object_detail_row(
                 str(thread_google_action.get("label") or "Google delivery action"),
@@ -473,6 +540,28 @@ def thread_detail(
                 action_label=str(thread_google_action.get("label") or ""),
                 action_method=str(thread_google_action.get("method") or ""),
                 return_to=f"/app/threads/{thread_ref}" if thread_google_action else "",
+            ),
+            _object_detail_row(
+                "Manual resolution",
+                resolved_manual_detail
+                or "Record the real delivery outcome when the operator finished the send outside EA or needs to keep the blocker visible.",
+                "Resolution",
+                href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
+                action_href=f"/app/actions/handoffs/{linked_handoff_ref}/complete" if delivery_followup_open else "",
+                action_label="Mark sent" if delivery_followup_open else "",
+                action_value="sent" if delivery_followup_open else "",
+                action_method="post" if delivery_followup_open else "",
+                return_to=f"/app/threads/{thread_ref}" if delivery_followup_open else "",
+                secondary_action_href=f"/app/actions/handoffs/{linked_handoff_ref}/complete" if delivery_followup_open else "",
+                secondary_action_label=manual_resolution_secondary_label if delivery_followup_open else "",
+                secondary_action_value=manual_resolution_secondary_value if delivery_followup_open else "",
+                secondary_action_method="post" if delivery_followup_open else "",
+                secondary_return_to=f"/app/threads/{thread_ref}" if delivery_followup_open else "",
+                tertiary_action_href=f"/app/actions/handoffs/{linked_handoff_ref}/complete" if delivery_followup_open else "",
+                tertiary_action_label="Waiting on principal" if delivery_followup_open else "",
+                tertiary_action_value="waiting_on_principal" if delivery_followup_open else "",
+                tertiary_action_method="post" if delivery_followup_open else "",
+                tertiary_return_to=f"/app/threads/{thread_ref}" if delivery_followup_open else "",
             ),
         ],
         object_sections=[
