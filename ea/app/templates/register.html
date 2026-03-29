@@ -476,9 +476,10 @@
 
   document.querySelector('[data-action="google-consent"]')?.addEventListener('click', () => {
     googleError.textContent = '';
-    const startUrl = String(((state.verified || {}).google_start || {}).start_url || '').trim();
+    const googleStart = (state.verified || {}).google_start || {};
+    const startUrl = String(googleStart.start_url || googleStart.auth_url || '').trim();
     if (!startUrl) {
-      const errorMessage = String(((state.verified || {}).google_start || {}).error || 'Google consent is not configured on this host yet.').trim();
+      const errorMessage = String(googleStart.error || googleStart.detail || 'Google consent is not configured on this host yet.').trim();
       googleError.textContent = errorMessage;
       return;
     }

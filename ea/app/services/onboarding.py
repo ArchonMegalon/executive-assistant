@@ -158,6 +158,7 @@ class OnboardingService(AssistantOnboardingService):
                 "oauth_bundle": oauth_bundle,
                 "bundle_label": google_pref["bundle_label"],
                 "bundle_summary": google_pref["bundle_summary"],
+                "start_url": packet.auth_url,
                 "auth_url": packet.auth_url,
                 "requested_scopes": list(packet.requested_scopes),
                 "capabilities": list(bundle_details.get("capabilities") or ()),
@@ -172,6 +173,7 @@ class OnboardingService(AssistantOnboardingService):
             payload["google_start"] = {
                 "ready": False,
                 "requested_bundle": requested_bundle,
+                "start_url": "",
                 "auth_url": "",
                 "requested_scopes": [],
                 "detail": str(exc),
