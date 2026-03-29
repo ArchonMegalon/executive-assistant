@@ -204,6 +204,11 @@
   {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
   {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
   {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
+  {% set quaternary_action_href = item.get('quaternary_action_href') or '' %}
+  {% set quaternary_action_label = item.get('quaternary_action_label') or '' %}
+  {% set quaternary_action_value = item.get('quaternary_action_value') or '' %}
+  {% set quaternary_action_method = (item.get('quaternary_action_method') or 'post')|lower %}
+  {% set quaternary_return_to = item.get('quaternary_return_to') or '' %}
   {% else %}
   {% set title = item %}
   {% set detail = helper %}
@@ -224,6 +229,11 @@
   {% set tertiary_action_value = '' %}
   {% set tertiary_action_method = 'post' %}
   {% set tertiary_return_to = '' %}
+  {% set quaternary_action_href = '' %}
+  {% set quaternary_action_label = '' %}
+  {% set quaternary_action_value = '' %}
+  {% set quaternary_action_method = 'post' %}
+  {% set quaternary_return_to = '' %}
   {% endif %}
   <div class="console-row">
     <div>
@@ -265,6 +275,17 @@
         {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
         {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
         <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if quaternary_action_href %}
+      {% if quaternary_action_method == 'get' %}
+      <a class="console-action" href="{{ quaternary_action_href }}">{{ quaternary_action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ quaternary_action_href }}">
+        {% if quaternary_action_value %}<input type="hidden" name="action" value="{{ quaternary_action_value }}">{% endif %}
+        {% if quaternary_return_to %}<input type="hidden" name="return_to" value="{{ quaternary_return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ quaternary_action_label }}</button>
       </form>
       {% endif %}
       {% endif %}

@@ -162,6 +162,7 @@ class PersonDetailOut(BaseModel):
     profile: PersonProfileOut
     commitments: list[CommitmentOut]
     drafts: list[DraftCandidateOut]
+    threads: list[ThreadItemOut]
     queue_items: list[DecisionQueueItemOut]
     handoffs: list[HandoffNoteOut]
     evidence_refs: list[EvidenceRefOut]
@@ -256,6 +257,8 @@ class WorkspaceOutcomesOut(BaseModel):
     memo_open_rate: float = 0.0
     approval_coverage_rate: float = 0.0
     approval_action_rate: float = 0.0
+    delivery_followup_closeout_count: int = 0
+    delivery_followup_blocked_count: int = 0
     delivery_followup_resolution_rate: float | None = None
     delivery_followup_blocked_rate: float | None = None
     commitment_close_rate: float = 0.0
@@ -327,6 +330,11 @@ class OperatorCenterActionOut(BaseModel):
     tertiary_action_value: str = ""
     tertiary_action_method: str = ""
     tertiary_return_to: str = ""
+    quaternary_action_href: str = ""
+    quaternary_action_label: str = ""
+    quaternary_action_value: str = ""
+    quaternary_action_method: str = ""
+    quaternary_return_to: str = ""
 
 
 class OperatorCenterOut(BaseModel):
@@ -391,6 +399,9 @@ class ChannelLoopItemOut(BaseModel):
     tertiary_action_href: str = ""
     tertiary_action_label: str = ""
     tertiary_action_method: str = "get"
+    quaternary_action_href: str = ""
+    quaternary_action_label: str = ""
+    quaternary_action_method: str = "get"
 
 
 class ChannelDigestOut(BaseModel):
@@ -943,6 +954,7 @@ def person_detail_out(value: PersonDetail) -> PersonDetailOut:
         profile=person_out(value.profile),
         commitments=[commitment_out(item) for item in value.commitments],
         drafts=[draft_out(item) for item in value.drafts],
+        threads=[thread_out(item) for item in value.threads],
         queue_items=[queue_out(item) for item in value.queue_items],
         handoffs=[handoff_out(item) for item in value.handoffs],
         evidence_refs=evidence_out(value.evidence_refs),

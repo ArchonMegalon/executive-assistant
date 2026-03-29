@@ -693,6 +693,11 @@ def _object_detail_row(
     tertiary_action_value: str = "",
     tertiary_action_method: str = "",
     tertiary_return_to: str = "",
+    quaternary_action_href: str = "",
+    quaternary_action_label: str = "",
+    quaternary_action_value: str = "",
+    quaternary_action_method: str = "",
+    quaternary_return_to: str = "",
 ) -> dict[str, str]:
     row = {
         "title": str(title or "").strip(),
@@ -731,6 +736,16 @@ def _object_detail_row(
         row["tertiary_action_method"] = tertiary_action_method
     if tertiary_return_to:
         row["tertiary_return_to"] = tertiary_return_to
+    if quaternary_action_href:
+        row["quaternary_action_href"] = quaternary_action_href
+    if quaternary_action_label:
+        row["quaternary_action_label"] = quaternary_action_label
+    if quaternary_action_value:
+        row["quaternary_action_value"] = quaternary_action_value
+    if quaternary_action_method:
+        row["quaternary_action_method"] = quaternary_action_method
+    if quaternary_return_to:
+        row["quaternary_return_to"] = quaternary_return_to
     return row
 
 

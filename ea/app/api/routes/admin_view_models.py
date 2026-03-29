@@ -28,6 +28,11 @@ def _row(
     tertiary_action_value: str = "",
     tertiary_action_method: str = "",
     tertiary_return_to: str = "",
+    quaternary_action_href: str = "",
+    quaternary_action_label: str = "",
+    quaternary_action_value: str = "",
+    quaternary_action_method: str = "",
+    quaternary_return_to: str = "",
 ) -> dict[str, str]:
     row = {"title": title, "detail": detail, "tag": tag}
     if href:
@@ -62,6 +67,16 @@ def _row(
         row["tertiary_action_method"] = tertiary_action_method
     if tertiary_return_to:
         row["tertiary_return_to"] = tertiary_return_to
+    if quaternary_action_href:
+        row["quaternary_action_href"] = quaternary_action_href
+    if quaternary_action_label:
+        row["quaternary_action_label"] = quaternary_action_label
+    if quaternary_action_value:
+        row["quaternary_action_value"] = quaternary_action_value
+    if quaternary_action_method:
+        row["quaternary_action_method"] = quaternary_action_method
+    if quaternary_return_to:
+        row["quaternary_return_to"] = quaternary_return_to
     return row
 
 
@@ -125,8 +140,12 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
         tertiary_action_label = ""
         tertiary_action_value = ""
         tertiary_action_method = ""
+        quaternary_action_href = ""
+        quaternary_action_label = ""
+        quaternary_action_value = ""
+        quaternary_action_method = ""
         if actionable and handoff_id:
-            for index, option in enumerate(action_options[:3]):
+            for index, option in enumerate(action_options[:4]):
                 route = str(option.get("route") or "").strip()
                 href = str(option.get("href") or "").strip()
                 resolved_href = href or f"/app/actions/handoffs/{handoff_id}/{route}" if route else href
@@ -143,11 +162,16 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
                     secondary_action_label = resolved_label
                     secondary_action_value = resolved_value
                     secondary_action_method = resolved_method
-                else:
+                elif index == 2:
                     tertiary_action_href = resolved_href
                     tertiary_action_label = resolved_label
                     tertiary_action_value = resolved_value
                     tertiary_action_method = resolved_method
+                else:
+                    quaternary_action_href = resolved_href
+                    quaternary_action_label = resolved_label
+                    quaternary_action_value = resolved_value
+                    quaternary_action_method = resolved_method
         rows.append(
             _row(
                 str(getattr(value, "summary", "") or "Handoff"),
@@ -169,6 +193,11 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
                 tertiary_action_value=tertiary_action_value,
                 tertiary_action_method=tertiary_action_method,
                 tertiary_return_to=return_to if tertiary_action_href else "",
+                quaternary_action_href=quaternary_action_href,
+                quaternary_action_label=quaternary_action_label,
+                quaternary_action_value=quaternary_action_value,
+                quaternary_action_method=quaternary_action_method,
+                quaternary_return_to=return_to if quaternary_action_href else "",
             )
         )
     return rows
@@ -185,6 +214,9 @@ def _human_task_row(value: object, *, operator_id: str, return_to: str) -> dict[
     secondary_href = str(secondary.get("href") or (f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{secondary_route}" if secondary_route else "")).strip()
     tertiary_route = str(tertiary.get("route") or "").strip()
     tertiary_href = str(tertiary.get("href") or (f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{tertiary_route}" if tertiary_route else "")).strip()
+    quaternary = dict(action_options[3]) if len(action_options) > 3 else {}
+    quaternary_route = str(quaternary.get("route") or "").strip()
+    quaternary_href = str(quaternary.get("href") or (f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{quaternary_route}" if quaternary_route else "")).strip()
     return _row(
         str(getattr(value, "brief", "") or "Human task"),
         " · ".join(
@@ -221,6 +253,11 @@ def _human_task_row(value: object, *, operator_id: str, return_to: str) -> dict[
         tertiary_action_value=str(tertiary.get("value") or ""),
         tertiary_action_method=str(tertiary.get("method") or ""),
         tertiary_return_to=return_to if tertiary_href else "",
+        quaternary_action_href=quaternary_href,
+        quaternary_action_label=str(quaternary.get("label") or ""),
+        quaternary_action_value=str(quaternary.get("value") or ""),
+        quaternary_action_method=str(quaternary.get("method") or ""),
+        quaternary_return_to=return_to if quaternary_href else "",
     )
 
 def build_admin_section_payload(section: str, *, container: AppContainer, principal_id: str, operator_id: str = "") -> dict[str, object]:
@@ -450,9 +487,13 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         ),
     ]
     analytics_rows = [
-        _row("Draft approvals cleared", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
+        _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
         _row("Drafts sent", str(analytics_counts.get("draft_sent") or 0), "Analytics"),
-        _row("Send follow-ups resolved", str(analytics_counts.get("draft_send_followup_resolved") or 0), "Analytics"),
+        _row("Send follow-ups created", str(analytics_counts.get("draft_send_followup_created") or 0), "Analytics"),
+        _row("Send follow-ups closed", str(diagnostics_analytics.get("delivery_followup_closeout_count") or 0), "Analytics"),
+        _row("Blocked send follow-ups", str(diagnostics_analytics.get("delivery_followup_blocked_count") or 0), "Analytics"),
+        _row("Needs reauth", str(analytics_counts.get("draft_send_reauth_needed") or 0), "Analytics"),
+        _row("Waiting on principal", str(analytics_counts.get("draft_send_waiting_on_principal") or 0), "Analytics"),
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),
         _row("Commitments created", str(analytics_counts.get("commitment_created") or 0), "Analytics"),
         _row("Commitments closed", str(analytics_counts.get("commitment_closed") or 0), "Analytics"),
@@ -526,6 +567,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             tertiary_action_value=str(item.get("tertiary_action_value") or ""),
             tertiary_action_method=str(item.get("tertiary_action_method") or ""),
             tertiary_return_to=str(item.get("tertiary_return_to") or ""),
+            quaternary_action_href=str(item.get("quaternary_action_href") or ""),
+            quaternary_action_label=str(item.get("quaternary_action_label") or ""),
+            quaternary_action_value=str(item.get("quaternary_action_value") or ""),
+            quaternary_action_method=str(item.get("quaternary_action_method") or ""),
+            quaternary_return_to=str(item.get("quaternary_return_to") or ""),
         )
         for item in list(office.get("next_actions") or [])
     ]

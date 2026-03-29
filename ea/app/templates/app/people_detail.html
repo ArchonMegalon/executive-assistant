@@ -236,7 +236,7 @@
         {% for item in detail.commitments %}
         <div class="detail-row">
           <div>
-            <strong>{{ item.statement }}</strong>
+            <strong><a href="/app/commitment-items/{{ item.id }}">{{ item.statement }}</a></strong>
             <small>{{ item.counterparty }}{% if item.due_at %} · due {{ item.due_at[:10] }}{% endif %}{% if item.proof_refs %} · {{ item.proof_refs[0].note }}{% endif %}</small>
           </div>
           <div class="detail-tag">{{ item.risk_level|title }}</div>
@@ -281,6 +281,32 @@
   </section>
 
   <section class="detail-section">
+    <div class="detail-kicker">Threads</div>
+    <h2>Recent threads</h2>
+    <div class="detail-list">
+      {% if detail.threads %}
+        {% for item in detail.threads %}
+        <div class="detail-row">
+          <div>
+            <strong><a href="/app/threads/{{ item.id }}">{{ item.title }}</a></strong>
+            <small>{{ item.status|replace('_', ' ')|title }}{% if item.last_activity_at %} · {{ item.last_activity_at[:19] }}{% endif %}{% if item.summary %} · {{ item.summary }}{% endif %}</small>
+          </div>
+          <div class="detail-tag">{{ item.channel|title }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="detail-row">
+          <div>
+            <strong>No recent threads</strong>
+            <small>No active or recently projected threads are currently tied to this person.</small>
+          </div>
+          <div class="detail-tag">Clear</div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="detail-section">
     <div class="detail-kicker">Decision queue</div>
     <h2>Queue items touching this relationship</h2>
     <div class="detail-list">
@@ -314,7 +340,7 @@
         {% for item in detail.handoffs %}
         <div class="detail-row">
           <div>
-            <strong>{{ item.summary }}</strong>
+            <strong><a href="/app/handoffs/{{ item.id }}">{{ item.summary }}</a></strong>
             <small>{{ item.owner }}{% if item.due_time %} · due {{ item.due_time[:10] }}{% endif %}{% if item.evidence_refs %} · {{ item.evidence_refs[0].note }}{% endif %}</small>
           </div>
           <div class="detail-tag">{{ item.escalation_status|title }}</div>

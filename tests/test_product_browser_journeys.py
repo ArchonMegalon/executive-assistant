@@ -208,6 +208,8 @@ def test_browser_handoff_and_people_memory_actions_work() -> None:
     assert "warm" in person_page.text
     assert "board packet" in person_page.text
     assert "travel coordination" in person_page.text
+    assert "Recent threads" in person_page.text
+    assert "sofia@example.com" in person_page.text
     assert "Recent relationship history" in person_page.text
     assert "Memory Corrected" in person_page.text
 
@@ -238,6 +240,7 @@ def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() ->
     assert "Retry send" in followups_page.text
     assert "Mark sent" in followups_page.text
     assert "Needs reauth" in followups_page.text
+    assert "Waiting on principal" in followups_page.text
     assert "Connect Google" in followups_page.text or "Reconnect Google" in followups_page.text
 
     handoff_page = client.get(f"/app/handoffs/{followup['id']}")
@@ -345,6 +348,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert usage_page.status_code == 200
     assert "Usage and activation" in usage_page.text
     assert "Success metrics" in usage_page.text
+    assert "Draft approvals granted" in usage_page.text
 
     support_page = client.get("/app/settings/support")
     assert support_page.status_code == 200
@@ -358,6 +362,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "How the daily loop is performing" in outcomes_page.text
     assert "How the recurring memo loop is proving itself" in outcomes_page.text
     assert "What the office-loop release gate would say right now" in outcomes_page.text
+    assert "Blocked send follow-ups" in outcomes_page.text
+    assert "Send follow-ups closed" in outcomes_page.text
 
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200

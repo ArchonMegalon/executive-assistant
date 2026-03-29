@@ -24,6 +24,11 @@ def _row(
     tertiary_action_value: str = "",
     tertiary_action_method: str = "",
     tertiary_return_to: str = "",
+    quaternary_action_href: str = "",
+    quaternary_action_label: str = "",
+    quaternary_action_value: str = "",
+    quaternary_action_method: str = "",
+    quaternary_return_to: str = "",
 ) -> dict[str, str]:
     row = {"title": title, "detail": detail, "tag": tag}
     if href:
@@ -58,6 +63,16 @@ def _row(
         row["tertiary_action_method"] = tertiary_action_method
     if tertiary_return_to:
         row["tertiary_return_to"] = tertiary_return_to
+    if quaternary_action_href:
+        row["quaternary_action_href"] = quaternary_action_href
+    if quaternary_action_label:
+        row["quaternary_action_label"] = quaternary_action_label
+    if quaternary_action_value:
+        row["quaternary_action_value"] = quaternary_action_value
+    if quaternary_action_method:
+        row["quaternary_action_method"] = quaternary_action_method
+    if quaternary_return_to:
+        row["quaternary_return_to"] = quaternary_return_to
     return row
 
 
@@ -345,7 +360,11 @@ def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", act
         tertiary_action_label = ""
         tertiary_action_value = ""
         tertiary_action_method = ""
-        for index, option in enumerate(action_options[:3]):
+        quaternary_action_href = ""
+        quaternary_action_label = ""
+        quaternary_action_value = ""
+        quaternary_action_method = ""
+        for index, option in enumerate(action_options[:4]):
             route = str(option.get("route") or "").strip()
             href = str(option.get("href") or "").strip()
             resolved_href = href or (
@@ -366,11 +385,16 @@ def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", act
                 secondary_action_label = resolved_label
                 secondary_action_value = resolved_value
                 secondary_action_method = resolved_method
-            else:
+            elif index == 2:
                 tertiary_action_href = resolved_href
                 tertiary_action_label = resolved_label
                 tertiary_action_value = resolved_value
                 tertiary_action_method = resolved_method
+            else:
+                quaternary_action_href = resolved_href
+                quaternary_action_label = resolved_label
+                quaternary_action_value = resolved_value
+                quaternary_action_method = resolved_method
         rows.append(
             _row(
                 value.summary,
@@ -392,6 +416,11 @@ def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", act
                 tertiary_action_value=tertiary_action_value if actionable else "",
                 tertiary_action_method=tertiary_action_method if actionable else "",
                 tertiary_return_to=return_to if actionable and tertiary_action_href else "",
+                quaternary_action_href=quaternary_action_href if actionable else "",
+                quaternary_action_label=quaternary_action_label if actionable else "",
+                quaternary_action_value=quaternary_action_value if actionable else "",
+                quaternary_action_method=quaternary_action_method if actionable else "",
+                quaternary_return_to=return_to if actionable and quaternary_action_href else "",
             )
         )
     return rows
@@ -469,7 +498,13 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Audit retention", str(entitlements.get("audit_retention") or "standard"), "Entitlement", href="/app/settings/support"),
         _row("Enabled product loops", ", ".join(feature_flags) if feature_flags else "No feature flags enabled", "Entitlement", href="/app/settings/plan"),
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
-        _row("Draft approvals cleared", str(analytics_counts.get("draft_approved") or 0), "Analytics", href="/app/settings/usage"),
+        _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics", href="/app/settings/usage"),
+        _row(
+            "Blocked send follow-ups",
+            str(analytics.get("delivery_followup_blocked_count") or 0),
+            "Analytics",
+            href="/app/settings/outcomes",
+        ),
         _row("Commitments closed", str(analytics_counts.get("commitment_closed") or 0), "Analytics", href="/app/settings/usage"),
         _row("First value event", str(analytics.get("first_value_event") or "not reached").replace("_", " "), "Analytics", href="/app/settings/usage"),
         _row("Time to first value", str(analytics.get("time_to_first_value_seconds") or "pending"), "Analytics", href="/app/settings/usage"),
