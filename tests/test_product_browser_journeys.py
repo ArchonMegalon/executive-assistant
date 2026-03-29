@@ -250,9 +250,75 @@ def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() ->
     assert "Waiting on principal" in handoff_page.text
     assert "Connect Google" in handoff_page.text or "Reconnect Google" in handoff_page.text
 
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = next(item["id"] for item in threads.json()["items"] if item["status"] == "delivery_followup")
+    thread_page = client.get(f"/app/threads/{thread_id}")
+    assert thread_page.status_code == 200
+    assert "Retry send" in thread_page.text
+    assert "Open handoff" in thread_page.text
+    assert "Mark sent" in thread_page.text
+    assert "Waiting on principal" in thread_page.text
+    assert "Connect Google" in thread_page.text or "Reconnect Google" in thread_page.text
+
     handoff_detail = client.get(f"/app/api/handoffs/{followup['id']}")
     assert handoff_detail.status_code == 200
     assert handoff_detail.json()["delivery_reason"].startswith("google_")
+
+
+def test_thread_detail_can_resume_blocked_delivery_followup() -> None:
+    principal_id = "exec-browser-thread-resume-followup"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Route to manual delivery"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    completed = client.post(
+        f"/app/api/handoffs/{followup['id']}/complete",
+        json={"operator_id": seeded["operator_id"], "resolution": "waiting_on_principal"},
+    )
+    assert completed.status_code == 200
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = next(item["id"] for item in threads.json()["items"] if item["status"] == "waiting_on_principal")
+
+    thread_page = client.get(f"/app/threads/{thread_id}")
+    assert thread_page.status_code == 200
+    assert "Resume follow-up" in thread_page.text
+    assert "Open handoff" in thread_page.text
+
+    resumed = client.post(
+        f"/app/actions/threads/{thread_id}/resume-delivery",
+        data={"return_to": f"/app/threads/{thread_id}"},
+        follow_redirects=False,
+    )
+    assert resumed.status_code == 303
+    assert resumed.headers["location"].endswith("send_status=resumed")
+
+    pending_handoffs = client.get("/app/api/handoffs")
+    assert pending_handoffs.status_code == 200
+    reopened = next(item for item in pending_handoffs.json() if item["task_type"] == "delivery_followup")
+    assert reopened["draft_ref"] == f"approval:{seeded['approval_id']}"
+
+    reopened_thread_page = client.get(f"/app/threads/{thread_id}")
+    assert reopened_thread_page.status_code == 200
+    assert "Retry send" in reopened_thread_page.text
+    assert "Mark sent" in reopened_thread_page.text
 
 
 def test_google_settings_surface_connect_action_and_browser_connect_route(monkeypatch) -> None:
