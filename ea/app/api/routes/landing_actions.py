@@ -332,6 +332,17 @@ async def app_update_morning_memo_settings(
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     return_to = _form_value(body, "return_to", "/app/settings")
     status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    container.onboarding.start_workspace(
+        principal_id=context.principal_id,
+        workspace_name=_form_value(body, "workspace_name", str(workspace.get("name") or "Executive Workspace")),
+        workspace_mode=str(workspace.get("mode") or "personal"),
+        region=str(workspace.get("region") or ""),
+        language=_form_value(body, "language", str(workspace.get("language") or "en") or "en"),
+        timezone=_form_value(body, "timezone", str(workspace.get("timezone") or "Europe/Vienna") or "Europe/Vienna"),
+        selected_channels=tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip()),
+    )
+    status = container.onboarding.status(principal_id=context.principal_id)
     privacy = dict(status.get("privacy") or {})
     morning_memo = dict(dict(status.get("delivery_preferences") or {}).get("morning_memo") or {})
     container.onboarding.finalize(

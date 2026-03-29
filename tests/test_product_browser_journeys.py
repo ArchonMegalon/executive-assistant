@@ -887,6 +887,9 @@ def test_browser_rules_page_can_update_morning_memo_schedule() -> None:
     updated = client.post(
         "/app/actions/settings/morning-memo",
         data={
+            "workspace_name": "Office Rules Lab",
+            "language": "en",
+            "timezone": "Europe/Vienna",
             "enabled": "true",
             "cadence": "weekdays_morning",
             "recipient_email": "briefs@example.com",
@@ -902,12 +905,18 @@ def test_browser_rules_page_can_update_morning_memo_schedule() -> None:
 
     settings = client.get("/app/settings")
     assert settings.status_code == 200
-    assert "Update morning memo schedule" in settings.text
+    assert "Update workspace and morning memo rules" in settings.text
+    assert "Office Rules Lab" in settings.text
+    assert "Europe/Vienna" in settings.text
     assert "briefs@example.com" in settings.text
     assert "07:30" in settings.text
 
     status = client.get("/v1/onboarding/status")
     assert status.status_code == 200
+    workspace = status.json()["workspace"]
+    assert workspace["name"] == "Office Rules Lab"
+    assert workspace["language"] == "en"
+    assert workspace["timezone"] == "Europe/Vienna"
     memo = status.json()["delivery_preferences"]["morning_memo"]
     assert memo["enabled"] is True
     assert memo["cadence"] == "weekdays_morning"
