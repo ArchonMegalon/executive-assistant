@@ -1366,6 +1366,8 @@ class ProductService:
             "memo_opened": int(counts.get("memo_opened") or 0),
             "approval_requested": int(counts.get("approval_requested") or 0),
             "draft_approved": int(counts.get("draft_approved") or 0),
+            "draft_sent": int(counts.get("draft_sent") or 0),
+            "draft_send_followup_created": int(counts.get("draft_send_followup_created") or 0),
             "commitment_created": int(counts.get("commitment_created") or 0),
             "commitment_closed": int(counts.get("commitment_closed") or 0),
             "handoff_completed": int(counts.get("handoff_completed") or 0),
@@ -3871,7 +3873,15 @@ class ProductService:
         first_scheduled_memo_sent_at = ""
         last_scheduled_memo_sent_at = ""
         useful_loop_days: set[str] = set()
-        first_value_types = {"draft_approved", "commitment_created", "commitment_closed", "handoff_completed", "memory_corrected", "memo_opened"}
+        first_value_types = {
+            "draft_sent",
+            "draft_send_followup_created",
+            "commitment_created",
+            "commitment_closed",
+            "handoff_completed",
+            "memory_corrected",
+            "memo_opened",
+        }
         for row in event_rows:
             analytics_counts[row.event_type] = int(analytics_counts.get(row.event_type, 0) or 0) + 1
             created_at = str(row.created_at or "").strip()
@@ -3958,6 +3968,8 @@ class ProductService:
         memo_opened_count = int(analytics_counts.get("memo_opened") or 0)
         approval_requested_count = int(analytics_counts.get("approval_requested") or 0)
         draft_approved_count = int(analytics_counts.get("draft_approved") or 0)
+        draft_sent_count = int(analytics_counts.get("draft_sent") or 0)
+        draft_send_followup_created_count = int(analytics_counts.get("draft_send_followup_created") or 0)
         commitment_closed_count = int(analytics_counts.get("commitment_closed") or 0)
         memory_corrected_count = int(analytics_counts.get("memory_corrected") or 0)
         scheduled_memo_sent_count = int(analytics_counts.get("scheduled_morning_memo_delivery_sent") or 0)
@@ -4040,10 +4052,11 @@ class ProductService:
         current_commitments = int(usage_stats.get("commitments") or 0)
         current_queue_items = int(usage_stats.get("queue_items") or 0)
         memo_open_rate = 1.0 if memo_opened_count else 0.0
+        resolved_draft_action_count = draft_sent_count + draft_send_followup_created_count
         approval_action_rate = (
-            round(draft_approved_count / approval_requested_count, 2)
+            round(resolved_draft_action_count / approval_requested_count, 2)
             if approval_requested_count
-            else (1.0 if draft_approved_count else 0.0)
+            else (1.0 if resolved_draft_action_count else 0.0)
         )
         commitment_close_rate = round(commitment_closed_count / max(commitment_closed_count + current_commitments, 1), 2)
         correction_rate = round(memory_corrected_count / max(memo_opened_count, 1), 2)
