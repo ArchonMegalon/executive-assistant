@@ -1204,6 +1204,7 @@ class ProductService:
             "age_seconds": sync.get("google_sync_age_seconds"),
             "freshness_state": str(sync.get("google_sync_freshness_state") or "watch").strip() or "watch",
             "pending_commitment_candidates": int(sync.get("pending_commitment_candidates") or 0),
+            "covered_signal_candidates": int(sync.get("covered_signal_candidates") or 0),
         }
 
     def workspace_outcomes(self, *, principal_id: str) -> dict[str, object]:
@@ -3741,7 +3742,12 @@ class ProductService:
                 )
             except Exception:
                 google_sync_age_seconds = None
-        pending_commitment_candidates = len(self.list_commitment_candidates(principal_id=principal_id, limit=200, status="pending"))
+        pending_candidate_rows = list(self.list_commitment_candidates(principal_id=principal_id, limit=200, status="pending"))
+        hidden_candidate_ids = self._pending_signal_draft_candidate_ids(principal_id=principal_id)
+        covered_signal_candidates = sum(
+            1 for row in pending_candidate_rows if str(row.candidate_id or "").strip() in hidden_candidate_ids
+        )
+        pending_commitment_candidates = max(len(pending_candidate_rows) - covered_signal_candidates, 0)
         usage_stats = dict(snapshot.stats_json or {})
         seats_used = len(operators)
         seat_limit = int(plan.entitlements.operator_seats or 0)
@@ -4004,6 +4010,7 @@ class ProductService:
                     "google_sync_age_seconds": google_sync_age_seconds,
                     "google_sync_freshness_state": google_sync_freshness_state,
                     "pending_commitment_candidates": pending_commitment_candidates,
+                    "covered_signal_candidates": covered_signal_candidates,
                 },
                 "reliability": {
                     "delivery_success_total": delivery_success_total,
@@ -4155,6 +4162,7 @@ class ProductService:
                     f"{int(sync.get('google_sync_completed') or 0)} sync runs · "
                     f"{int(sync.get('office_signal_ingested') or 0)} ingested office signals · "
                     f"{int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
+                    f"{' · ' + str(int(sync.get('covered_signal_candidates') or 0)) + ' covered by drafts' if int(sync.get('covered_signal_candidates') or 0) else ''}"
                 ),
                 "href": "/app/settings/usage",
             },

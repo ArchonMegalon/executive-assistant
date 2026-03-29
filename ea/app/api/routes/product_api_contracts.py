@@ -691,6 +691,7 @@ class GoogleSignalSyncStatusOut(BaseModel):
     age_seconds: int | None = None
     freshness_state: str = "watch"
     pending_commitment_candidates: int = 0
+    covered_signal_candidates: int = 0
 
 
 class WebhookRegisterIn(BaseModel):
