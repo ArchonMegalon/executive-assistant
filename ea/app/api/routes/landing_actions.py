@@ -233,6 +233,40 @@ async def app_complete_handoff(
     return RedirectResponse(return_to, status_code=303)
 
 
+@router.post("/app/actions/handoffs/{handoff_ref:path}/retry-send")
+async def app_retry_handoff_send(
+    handoff_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", f"/app/handoffs/{handoff_ref}")
+    operator_id = (
+        _form_value(body, "operator_id", "")
+        or str(context.operator_id or "").strip()
+        or _default_operator_id_for_browser(container, principal_id=context.principal_id)
+    )
+    if not operator_id:
+        raise HTTPException(status_code=409, detail="operator_required")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or operator_id).strip()
+    separator = "&" if "?" in return_to else "?"
+    try:
+        retried = product.retry_delivery_followup_send(
+            principal_id=context.principal_id,
+            handoff_ref=handoff_ref,
+            operator_id=operator_id,
+            actor=actor,
+        )
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "draft_send_retry_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}send_error={error_value}", status_code=303)
+    if retried is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    return RedirectResponse(f"{return_to}{separator}send_status=sent", status_code=303)
+
+
 @router.post("/app/actions/people/{person_id}/correct")
 async def app_correct_person(
     person_id: str,

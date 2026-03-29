@@ -724,13 +724,17 @@ class ProductService:
             sla_due_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
             input_json={
                 "draft_ref": draft_ref,
+                "channel": str(action_json.get("channel") or "email").strip().lower(),
                 "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
                 "recipient_label": str(delivery.get("recipient_label") or action_json.get("recipient_label") or "").strip(),
                 "subject": subject,
+                "draft_text": str(action_json.get("draft_text") or action_json.get("content") or "").strip(),
                 "reason": reason,
                 "thread_ref": str(delivery.get("thread_ref") or action_json.get("thread_ref") or "").strip(),
                 "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
                 "stakeholder_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
+                "gmail_thread_id": str(action_json.get("gmail_thread_id") or "").strip(),
+                "signal_type": str(delivery.get("signal_type") or action_json.get("signal_type") or "").strip(),
             },
             desired_output_json={
                 "resolution": "sent",
@@ -784,8 +788,11 @@ class ProductService:
         operator_id: str,
         actor: str,
         resolution: str,
+        delivery_mode: str = "manual_followup",
+        delivery: dict[str, object] | None = None,
     ) -> None:
         input_json = dict(task.input_json or {})
+        delivery = dict(delivery or {})
         draft_ref = str(input_json.get("draft_ref") or "").strip()
         source_id = self._draft_source_id(draft_ref) or task.human_task_id
         payload = {
@@ -794,15 +801,19 @@ class ProductService:
             "operator_id": operator_id,
             "actor": actor,
             "resolution": resolution,
-            "channel": "manual_followup",
-            "delivery_mode": "manual_followup",
-            "recipient_email": str(input_json.get("recipient_email") or "").strip(),
+            "channel": str(delivery.get("channel") or input_json.get("channel") or "manual_followup").strip(),
+            "delivery_mode": delivery_mode,
+            "recipient_email": str(delivery.get("recipient_email") or input_json.get("recipient_email") or "").strip(),
             "recipient_label": str(input_json.get("recipient_label") or "").strip(),
-            "subject": str(input_json.get("subject") or "").strip(),
-            "reason": str(input_json.get("reason") or "").strip(),
-            "thread_ref": str(input_json.get("thread_ref") or "").strip(),
-            "source_ref": str(input_json.get("source_ref") or "").strip(),
-            "person_id": str(input_json.get("stakeholder_id") or "").strip(),
+            "subject": str(delivery.get("subject") or input_json.get("subject") or "").strip(),
+            "reason": str(delivery.get("reason") or input_json.get("reason") or "").strip(),
+            "thread_ref": str(delivery.get("thread_ref") or input_json.get("thread_ref") or "").strip(),
+            "source_ref": str(delivery.get("source_ref") or input_json.get("source_ref") or "").strip(),
+            "person_id": str(delivery.get("person_id") or input_json.get("stakeholder_id") or "").strip(),
+            "sender_email": str(delivery.get("sender_email") or "").strip(),
+            "gmail_message_id": str(delivery.get("gmail_message_id") or "").strip(),
+            "rfc822_message_id": str(delivery.get("rfc822_message_id") or "").strip(),
+            "sent_at": str(delivery.get("sent_at") or "").strip(),
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -841,6 +852,112 @@ class ProductService:
                 payload={**payload, "status": "failed"},
                 source_id=source_id,
             )
+
+    def retry_delivery_followup_send(
+        self,
+        *,
+        principal_id: str,
+        handoff_ref: str,
+        operator_id: str,
+        actor: str,
+    ) -> HandoffNote | None:
+        if not handoff_ref.startswith("human_task:"):
+            return None
+        task_id = handoff_ref.split(":", 1)[1]
+        current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id)
+        if current is None:
+            return None
+        if str(current.task_type or "").strip() != "delivery_followup":
+            raise RuntimeError("handoff_not_retryable")
+        if str(current.assigned_operator_id or "").strip() and str(current.assigned_operator_id or "").strip() != str(operator_id or "").strip():
+            raise RuntimeError("delivery_followup_owned_by_other_operator")
+        if str(current.assigned_operator_id or "").strip() != str(operator_id or "").strip():
+            assigned = self.assign_handoff(
+                principal_id=principal_id,
+                handoff_ref=handoff_ref,
+                operator_id=operator_id,
+                actor=actor,
+            )
+            if assigned is None:
+                raise RuntimeError("handoff_not_assignable")
+            current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id)
+            if current is None:
+                raise RuntimeError("handoff_not_found")
+        input_json = dict(current.input_json or {})
+        draft_ref = str(input_json.get("draft_ref") or "").strip()
+        delivery = self._maybe_send_approved_draft(
+            principal_id=principal_id,
+            draft_ref=draft_ref,
+            action_json={
+                "channel": str(input_json.get("channel") or "email").strip().lower(),
+                "recipient_email": str(input_json.get("recipient_email") or "").strip(),
+                "recipient_label": str(input_json.get("recipient_label") or "").strip(),
+                "subject": str(input_json.get("subject") or "").strip(),
+                "draft_text": str(input_json.get("draft_text") or "").strip(),
+                "thread_ref": str(input_json.get("thread_ref") or "").strip(),
+                "source_ref": str(input_json.get("source_ref") or "").strip(),
+                "stakeholder_id": str(input_json.get("stakeholder_id") or "").strip(),
+                "gmail_thread_id": str(input_json.get("gmail_thread_id") or "").strip(),
+                "signal_type": str(input_json.get("signal_type") or "").strip(),
+            },
+        )
+        source_id = self._draft_source_id(draft_ref) or current.human_task_id
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="draft_send_retry_attempted",
+            payload={
+                "draft_ref": draft_ref,
+                "handoff_ref": handoff_ref,
+                "operator_id": operator_id,
+                "actor": actor,
+                "status": str(delivery.get("status") or "").strip(),
+                "reason": str(delivery.get("reason") or "").strip(),
+                "recipient_email": str(delivery.get("recipient_email") or input_json.get("recipient_email") or "").strip(),
+                "subject": str(delivery.get("subject") or input_json.get("subject") or "").strip(),
+                "thread_ref": str(delivery.get("thread_ref") or input_json.get("thread_ref") or "").strip(),
+                "source_ref": str(delivery.get("source_ref") or input_json.get("source_ref") or "").strip(),
+            },
+            source_id=source_id,
+        )
+        if str(delivery.get("status") or "").strip() != "sent":
+            raise RuntimeError(str(delivery.get("reason") or delivery.get("status") or "draft_send_retry_failed"))
+        updated = self._container.orchestrator.return_human_task(
+            task_id,
+            principal_id=principal_id,
+            operator_id=operator_id,
+            resolution="sent",
+            returned_payload_json={
+                "source": "product_handoffs",
+                "actor": actor,
+                "task_type": "delivery_followup",
+                "draft_ref": draft_ref,
+                "recipient_email": str(delivery.get("recipient_email") or input_json.get("recipient_email") or "").strip(),
+                "subject": str(delivery.get("subject") or input_json.get("subject") or "").strip(),
+                "reason": str(delivery.get("reason") or input_json.get("reason") or "").strip(),
+                "resolution": "sent",
+                "delivery_mode": "retry_send",
+            },
+            provenance_json={"source": "product_handoffs"},
+        )
+        if updated is None:
+            raise RuntimeError("handoff_not_returnable")
+        self._record_delivery_followup_resolution(
+            principal_id=principal_id,
+            handoff_ref=handoff_ref,
+            task=current,
+            operator_id=operator_id,
+            actor=actor,
+            resolution="sent",
+            delivery_mode="retry_send",
+            delivery=delivery,
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="handoff_completed",
+            payload={"handoff_ref": handoff_ref, "operator_id": operator_id, "actor": actor, "resolution": "sent"},
+            source_id=updated.human_task_id,
+        )
+        return self._handoff_from_human_task(updated)
 
     def _pending_signal_draft_candidate_ids(self, *, principal_id: str) -> set[str]:
         hidden: set[str] = set()

@@ -608,6 +608,68 @@ def test_delivery_followup_completion_can_record_reauth_needed() -> None:
     assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
 
 
+def test_delivery_followup_retry_send_reuses_saved_draft_payload(monkeypatch) -> None:
+    principal_id = "exec-product-delivery-followup-retry"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    attempts: list[dict[str, object]] = []
+
+    def _fake_send(**kwargs):
+        attempts.append(dict(kwargs))
+        if len(attempts) == 1:
+            raise RuntimeError("google_oauth_binding_not_found")
+        return google_oauth_service.GoogleGmailSendResult(
+            binding=None,
+            sender_email="ea@example.com",
+            recipient_email=str(kwargs.get("recipient_email") or ""),
+            subject=str(kwargs.get("subject") or ""),
+            rfc822_message_id="<retry-send@example.com>",
+            gmail_message_id="gmail-retry-1",
+            sent_at="2026-03-29T10:00:00+00:00",
+        )
+
+    monkeypatch.setattr(google_oauth_service, "send_google_gmail_message", _fake_send)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Approve and retry through EA"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    retried = client.post(
+        f"/app/api/handoffs/{followup['id']}/retry-send",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert retried.status_code == 200
+    assert retried.json()["resolution"] == "sent"
+    assert len(attempts) == 2
+    assert attempts[1]["recipient_email"] == "sofia@example.com"
+    assert attempts[1]["body_text"] == "Draft board reply"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    retry_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_send_retry_attempted")
+    assert retry_event["payload"]["status"] == "sent"
+    sent_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_sent")
+    assert sent_event["payload"]["delivery_mode"] == "retry_send"
+    assert sent_event["payload"]["sender_email"] == "ea@example.com"
+
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    outcomes_body = outcomes.json()
+    assert outcomes_body["approval_action_rate"] == 1.0
+
+    handoff_page = client.get(f"/app/handoffs/{followup['id']}")
+    assert handoff_page.status_code == 200
+    assert "Retry send completed." in handoff_page.text
+    assert "Connect Google" not in handoff_page.text
+
+
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
     principal_id = "exec-product-google-sync"
     client = build_product_client(principal_id=principal_id)
