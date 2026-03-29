@@ -38,6 +38,7 @@ from app.product.projections import (
     decision_item_from_window,
     due_bonus,
     evidence_items_from_objects,
+    handoff_action_options,
     handoff_action_plan,
     handoff_from_human_task,
     priority_weight,
@@ -4837,6 +4838,64 @@ class ProductService:
             },
         ]
         next_actions: list[dict[str, object]] = []
+        operator_key = str(operator_id or "").strip()
+        delivery_followup = next(
+            (
+                row
+                for row in snapshot.handoffs
+                if str(row.task_type or "").strip() == "delivery_followup"
+                and str(row.resolution or "").strip() != "sent"
+                and (operator_key and str(row.owner or "").strip() == operator_key)
+            ),
+            None,
+        )
+        if delivery_followup is None:
+            delivery_followup = next(
+                (
+                    row
+                    for row in snapshot.handoffs
+                    if str(row.task_type or "").strip() == "delivery_followup"
+                    and str(row.resolution or "").strip() != "sent"
+                    and not str(row.owner or "").strip()
+                ),
+                None,
+            )
+        if delivery_followup is not None:
+            delivery_actions = self._handoff_browser_actions(
+                handoff=delivery_followup,
+                operator_id=operator_key,
+                return_to="/admin/office",
+            )
+            next_actions.append(
+                {
+                    "label": str(delivery_followup.summary or "Unblock approved send"),
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            delivery_followup.recipient_email,
+                            str(delivery_followup.delivery_reason or "").replace("_", " "),
+                            "Use the office lane to retry, reconnect Google, or record the manual send outcome.",
+                        )
+                        if str(part or "").strip()
+                    ),
+                    "href": f"/app/handoffs/{delivery_followup.id}",
+                    "action_href": str(delivery_actions[0].get("href") or "") if delivery_actions else "",
+                    "action_label": str(delivery_actions[0].get("label") or "") if delivery_actions else "",
+                    "action_value": str(delivery_actions[0].get("value") or "") if delivery_actions else "",
+                    "action_method": str(delivery_actions[0].get("method") or "") if delivery_actions else "",
+                    "return_to": "/admin/office" if delivery_actions else "",
+                    "secondary_action_href": str(delivery_actions[1].get("href") or "") if len(delivery_actions) > 1 else "",
+                    "secondary_action_label": str(delivery_actions[1].get("label") or "") if len(delivery_actions) > 1 else "",
+                    "secondary_action_value": str(delivery_actions[1].get("value") or "") if len(delivery_actions) > 1 else "",
+                    "secondary_action_method": str(delivery_actions[1].get("method") or "") if len(delivery_actions) > 1 else "",
+                    "secondary_return_to": "/admin/office" if len(delivery_actions) > 1 else "",
+                    "tertiary_action_href": str(delivery_actions[2].get("href") or "") if len(delivery_actions) > 2 else "",
+                    "tertiary_action_label": str(delivery_actions[2].get("label") or "") if len(delivery_actions) > 2 else "",
+                    "tertiary_action_value": str(delivery_actions[2].get("value") or "") if len(delivery_actions) > 2 else "",
+                    "tertiary_action_method": str(delivery_actions[2].get("method") or "") if len(delivery_actions) > 2 else "",
+                    "tertiary_return_to": "/admin/office" if len(delivery_actions) > 2 else "",
+                }
+            )
         for item in assignment_suggestions:
             handoff_id = str(item.get("id") or "").strip()
             next_actions.append(
@@ -5072,6 +5131,80 @@ class ProductService:
             "recent_events": list(self.list_office_events(principal_id=principal_id, limit=20)),
         }
 
+    def _handoff_browser_actions(
+        self,
+        *,
+        handoff: HandoffNote,
+        operator_id: str,
+        return_to: str,
+    ) -> tuple[dict[str, str], ...]:
+        actions: list[dict[str, str]] = []
+        for option in handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)[:3]:
+            route = str(option.get("route") or "").strip()
+            href = str(option.get("href") or "").strip()
+            action_href = href or (f"/app/actions/handoffs/{handoff.id}/{route}" if route else "")
+            if not action_href:
+                continue
+            actions.append(
+                {
+                    "href": action_href,
+                    "label": str(option.get("label") or "").strip(),
+                    "value": str(option.get("value") or "").strip(),
+                    "method": str(option.get("method") or ("get" if href else "post")).strip().lower() or "post",
+                }
+            )
+        return tuple(actions)
+
+    def _handoff_channel_action_reason(self, *, action: str) -> str:
+        normalized = str(action or "").strip().lower()
+        if normalized in {"assign", "claim"}:
+            return "Claimed from operator digest."
+        if normalized == "retry_send":
+            return "Retried from operator digest."
+        if normalized == "sent":
+            return "Marked sent from operator digest."
+        if normalized == "failed":
+            return "Marked unable to send from operator digest."
+        if normalized == "reauth_needed":
+            return "Marked reauth required from operator digest."
+        return "Resolved from operator digest."
+
+    def _handoff_channel_actions(
+        self,
+        *,
+        principal_id: str,
+        handoff: HandoffNote,
+        operator_id: str,
+        return_to: str,
+    ) -> tuple[dict[str, str], ...]:
+        resolved_operator_id = str(operator_id or handoff.owner).strip()
+        actions: list[dict[str, str]] = []
+        for option in handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)[:3]:
+            direct_href = str(option.get("href") or "").strip()
+            channel_action = str(option.get("channel_action") or "").strip()
+            if direct_href:
+                action_href = direct_href
+            elif channel_action:
+                action_href = self.channel_action_href(
+                    principal_id=principal_id,
+                    object_kind="handoff",
+                    object_ref=handoff.id,
+                    action=channel_action,
+                    return_to=return_to,
+                    operator_id=resolved_operator_id,
+                    reason=self._handoff_channel_action_reason(action=channel_action),
+                )
+            else:
+                continue
+            actions.append(
+                {
+                    "href": action_href,
+                    "label": str(option.get("label") or "").strip(),
+                    "method": "get",
+                }
+            )
+        return tuple(actions)
+
     def channel_loop_pack(self, *, principal_id: str, operator_id: str = "") -> dict[str, object]:
         snapshot = self.workspace_snapshot(principal_id=principal_id, operator_id=operator_id)
         operator_key = str(operator_id or "").strip()
@@ -5173,17 +5306,11 @@ class ProductService:
             )
         if snapshot.handoffs:
             preferred_handoff = next((row for row in snapshot.handoffs if operator_key and row.owner == operator_key), snapshot.handoffs[0])
-            action_plan = handoff_action_plan(preferred_handoff, operator_id=operator_key)
-            action_kind = str(action_plan.get("kind") or "assign").strip()
-            action_value = str(action_plan.get("value") or "assign").strip() or "assign"
-            action_href = self.channel_action_href(
+            actions = self._handoff_channel_actions(
                 principal_id=principal_id,
-                object_kind="handoff",
-                object_ref=preferred_handoff.id,
-                action=action_value,
+                handoff=preferred_handoff,
+                operator_id=operator_key,
                 return_to="/app/channel-loop",
-                operator_id=operator_key or preferred_handoff.owner,
-                reason="Resolved from inline loop." if action_kind == "complete" else "Claimed from inline loop.",
             )
             items.append(
                 {
@@ -5200,9 +5327,15 @@ class ProductService:
                     or "Handoff is waiting in the operator lane.",
                     "tag": "Handoff",
                     "href": f"/app/handoffs/{preferred_handoff.id}",
-                    "action_href": action_href,
-                    "action_label": str(action_plan.get("label") or "Claim"),
-                    "action_method": "get",
+                    "action_href": str(actions[0].get("href") or "") if actions else "",
+                    "action_label": str(actions[0].get("label") or "Claim") if actions else "Claim",
+                    "action_method": str(actions[0].get("method") or "get") if actions else "get",
+                    "secondary_action_href": str(actions[1].get("href") or "") if len(actions) > 1 else "",
+                    "secondary_action_label": str(actions[1].get("label") or "") if len(actions) > 1 else "",
+                    "secondary_action_method": str(actions[1].get("method") or "get") if len(actions) > 1 else "",
+                    "tertiary_action_href": str(actions[2].get("href") or "") if len(actions) > 2 else "",
+                    "tertiary_action_label": str(actions[2].get("label") or "") if len(actions) > 2 else "",
+                    "tertiary_action_method": str(actions[2].get("method") or "get") if len(actions) > 2 else "",
                 }
             )
         if snapshot.decisions:
@@ -5297,6 +5430,8 @@ class ProductService:
             action_href = absolute(str(item.get("action_href") or "").strip())
             secondary_label = str(item.get("secondary_action_label") or "").strip()
             secondary_href = absolute(str(item.get("secondary_action_href") or "").strip())
+            tertiary_label = str(item.get("tertiary_action_label") or "").strip()
+            tertiary_href = absolute(str(item.get("tertiary_action_href") or "").strip())
             href = absolute(str(item.get("href") or "").strip())
             header = f"{index}. [{tag}] {title}" if tag else f"{index}. {title}"
             lines.append(header)
@@ -5306,6 +5441,8 @@ class ProductService:
                 lines.append(f"   {action_label}: {action_href}")
             if secondary_label and secondary_href:
                 lines.append(f"   {secondary_label}: {secondary_href}")
+            if tertiary_label and tertiary_href:
+                lines.append(f"   {tertiary_label}: {tertiary_href}")
             elif href:
                 lines.append(f"   Open: {href}")
             lines.append("")
@@ -5735,17 +5872,11 @@ class ProductService:
             )
         operator_items: list[dict[str, str]] = []
         for handoff in visible_handoffs:
-            action_plan = handoff_action_plan(handoff, operator_id=operator_key)
-            action_kind = str(action_plan.get("kind") or "assign").strip()
-            action_value = str(action_plan.get("value") or "assign").strip() or "assign"
-            action_href = self.channel_action_href(
+            actions = self._handoff_channel_actions(
                 principal_id=principal_id,
-                object_kind="handoff",
-                object_ref=handoff.id,
-                action=action_value,
+                handoff=handoff,
+                operator_id=operator_key,
                 return_to="/app/channel-loop/operator",
-                operator_id=operator_key or handoff.owner,
-                reason="Resolved from operator digest." if action_kind == "complete" else "Claimed from operator digest.",
             )
             operator_items.append(
                 {
@@ -5762,24 +5893,15 @@ class ProductService:
                     or "Handoff is waiting in the operator lane.",
                     "tag": "Handoff",
                     "href": f"/app/handoffs/{handoff.id}",
-                    "action_href": action_href,
-                    "action_label": str(action_plan.get("label") or "Claim"),
-                    "action_method": "get",
-                    "secondary_action_href": (
-                        self.channel_action_href(
-                            principal_id=principal_id,
-                            object_kind="handoff",
-                            object_ref=handoff.id,
-                            action=str(action_plan.get("secondary_value") or "").strip(),
-                            return_to="/app/channel-loop/operator",
-                            operator_id=operator_key,
-                            reason="Escalated from operator digest.",
-                        )
-                        if action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip()
-                        else ""
-                    ),
-                    "secondary_action_label": str(action_plan.get("secondary_label") or "") if action_kind == "complete" else "",
-                    "secondary_action_method": "get" if action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip() else "",
+                    "action_href": str(actions[0].get("href") or "") if actions else "",
+                    "action_label": str(actions[0].get("label") or "Claim") if actions else "Claim",
+                    "action_method": str(actions[0].get("method") or "get") if actions else "get",
+                    "secondary_action_href": str(actions[1].get("href") or "") if len(actions) > 1 else "",
+                    "secondary_action_label": str(actions[1].get("label") or "") if len(actions) > 1 else "",
+                    "secondary_action_method": str(actions[1].get("method") or "get") if len(actions) > 1 else "",
+                    "tertiary_action_href": str(actions[2].get("href") or "") if len(actions) > 2 else "",
+                    "tertiary_action_label": str(actions[2].get("label") or "") if len(actions) > 2 else "",
+                    "tertiary_action_method": str(actions[2].get("method") or "get") if len(actions) > 2 else "",
                 }
             )
         if snapshot.commitments:
@@ -5967,6 +6089,13 @@ class ProductService:
                 return None
             if action in {"assign", "claim"}:
                 result = self.assign_handoff(
+                    principal_id=principal_id,
+                    handoff_ref=object_ref,
+                    operator_id=operator_id,
+                    actor=resolved_actor,
+                )
+            elif action in {"retry_send", "retry-send", "retry"}:
+                result = self.retry_delivery_followup_send(
                     principal_id=principal_id,
                     handoff_ref=object_ref,
                     operator_id=operator_id,

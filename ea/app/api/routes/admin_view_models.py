@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.container import AppContainer
-from app.product.projections.handoffs import handoff_action_plan, handoff_from_human_task
+from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
 from app.product.service import build_product_service
 
 
@@ -23,6 +23,11 @@ def _row(
     secondary_action_value: str = "",
     secondary_action_method: str = "",
     secondary_return_to: str = "",
+    tertiary_action_href: str = "",
+    tertiary_action_label: str = "",
+    tertiary_action_value: str = "",
+    tertiary_action_method: str = "",
+    tertiary_return_to: str = "",
 ) -> dict[str, str]:
     row = {"title": title, "detail": detail, "tag": tag}
     if href:
@@ -47,6 +52,16 @@ def _row(
         row["secondary_action_method"] = secondary_action_method
     if secondary_return_to:
         row["secondary_return_to"] = secondary_return_to
+    if tertiary_action_href:
+        row["tertiary_action_href"] = tertiary_action_href
+    if tertiary_action_label:
+        row["tertiary_action_label"] = tertiary_action_label
+    if tertiary_action_value:
+        row["tertiary_action_value"] = tertiary_action_value
+    if tertiary_action_method:
+        row["tertiary_action_method"] = tertiary_action_method
+    if tertiary_return_to:
+        row["tertiary_return_to"] = tertiary_return_to
     return row
 
 
@@ -76,8 +91,7 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
     for value in values if isinstance(values, (list, tuple)) else []:
         handoff_id = str(getattr(value, "id", "") or "").strip()
         owner = str(getattr(value, "owner", "") or "").strip()
-        action_plan = handoff_action_plan(value, operator_id=operator_key) if actionable else {}
-        action_kind = str(action_plan.get("kind") or "assign").strip()
+        action_options = handoff_action_options(value, operator_id=operator_key, return_to=return_to) if actionable else ()
         detail = " · ".join(
             part
             for part in (
@@ -86,6 +100,15 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
                 str(getattr(value, "recipient_email", "") or "").strip()
                 if str(getattr(value, "task_type", "") or "").strip() == "delivery_followup"
                 else "",
+                (
+                    "Needs reauth"
+                    if str(getattr(value, "task_type", "") or "").strip() == "delivery_followup"
+                    and str(getattr(value, "delivery_reason", "") or "").strip().startswith("google_")
+                    else "Unable to send"
+                    if str(getattr(value, "task_type", "") or "").strip() == "delivery_followup"
+                    and str(getattr(value, "delivery_reason", "") or "").strip()
+                    else ""
+                ),
                 str(getattr(value, "escalation_status", "") or "").replace("_", " ").title(),
             )
             if str(part or "").strip()
@@ -93,17 +116,38 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
         action_href = ""
         action_label = ""
         action_value = ""
+        action_method = ""
         secondary_action_href = ""
         secondary_action_label = ""
         secondary_action_value = ""
+        secondary_action_method = ""
+        tertiary_action_href = ""
+        tertiary_action_label = ""
+        tertiary_action_value = ""
+        tertiary_action_method = ""
         if actionable and handoff_id:
-            action_href = f"/app/actions/handoffs/{handoff_id}/{'complete' if action_kind == 'complete' else 'assign'}"
-            action_label = str(action_plan.get("label") or "")
-            action_value = str(action_plan.get("value") or "")
-            if action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip():
-                secondary_action_href = f"/app/actions/handoffs/{handoff_id}/complete"
-                secondary_action_label = str(action_plan.get("secondary_label") or "")
-                secondary_action_value = str(action_plan.get("secondary_value") or "")
+            for index, option in enumerate(action_options[:3]):
+                route = str(option.get("route") or "").strip()
+                href = str(option.get("href") or "").strip()
+                resolved_href = href or f"/app/actions/handoffs/{handoff_id}/{route}" if route else href
+                resolved_label = str(option.get("label") or "").strip()
+                resolved_value = str(option.get("value") or "").strip()
+                resolved_method = str(option.get("method") or ("get" if href else "post")).strip().lower()
+                if index == 0:
+                    action_href = resolved_href
+                    action_label = resolved_label
+                    action_value = resolved_value
+                    action_method = resolved_method
+                elif index == 1:
+                    secondary_action_href = resolved_href
+                    secondary_action_label = resolved_label
+                    secondary_action_value = resolved_value
+                    secondary_action_method = resolved_method
+                else:
+                    tertiary_action_href = resolved_href
+                    tertiary_action_label = resolved_label
+                    tertiary_action_value = resolved_value
+                    tertiary_action_method = resolved_method
         rows.append(
             _row(
                 str(getattr(value, "summary", "") or "Handoff"),
@@ -113,11 +157,18 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
                 action_href=action_href,
                 action_label=action_label,
                 action_value=action_value,
+                action_method=action_method,
                 return_to=return_to if action_href else "",
                 secondary_action_href=secondary_action_href,
                 secondary_action_label=secondary_action_label,
                 secondary_action_value=secondary_action_value,
+                secondary_action_method=secondary_action_method,
                 secondary_return_to=return_to if secondary_action_href else "",
+                tertiary_action_href=tertiary_action_href,
+                tertiary_action_label=tertiary_action_label,
+                tertiary_action_value=tertiary_action_value,
+                tertiary_action_method=tertiary_action_method,
+                tertiary_return_to=return_to if tertiary_action_href else "",
             )
         )
     return rows
@@ -125,8 +176,15 @@ def _handoff_rows(values: object, *, operator_id: str = "", actionable: bool = T
 
 def _human_task_row(value: object, *, operator_id: str, return_to: str) -> dict[str, str]:
     handoff = handoff_from_human_task(value)
-    action_plan = handoff_action_plan(handoff, operator_id=operator_id)
-    action_kind = str(action_plan.get("kind") or "assign").strip()
+    action_options = handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)
+    primary = action_options[0] if action_options else {}
+    secondary = action_options[1] if len(action_options) > 1 else {}
+    tertiary = action_options[2] if len(action_options) > 2 else {}
+    primary_href = str(primary.get("href") or f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{str(primary.get('route') or 'assign').strip()}").strip() if primary else ""
+    secondary_route = str(secondary.get("route") or "").strip()
+    secondary_href = str(secondary.get("href") or (f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{secondary_route}" if secondary_route else "")).strip()
+    tertiary_route = str(tertiary.get("route") or "").strip()
+    tertiary_href = str(tertiary.get("href") or (f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{tertiary_route}" if tertiary_route else "")).strip()
     return _row(
         str(getattr(value, "brief", "") or "Human task"),
         " · ".join(
@@ -136,23 +194,33 @@ def _human_task_row(value: object, *, operator_id: str, return_to: str) -> dict[
                 f"priority {getattr(value, 'priority', '')}",
                 f"due {str(getattr(value, 'sla_due_at', '') or '')[:10]}" if getattr(value, "sla_due_at", None) else "",
                 handoff.recipient_email if handoff.task_type == "delivery_followup" and handoff.recipient_email else "",
+                (
+                    "Needs reauth"
+                    if handoff.task_type == "delivery_followup" and str(handoff.delivery_reason or "").strip().startswith("google_")
+                    else "Unable to send"
+                    if handoff.task_type == "delivery_followup" and str(handoff.delivery_reason or "").strip()
+                    else ""
+                ),
             )
             if str(part or "").strip()
         )
         or "Human task remains open.",
         "Task",
-        action_href=f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/{'complete' if action_kind == 'complete' else 'assign'}",
-        action_label=str(action_plan.get("label") or ""),
-        action_value=str(action_plan.get("value") or ""),
+        action_href=primary_href,
+        action_label=str(primary.get("label") or ""),
+        action_value=str(primary.get("value") or ""),
+        action_method=str(primary.get("method") or ""),
         return_to=return_to,
-        secondary_action_href=(
-            f"/app/actions/handoffs/human_task:{getattr(value, 'human_task_id', '')}/complete"
-            if str(action_plan.get("secondary_value") or "").strip()
-            else ""
-        ),
-        secondary_action_label=str(action_plan.get("secondary_label") or ""),
-        secondary_action_value=str(action_plan.get("secondary_value") or ""),
-        secondary_return_to=return_to,
+        secondary_action_href=secondary_href,
+        secondary_action_label=str(secondary.get("label") or ""),
+        secondary_action_value=str(secondary.get("value") or ""),
+        secondary_action_method=str(secondary.get("method") or ""),
+        secondary_return_to=return_to if secondary_href else "",
+        tertiary_action_href=tertiary_href,
+        tertiary_action_label=str(tertiary.get("label") or ""),
+        tertiary_action_value=str(tertiary.get("value") or ""),
+        tertiary_action_method=str(tertiary.get("method") or ""),
+        tertiary_return_to=return_to if tertiary_href else "",
     )
 
 def build_admin_section_payload(section: str, *, container: AppContainer, principal_id: str, operator_id: str = "") -> dict[str, object]:
@@ -448,6 +516,16 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             action_value=str(item.get("action_value") or ""),
             action_method=str(item.get("action_method") or ""),
             return_to=str(item.get("return_to") or ""),
+            secondary_action_href=str(item.get("secondary_action_href") or ""),
+            secondary_action_label=str(item.get("secondary_action_label") or ""),
+            secondary_action_value=str(item.get("secondary_action_value") or ""),
+            secondary_action_method=str(item.get("secondary_action_method") or ""),
+            secondary_return_to=str(item.get("secondary_return_to") or ""),
+            tertiary_action_href=str(item.get("tertiary_action_href") or ""),
+            tertiary_action_label=str(item.get("tertiary_action_label") or ""),
+            tertiary_action_value=str(item.get("tertiary_action_value") or ""),
+            tertiary_action_method=str(item.get("tertiary_action_method") or ""),
+            tertiary_return_to=str(item.get("tertiary_return_to") or ""),
         )
         for item in list(office.get("next_actions") or [])
     ]

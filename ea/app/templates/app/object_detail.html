@@ -127,19 +127,47 @@
       {% set action_value = item.get('action_value') or '' %}
       {% set action_method = (item.get('action_method') or 'post')|lower %}
       {% set return_to = item.get('return_to') or '' %}
+      {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+      {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+      {% set secondary_action_value = item.get('secondary_action_value') or '' %}
+      {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
+      {% set secondary_return_to = item.get('secondary_return_to') or '' %}
+      {% set tertiary_action_href = item.get('tertiary_action_href') or '' %}
+      {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+      {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
+      {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
+      {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
       <div class="object-row">
         <div>
           <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
           <small>{{ item.detail }}</small>
-          {% if action_href %}
+          {% if action_href or secondary_action_href or tertiary_action_href %}
           <div class="object-actions">
-            {% if action_method == 'get' %}
+            {% if action_href and action_method == 'get' %}
             <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
-            {% else %}
+            {% elif action_href %}
             <form method="post" action="{{ action_href }}">
               {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
               {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
               <button class="console-action" type="submit">{{ action_label }}</button>
+            </form>
+            {% endif %}
+            {% if secondary_action_href and secondary_action_method == 'get' %}
+            <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+            {% elif secondary_action_href %}
+            <form method="post" action="{{ secondary_action_href }}">
+              {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
+              {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+            </form>
+            {% endif %}
+            {% if tertiary_action_href and tertiary_action_method == 'get' %}
+            <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+            {% elif tertiary_action_href %}
+            <form method="post" action="{{ tertiary_action_href }}">
+              {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
+              {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
             </form>
             {% endif %}
           </div>
@@ -165,19 +193,47 @@
       {% set action_value = item.get('action_value') or '' %}
       {% set action_method = (item.get('action_method') or 'post')|lower %}
       {% set return_to = item.get('return_to') or '' %}
+      {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+      {% set secondary_action_label = item.get('secondary_action_label') or '' %}
+      {% set secondary_action_value = item.get('secondary_action_value') or '' %}
+      {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
+      {% set secondary_return_to = item.get('secondary_return_to') or '' %}
+      {% set tertiary_action_href = item.get('tertiary_action_href') or '' %}
+      {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+      {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
+      {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
+      {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
       <div class="object-row">
         <div>
           <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
           <small>{{ item.detail }}</small>
-          {% if action_href %}
+          {% if action_href or secondary_action_href or tertiary_action_href %}
           <div class="object-actions">
-            {% if action_method == 'get' %}
+            {% if action_href and action_method == 'get' %}
             <a class="console-action" href="{{ action_href }}">{{ action_label }}</a>
-            {% else %}
+            {% elif action_href %}
             <form method="post" action="{{ action_href }}">
               {% if action_value %}<input type="hidden" name="action" value="{{ action_value }}">{% endif %}
               {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
               <button class="console-action" type="submit">{{ action_label }}</button>
+            </form>
+            {% endif %}
+            {% if secondary_action_href and secondary_action_method == 'get' %}
+            <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+            {% elif secondary_action_href %}
+            <form method="post" action="{{ secondary_action_href }}">
+              {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
+              {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+            </form>
+            {% endif %}
+            {% if tertiary_action_href and tertiary_action_method == 'get' %}
+            <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+            {% elif tertiary_action_href %}
+            <form method="post" action="{{ tertiary_action_href }}">
+              {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
+              {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
+              <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
             </form>
             {% endif %}
           </div>

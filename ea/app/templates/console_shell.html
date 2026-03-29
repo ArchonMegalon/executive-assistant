@@ -199,6 +199,11 @@
   {% set secondary_action_value = item.get('secondary_action_value') or '' %}
   {% set secondary_action_method = (item.get('secondary_action_method') or 'post')|lower %}
   {% set secondary_return_to = item.get('secondary_return_to') or '' %}
+  {% set tertiary_action_href = item.get('tertiary_action_href') or '' %}
+  {% set tertiary_action_label = item.get('tertiary_action_label') or '' %}
+  {% set tertiary_action_value = item.get('tertiary_action_value') or '' %}
+  {% set tertiary_action_method = (item.get('tertiary_action_method') or 'post')|lower %}
+  {% set tertiary_return_to = item.get('tertiary_return_to') or '' %}
   {% else %}
   {% set title = item %}
   {% set detail = helper %}
@@ -214,6 +219,11 @@
   {% set secondary_action_value = '' %}
   {% set secondary_action_method = 'post' %}
   {% set secondary_return_to = '' %}
+  {% set tertiary_action_href = '' %}
+  {% set tertiary_action_label = '' %}
+  {% set tertiary_action_value = '' %}
+  {% set tertiary_action_method = 'post' %}
+  {% set tertiary_return_to = '' %}
   {% endif %}
   <div class="console-row">
     <div>
@@ -244,6 +254,17 @@
         {% if secondary_action_value %}<input type="hidden" name="action" value="{{ secondary_action_value }}">{% endif %}
         {% if secondary_return_to %}<input type="hidden" name="return_to" value="{{ secondary_return_to }}">{% endif %}
         <button class="console-action" type="submit">{{ secondary_action_label }}</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if tertiary_action_href %}
+      {% if tertiary_action_method == 'get' %}
+      <a class="console-action" href="{{ tertiary_action_href }}">{{ tertiary_action_label }}</a>
+      {% else %}
+      <form method="post" action="{{ tertiary_action_href }}">
+        {% if tertiary_action_value %}<input type="hidden" name="action" value="{{ tertiary_action_value }}">{% endif %}
+        {% if tertiary_return_to %}<input type="hidden" name="return_to" value="{{ tertiary_return_to }}">{% endif %}
+        <button class="console-action" type="submit">{{ tertiary_action_label }}</button>
       </form>
       {% endif %}
       {% endif %}

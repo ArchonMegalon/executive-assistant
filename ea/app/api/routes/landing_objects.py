@@ -289,6 +289,10 @@ def handoff_detail(
         if delivery_followup_open and str(handoff.delivery_reason or "").strip().startswith("google_")
         else {}
     )
+    manual_resolution_secondary_value = "reauth_needed" if str(handoff.delivery_reason or "").strip().startswith("google_") else "failed"
+    manual_resolution_secondary_label = (
+        "Needs reauth" if manual_resolution_secondary_value == "reauth_needed" else "Unable to send"
+    )
     product.record_surface_event(
         principal_id=context.principal_id,
         event_type="handoff_opened",
@@ -341,6 +345,22 @@ def handoff_detail(
                 action_label=str(google_delivery_action.get("label") or ""),
                 action_method=str(google_delivery_action.get("method") or ""),
                 return_to=f"/app/handoffs/{handoff_ref}" if google_delivery_action else "",
+            ),
+            _object_detail_row(
+                "Manual resolution",
+                "Record the real delivery outcome when the operator finished the send outside EA or needs to keep the blocker visible.",
+                "Resolution",
+                href=f"/app/handoffs/{handoff_ref}",
+                action_href=f"/app/actions/handoffs/{handoff_ref}/complete" if delivery_followup_open else "",
+                action_label="Mark sent" if delivery_followup_open else "",
+                action_value="sent" if delivery_followup_open else "",
+                action_method="post" if delivery_followup_open else "",
+                return_to=f"/app/handoffs/{handoff_ref}" if delivery_followup_open else "",
+                secondary_action_href=f"/app/actions/handoffs/{handoff_ref}/complete" if delivery_followup_open else "",
+                secondary_action_label=manual_resolution_secondary_label if delivery_followup_open else "",
+                secondary_action_value=manual_resolution_secondary_value if delivery_followup_open else "",
+                secondary_action_method="post" if delivery_followup_open else "",
+                secondary_return_to=f"/app/handoffs/{handoff_ref}" if delivery_followup_open else "",
             ),
             _object_detail_row("Evidence attached", f"{len(handoff.evidence_refs or [])} evidence refs attached to this handoff.", "Evidence"),
             _object_detail_row("Assignment state", str(handoff.status or "pending").replace("_", " "), "Status"),
