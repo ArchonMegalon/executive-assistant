@@ -96,7 +96,7 @@ pages:
     required_fields:
     - id
     - title
-    - public_guide.pain_label
+    - pain_label
     - canon_doc
     - build_path.current_state
   horizon_detail:
@@ -114,7 +114,7 @@ pages:
     - build_path.intent
     - build_path.current_state
     - build_path.next_state
-    - build_path.owning_repos
+    - owning_repos
     - tool_posture
     allowed_expansions:
     - human-language table scenes

@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,7 +72,7 @@ ADAPTER_ENV_NAMES = {
 LOCAL_ENV = load_local_env()
 POLICY_ENV = load_runtime_overrides()
 _ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
-PREFERRED_PROVIDER_STATUSES = {"ready", "workflow_query_only"}
+PREFERRED_PROVIDER_STATUSES = {"ready"}
 
 
 def env_value(name: str) -> str:
@@ -98,6 +99,37 @@ def raw_key_names(provider_name: str) -> list[str]:
 
 def key_names_present(names: list[str]) -> list[str]:
     return [name for name in names if env_value(name)]
+
+
+def resolved_onemin_slots() -> list[dict[str, str]]:
+    slots: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+    seen_env_names: set[str] = set()
+    for env_name in raw_key_names("onemin"):
+        key = env_value(env_name)
+        if not key or env_name in seen_env_names or key in seen_keys:
+            continue
+        seen_env_names.add(env_name)
+        seen_keys.add(key)
+        slots.append({"env_name": env_name, "key": key})
+    script_path = EA_ROOT / "scripts" / "resolve_onemin_ai_key.sh"
+    if script_path.exists():
+        try:
+            output = subprocess.check_output(
+                ["bash", str(script_path), "--all"],
+                text=True,
+            )
+        except Exception:
+            output = ""
+        synthetic_index = 0
+        for raw in output.splitlines():
+            key = str(raw or "").strip()
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            synthetic_index += 1
+            slots.append({"env_name": f"ONEMIN_RESOLVED_SLOT_{synthetic_index}", "key": key})
+    return slots
 
 
 def command_state(command_name: str) -> tuple[str, bool]:
@@ -189,11 +221,11 @@ def provider_state(name: str) -> dict[str, object]:
         query_workflow = bool(env_value("CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_QUERY"))
         available = browseract_ready and helper_ready and (explicit_workflow or query_workflow)
         if explicit_workflow:
-            status = "ready"
-            detail = "BrowserAct is configured and a Prompting Systems refine workflow is explicitly configured."
+            status = "workflow_configured"
+            detail = "BrowserAct is configured and a Prompting Systems refine workflow is pinned, but the workflow itself is not health-verified."
         elif available:
             status = "workflow_query_only"
-            detail = "BrowserAct and the helper are configured, and the Prompting Systems workflow will be resolved live from its configured query."
+            detail = "BrowserAct and the helper are configured, but the Prompting Systems workflow still has to be resolved live from its query before it should be trusted."
         elif browseract_ready and helper_ready:
             status = "browseract_ready_missing_render_adapter"
             detail = "BrowserAct is configured, but no Prompting Systems workflow id/query or adapter is configured yet."
@@ -214,11 +246,11 @@ def provider_state(name: str) -> dict[str, object]:
         query_workflow = bool(env_value("CHUMMER6_BROWSERACT_MAGIXAI_RENDER_WORKFLOW_QUERY"))
         available = browseract_ready and helper_ready and (explicit_workflow or query_workflow)
         if explicit_workflow:
-            status = "ready"
-            detail = "BrowserAct is configured and an AI Magicx render workflow is explicitly configured."
+            status = "workflow_configured"
+            detail = "BrowserAct is configured and an AI Magicx render workflow is pinned, but the workflow itself is not health-verified."
         elif available:
             status = "workflow_query_only"
-            detail = "BrowserAct and the helper are configured, and the AI Magicx workflow will be resolved live from its configured query."
+            detail = "BrowserAct and the helper are configured, but the AI Magicx workflow still has to be resolved live from its query before it should be trusted."
         elif browseract_ready and helper_ready:
             status = "browseract_ready_missing_render_adapter"
             detail = "BrowserAct is configured, but no AI Magicx workflow id/query or adapter is configured yet."
@@ -243,7 +275,8 @@ def provider_state(name: str) -> dict[str, object]:
         configured_command = env_value("CHUMMER6_MEDIA_FACTORY_RENDER_COMMAND")
         command_name, cli_ready = command_state(configured_command or "python3")
         onemin_keys = key_names_present(raw_key_names("onemin"))
-        available = bool((configured_command or script_path.exists()) and cli_ready and onemin_keys)
+        resolved_slots = resolved_onemin_slots()
+        available = bool((configured_command or script_path.exists()) and cli_ready and (onemin_keys or resolved_slots))
         if available:
             status = "ready"
             detail = "Media Factory render bridge is available and can hand guide renders to the 1min-backed media seam."
@@ -265,10 +298,12 @@ def provider_state(name: str) -> dict[str, object]:
             "detail": detail,
             "command": configured_command or str(script_path),
             "backing_provider": "onemin",
+            "resolved_slot_count": len(resolved_slots),
         }
     if name == "onemin":
-        available = bool(raw_keys or adapters)
-        if raw_keys:
+        resolved_slots = resolved_onemin_slots()
+        available = bool(raw_keys or resolved_slots or adapters)
+        if raw_keys or resolved_slots:
             status = "ready"
             detail = "Built-in 1min.AI image generation is available."
         elif adapters:
@@ -277,7 +312,15 @@ def provider_state(name: str) -> dict[str, object]:
         else:
             status = "not_configured"
             detail = "No 1min.AI credentials or render adapter found."
-        return {"provider": name, "status": status, "available": available, "raw_keys": raw_keys, "adapters": adapters, "detail": detail}
+        return {
+            "provider": name,
+            "status": status,
+            "available": available,
+            "raw_keys": raw_keys,
+            "adapters": adapters,
+            "detail": detail,
+            "resolved_slot_count": len(resolved_slots),
+        }
     available = bool(adapters)
     if available:
         status = "ready"

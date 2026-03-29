@@ -135,6 +135,36 @@ def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch)
     assert google_start["start_url"] == google_start["auth_url"]
 
 
+def test_register_verify_reports_google_oauth_configuration_hint_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.delenv("EA_PROVIDER_SECRET_KEY", raising=False)
+    client = _client(monkeypatch)
+
+    started = client.post("/v1/register/start", json={"email": "nodev@example.com"})
+    assert started.status_code == 200
+    body = started.json()
+
+    verified = client.post(
+        "/v1/register/verify",
+        json={
+            "verification_token": body["verification_token"],
+            "verification_code": body["verification_code"],
+            "workspace_name": "No Dev",
+            "timezone": "Europe/Vienna",
+            "language": "en",
+        },
+    )
+    assert verified.status_code == 200
+    google_start = dict(verified.json()["google_start"])
+    assert google_start["ready"] is False
+    assert google_start["error"] == "google_oauth_client_id_missing"
+    assert "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET." in google_start["detail"]
+
+
 def test_registration_email_payload_stays_english_and_uses_kleinhirn_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

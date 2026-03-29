@@ -33,7 +33,7 @@ The current product problem is proving the campaign OS as a lived system across 
 
 ### 1. Journey proof is weaker than design proof
 
-The repos verify canon breadth, generated guide output, milestone registries, and pulse artifacts, but there is still no single cross-repo acceptance harness for the main campaign-OS journeys:
+The repos verify canon breadth, generated guide output, milestone registries, and pulse artifacts, but the journey acceptance harness is not yet consistently wired to all primary campaigns flows:
 
 * install -> claim -> restore -> continue
 * build -> explain -> publish

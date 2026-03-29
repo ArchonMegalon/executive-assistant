@@ -1386,6 +1386,21 @@ def test_probe_all_onemin_slots_maps_owner_fallbacks_by_slot_and_account(monkeyp
     assert health["providers"]["onemin"]["owner_mapped_slots"] == 2
 
 
+def test_onemin_owner_ledger_path_falls_back_to_repo_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_env = upstream._env
+    monkeypatch.setattr(
+        upstream,
+        "_env",
+        lambda name, default="": default if name == "EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH" else original_env(name, default),
+    )
+
+    path = upstream._onemin_owner_ledger_path()
+
+    assert path is not None
+    assert path.name == "onemin_slot_owners.json"
+    assert path.exists()
+
+
 def test_probe_all_onemin_slots_preserves_slot_order_when_parallel(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "slow-primary")

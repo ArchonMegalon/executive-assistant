@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-28T23:03:00Z",
+  "generated_at": "2026-03-29T08:36:12Z",
   "as_of": "2026-03-29",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
@@ -93,6 +93,13 @@
     "phase_label": "Public-fit polish",
     "history_snapshot_count": 5,
     "longest_pole": "Core Engine",
+    "launch_readiness": "Hold launch expansion while Core Engine keeps trust-critical proof blocked.",
+    "provider_route_stewardship": {
+      "default_status": "Pilot defaults are governed",
+      "canary_status": "Canary review required before widening defaults",
+      "review_due": "2026-04-12",
+      "next_decision": "Hold default promotion until blocked journey proof and trust fallout are cleared."
+    },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",

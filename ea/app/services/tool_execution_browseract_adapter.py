@@ -414,6 +414,19 @@ class BrowserActToolAdapter:
             ),
         )
 
+    @staticmethod
+    def _looks_like_ui_invalid_credentials(payload: dict[str, object]) -> bool:
+        return _has_marker(
+            _collect_text_fragments(payload),
+            (
+                "the email or password you entered is incorrect",
+                "email or password you entered is incorrect",
+                "incorrect email or password",
+                "invalid email or password",
+                "invalid credentials",
+            ),
+        )
+
     @classmethod
     def _raise_for_ui_lane_failure(cls, *, payload: dict[str, object], backend: str) -> None:
         explicit = str(
@@ -423,8 +436,10 @@ class BrowserActToolAdapter:
             or payload.get("challenge_state")
             or ""
         ).strip().lower()
-        if explicit in {"challenge_required", "challenge_loop", "session_expired", "lane_unavailable", "timeout"}:
+        if explicit in {"challenge_required", "challenge_loop", "session_expired", "lane_unavailable", "timeout", "invalid_credentials"}:
             raise ToolExecutionError(f"ui_lane_failure:{backend}:{explicit}")
+        if cls._looks_like_ui_invalid_credentials(payload):
+            raise ToolExecutionError(f"ui_lane_failure:{backend}:invalid_credentials")
         if cls._looks_like_ui_session_expired(payload):
             raise ToolExecutionError(f"ui_lane_failure:{backend}:session_expired")
         if (
@@ -2657,6 +2672,15 @@ class BrowserActToolAdapter:
         except Exception as exc:
             raise ToolExecutionError(f"ui_service_worker_non_json:{service_key}:{last_line[:400]}") from exc
         if completed.returncode != 0:
+            if isinstance(loaded, dict):
+                failure_code = str(
+                    loaded.get("ui_failure_code")
+                    or loaded.get("failure_code")
+                    or loaded.get("error_code")
+                    or ""
+                ).strip().lower()
+                if failure_code:
+                    raise ToolExecutionError(f"ui_lane_failure:{service_key}:{failure_code}")
             detail = str((loaded if isinstance(loaded, dict) else {}).get("error") or completed.stderr or raw).strip()
             raise ToolExecutionError(f"ui_service_worker_failed:{service_key}:{detail[:400]}")
         if not isinstance(loaded, dict):

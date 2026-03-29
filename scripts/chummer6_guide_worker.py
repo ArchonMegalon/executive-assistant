@@ -2715,6 +2715,28 @@ def _section_ooda_defaults(
         one_liner = "What Chummer6 is should feel like a trust problem caught in the act, not a finished system pitch."
         paragraph_seed = "This page matters when someone wants to know what kind of Shadowrun pain this idea is trying to relieve, without pretending the tool already exists."
         visual_seed = "A visible trust relationship under pressure: runner, reviewer, or spotter inspecting a suspect receipt trail in a rain-cut threshold, with visible stakes and no generic group huddle."
+    elif section_type == "page" and name == "parts_index":
+        likely_interest = "Which practical lane should I click first if I want the useful slice instead of the whole repo sermon?"
+        scene_logic = "A lane-selection environment should read through differentiated work zones, not a row of screens or a centered mascot."
+        one_liner = "Parts index should feel like several real work lanes opening off the same rough Shadowrun surface."
+        paragraph_seed = "This page matters when a curious reader wants to choose the right lane quickly by reading the work zones, props, and stakes instead of parsing repo taxonomy."
+        visual_seed = "A grounded Shadowrun lane-selection environment with clearly differentiated work zones for rules, UI, mobile continuity, hosted coordination, registry shelves, and media output; environment first, no centered signboard, no desk-monitor wall."
+        concrete_signals = [
+            "choose a lane by practical table pain",
+            "different work zones should read at a glance",
+            "environment-first guide art beats another device glamour shot",
+        ]
+    elif section_type == "page" and name == "horizons_index":
+        likely_interest = "Which future lane looks dangerous enough to matter without pretending any of them are already finished?"
+        scene_logic = "A branching district of futures should read through lane plurality, route pressure, and differentiated domains instead of one corridor and one hero silhouette."
+        one_liner = "Horizons index should feel like a market of branching futures, not a title card for one corridor."
+        paragraph_seed = "This page matters when a reader wants to browse several possible futures at once and feel the pressure, plurality, and risk without mistaking it for a shipped roadmap."
+        visual_seed = "A branching Shadowrun district splice with at least four differentiated future lanes, partial crowds or vehicle traces, route clutter, wet reflections, and environment-first plurality; no lone centered silhouette, no central sign panel, no single corridor vanishing point."
+        concrete_signals = [
+            "future lanes branching without promise",
+            "district plurality beats one corridor",
+            "street-level clues should sell each horizon lane",
+        ]
     return {
         "observe": {
             "reader_question": question,
@@ -4982,6 +5004,11 @@ Requirements:
 - do not make gloved hands, scarred hands, or anonymous hand close-ups the main subject unless the asset is specifically about proof-on-props
 - if the section implies a person or team, choose a believable protagonist instead of abstract symbols
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, or crash-test simulation, make that metaphor visibly legible in-scene
+- hero art must read as a lived Shadowrun triage scene: metahuman clinician, ugly troll patient, and one assistant or teammate in an improvised garage clinic or getaway-bay, not a lone operator in a mood void
+- the room must do at least half the storytelling for the hero: visible floor, doorway, bay hardware, shelves, tool wall, side bench, hanging lights, and improvised med clutter belong in frame
+- the troll patient must stay visibly troll-sized with readable tusks, rough skin, hair texture, and treated chrome, not a generic shaved human or a clean sci-fi mannequin
+- medscan or upgrade overlays must feel anchored to anatomy, tools, rails, or work surfaces; never solve the hero with floating UI wallpaper or a clean monitor wall
+- avoid clean clinics, white-coat doctor staging, hallway symmetry, quiet back-view pairs, or any bedside crop that turns the hero into generic sci-fi medicine
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible badge/title/subtitle/kicker/note should feel like guide copy, not compliance language
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
@@ -5164,6 +5191,7 @@ Requirements:
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, web, or blackbox, make that metaphor visibly legible in-scene
 - if the title reads like a personal codename, make the focal subject feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
+- if the horizon is a forge / approval / rollback / consequence lane, make the scene a standing rulesmith plus reviewer or witness inside an industrial approval rail with visibly more apparatus than faces; never a quiet workbench or paperwork table
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible copy should sell the horizon without pretending it is active build work
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
@@ -5555,12 +5583,12 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         lowered_key = str(asset_key or "").strip().lower()
         curated: dict[str, dict[str, object]] = {
             "hero": {
-                "subject": "an ork streetdoc stabilizing a wounded runner on a hacked recliner while a teammate holds light at the rail",
-                "environment": "an improvised garage clinic packed with tool chest grime, tarp dividers, hanging work lamps, extension cords, hacked med gear, and wet concrete",
-                "action": "stabilizing the wound while calibrating a patched cyberlimb and checking whether the AGI and ESS upgrade survives triage",
+                "subject": "an ork streetdoc stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the far edge with tools or hard light",
+                "environment": "an improvised garage clinic carved into a rain-soaked barrens auto bay with tool chest grime, tarp dividers, hanging work lamps, extension cords, hacked med gear, a side bench, an open bay door, shelves of old chrome, and wet concrete",
+                "action": "stabilizing the troll runner under pressure while calibrating a treated cyberlimb, checking upgrade posture, and keeping the bay clutter, floor, doorway, and surrounding hardware visibly part of the story",
                 "metaphor": "streetdoc medscan under pressure",
-                "props": ["tool chest", "med-gel", "cyberware part", "work lamp", "extension cord"],
-                "overlays": ["AGI upgrading rail", "ESS upgrading rail", "cyberlimb calibration", "wound stabilized", "neural link resync"],
+                "props": ["tool chest", "med-gel", "cyberware part", "injector tray", "work lamp", "extension cord", "old chrome limb", "magical focus"],
+                "overlays": ["BOD rail", "AGI upgrading rail", "ESS upgrading rail", "cyberlimb calibration", "wound stabilized", "neural link resync"],
                 "composition": "clinic_intake",
                 "palette": "wet concrete graphite, surgical cyan, sodium amber",
                 "mood": "wary, improvised, and first-contact honest",
@@ -5677,12 +5705,12 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "mood": "clinical, tense, and predictive",
             },
             "karma-forge": {
-                "subject": "a rulesmith and skeptical reviewer forcing unstable house-rule chips through a governed approval bench",
-                "environment": "an industrial approval rail lit by sodium spill, rollback cassettes, provenance seals, and hard task light",
-                "action": "checking whether the latest experiment can be rolled back before it burns the table",
+                "subject": "a standing rulesmith and skeptical reviewer forcing unstable house-rule packs through an industrial approval rail while the apparatus looms larger than they do",
+                "environment": "an improvised industrial rules lab with approval rails, rollback rig hardware, provenance seals, consequence chambers, assay racks, cassette bins, gantry hooks, sample lockers, and hard sodium spill",
+                "action": "driving diff controls, rollback clamps, and witness locks under visible pressure so governed rules evolution reads through apparatus, rails, and consequence hardware instead of paperwork",
                 "metaphor": "governed rules evolution under pressure",
-                "props": ["rule lattice", "approval rail", "rollback cassette", "provenance seals"],
-                "overlays": ["compatibility markers", "rollback seals", "receipt traces", "approval state brackets"],
+                "props": ["rule lattice", "approval rail", "rollback cassette", "provenance seals", "cassette bin", "assay rack", "witness lock"],
+                "overlays": ["compatibility markers", "rollback seals", "receipt traces", "approval state brackets", "witness locks"],
                 "composition": "approval_rail",
                 "palette": "forge orange, audit green, midnight iron",
                 "mood": "volatile, expensive, and tightly governed",

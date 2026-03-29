@@ -84,6 +84,18 @@ def _humanize(value: str) -> str:
     return str(value or "").strip().replace("_", " ") or "unknown"
 
 
+def _handoff_id_from_row(value: object) -> str:
+    payload = value if isinstance(value, dict) else {}
+    handoff_id = str(payload.get("id") or "").strip()
+    if handoff_id:
+        return handoff_id
+    href = str(payload.get("href") or payload.get("action_href") or "").strip()
+    prefix = "/app/handoffs/"
+    if not href.startswith(prefix):
+        return ""
+    return href[len(prefix):].split("?", 1)[0]
+
+
 def _operator_rows(values: object) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values if isinstance(values, (list, tuple)) else []:
@@ -537,6 +549,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         row for row in office_snapshot_state.handoffs
         if not office_operator_key or str(getattr(row, "owner", "") or "").strip() != office_operator_key
     ]
+    office_visible_handoff_ids = {
+        str(getattr(row, "id") or "").strip()
+        for row in office_snapshot_state.handoffs
+        if str(getattr(row, "id") or "").strip()
+    }
     office_lane_rows = [
         _row(
             str(item.get("label") or "Lane"),
@@ -573,7 +590,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             quaternary_action_method=str(item.get("quaternary_action_method") or ""),
             quaternary_return_to=str(item.get("quaternary_return_to") or ""),
         )
-        for item in list(office.get("next_actions") or [])
+        for item in [
+            value
+            for value in list(office.get("next_actions") or [])
+            if str(_handoff_id_from_row(value)) not in office_visible_handoff_ids
+        ]
     ]
     office_delivery_rows = [
         _row("Active sessions", str(office_access.get("active") or 0), "Access", href="/app/settings/access"),

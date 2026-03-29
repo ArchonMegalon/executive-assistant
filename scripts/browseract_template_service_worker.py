@@ -134,6 +134,7 @@ async function main() {
     template_key: String(packet.template_key || ''),
     workflow_kind: String((((spec || {}).meta || {}).workflow_kind) || ''),
   };
+  let authRequestFailure = '';
   let traceIndex = 0;
 
   if (blockedUrlMarkers.length) {
@@ -162,6 +163,62 @@ async function main() {
   function persistResult(payload) {
     if (!resultPath) return;
     fs.writeFileSync(resultPath, JSON.stringify(payload), 'utf8');
+  }
+
+  function noteAuthRequestFailure(detail) {
+    const normalized = String(detail || '').trim();
+    if (!normalized || authRequestFailure) return;
+    authRequestFailure = normalized;
+  }
+
+  function normalizeText(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  async function detectAuthUiFailure(config) {
+    const markers = Array.isArray(config && config.auth_failure_text_markers)
+      ? config.auth_failure_text_markers.map(value => normalizeText(value)).filter(Boolean)
+      : [];
+    if (!markers.length) return '';
+    const selectors = Array.isArray(config && config.auth_failure_selectors)
+      ? config.auth_failure_selectors.map(value => String(value || '').trim()).filter(Boolean)
+      : [];
+    if (!selectors.length) return '';
+    for (const selector of selectors) {
+      try {
+        const locator = page.locator(selector);
+        const count = await locator.count().catch(() => 0);
+        if (!count) continue;
+        const texts = await locator.evaluateAll((nodes) => nodes.map((node) => {
+          try {
+            const style = window.getComputedStyle(node);
+            if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+              return '';
+            }
+          } catch (_) {}
+          try {
+            if (typeof node.getBoundingClientRect === 'function') {
+              const rect = node.getBoundingClientRect();
+              if (rect && rect.width === 0 && rect.height === 0) {
+                return '';
+              }
+            }
+          } catch (_) {}
+          return String(node.innerText || node.textContent || '').trim();
+        }).filter(Boolean).slice(0, 16)).catch(() => []);
+        for (const text of texts) {
+          const normalized = normalizeText(text);
+          if (!normalized) continue;
+          for (const marker of markers) {
+            if (normalized.includes(marker)) {
+              const code = String((config && config.auth_failure_code) || 'invalid_credentials').trim() || 'invalid_credentials';
+              return `${code}:${String(text || '').slice(0, 240)}`;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return '';
   }
 
   async function trace(tag) {
@@ -403,19 +460,38 @@ async function main() {
     const submitRetryCount = Math.max(0, Number(config.submit_retry_count || 0));
     const submitRetryBackoffMs = Math.max(500, Number(config.submit_retry_backoff_ms || 5000));
 
+    function throwIfAuthRequestFailed() {
+      if (!authRequestFailure) return;
+      throw new Error(`${label}:auth_request_failed:${authRequestFailure}`);
+    }
+
+    async function throwIfAuthUiFailed() {
+      const detected = await detectAuthUiFailure(config);
+      if (!detected) return;
+      throw new Error(`${label}:${detected}`);
+    }
+
     async function authAdvanced() {
-      const changed = await waitForUrlChange(startUrl, authAdvanceTimeoutMs);
-      if (changed) return true;
-      if (!passwordSelector) return false;
-      try {
-        const locator = page.locator(passwordSelector).first();
-        const count = await locator.count().catch(() => 0);
-        if (!count) return true;
-        const visible = await locator.isVisible().catch(() => false);
-        return !visible;
-      } catch (_) {
-        return false;
+      const deadline = Date.now() + authAdvanceTimeoutMs;
+      while (Date.now() < deadline) {
+        throwIfAuthRequestFailed();
+        await throwIfAuthUiFailed();
+        const currentUrl = String(page.url() || '');
+        if (currentUrl && currentUrl !== startUrl) return true;
+        if (passwordSelector) {
+          try {
+            const locator = page.locator(passwordSelector).first();
+            const count = await locator.count().catch(() => 0);
+            if (!count) return true;
+            const visible = await locator.isVisible().catch(() => false);
+            if (!visible) return true;
+          } catch (_) {}
+        }
+        await page.waitForTimeout(500);
       }
+      throwIfAuthRequestFailed();
+      await throwIfAuthUiFailed();
+      return false;
     }
 
     const attemptSelectors = [
@@ -431,6 +507,7 @@ async function main() {
     ].filter(Boolean);
 
     for (let attempt = 0; attempt <= submitRetryCount; attempt += 1) {
+      throwIfAuthRequestFailed();
       if (preSubmitCookieName) {
         const cookieReady = await waitForCookie(preSubmitCookieName, preSubmitCookieTimeoutMs);
         if (!cookieReady) {
@@ -444,11 +521,13 @@ async function main() {
         if (await authAdvanced()) {
           return true;
         }
+        throwIfAuthRequestFailed();
       }
       if (await maybePressEnter(passwordSelector, `${label}:enter:${attempt + 1}`, config)) {
         if (await authAdvanced()) {
           return true;
         }
+        throwIfAuthRequestFailed();
       }
       for (const selector of attemptSelectors) {
         if (!(await maybeClick(selector, `${label}:click:${attempt + 1}`, config))) {
@@ -457,6 +536,7 @@ async function main() {
         if (await authAdvanced()) {
           return true;
         }
+        throwIfAuthRequestFailed();
       }
       if (attempt < submitRetryCount) {
         await page.waitForTimeout(submitRetryBackoffMs);
@@ -595,7 +675,9 @@ async function main() {
         const url = String(request.url() || '');
         const errorText = String((request.failure() && request.failure().errorText) || '');
         if (url.includes('api.1min.ai/auth/')) {
-          result.warnings.push(`requestfailed:${url}:${errorText}`);
+          const detail = `requestfailed:${url}:${errorText}`;
+          noteAuthRequestFailure(detail);
+          result.warnings.push(detail);
         }
       } catch (_) {}
     });
@@ -603,7 +685,11 @@ async function main() {
       try {
         const text = String(message && message.text ? message.text() : '');
         if (text.includes('api.1min.ai/auth/login') || text.includes('CORS policy')) {
-          result.warnings.push(`console:${text}`);
+          const detail = `console:${text}`;
+          if (text.includes('api.1min.ai/auth/login')) {
+            noteAuthRequestFailure(detail);
+          }
+          result.warnings.push(detail);
         }
       } catch (_) {}
     });
@@ -780,6 +866,15 @@ async function main() {
     persistResult(result);
     emitResultSummary(result);
   } catch (error) {
+    const errorText = String(error && error.stack ? error.stack : error);
+    const normalizedError = normalizeText(errorText);
+    if (normalizedError.includes('invalid_credentials')) {
+      result.failure_code = 'invalid_credentials';
+      result.ui_failure_code = 'invalid_credentials';
+    } else if (normalizedError.includes('auth_request_failed')) {
+      result.failure_code = 'auth_request_failed';
+      result.ui_failure_code = 'auth_request_failed';
+    }
     result.url = String(page.url() || '');
     result.title = String((await page.title().catch(() => '')) || '');
     if (!result.outputText) {
@@ -802,7 +897,7 @@ async function main() {
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch((screenshotError) => {
       result.warnings.push(`screenshot:${String(screenshotError && screenshotError.message ? screenshotError.message : screenshotError)}`);
     });
-    result.errors.push(String(error && error.stack ? error.stack : error));
+    result.errors.push(errorText);
     persistResult(result);
     emitResultSummary(result);
     process.exit(1);
@@ -938,6 +1033,23 @@ def _auth_handoff_state(browser_output: dict[str, object]) -> dict[str, str]:
     if "login.microsoftonline.com" in url or "sign in to your account" in title:
         return {"state": "auth_handoff_required", "provider": "microsoft"}
     return {"state": "", "provider": ""}
+
+
+def _failure_code_from_error_text(detail: object) -> str:
+    lowered = str(detail or "").strip().lower()
+    if not lowered:
+        return ""
+    if "invalid_credentials" in lowered or "email or password you entered is incorrect" in lowered:
+        return "invalid_credentials"
+    if "auth_request_failed" in lowered or "api.1min.ai/auth/login" in lowered:
+        return "auth_request_failed"
+    if "challenge_required" in lowered or "turnstile" in lowered or "cloudflare" in lowered:
+        return "challenge_required"
+    if "session_expired" in lowered or "login required" in lowered or "please sign in" in lowered:
+        return "session_expired"
+    if "timeout" in lowered:
+        return "timeout"
+    return ""
 
 
 def _links_html(links: list[dict[str, object]]) -> str:
@@ -1087,7 +1199,34 @@ def main() -> int:
     except Exception:
         pass
     screenshot_path = run_dir / "preview.png"
-    browser_output = _run_browser(packet, spec=spec, screenshot_path=screenshot_path, timeout_seconds=timeout_seconds)
+    try:
+        browser_output = _run_browser(packet, spec=spec, screenshot_path=screenshot_path, timeout_seconds=timeout_seconds)
+    except Exception as exc:
+        detail = str(exc or "template_worker_failed").strip()
+        failure_code = _failure_code_from_error_text(detail)
+        response = {
+            "service_key": service_key,
+            "result_title": result_title or service_key,
+            "render_status": "failed",
+            "asset_path": "",
+            "mime_type": "text/html",
+            "editor_url": None,
+            "body_text": "",
+            "raw_text": "",
+            "error": detail,
+            "failure_code": failure_code,
+            "ui_failure_code": failure_code,
+            "structured_output_json": {
+                "service": service_key,
+                "template_key": str(packet.get("template_key") or ((spec.get("meta") or {}).get("slug")) or "").strip(),
+                "warnings": [],
+                "errors": [detail],
+                "render_status": "failed",
+                **({"failure_code": failure_code, "ui_failure_code": failure_code} if failure_code else {}),
+            },
+        }
+        print(json.dumps(response, ensure_ascii=False))
+        return 1
     screenshot_data_uri = _image_data_uri(screenshot_path)
     html_path = run_dir / "result.html"
     html_path.write_text(

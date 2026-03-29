@@ -187,6 +187,8 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
     member_reconciled = 0
     api_attempted = 0
     api_rate_limited = False
+    api_recovered = 0
+    browseract_failed = 0
     error_count = 0
     browseract_max_accounts = max(1, int(providers_route._onemin_browseract_max_accounts_per_refresh()))
     browseract_parallelism = max(1, int(providers_route._onemin_browseract_parallelism()))
@@ -199,9 +201,9 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             if str(binding.status or "").strip().lower() == "enabled"
         ]
         binding_jobs: list[dict[str, object]] = []
-        principal_binding_rows: dict[str, list[object]] = {}
-        principal_bound_account_label_order: dict[str, list[str]] = {}
-        principal_seen_account_labels: dict[str, set[str]] = {}
+        bound_account_label_order: list[str] = []
+        seen_bound_account_labels: set[str] = set()
+        all_account_login_credentials: dict[str, dict[str, str]] = {}
         for binding in bindings:
             principal_id = str(binding.principal_id or "").strip()
             if not principal_id:
@@ -230,17 +232,22 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
                 "browseract_onemin_members_workflow_id",
             )
             account_labels = providers_route._resolve_onemin_account_labels(binding)
-            principal_binding_rows.setdefault(principal_id, []).append(binding)
-            principal_bound_account_label_order.setdefault(principal_id, [])
-            principal_seen_account_labels.setdefault(principal_id, set())
             for account_label in account_labels:
-                if account_label and account_label not in principal_seen_account_labels[principal_id]:
-                    principal_seen_account_labels[principal_id].add(account_label)
-                    principal_bound_account_label_order[principal_id].append(account_label)
+                if account_label and account_label not in seen_bound_account_labels:
+                    seen_bound_account_labels.add(account_label)
+                    bound_account_label_order.append(account_label)
+                credentials = providers_route.upstream.onemin_account_login_credentials(
+                    account_name=account_label,
+                    binding_metadata=binding_metadata,
+                )
+                if credentials:
+                    all_account_login_credentials[account_label] = credentials
             binding_jobs.append(
                 {
                     "binding": binding,
                     "principal_id": principal_id,
+                    "binding_id": binding.binding_id,
+                    "external_account_ref": binding.external_account_ref,
                     "binding_metadata": binding_metadata,
                     "billing_run_url": billing_run_url,
                     "billing_workflow_id": billing_workflow_id,
@@ -249,81 +256,116 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
                     "account_labels": tuple(account_labels),
                 }
             )
-
-        select_refresh_account_labels = getattr(container.onemin_manager, "select_billing_refresh_account_labels", None)
-        principal_selected_browseract_labels: dict[str, set[str]] = {}
-        for principal_id, account_labels in principal_bound_account_label_order.items():
-            stale_labels, actual_labels = providers_route._partition_onemin_browseract_account_labels(
-                container=container,
-                principal_id=principal_id,
-                binding_rows=principal_binding_rows.get(principal_id, []),
-                account_labels=account_labels,
+        all_owner_account_rows = providers_route._normalized_onemin_owner_rows()
+        for row in all_owner_account_rows:
+            account_label = str(row.get("account_name") or "").strip()
+            if not account_label or account_label in all_account_login_credentials:
+                continue
+            credentials = providers_route.upstream.onemin_account_login_credentials(
+                account_name=account_label,
+                binding_metadata={},
             )
-            selected_browseract_labels: set[str] = set()
-            if stale_labels:
-                if callable(select_refresh_account_labels):
-                    selected_browseract_labels.update(
-                        select_refresh_account_labels(
-                            stale_labels,
-                            limit=min(browseract_max_accounts, len(stale_labels)),
-                        )
+            if credentials:
+                all_account_login_credentials[account_label] = credentials
+
+        if bound_account_label_order:
+            browseract_target_label_order = list(bound_account_label_order)
+        elif all_owner_account_rows and binding_jobs:
+            browseract_target_label_order = [
+                str(row.get("account_name") or "").strip()
+                for row in all_owner_account_rows
+                if str(row.get("account_name") or "").strip()
+            ]
+        else:
+            browseract_target_label_order = []
+        select_refresh_account_labels = getattr(container.onemin_manager, "select_billing_refresh_account_labels", None)
+        stale_labels, actual_labels = providers_route._partition_onemin_browseract_account_labels(
+            container=container,
+            principal_id="",
+            binding_rows=[],
+            account_labels=browseract_target_label_order,
+        )
+        selected_browseract_labels: set[str] = set()
+        if stale_labels:
+            if callable(select_refresh_account_labels):
+                selected_browseract_labels.update(
+                    select_refresh_account_labels(
+                        stale_labels,
+                        limit=min(browseract_max_accounts, len(stale_labels)),
                     )
-                else:
-                    selected_browseract_labels.update(list(stale_labels)[: min(browseract_max_accounts, len(stale_labels))])
-            remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
-            if remaining_browseract_slots > 0 and actual_labels:
-                if callable(select_refresh_account_labels):
-                    selected_browseract_labels.update(
-                        select_refresh_account_labels(
-                            actual_labels,
-                            limit=min(remaining_browseract_slots, len(actual_labels)),
-                        )
+                )
+            else:
+                selected_browseract_labels.update(list(stale_labels)[: min(browseract_max_accounts, len(stale_labels))])
+        remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
+        if remaining_browseract_slots > 0 and actual_labels:
+            if callable(select_refresh_account_labels):
+                selected_browseract_labels.update(
+                    select_refresh_account_labels(
+                        actual_labels,
+                        limit=min(remaining_browseract_slots, len(actual_labels)),
                     )
-                else:
-                    selected_browseract_labels.update(list(actual_labels)[: min(remaining_browseract_slots, len(actual_labels))])
-            principal_selected_browseract_labels[principal_id] = selected_browseract_labels
+                )
+            else:
+                selected_browseract_labels.update(list(actual_labels)[: min(remaining_browseract_slots, len(actual_labels))])
 
         browseract_billing_jobs: list[dict[str, object]] = []
-        for job in binding_jobs:
-            binding = job["binding"]
-            principal_id = str(job["principal_id"] or "")
-            selected_browseract_labels = principal_selected_browseract_labels.get(principal_id, set())
-            binding_metadata = dict(job["binding_metadata"] or {})
-            billing_run_url = str(job["billing_run_url"] or "")
-            billing_workflow_id = str(job["billing_workflow_id"] or "")
-            members_run_url = str(job["members_run_url"] or "")
-            members_workflow_id = str(job["members_workflow_id"] or "")
-            account_labels = tuple(str(value or "").strip() for value in (job["account_labels"] or ()) if str(value or "").strip())
-            for account_label in account_labels:
-                if account_label not in selected_browseract_labels:
-                    continue
-                if not billing_run_url and not billing_workflow_id and not providers_route._browseract_onemin_login_ready(
-                    account_label=account_label,
-                    binding_metadata=binding_metadata,
-                ):
-                    continue
-                browseract_billing_jobs.append(
-                    {
-                        "principal_id": str(binding.principal_id or "").strip(),
-                        "binding_id": binding.binding_id,
-                        "external_account_ref": binding.external_account_ref,
-                        "account_label": account_label,
-                        "billing_run_url": billing_run_url,
-                        "billing_workflow_id": billing_workflow_id,
-                        "members_run_url": members_run_url,
-                        "members_workflow_id": members_workflow_id,
-                        "member_login_ready": providers_route._browseract_onemin_login_ready(
-                            account_label=account_label,
-                            binding_metadata=binding_metadata,
-                        ),
-                    }
-                )
+        browseract_attempted_labels: set[str] = set()
+        for account_label in browseract_target_label_order:
+            if account_label not in selected_browseract_labels:
+                continue
+            selected_binding_job = providers_route._select_onemin_browseract_binding_job(
+                binding_jobs=binding_jobs,
+                account_label=account_label,
+                require_members=False,
+            )
+            if selected_binding_job is None:
+                continue
+            binding_metadata = dict(selected_binding_job.get("binding_metadata") or {})
+            browseract_billing_jobs.append(
+                {
+                    "principal_id": str(selected_binding_job.get("principal_id") or ""),
+                    "binding_id": str(selected_binding_job.get("binding_id") or ""),
+                    "external_account_ref": str(selected_binding_job.get("external_account_ref") or ""),
+                    "account_label": account_label,
+                    "billing_run_url": str(selected_binding_job.get("billing_run_url") or ""),
+                    "billing_workflow_id": str(selected_binding_job.get("billing_workflow_id") or ""),
+                    "members_run_url": str(selected_binding_job.get("members_run_url") or ""),
+                    "members_workflow_id": str(selected_binding_job.get("members_workflow_id") or ""),
+                    "member_login_ready": providers_route._browseract_onemin_login_ready(
+                        account_label=account_label,
+                        binding_metadata=binding_metadata,
+                    ),
+                }
+            )
 
         browseract_attempted = len(browseract_billing_jobs)
+        effective_browseract_parallelism = 1 if all_owner_account_rows else max(
+            1,
+            min(
+                browseract_parallelism,
+                len(
+                    {
+                        str(job.get("binding_id") or "").strip()
+                        for job in browseract_billing_jobs
+                        if str(job.get("binding_id") or "").strip()
+                    }
+                )
+                or 1,
+            ),
+        )
         billing_results, billing_errors = providers_route._run_onemin_browseract_jobs(
             jobs=browseract_billing_jobs,
-            max_workers=browseract_parallelism,
+            max_workers=effective_browseract_parallelism,
             tool_name="browseract.onemin_billing_usage",
+            stop_on_failure_codes={
+                "auth_request_failed",
+                "challenge_required",
+                "session_expired",
+                "timeout",
+                "ui_worker_failed",
+                "lane_unavailable",
+            },
+            max_consecutive_stop_failures=providers_route._onemin_browseract_systemic_failure_threshold(),
             invoke_job=lambda job: providers_route._invoke_browseract_tool(
                 container=container,
                 principal_id=str(job.get("principal_id") or ""),
@@ -339,16 +381,13 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
                 },
             ),
         )
+        browseract_attempted_labels = {
+            str(row.get("account_label") or "").strip()
+            for row in [*billing_results, *billing_errors]
+            if str(row.get("account_label") or "").strip()
+        }
+        browseract_attempted = len(browseract_attempted_labels)
         browseract_refreshed = len(billing_results)
-        error_count += len(billing_errors)
-        for row in billing_errors:
-            log.warning(
-                "scheduler onemin billing browseract refresh failed principal=%s binding=%s account=%s error=%s",
-                next((str(job.get("principal_id") or "") for job in browseract_billing_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
-                row.get("binding_id"),
-                row.get("account_label"),
-                row.get("error"),
-            )
 
         successful_labels = {
             str(row.get("account_label") or "").strip()
@@ -365,10 +404,33 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
                 or bool(job.get("member_login_ready"))
             )
         ]
+        effective_member_parallelism = 1 if all_owner_account_rows else max(
+            1,
+            min(
+                browseract_parallelism,
+                len(
+                    {
+                        str(job.get("binding_id") or "").strip()
+                        for job in browseract_member_jobs
+                        if str(job.get("binding_id") or "").strip()
+                    }
+                )
+                or 1,
+            ),
+        )
         member_results, member_errors = providers_route._run_onemin_browseract_jobs(
             jobs=browseract_member_jobs,
-            max_workers=browseract_parallelism,
+            max_workers=effective_member_parallelism,
             tool_name="browseract.onemin_member_reconciliation",
+            stop_on_failure_codes={
+                "auth_request_failed",
+                "challenge_required",
+                "session_expired",
+                "timeout",
+                "ui_worker_failed",
+                "lane_unavailable",
+            },
+            max_consecutive_stop_failures=providers_route._onemin_browseract_systemic_failure_threshold(),
             invoke_job=lambda job: providers_route._invoke_browseract_tool(
                 container=container,
                 principal_id=str(job.get("principal_id") or ""),
@@ -385,31 +447,136 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             ),
         )
         member_reconciled = len(member_results)
-        error_count += len(member_errors)
-        for row in member_errors:
-            log.warning(
-                "scheduler onemin member reconciliation failed principal=%s binding=%s account=%s error=%s",
-                next((str(job.get("principal_id") or "") for job in browseract_member_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
-                row.get("binding_id"),
-                row.get("account_label"),
-                row.get("error"),
-            )
-
-        if _scheduler_onemin_global_provider_api_sweep_enabled():
+        browseract_failed_labels = {
+            str(row.get("account_label") or "").strip()
+            for row in [*billing_errors, *member_errors]
+            if str(row.get("account_label") or "").strip()
+        }
+        browseract_failed = len(browseract_failed_labels)
+        recovered_browseract_labels: set[str] = set()
+        fallback_api_errors: list[dict[str, object]] = []
+        unattempted_browseract_labels = {
+            label
+            for label in browseract_target_label_order
+            if label and label not in browseract_attempted_labels
+        }
+        if browseract_failed_labels:
             (
-                _api_billing_results,
-                _api_member_results,
-                api_errors,
+                api_billing_results,
+                api_member_results,
+                fallback_api_errors,
                 api_attempted,
                 _api_skipped,
                 api_rate_limited,
             ) = providers_route._refresh_onemin_via_provider_api(
                 include_members=True,
                 timeout_seconds=180,
-                all_accounts=True,
-                continue_on_rate_limit=True,
+                all_accounts=False,
+                continue_on_rate_limit=False,
+                account_labels=browseract_failed_labels | unattempted_browseract_labels,
+                account_login_credentials={
+                    account_label: credentials
+                    for account_label, credentials in all_account_login_credentials.items()
+                    if account_label in (browseract_failed_labels | unattempted_browseract_labels)
+                },
             )
-            error_count += len(api_errors)
+            recovered_browseract_labels.update(
+                str(row.get("account_label") or "").strip()
+                for row in [*api_billing_results, *api_member_results]
+                if str(row.get("account_label") or "").strip()
+            )
+            api_recovered = len(recovered_browseract_labels & browseract_failed_labels)
+            member_reconciled = len(
+                {
+                    str(row.get("account_label") or "").strip()
+                    for row in [*member_results, *api_member_results]
+                    if str(row.get("account_label") or "").strip()
+                }
+            )
+        elif _scheduler_onemin_global_provider_api_sweep_enabled():
+            if unattempted_browseract_labels:
+                (
+                    _api_billing_results,
+                    _api_member_results,
+                    api_errors,
+                    global_api_attempted,
+                    _api_skipped,
+                    global_api_rate_limited,
+                ) = providers_route._refresh_onemin_via_provider_api(
+                    include_members=True,
+                    timeout_seconds=180,
+                    all_accounts=False,
+                    continue_on_rate_limit=False,
+                    account_labels=unattempted_browseract_labels,
+                    account_login_credentials={
+                        account_label: credentials
+                        for account_label, credentials in all_account_login_credentials.items()
+                        if account_label in unattempted_browseract_labels
+                    },
+                )
+                api_attempted += global_api_attempted
+                api_rate_limited = api_rate_limited or global_api_rate_limited
+                error_count += len(api_errors)
+            elif not browseract_target_label_order:
+                (
+                    _api_billing_results,
+                    _api_member_results,
+                    api_errors,
+                    global_api_attempted,
+                    _api_skipped,
+                    global_api_rate_limited,
+                ) = providers_route._refresh_onemin_via_provider_api(
+                    include_members=True,
+                    timeout_seconds=180,
+                    all_accounts=True,
+                    continue_on_rate_limit=False,
+                )
+                api_attempted += global_api_attempted
+                api_rate_limited = api_rate_limited or global_api_rate_limited
+                error_count += len(api_errors)
+
+        unrecovered_billing_errors = [
+            row
+            for row in billing_errors
+            if str(row.get("account_label") or "").strip() not in recovered_browseract_labels
+        ]
+        unrecovered_member_errors = [
+            row
+            for row in member_errors
+            if str(row.get("account_label") or "").strip() not in recovered_browseract_labels
+        ]
+        error_count += len(unrecovered_billing_errors)
+        error_count += len(unrecovered_member_errors)
+        error_count += len(fallback_api_errors)
+        for row in unrecovered_billing_errors:
+            log.warning(
+                "scheduler onemin billing browseract refresh failed principal=%s binding=%s account=%s code=%s error=%s",
+                next((str(job.get("principal_id") or "") for job in browseract_billing_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
+                row.get("binding_id"),
+                row.get("account_label"),
+                row.get("failure_code"),
+                row.get("error"),
+            )
+        for row in unrecovered_member_errors:
+            log.warning(
+                "scheduler onemin member reconciliation failed principal=%s binding=%s account=%s code=%s error=%s",
+                next((str(job.get("principal_id") or "") for job in browseract_member_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
+                row.get("binding_id"),
+                row.get("account_label"),
+                row.get("failure_code"),
+                row.get("error"),
+            )
+        if recovered_browseract_labels:
+            log.info(
+                "scheduler onemin recovered browseract failures via provider api accounts=%s",
+                ",".join(sorted(recovered_browseract_labels & browseract_failed_labels)),
+            )
+        for row in fallback_api_errors:
+            log.warning(
+                "scheduler onemin provider api fallback failed account=%s error=%s",
+                row.get("account_label"),
+                row.get("error"),
+            )
 
         return {
             "ran": True,
@@ -421,6 +588,8 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             "member_reconciled": member_reconciled,
             "api_attempted": api_attempted,
             "api_rate_limited": api_rate_limited,
+            "api_recovered": api_recovered,
+            "browseract_failed": browseract_failed,
             "errors": error_count,
         }
     finally:
@@ -805,12 +974,14 @@ def _run_execution_worker(role: str) -> None:
                     if bool(refresh_summary.get("ran")) and not bool(refresh_summary.get("throttled")):
                         last_onemin_refresh_at = now
                         log.info(
-                            "role=%s scheduler onemin refresh browseract=%s/%s members=%s api_attempted=%s api_rate_limited=%s errors=%s",
+                            "role=%s scheduler onemin refresh browseract=%s/%s browseract_failed=%s members=%s api_attempted=%s api_recovered=%s api_rate_limited=%s errors=%s",
                             role,
                             refresh_summary.get("browseract_refreshed"),
                             refresh_summary.get("browseract_attempted"),
+                            refresh_summary.get("browseract_failed"),
                             refresh_summary.get("member_reconciled"),
                             refresh_summary.get("api_attempted"),
+                            refresh_summary.get("api_recovered"),
                             refresh_summary.get("api_rate_limited"),
                             refresh_summary.get("errors"),
                         )

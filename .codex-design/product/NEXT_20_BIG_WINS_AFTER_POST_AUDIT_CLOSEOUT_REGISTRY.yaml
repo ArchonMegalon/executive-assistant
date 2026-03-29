@@ -26,7 +26,7 @@ waves:
       - 10
   - id: W3
     name: Make exchange, output, and publication a second pillar
-    status: not_started
+    status: in_progress
     milestone_ids:
       - 11
       - 12
@@ -89,7 +89,7 @@ milestones:
       - chummer6-core
       - chummer6-media-factory
       - chummer6-ui
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Opposition, scene, and prep packets are reusable governed objects with search and campaign-binding semantics.
       - GM prep flows can launch governed opposition truth without recreating local shadow packet models.
@@ -104,7 +104,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Claimed devices can prefetch dossier, campaign, rule-environment, and artifact truth for bounded offline use.
       - Travel and safehouse mode keep install-local caches local while making offline readiness visible and deliberate.
@@ -118,7 +118,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-hub
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Users can model multiple future advancement paths with deterministic tradeoff explanations.
       - Planner output respects campaign-aware constraints and hands off cleanly into living dossier truth.
@@ -132,7 +132,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-hub
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Build Lab can reason about crew fit, role overlap, missing capabilities, and campaign role pressure.
       - Team optimization results are grounded in explainable receipts instead of opaque scoring folklore.
@@ -311,7 +311,7 @@ milestones:
       - chummer6-hub
       - chummer6-core
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - New users can reach a legal, understandable, playable runner and a campaign-ready first session without repo knowledge.
       - Guided onboarding reuses grounded explain, support, and campaign truth instead of parallel tutorial folklore.
@@ -328,7 +328,7 @@ milestones:
       - executive-assistant
       - chummer6-design
       - chummer6-hub
-    status: not_started
+    status: in_progress
     exit_criteria:
       - The weekly pulse uses real adoption, closure, and health trends plus provider-route defaults and canaries.
       - Launch, freeze, and reroute decisions no longer depend on hand-maintained prose drift.

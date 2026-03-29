@@ -461,6 +461,21 @@ _ONEMIN_SUBMIT_SELECTOR = (
     ".ant-modal-wrap button.ant-btn-primary:has-text(\"Log In\"), "
     ".ant-modal button[type=submit], .ant-modal-root button[type=submit]"
 )
+_ONEMIN_AUTH_FAILURE_SELECTORS = (
+    ".ant-message-notice-content",
+    ".ant-message-custom-content",
+    ".ant-notification-notice-message",
+    ".ant-notification-notice-description",
+    ".ant-form-item-explain-error",
+    "[role='alert']",
+)
+_ONEMIN_INVALID_CREDENTIAL_MARKERS = (
+    "the email or password you entered is incorrect",
+    "email or password you entered is incorrect",
+    "incorrect email or password",
+    "invalid email or password",
+    "invalid credentials",
+)
 
 
 def _onemin_meta(*, slug: str, output_dir: str, tool_url: str) -> dict[str, object]:
@@ -515,71 +530,112 @@ def _onemin_login_modal_nodes() -> tuple[list[dict[str, object]], list[list[str]
                 "post_click_wait_ms": 1200,
             },
         },
-        {
-            "id": "wait_login_form",
-            "type": "wait",
-            "label": "Wait Login Form",
-            "config": {
-                "selector": _ONEMIN_EMAIL_SELECTOR,
-                "timeout_ms": 45000,
-            },
-        },
-        {
-            "id": "email",
-            "type": "input_text",
-            "label": "Email",
-            "config": {
-                "selector": _ONEMIN_EMAIL_SELECTOR,
-                "value_from_secret": "browseract_username",
-            },
-        },
-        {
-            "id": "password",
-            "type": "input_text",
-            "label": "Password",
-            "config": {
-                "selector": _ONEMIN_PASSWORD_SELECTOR,
-                "value_from_secret": "browseract_password",
-            },
-        },
-        {
-            "id": "submit",
-            "type": "submit_login_form",
-            "label": "Submit Login",
-            "config": {
-                "selector": _ONEMIN_SUBMIT_SELECTOR,
-                "password_selector": _ONEMIN_PASSWORD_SELECTOR,
-                "form_selector": "form[name='login'], .ant-modal form, .ant-modal-root form, form",
-                "react_click": True,
-                "auth_advance_timeout_ms": 12000,
-                "pre_submit_cookie_name": "cf_clearance",
-                "pre_submit_cookie_timeout_ms": 25000,
-                "pre_submit_wait_ms": 3000,
-                "submit_retry_count": 1,
-                "submit_retry_backoff_ms": 8000,
-            },
-        },
-        {
-            "id": "wait_authenticated",
-            "type": "wait",
-            "label": "Wait Authenticated",
-            "config": {
-                "selector": _ONEMIN_PASSWORD_SELECTOR,
-                "state": "hidden",
-                "timeout_ms": 45000,
-                "optional": True,
-            },
-        },
     ]
     edges = [
         ["open_login", "wait_login_entry"],
         ["wait_login_entry", "open_login_entry"],
-        ["open_login_entry", "wait_login_form"],
-        ["wait_login_form", "email"],
-        ["email", "password"],
-        ["password", "submit"],
-        ["submit", "wait_authenticated"],
     ]
+    previous = "open_login_entry"
+    for index, selector in enumerate(_ONEMIN_CLOSE_SELECTORS, start=1):
+        wait_id = f"wait_pre_auth_dismiss_overlay_{index:02d}"
+        click_id = f"pre_auth_dismiss_overlay_{index:02d}"
+        nodes.extend(
+            [
+                {
+                    "id": wait_id,
+                    "type": "wait",
+                    "label": f"Wait Pre-Auth Dismiss Overlay {index}",
+                    "config": {
+                        "selector": selector,
+                        "timeout_ms": 2500,
+                        "optional": True,
+                    },
+                },
+                {
+                    "id": click_id,
+                    "type": "click",
+                    "label": f"Pre-Auth Dismiss Overlay {index}",
+                    "config": {
+                        "selector": selector,
+                        "optional": True,
+                        "wait_timeout_ms": 1500,
+                    },
+                },
+            ]
+        )
+        edges.extend([[previous, wait_id], [wait_id, click_id]])
+        previous = click_id
+    nodes.extend(
+        [
+            {
+                "id": "wait_login_form",
+                "type": "wait",
+                "label": "Wait Login Form",
+                "config": {
+                    "selector": _ONEMIN_EMAIL_SELECTOR,
+                    "timeout_ms": 45000,
+                },
+            },
+            {
+                "id": "email",
+                "type": "input_text",
+                "label": "Email",
+                "config": {
+                    "selector": _ONEMIN_EMAIL_SELECTOR,
+                    "value_from_secret": "browseract_username",
+                },
+            },
+            {
+                "id": "password",
+                "type": "input_text",
+                "label": "Password",
+                "config": {
+                    "selector": _ONEMIN_PASSWORD_SELECTOR,
+                    "value_from_secret": "browseract_password",
+                },
+            },
+            {
+                "id": "submit",
+                "type": "submit_login_form",
+                "label": "Submit Login",
+                "config": {
+                    "selector": _ONEMIN_SUBMIT_SELECTOR,
+                    "password_selector": _ONEMIN_PASSWORD_SELECTOR,
+                    "form_selector": "form[name='login'], .ant-modal form, .ant-modal-root form, form",
+                    "react_click": True,
+                    "auth_advance_timeout_ms": 12000,
+                    "pre_submit_cookie_name": "cf_clearance",
+                    "pre_submit_cookie_timeout_ms": 25000,
+                    "pre_submit_wait_ms": 3000,
+                    "submit_retry_count": 1,
+                    "submit_retry_backoff_ms": 8000,
+                    "auth_failure_code": "invalid_credentials",
+                    "auth_failure_selectors": list(_ONEMIN_AUTH_FAILURE_SELECTORS),
+                    "auth_failure_text_markers": list(_ONEMIN_INVALID_CREDENTIAL_MARKERS),
+                },
+            },
+            {
+                "id": "wait_authenticated",
+                "type": "wait",
+                "label": "Wait Authenticated",
+                "config": {
+                    "selector": _ONEMIN_PASSWORD_SELECTOR,
+                    "state": "hidden",
+                    "timeout_ms": 45000,
+                    "optional": True,
+                },
+            },
+        ]
+    )
+    edges.extend(
+        [
+            [previous, "wait_login_form"],
+            ["wait_login_form", "email"],
+            ["email", "password"],
+            ["password", "submit"],
+            ["submit", "wait_authenticated"],
+        ]
+    )
     return nodes, edges, "wait_authenticated"
 
 
