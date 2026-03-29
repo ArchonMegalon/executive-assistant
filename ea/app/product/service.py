@@ -504,6 +504,8 @@ class ProductService:
                 "stakeholder_id": resolved_stakeholder_id,
                 "gmail_thread_id": gmail_thread_id,
                 "gmail_message_id": gmail_message_id,
+                "gmail_rfc822_message_id": str(payload_json.get("rfc822_message_id") or "").strip(),
+                "gmail_references": str(payload_json.get("references") or payload_json.get("message_id") or "").strip(),
                 "signal_type": normalized_signal,
                 "draft_origin": "office_signal",
                 "tone": preferred_tone,
@@ -616,6 +618,8 @@ class ProductService:
         source_ref = str(action_json.get("source_ref") or "").strip()
         person_id = str(action_json.get("stakeholder_id") or "").strip()
         signal_type = str(action_json.get("signal_type") or "").strip()
+        reply_to_message_id = str(action_json.get("gmail_rfc822_message_id") or action_json.get("in_reply_to") or "").strip()
+        references = str(action_json.get("gmail_references") or action_json.get("references") or "").strip()
         if not recipient_email or not body_text:
             return {
                 "status": "skipped",
@@ -628,6 +632,8 @@ class ProductService:
                 "source_ref": source_ref,
                 "person_id": person_id,
                 "signal_type": signal_type,
+                "reply_to_message_id": reply_to_message_id,
+                "references": references,
             }
         if not subject:
             subject = compact_text(body_text, fallback="EA follow-up", limit=120)
@@ -643,6 +649,8 @@ class ProductService:
                 subject=subject,
                 body_text=body_text,
                 thread_id=thread_id or None,
+                reply_to_message_id=reply_to_message_id or None,
+                references=references or None,
             )
         except RuntimeError as exc:
             reason = str(exc or "draft_send_failed")
@@ -673,6 +681,8 @@ class ProductService:
                 "source_ref": source_ref,
                 "person_id": person_id,
                 "signal_type": signal_type,
+                "reply_to_message_id": reply_to_message_id,
+                "references": references,
             }
         return {
             "status": "sent",
@@ -689,6 +699,8 @@ class ProductService:
             "source_ref": source_ref,
             "person_id": person_id,
             "signal_type": signal_type,
+            "reply_to_message_id": reply_to_message_id,
+            "references": references,
         }
 
     def _ensure_draft_delivery_followup(
@@ -734,6 +746,8 @@ class ProductService:
                 "source_ref": str(delivery.get("source_ref") or action_json.get("source_ref") or "").strip(),
                 "stakeholder_id": str(delivery.get("person_id") or action_json.get("stakeholder_id") or "").strip(),
                 "gmail_thread_id": str(action_json.get("gmail_thread_id") or "").strip(),
+                "gmail_rfc822_message_id": str(action_json.get("gmail_rfc822_message_id") or "").strip(),
+                "gmail_references": str(action_json.get("gmail_references") or "").strip(),
                 "signal_type": str(delivery.get("signal_type") or action_json.get("signal_type") or "").strip(),
             },
             desired_output_json={
@@ -898,6 +912,8 @@ class ProductService:
                 "source_ref": str(input_json.get("source_ref") or "").strip(),
                 "stakeholder_id": str(input_json.get("stakeholder_id") or "").strip(),
                 "gmail_thread_id": str(input_json.get("gmail_thread_id") or "").strip(),
+                "gmail_rfc822_message_id": str(input_json.get("gmail_rfc822_message_id") or "").strip(),
+                "gmail_references": str(input_json.get("gmail_references") or "").strip(),
                 "signal_type": str(input_json.get("signal_type") or "").strip(),
             },
         )
