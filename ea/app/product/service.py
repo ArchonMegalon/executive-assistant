@@ -485,6 +485,7 @@ class ProductService:
                 "signal_type": normalized_signal,
                 "draft_origin": "office_signal",
                 "tone": preferred_tone,
+                "candidate_ids": [row.candidate_id for row in staged_candidates if str(row.candidate_id or "").strip()],
             },
         )
         self._record_product_event(
@@ -530,6 +531,59 @@ class ProductService:
             if str(row.source_ref or "").strip() == normalized_source
             and str(row.status or "").strip().lower() in {"pending", "duplicate"}
         )
+
+    def _linked_signal_candidate_ids(
+        self,
+        *,
+        principal_id: str,
+        action_json: dict[str, object],
+    ) -> tuple[str, ...]:
+        rows: list[str] = []
+        seen: set[str] = set()
+        for value in list(action_json.get("candidate_ids") or []):
+            normalized = str(value or "").strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                rows.append(normalized)
+        if rows:
+            return tuple(rows)
+        source_ref = str(action_json.get("source_ref") or action_json.get("thread_ref") or "").strip()
+        for row in self._matching_staged_signal_candidates(principal_id=principal_id, source_ref=source_ref):
+            normalized = str(row.candidate_id or "").strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                rows.append(normalized)
+        return tuple(rows)
+
+    def _accept_linked_signal_candidates(
+        self,
+        *,
+        principal_id: str,
+        action_json: dict[str, object],
+        reviewer: str,
+    ) -> tuple[str, ...]:
+        accepted: list[str] = []
+        for candidate_id in self._linked_signal_candidate_ids(principal_id=principal_id, action_json=action_json):
+            current = self.get_commitment_candidate(principal_id=principal_id, candidate_id=candidate_id)
+            if current is None or str(current.status or "").strip().lower() not in {"pending", "duplicate"}:
+                continue
+            created = self.accept_commitment_candidate(
+                principal_id=principal_id,
+                candidate_id=candidate_id,
+                reviewer=reviewer,
+            )
+            if created is not None:
+                accepted.append(candidate_id)
+        return tuple(accepted)
+
+    def _pending_signal_draft_candidate_ids(self, *, principal_id: str) -> set[str]:
+        hidden: set[str] = set()
+        for row in self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=200):
+            action_json = dict(row.requested_action_json or {})
+            if str(action_json.get("draft_origin") or "").strip() != "office_signal":
+                continue
+            hidden.update(self._linked_signal_candidate_ids(principal_id=principal_id, action_json=action_json))
+        return hidden
 
     def _commitment_candidate_payload(self, row: CommitmentCandidate) -> dict[str, object]:
         return {
@@ -2608,10 +2662,23 @@ class ProductService:
         if decided is None:
             return None
         request, _ = decided
+        action_json = dict(request.requested_action_json or {})
+        accepted_candidate_ids: tuple[str, ...] = ()
+        if str(action_json.get("draft_origin") or "").strip() == "office_signal":
+            accepted_candidate_ids = self._accept_linked_signal_candidates(
+                principal_id=principal_id,
+                action_json=action_json,
+                reviewer=decided_by,
+            )
         self._record_product_event(
             principal_id=principal_id,
             event_type="draft_approved",
-            payload={"draft_ref": draft_ref, "decided_by": decided_by, "reason": reason or ""},
+            payload={
+                "draft_ref": draft_ref,
+                "decided_by": decided_by,
+                "reason": reason or "",
+                "accepted_candidate_ids": list(accepted_candidate_ids),
+            },
             source_id=request.approval_id,
         )
         return DraftCandidate(
@@ -2624,7 +2691,7 @@ class ProductService:
             requires_approval=True,
             approval_status="approved",
             provenance_refs=(EvidenceRef(ref_id=f"approval:{request.approval_id}", label="Approval request", source_type="approval", note=request.reason),),
-            send_channel=str(dict(request.requested_action_json or {}).get("channel") or "email"),
+            send_channel=str(action_json.get("channel") or "email"),
         )
 
     def reject_draft(self, *, principal_id: str, draft_ref: str, decided_by: str, reason: str) -> DraftCandidate | None:
@@ -4818,6 +4885,10 @@ class ProductService:
             for item in snapshot.commitment_candidates
             if str(item.status or "").strip().lower() in {"pending", "duplicate"}
         ]
+        hidden_candidate_ids = self._pending_signal_draft_candidate_ids(principal_id=principal_id)
+        visible_review_candidates = [
+            item for item in review_candidates if str(item.candidate_id or "").strip() not in hidden_candidate_ids
+        ]
         assigned_handoffs = [item for item in snapshot.handoffs if operator_key and item.owner == operator_key]
         unclaimed_handoffs = [item for item in snapshot.handoffs if not str(item.owner or "").strip()]
         visible_handoffs = assigned_handoffs[:1] + unclaimed_handoffs[:2]
@@ -4912,7 +4983,7 @@ class ProductService:
                     "secondary_action_method": "get",
                 }
             )
-        for candidate in review_candidates[:2]:
+        for candidate in visible_review_candidates[:2]:
             candidate_detail = " · ".join(
                 part
                 for part in (
@@ -5089,13 +5160,13 @@ class ProductService:
                 "summary": "Clear draft approvals, staged commitment review, and decision pressure without dropping into the full workspace.",
                 "preview_text": (
                     f"{len(snapshot.drafts)} pending drafts, "
-                    f"{len(review_candidates)} staged commitment candidates, "
+                    f"{len(visible_review_candidates)} staged commitment candidates, "
                     f"and {len(principal_queue)} principal-backed queue items are waiting."
                 ),
                 "items": approval_items,
                 "stats": {
                     "pending_drafts": len(snapshot.drafts),
-                    "pending_commitment_candidates": len(review_candidates),
+                    "pending_commitment_candidates": len(visible_review_candidates),
                     "principal_queue_items": len(principal_queue),
                     "open_decisions": len(open_decisions),
                 },

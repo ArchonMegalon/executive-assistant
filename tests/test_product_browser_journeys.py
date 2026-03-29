@@ -394,11 +394,13 @@ def test_channel_loop_get_actions_work() -> None:
     approvals_page = client.get("/app/channel-loop/approvals")
     assert approvals_page.status_code == 200
     assert "Inline approvals" in approvals_page.text
-    assert "Revised board packet to Sofia" in approvals_page.text
+    assert "Approve draft for Sofia N." in approvals_page.text
+    assert "Revised board packet to Sofia" not in approvals_page.text
 
     loop_payload = client.get("/app/api/channel-loop")
     assert loop_payload.status_code == 200
     approvals_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "approvals")
+    assert all("board packet" not in item["title"].lower() for item in approvals_digest["items"] if item["tag"] == "Candidate")
     drafts_before = client.get("/app/api/drafts")
     assert drafts_before.status_code == 200
     draft_count_before = len(drafts_before.json())
@@ -410,13 +412,12 @@ def test_channel_loop_get_actions_work() -> None:
     assert drafts_after.status_code == 200
     assert len(drafts_after.json()) == draft_count_before - 1
 
-    candidate_href = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Candidate")
-    candidate_accepted = client.get(candidate_href, follow_redirects=False)
-    assert candidate_accepted.status_code == 303
-    assert candidate_accepted.headers["location"] == "/app/channel-loop/approvals"
     pending_candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
     assert pending_candidates.status_code == 200
     assert "board packet" not in pending_candidates.text.lower()
+
+    refreshed_approvals = next(item for item in client.get("/app/api/channel-loop").json()["digests"] if item["key"] == "approvals")
+    assert all("board packet" not in item["title"].lower() for item in refreshed_approvals["items"] if item["tag"] == "Candidate")
 
     memo_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "memo")
     closed_href = next(item["action_href"] for item in memo_digest["items"] if item["tag"] == "Commitment")
