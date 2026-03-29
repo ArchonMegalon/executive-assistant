@@ -683,6 +683,16 @@ def _object_detail_row(
     action_value: str = "",
     action_method: str = "",
     return_to: str = "",
+    secondary_action_href: str = "",
+    secondary_action_label: str = "",
+    secondary_action_value: str = "",
+    secondary_action_method: str = "",
+    secondary_return_to: str = "",
+    tertiary_action_href: str = "",
+    tertiary_action_label: str = "",
+    tertiary_action_value: str = "",
+    tertiary_action_method: str = "",
+    tertiary_return_to: str = "",
 ) -> dict[str, str]:
     row = {
         "title": str(title or "").strip(),
@@ -701,6 +711,26 @@ def _object_detail_row(
         row["action_method"] = action_method
     if return_to:
         row["return_to"] = return_to
+    if secondary_action_href:
+        row["secondary_action_href"] = secondary_action_href
+    if secondary_action_label:
+        row["secondary_action_label"] = secondary_action_label
+    if secondary_action_value:
+        row["secondary_action_value"] = secondary_action_value
+    if secondary_action_method:
+        row["secondary_action_method"] = secondary_action_method
+    if secondary_return_to:
+        row["secondary_return_to"] = secondary_return_to
+    if tertiary_action_href:
+        row["tertiary_action_href"] = tertiary_action_href
+    if tertiary_action_label:
+        row["tertiary_action_label"] = tertiary_action_label
+    if tertiary_action_value:
+        row["tertiary_action_value"] = tertiary_action_value
+    if tertiary_action_method:
+        row["tertiary_action_method"] = tertiary_action_method
+    if tertiary_return_to:
+        row["tertiary_return_to"] = tertiary_return_to
     return row
 
 

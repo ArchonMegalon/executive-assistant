@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, HandoffNote, PersonProfile, ProductSnapshot, RuleItem, ThreadItem
-from app.product.projections.handoffs import handoff_action_plan
+from app.product.projections.handoffs import handoff_action_options, handoff_action_plan
 
 
 def _row(
@@ -19,6 +19,11 @@ def _row(
     secondary_action_value: str = "",
     secondary_action_method: str = "",
     secondary_return_to: str = "",
+    tertiary_action_href: str = "",
+    tertiary_action_label: str = "",
+    tertiary_action_value: str = "",
+    tertiary_action_method: str = "",
+    tertiary_return_to: str = "",
 ) -> dict[str, str]:
     row = {"title": title, "detail": detail, "tag": tag}
     if href:
@@ -43,6 +48,16 @@ def _row(
         row["secondary_action_method"] = secondary_action_method
     if secondary_return_to:
         row["secondary_return_to"] = secondary_return_to
+    if tertiary_action_href:
+        row["tertiary_action_href"] = tertiary_action_href
+    if tertiary_action_label:
+        row["tertiary_action_label"] = tertiary_action_label
+    if tertiary_action_value:
+        row["tertiary_action_value"] = tertiary_action_value
+    if tertiary_action_method:
+        row["tertiary_action_method"] = tertiary_action_method
+    if tertiary_return_to:
+        row["tertiary_return_to"] = tertiary_return_to
     return row
 
 
@@ -300,36 +315,83 @@ def _people_rows(values: tuple[PersonProfile, ...]) -> list[dict[str, str]]:
 def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", actionable: bool = True, return_to: str = "/app/follow-ups") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
-        action_plan = handoff_action_plan(value, operator_id=operator_id) if actionable else {}
-        action_kind = str(action_plan.get("kind") or "assign").strip()
+        action_options = handoff_action_options(value, operator_id=operator_id, return_to=return_to) if actionable else ()
         detail = " · ".join(
             part
             for part in (
                 value.owner,
                 f"Due {value.due_time[:10]}" if value.due_time else "",
                 value.recipient_email if value.task_type == "delivery_followup" and value.recipient_email else "",
+                (
+                    "Needs reauth"
+                    if value.task_type == "delivery_followup" and str(value.delivery_reason or "").strip().startswith("google_")
+                    else "Unable to send"
+                    if value.task_type == "delivery_followup" and str(value.delivery_reason or "").strip()
+                    else ""
+                ),
                 value.evidence_refs[0].note if value.evidence_refs else "",
             )
             if part
         )
+        action_href = ""
+        action_label = ""
+        action_value = ""
+        action_method = ""
+        secondary_action_href = ""
+        secondary_action_label = ""
+        secondary_action_value = ""
+        secondary_action_method = ""
+        tertiary_action_href = ""
+        tertiary_action_label = ""
+        tertiary_action_value = ""
+        tertiary_action_method = ""
+        for index, option in enumerate(action_options[:3]):
+            route = str(option.get("route") or "").strip()
+            href = str(option.get("href") or "").strip()
+            resolved_href = href or (
+                f"/app/actions/handoffs/{value.id}/{route}"
+                if route
+                else ""
+            )
+            resolved_method = str(option.get("method") or ("get" if href else "post")).strip().lower()
+            resolved_label = str(option.get("label") or "").strip()
+            resolved_value = str(option.get("value") or "").strip()
+            if index == 0:
+                action_href = resolved_href
+                action_label = resolved_label
+                action_value = resolved_value
+                action_method = resolved_method
+            elif index == 1:
+                secondary_action_href = resolved_href
+                secondary_action_label = resolved_label
+                secondary_action_value = resolved_value
+                secondary_action_method = resolved_method
+            else:
+                tertiary_action_href = resolved_href
+                tertiary_action_label = resolved_label
+                tertiary_action_value = resolved_value
+                tertiary_action_method = resolved_method
         rows.append(
             _row(
                 value.summary,
                 detail or "Handoff remains open.",
                 value.escalation_status.capitalize(),
                 href=f"/app/handoffs/{value.id}",
-                action_href=f"/app/actions/handoffs/{value.id}/{'complete' if action_kind == 'complete' else 'assign'}" if actionable else "",
-                action_label=str(action_plan.get("label") or "") if actionable else "",
-                action_value=str(action_plan.get("value") or "") if actionable else "",
-                return_to=return_to if actionable else "",
-                secondary_action_href=(
-                    f"/app/actions/handoffs/{value.id}/complete"
-                    if actionable and action_kind == "complete" and str(action_plan.get("secondary_value") or "").strip()
-                    else ""
-                ),
-                secondary_action_label=str(action_plan.get("secondary_label") or "") if actionable else "",
-                secondary_action_value=str(action_plan.get("secondary_value") or "") if actionable else "",
-                secondary_return_to=return_to if actionable else "",
+                action_href=action_href if actionable else "",
+                action_label=action_label if actionable else "",
+                action_value=action_value if actionable else "",
+                action_method=action_method if actionable else "",
+                return_to=return_to if actionable and action_href else "",
+                secondary_action_href=secondary_action_href if actionable else "",
+                secondary_action_label=secondary_action_label if actionable else "",
+                secondary_action_value=secondary_action_value if actionable else "",
+                secondary_action_method=secondary_action_method if actionable else "",
+                secondary_return_to=return_to if actionable and secondary_action_href else "",
+                tertiary_action_href=tertiary_action_href if actionable else "",
+                tertiary_action_label=tertiary_action_label if actionable else "",
+                tertiary_action_value=tertiary_action_value if actionable else "",
+                tertiary_action_method=tertiary_action_method if actionable else "",
+                tertiary_return_to=return_to if actionable and tertiary_action_href else "",
             )
         )
     return rows

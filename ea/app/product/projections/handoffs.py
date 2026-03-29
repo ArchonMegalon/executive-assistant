@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from app.domain.models import HumanTask
 from app.product.models import EvidenceRef, HandoffNote
 
@@ -28,19 +30,97 @@ def handoff_from_human_task(task: HumanTask) -> HandoffNote:
 
 
 def handoff_action_plan(handoff: HandoffNote, *, operator_id: str = "") -> dict[str, str]:
+    options = handoff_action_options(handoff, operator_id=operator_id)
+    return dict(options[0]) if options else {}
+
+
+def handoff_action_options(
+    handoff: HandoffNote,
+    *,
+    operator_id: str = "",
+    return_to: str = "",
+) -> tuple[dict[str, str], ...]:
     operator_key = str(operator_id or "").strip()
     owner = str(handoff.owner or "").strip()
     if not operator_key or owner != operator_key:
-        return {"kind": "assign", "label": "Claim", "value": "assign"}
-    if str(handoff.task_type or "").strip() == "delivery_followup":
+        return (
+            {
+                "kind": "assign",
+                "label": "Claim",
+                "value": "assign",
+                "route": "assign",
+                "method": "post",
+                "channel_action": "assign",
+            },
+        )
+    if _delivery_followup_open(handoff):
         delivery_reason = str(handoff.delivery_reason or "").strip()
-        secondary_value = "reauth_needed" if delivery_reason.startswith("google_") else "failed"
-        secondary_label = "Needs reauth" if secondary_value == "reauth_needed" else "Unable to send"
-        return {
+        resolved_return_to = str(return_to or f"/app/handoffs/{handoff.id}").strip() or f"/app/handoffs/{handoff.id}"
+        options: list[dict[str, str]] = [
+            {
+                "kind": "retry_send",
+                "label": "Retry send",
+                "route": "retry-send",
+                "method": "post",
+                "channel_action": "retry_send",
+            }
+        ]
+        if delivery_reason.startswith("google_"):
+            options.append(
+                {
+                    "kind": "connect_google",
+                    "label": _google_connect_label(delivery_reason),
+                    "href": (
+                        "/app/actions/google/connect?return_to="
+                        + urllib.parse.quote(resolved_return_to, safe="/:?=&")
+                    ),
+                    "method": "get",
+                }
+            )
+        else:
+            options.append(
+                {
+                    "kind": "complete",
+                    "label": "Unable to send",
+                    "value": "failed",
+                    "route": "complete",
+                    "method": "post",
+                    "channel_action": "failed",
+                }
+            )
+        options.append(
+            {
+                "kind": "complete",
+                "label": "Mark sent",
+                "value": "sent",
+                "route": "complete",
+                "method": "post",
+                "channel_action": "sent",
+            }
+        )
+        return tuple(options)
+    return (
+        {
             "kind": "complete",
-            "label": "Mark sent",
-            "value": "sent",
-            "secondary_label": secondary_label,
-            "secondary_value": secondary_value,
-        }
-    return {"kind": "complete", "label": "Complete", "value": "completed"}
+            "label": "Complete",
+            "value": "completed",
+            "route": "complete",
+            "method": "post",
+            "channel_action": "completed",
+        },
+    )
+
+
+def _delivery_followup_open(handoff: HandoffNote) -> bool:
+    return (
+        str(handoff.task_type or "").strip() == "delivery_followup"
+        and str(handoff.status or "").strip() in {"open", "pending", "claimed"}
+        and str(handoff.resolution or "").strip() != "sent"
+    )
+
+
+def _google_connect_label(reason: str) -> str:
+    normalized = str(reason or "").strip().lower()
+    if normalized in {"google_oauth_binding_not_found", "google_account_missing"}:
+        return "Connect Google"
+    return "Reconnect Google"

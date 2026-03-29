@@ -235,8 +235,10 @@ def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() ->
 
     followups_page = client.get("/app/follow-ups")
     assert followups_page.status_code == 200
+    assert "Retry send" in followups_page.text
     assert "Mark sent" in followups_page.text
     assert "Needs reauth" in followups_page.text
+    assert "Connect Google" in followups_page.text or "Reconnect Google" in followups_page.text
 
     handoff_page = client.get(f"/app/handoffs/{followup['id']}")
     assert handoff_page.status_code == 200

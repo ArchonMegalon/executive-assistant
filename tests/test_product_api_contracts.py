@@ -675,6 +675,46 @@ def test_delivery_followup_retry_send_reuses_saved_draft_payload(monkeypatch) ->
     assert "Connect Google" not in handoff_page.text
 
 
+def test_delivery_followup_surfaces_retry_connect_and_manual_send_actions_in_operator_views() -> None:
+    principal_id = "exec-product-delivery-action-surfaces"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Route to manual delivery"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    operator_digest = next(item for item in loop.json()["digests"] if item["key"] == "operator")
+    handoff_item = next(item for item in operator_digest["items"] if item["href"] == f"/app/handoffs/{followup['id']}")
+    assert handoff_item["action_label"] == "Retry send"
+    assert "/app/channel-actions/" in handoff_item["action_href"]
+    assert handoff_item["secondary_action_label"] in {"Connect Google", "Reconnect Google"}
+    assert handoff_item["secondary_action_href"].endswith("return_to=/app/channel-loop/operator")
+    assert handoff_item["tertiary_action_label"] == "Mark sent"
+    assert "/app/channel-actions/" in handoff_item["tertiary_action_href"]
+
+    center = client.get("/app/api/operator-center")
+    assert center.status_code == 200
+    next_action = next(item for item in center.json()["next_actions"] if item["label"] == followup["summary"])
+    assert next_action["action_label"] == "Retry send"
+    assert next_action["secondary_action_label"] in {"Connect Google", "Reconnect Google"}
+    assert next_action["tertiary_action_label"] == "Mark sent"
+
+
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
     principal_id = "exec-product-google-sync"
     client = build_product_client(principal_id=principal_id)

@@ -316,6 +316,16 @@ class OperatorCenterActionOut(BaseModel):
     action_value: str = ""
     action_method: str = ""
     return_to: str = ""
+    secondary_action_href: str = ""
+    secondary_action_label: str = ""
+    secondary_action_value: str = ""
+    secondary_action_method: str = ""
+    secondary_return_to: str = ""
+    tertiary_action_href: str = ""
+    tertiary_action_label: str = ""
+    tertiary_action_value: str = ""
+    tertiary_action_method: str = ""
+    tertiary_return_to: str = ""
 
 
 class OperatorCenterOut(BaseModel):
@@ -377,6 +387,9 @@ class ChannelLoopItemOut(BaseModel):
     secondary_action_href: str = ""
     secondary_action_label: str = ""
     secondary_action_method: str = "get"
+    tertiary_action_href: str = ""
+    tertiary_action_label: str = ""
+    tertiary_action_method: str = "get"
 
 
 class ChannelDigestOut(BaseModel):
