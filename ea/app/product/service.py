@@ -358,6 +358,42 @@ class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
 
+    def _gmail_signal_labels(
+        self,
+        *,
+        signal: google_oauth_service.GoogleWorkspaceSignal,
+    ) -> set[str]:
+        payload = dict(signal.payload or {})
+        return {
+            str(value or "").strip().upper()
+            for value in list(payload.get("labels") or [])
+            if str(value or "").strip()
+        }
+
+    def _curate_google_workspace_signals(
+        self,
+        *,
+        signals: tuple[google_oauth_service.GoogleWorkspaceSignal, ...],
+    ) -> tuple[tuple[google_oauth_service.GoogleWorkspaceSignal, ...], int]:
+        curated: list[google_oauth_service.GoogleWorkspaceSignal] = []
+        seen_gmail_threads: set[str] = set()
+        suppressed_total = 0
+        for signal in signals:
+            normalized_channel = str(signal.channel or "").strip().lower()
+            normalized_signal = str(signal.signal_type or "").strip().lower()
+            normalized_source = str(signal.source_ref or "").strip()
+            if normalized_channel == "gmail" and normalized_signal == "email_thread":
+                if self._gmail_signal_labels(signal=signal) & _LOW_SIGNAL_GMAIL_LABELS:
+                    suppressed_total += 1
+                    continue
+                if normalized_source and normalized_source in seen_gmail_threads:
+                    suppressed_total += 1
+                    continue
+                if normalized_source:
+                    seen_gmail_threads.add(normalized_source)
+            curated.append(signal)
+        return tuple(curated), suppressed_total
+
     def _channel_action_secret(self) -> str:
         configured = str(self._container.settings.auth.api_token or "").strip()
         if configured:
@@ -1940,6 +1976,7 @@ class ProductService:
             email_limit=email_limit,
             calendar_limit=calendar_limit,
         )
+        curated_signals, suppressed_total = self._curate_google_workspace_signals(signals=packet.signals)
         items = [
             self.ingest_office_signal(
                 principal_id=principal_id,
@@ -1955,7 +1992,7 @@ class ProductService:
                 payload=row.payload,
                 actor=actor,
             )
-            for row in packet.signals
+            for row in curated_signals
         ]
         deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
         synced_total = len(items) - deduplicated_total
@@ -1969,11 +2006,15 @@ class ProductService:
                 "processed_total": len(items),
                 "synced_total": synced_total,
                 "deduplicated_total": deduplicated_total,
+                "suppressed_total": suppressed_total,
                 "gmail_total": sum(1 for row in packet.signals if row.channel == "gmail"),
                 "calendar_total": sum(1 for row in packet.signals if row.channel == "calendar"),
             },
             source_id=packet.account_email,
-            dedupe_key=f"{principal_id}|google-signal-sync|{max(int(email_limit), 0)}|{max(int(calendar_limit), 0)}",
+            dedupe_key=(
+                f"{principal_id}|google-signal-sync|{max(int(email_limit), 0)}|{max(int(calendar_limit), 0)}"
+                f"|{_now_iso()}"
+            ),
         )
         return {
             "generated_at": _now_iso(),
@@ -1983,6 +2024,7 @@ class ProductService:
             "total": len(items),
             "synced_total": synced_total,
             "deduplicated_total": deduplicated_total,
+            "suppressed_total": suppressed_total,
         }
 
     def google_signal_sync_status(self, *, principal_id: str) -> dict[str, object]:
@@ -2000,6 +2042,7 @@ class ProductService:
             "last_completed_at": str(sync.get("google_sync_last_completed_at") or "").strip(),
             "last_synced_total": int(sync.get("google_sync_last_synced_total") or 0),
             "last_deduplicated_total": int(sync.get("google_sync_last_deduplicated_total") or 0),
+            "last_suppressed_total": int(sync.get("google_sync_last_suppressed_total") or 0),
             "last_gmail_total": int(sync.get("google_sync_last_gmail_total") or 0),
             "last_calendar_total": int(sync.get("google_sync_last_calendar_total") or 0),
             "age_seconds": sync.get("google_sync_age_seconds"),
@@ -5155,6 +5198,7 @@ class ProductService:
                     "google_sync_last_completed_at": google_sync_last_completed_at,
                     "google_sync_last_synced_total": int(google_sync_last_payload.get("synced_total") or 0),
                     "google_sync_last_deduplicated_total": int(google_sync_last_payload.get("deduplicated_total") or 0),
+                    "google_sync_last_suppressed_total": int(google_sync_last_payload.get("suppressed_total") or 0),
                     "google_sync_last_gmail_total": int(google_sync_last_payload.get("gmail_total") or 0),
                     "google_sync_last_calendar_total": int(google_sync_last_payload.get("calendar_total") or 0),
                     "google_sync_age_seconds": google_sync_age_seconds,

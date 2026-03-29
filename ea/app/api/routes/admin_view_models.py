@@ -585,6 +585,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Digest email failures", str(office_delivery.get("digest_failed") or 0), "Delivery", href="/app/settings/support"),
         _row("Google account", str(office_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
         _row("Google sync freshness", _humanize(str(office_sync.get("google_sync_freshness_state") or "watch")).title(), "Sync", href="/app/settings/google"),
+        _row("Suppressed sync noise", str(office_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
         _row("Pending sync candidates", str(office_sync.get("pending_commitment_candidates") or 0), "Queue", href="/app/inbox"),
         _row("Sync candidates covered by drafts", str(office_sync.get("covered_signal_candidates") or 0), "Queue", href="/app/inbox"),
     ]

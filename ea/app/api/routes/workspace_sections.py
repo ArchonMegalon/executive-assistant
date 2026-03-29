@@ -1083,6 +1083,7 @@ def workspace_section_payload(
                         _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
                         _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
                         _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
+                        _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
                         _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/inbox"),
                     ],
                 },
