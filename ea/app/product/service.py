@@ -6,11 +6,11 @@ import hmac
 import json
 import re
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, Stakeholder
+from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
@@ -66,10 +66,16 @@ _COMMITMENT_KEY_RE = re.compile(r"[^a-z0-9]+")
 _READY_PROVIDER_STATES = {"ready", "healthy"}
 _DEGRADED_PROVIDER_STATES = {"degraded", "cooldown", "rate_limited", "quarantined", "quota_low", "throttled"}
 _FAILED_PROVIDER_STATES = {"error", "failed", "auth_failed", "revoked", "deleted", "expired", "unavailable", "missing"}
+_SYSTEM_REPLY_SENDER_MARKERS = ("no-reply", "noreply", "donotreply", "do-not-reply", "mailer-daemon", "calendar-notification")
+_REPLY_SIGNAL_CUES = ("reply", "respond", "send", "share", "confirm", "follow up", "follow-up", "let me know", "can you", "could you", "please", "need to", "must", "review")
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -97,7 +103,7 @@ def _hours_since(value: str | None) -> int:
 
 
 def _action_label(action_json: dict[str, object]) -> str:
-    raw = str(action_json.get("action") or action_json.get("event_type") or "review").strip().replace("_", " ").replace(".", " ")
+    raw = str(action_json.get("intent") or action_json.get("label") or action_json.get("action") or action_json.get("event_type") or "review").strip().replace("_", " ").replace(".", " ")
     return raw or "review"
 
 
@@ -139,6 +145,57 @@ def _operator_id_from_email(value: str) -> str:
     local = normalized.split("@", 1)[0] if "@" in normalized else normalized
     slug = _COMMITMENT_KEY_RE.sub("-", local).strip("-")
     return f"operator-{slug or uuid4().hex[:6]}"
+
+
+def _display_name_from_email(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    local = normalized.split("@", 1)[0] if "@" in normalized else normalized
+    parts = [part for part in re.split(r"[._+-]+", local) if part]
+    return " ".join(part[:1].upper() + part[1:] for part in parts)
+
+
+def _counterparty_label(*, counterparty: str, email: str) -> str:
+    normalized = str(counterparty or "").strip()
+    return normalized or _display_name_from_email(email) or str(email or "").strip().lower()
+
+
+def _first_name(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    return normalized.split(" ", 1)[0].strip(" ,.:;")
+
+
+def _trim_counterparty_suffix(value: str, *, counterparty: str) -> str:
+    normalized = str(value or "").strip()
+    target = str(counterparty or "").strip()
+    if not normalized or not target:
+        return normalized
+    lowered = normalized.lower()
+    variants = {target.lower()}
+    if "@" in target:
+        local = target.split("@", 1)[0].strip().lower()
+        if local:
+            variants.add(local)
+            variants.add(" ".join(part for part in re.split(r"[._+-]+", local) if part))
+    for variant in sorted((value for value in variants if value), key=len, reverse=True):
+        for prefix in (f" to {variant}", f" for {variant}", f" with {variant}"):
+            if lowered.endswith(prefix):
+                return normalized[: -len(prefix)].strip(" .,:;")
+    return normalized
+
+
+def _reply_timing_phrase(value: str | None) -> str:
+    when = _parse_iso(value)
+    if when is None:
+        return "shortly"
+    target = when.astimezone(timezone.utc).date()
+    today = _utcnow().date()
+    if target == today:
+        return "today"
+    if target == today + timedelta(days=1):
+        return "tomorrow"
+    return f"by {target.isoformat()}"
 
 
 def _sign_channel_payload(*, secret: str, payload: dict[str, object]) -> str:
@@ -231,6 +288,232 @@ class ProductService:
             if wanted == _person_key(str(row.channel_ref or "")):
                 return str(row.stakeholder_id or "").strip()
         return ""
+
+    def _start_product_review_session(
+        self,
+        *,
+        principal_id: str,
+        goal: str,
+        source_ref: str = "",
+    ) -> str:
+        session = self._container.orchestrator._ledger.start_session(
+            IntentSpecV3(
+                principal_id=principal_id,
+                goal=str(goal or "Review office signal draft").strip() or "Review office signal draft",
+                task_type="office_loop",
+                deliverable_type="draft_review",
+                risk_class="medium",
+                approval_class="draft",
+                budget_class="standard",
+            )
+        )
+        self._container.orchestrator._ledger.append_event(
+            session.session_id,
+            "product_review_session_started",
+            {
+                "goal": str(goal or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "started_at": _now_iso(),
+            },
+        )
+        return session.session_id
+
+    def _find_pending_signal_draft_approval(
+        self,
+        *,
+        principal_id: str,
+        source_ref: str,
+        recipient_email: str,
+    ) -> ApprovalRequest | None:
+        normalized_source = str(source_ref or "").strip()
+        normalized_recipient = str(recipient_email or "").strip().lower()
+        if not normalized_source and not normalized_recipient:
+            return None
+        for row in self._container.orchestrator.list_pending_approvals_for_principal(principal_id=principal_id, limit=200):
+            action_json = dict(row.requested_action_json or {})
+            if str(action_json.get("draft_origin") or "").strip() != "office_signal":
+                continue
+            current_source = str(action_json.get("source_ref") or action_json.get("thread_ref") or "").strip()
+            current_recipient = str(action_json.get("recipient_email") or action_json.get("recipient") or "").strip().lower()
+            if normalized_source and current_source == normalized_source:
+                return row
+            if normalized_recipient and current_recipient == normalized_recipient and normalized_source and current_source == normalized_source:
+                return row
+        return None
+
+    def _compose_signal_reply_draft_text(
+        self,
+        *,
+        counterparty: str,
+        recipient_email: str,
+        title: str,
+        summary: str,
+        action_title: str,
+        due_at: str | None,
+        tone: str,
+    ) -> str:
+        recipient_label = _counterparty_label(counterparty=counterparty, email=recipient_email)
+        greeting_name = _first_name(recipient_label)
+        greeting = f"Hi {greeting_name}," if greeting_name else "Hi,"
+        normalized_subject = compact_text(title or summary, fallback="your note", limit=120)
+        action_subject = _trim_counterparty_suffix(action_title, counterparty=recipient_label)
+        if action_subject:
+            action_subject = action_subject[:1].lower() + action_subject[1:]
+        timing = _reply_timing_phrase(due_at)
+        action_sentence = (
+            f"I have the next step queued and will send {action_subject} {timing}."
+            if action_subject
+            else f"I have the next step queued and will follow up {timing}."
+        )
+        normalized_tone = str(tone or "").strip().lower()
+        if normalized_tone == "warm":
+            closer = "If there is anything you want emphasized, I can fold it in."
+        elif normalized_tone == "direct":
+            closer = "If there is anything specific you want highlighted, send it over."
+        else:
+            closer = "If there is anything specific you want emphasized, let me know."
+        return "\n\n".join(
+            (
+                greeting,
+                f"Thanks for the note about {normalized_subject}.",
+                f"{action_sentence} {closer}",
+                "Best,",
+            )
+        )
+
+    def _stage_signal_reply_draft(
+        self,
+        *,
+        principal_id: str,
+        signal_type: str,
+        channel: str,
+        title: str,
+        summary: str,
+        text: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        stakeholder_id: str,
+        due_at: str | None,
+        payload: dict[str, object] | None,
+        staged_candidates: tuple[CommitmentCandidate, ...],
+    ) -> DraftCandidate | None:
+        normalized_signal = str(signal_type or "").strip().lower()
+        normalized_channel = str(channel or "").strip().lower()
+        if normalized_signal != "email_thread" or normalized_channel != "gmail":
+            return None
+        recipient_email = str(dict(payload or {}).get("from_email") or "").strip().lower()
+        if not recipient_email:
+            resolved_stakeholder = self._resolve_stakeholder_ref(
+                principal_id=principal_id,
+                stakeholder_id=stakeholder_id,
+                counterparty=counterparty,
+            )
+            stakeholder = self._stakeholder_lookup(principal_id).get(resolved_stakeholder)
+            if stakeholder is not None and "@" in str(stakeholder.channel_ref or ""):
+                recipient_email = str(stakeholder.channel_ref or "").strip().lower()
+        if not recipient_email or any(marker in recipient_email for marker in _SYSTEM_REPLY_SENDER_MARKERS):
+            return None
+        combined_text = " ".join(part for part in (title, summary, text) if str(part or "").strip()).lower()
+        if not any(token in combined_text for token in _REPLY_SIGNAL_CUES):
+            return None
+        existing = self._find_pending_signal_draft_approval(
+            principal_id=principal_id,
+            source_ref=source_ref,
+            recipient_email=recipient_email,
+        )
+        if existing is not None:
+            return self._draft_from_approval(existing)
+        resolved_stakeholder_id = self._resolve_stakeholder_ref(
+            principal_id=principal_id,
+            stakeholder_id=stakeholder_id,
+            counterparty=counterparty,
+        )
+        stakeholder = self._stakeholder_lookup(principal_id).get(resolved_stakeholder_id) if resolved_stakeholder_id else None
+        recipient_label = _counterparty_label(
+            counterparty=str(counterparty or dict(payload or {}).get("from_name") or (stakeholder.display_name if stakeholder is not None else "")).strip(),
+            email=recipient_email,
+        )
+        preferred_tone = str((stakeholder.tone_pref if stakeholder is not None else "") or "direct").strip().lower() or "direct"
+        primary_candidate = next(
+            (
+                row
+                for row in staged_candidates
+                if str(row.status or "").strip().lower() in {"pending", "duplicate"}
+            ),
+            staged_candidates[0] if staged_candidates else None,
+        )
+        requested_due_at = (
+            str((primary_candidate.suggested_due_at if primary_candidate is not None else "") or "").strip()
+            or str(due_at or "").strip()
+            or None
+        )
+        draft_text = self._compose_signal_reply_draft_text(
+            counterparty=recipient_label,
+            recipient_email=recipient_email,
+            title=title,
+            summary=summary or text,
+            action_title=str((primary_candidate.title if primary_candidate is not None else "") or title or "the update").strip(),
+            due_at=requested_due_at,
+            tone=preferred_tone,
+        )
+        subject = str(title or summary or "Follow-up").strip() or "Follow-up"
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        session_id = self._start_product_review_session(
+            principal_id=principal_id,
+            goal=f"Review reply draft for {recipient_label}",
+            source_ref=source_ref,
+        )
+        approval = self._container.orchestrator._approvals.create_request(
+            session_id,
+            f"signal-draft:{uuid4().hex[:10]}",
+            f"Approve reply to {recipient_label}",
+            {
+                "action": "delivery.send",
+                "intent": "reply",
+                "channel": "email",
+                "recipient": recipient_email,
+                "recipient_email": recipient_email,
+                "recipient_label": recipient_label,
+                "subject": subject,
+                "content": draft_text,
+                "draft_text": draft_text,
+                "thread_ref": str(source_ref or external_id or session_id).strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "signal_type": normalized_signal,
+                "draft_origin": "office_signal",
+                "tone": preferred_tone,
+            },
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="approval_requested",
+            payload={
+                "draft_ref": f"approval:{approval.approval_id}",
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "signal_type": normalized_signal,
+                "recipient": recipient_email,
+                "recipient_label": recipient_label,
+                "reason": approval.reason,
+            },
+            source_id=approval.approval_id,
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="signal_reply_draft_staged",
+            payload={
+                "draft_ref": f"approval:{approval.approval_id}",
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "recipient": recipient_email,
+                "recipient_label": recipient_label,
+            },
+            source_id=approval.approval_id,
+        )
+        return self._draft_from_approval(approval)
 
     def _commitment_item_from_commitment(self, row: Commitment) -> CommitmentItem:
         return commitment_item_from_commitment(row)
@@ -624,7 +907,9 @@ class ProductService:
                 "external_id": str(existing_event.external_id or external_id or "").strip(),
                 "created_at": str(existing_event.created_at or ""),
                 "staged_candidates": [],
+                "staged_drafts": [],
                 "staged_count": 0,
+                "draft_count": 0,
                 "deduplicated": True,
             }
         staged = self.stage_extracted_commitments(
@@ -647,6 +932,21 @@ class ProductService:
             signal_type=normalized_signal,
             reference_at=str((payload or {}).get("received_at") or (payload or {}).get("start_at") or _now_iso()).strip(),
         ) if source_text else ()
+        staged_draft = self._stage_signal_reply_draft(
+            principal_id=principal_id,
+            signal_type=normalized_signal,
+            channel=normalized_channel,
+            title=title_text,
+            summary=summary_text,
+            text=source_text,
+            source_ref=str(source_ref or "").strip(),
+            external_id=str(external_id or "").strip(),
+            counterparty=str(counterparty or "").strip(),
+            stakeholder_id=str(stakeholder_id or "").strip(),
+            due_at=due_at,
+            payload=dict(payload or {}),
+            staged_candidates=staged,
+        )
         payload_json = {
             "signal_type": normalized_signal,
             "title": title_text,
@@ -657,6 +957,7 @@ class ProductService:
             "due_at": str(due_at or "").strip(),
             "actor": str(actor or "").strip() or "office_api",
             "staged_candidate_ids": [row.candidate_id for row in staged if str(row.candidate_id or "").strip()],
+            "staged_draft_ids": [staged_draft.id] if staged_draft is not None else [],
             **dict(payload or {}),
         }
         event = self._container.channel_runtime.ingest_observation(
@@ -684,6 +985,7 @@ class ProductService:
                 "source_ref": str(source_ref or "").strip(),
                 "external_id": str(external_id or "").strip(),
                 "staged_count": len(staged),
+                "draft_count": 1 if staged_draft is not None else 0,
             },
             source_id=str(source_ref or event.observation_id or "").strip(),
         )
@@ -714,7 +1016,32 @@ class ProductService:
                 }
                 for row in staged
             ],
+            "staged_drafts": [
+                {
+                    "id": staged_draft.id,
+                    "thread_ref": staged_draft.thread_ref,
+                    "recipient_summary": staged_draft.recipient_summary,
+                    "intent": staged_draft.intent,
+                    "draft_text": staged_draft.draft_text,
+                    "tone": staged_draft.tone,
+                    "requires_approval": staged_draft.requires_approval,
+                    "approval_status": staged_draft.approval_status,
+                    "provenance_refs": [
+                        {
+                            "ref_id": ref.ref_id,
+                            "label": ref.label,
+                            "href": ref.href,
+                            "source_type": ref.source_type,
+                            "note": ref.note,
+                        }
+                        for ref in staged_draft.provenance_refs
+                    ],
+                    "send_channel": staged_draft.send_channel,
+                }
+                for staged_draft in (staged_draft,) if staged_draft is not None
+            ],
             "staged_count": len(staged),
+            "draft_count": 1 if staged_draft is not None else 0,
             "deduplicated": False,
         }
 
@@ -2210,8 +2537,15 @@ class ProductService:
         action_json = dict(row.requested_action_json or {})
         return DraftCandidate(
             id=f"approval:{row.approval_id}",
-            thread_ref=str(action_json.get("thread_ref") or row.session_id),
-            recipient_summary=str(action_json.get("recipient") or action_json.get("to") or "Review required"),
+            thread_ref=str(action_json.get("thread_ref") or action_json.get("source_ref") or row.session_id),
+            recipient_summary=str(
+                action_json.get("recipient_label")
+                or action_json.get("recipient_name")
+                or action_json.get("recipient")
+                or action_json.get("recipient_email")
+                or action_json.get("to")
+                or "Review required"
+            ),
             intent=_action_label(action_json),
             draft_text=compact_text(
                 action_json.get("content") or action_json.get("draft_text") or row.reason,
@@ -4005,6 +4339,17 @@ class ProductService:
                     ),
                     "action_label": "Approve now",
                     "action_method": "get",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="draft",
+                        object_ref=draft.id,
+                        action="reject",
+                        return_to="/app/channel-loop",
+                        operator_id=operator_key,
+                        reason="Rejected from inline loop.",
+                    ),
+                    "secondary_action_label": "Reject",
+                    "secondary_action_method": "get",
                 }
             )
         if snapshot.commitments:
@@ -4528,6 +4873,17 @@ class ProductService:
                     ),
                     "action_label": "Approve now",
                     "action_method": "get",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="draft",
+                        object_ref=draft.id,
+                        action="reject",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Rejected from inline approvals digest.",
+                    ),
+                    "secondary_action_label": "Reject",
+                    "secondary_action_method": "get",
                 }
             )
         for candidate in review_candidates[:2]:
@@ -4781,12 +5137,20 @@ class ProductService:
             return None
         result: object | None = None
         if object_kind == "draft":
-            result = self.approve_draft(
-                principal_id=principal_id,
-                draft_ref=object_ref,
-                decided_by=resolved_actor,
-                reason=reason,
-            )
+            if action == "reject":
+                result = self.reject_draft(
+                    principal_id=principal_id,
+                    draft_ref=object_ref,
+                    decided_by=resolved_actor,
+                    reason=reason,
+                )
+            else:
+                result = self.approve_draft(
+                    principal_id=principal_id,
+                    draft_ref=object_ref,
+                    decided_by=resolved_actor,
+                    reason=reason,
+                )
         elif object_kind in {"candidate", "commitment_candidate"}:
             if action == "reject":
                 result = self.reject_commitment_candidate(

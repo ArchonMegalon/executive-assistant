@@ -658,7 +658,9 @@ class OfficeSignalResultOut(BaseModel):
     external_id: str = ""
     created_at: str
     staged_candidates: list[CommitmentCandidateOut] = Field(default_factory=list)
+    staged_drafts: list[DraftCandidateOut] = Field(default_factory=list)
     staged_count: int = 0
+    draft_count: int = 0
     deduplicated: bool = False
 
 

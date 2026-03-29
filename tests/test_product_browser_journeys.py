@@ -399,11 +399,16 @@ def test_channel_loop_get_actions_work() -> None:
     loop_payload = client.get("/app/api/channel-loop")
     assert loop_payload.status_code == 200
     approvals_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "approvals")
+    drafts_before = client.get("/app/api/drafts")
+    assert drafts_before.status_code == 200
+    draft_count_before = len(drafts_before.json())
     approved_href = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Draft")
     approved = client.get(approved_href, follow_redirects=False)
     assert approved.status_code == 303
     assert approved.headers["location"] == "/app/channel-loop/approvals"
-    assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
+    drafts_after = client.get("/app/api/drafts")
+    assert drafts_after.status_code == 200
+    assert len(drafts_after.json()) == draft_count_before - 1
 
     candidate_href = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Candidate")
     candidate_accepted = client.get(candidate_href, follow_redirects=False)
@@ -429,6 +434,47 @@ def test_channel_loop_get_actions_work() -> None:
     decision_detail = client.get(f"/app/api/decisions/decision:{seeded['decision_window_id']}")
     assert decision_detail.status_code == 200
     assert decision_detail.json()["status"] == "decided"
+
+
+def test_signal_reply_drafts_can_be_rejected_from_inline_channel_loop() -> None:
+    principal_id = "exec-browser-signal-draft-reject"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Signal Draft Office")
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:browser-inline-reject",
+            "external_id": "gmail-message:browser-inline-reject",
+            "payload": {"from_email": "sofia@example.com", "from_name": "Sofia N."},
+        },
+    )
+    assert signal.status_code == 200
+    draft_id = signal.json()["staged_drafts"][0]["id"]
+
+    approvals_page = client.get("/app/channel-loop/approvals")
+    assert approvals_page.status_code == 200
+    assert "Approve draft for Sofia N." in approvals_page.text
+    assert "Reject" in approvals_page.text
+
+    loop_payload = client.get("/app/api/channel-loop")
+    assert loop_payload.status_code == 200
+    approvals_digest = next(item for item in loop_payload.json()["digests"] if item["key"] == "approvals")
+    reject_href = next(
+        item["secondary_action_href"]
+        for item in approvals_digest["items"]
+        if item["tag"] == "Draft" and "Sofia N." in item["title"]
+    )
+    rejected = client.get(reject_href, follow_redirects=False)
+    assert rejected.status_code == 303
+    assert rejected.headers["location"] == "/app/channel-loop/approvals"
+    assert draft_id not in client.get("/app/api/drafts").text
 
 
 def test_workspace_access_and_channel_delivery_routes_issue_session_cookie() -> None:

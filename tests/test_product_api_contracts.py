@@ -183,6 +183,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert {"memo", "approvals", "operator"} <= set(digests)
     assert digests["memo"]["preview_text"]
     assert any(item["action_label"] == "Approve now" for item in digests["approvals"]["items"])
+    assert any(item["secondary_action_label"] == "Reject" for item in digests["approvals"]["items"] if item["tag"] == "Draft")
     assert any(item["tag"] == "Handoff" for item in digests["operator"]["items"])
     memo_plain = client.get("/app/api/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
@@ -224,6 +225,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert signal_body["channel"] == "gmail"
     assert signal_body["event_type"] == "office_signal_email_thread"
     assert signal_body["staged_count"] >= 1
+    assert signal_body["draft_count"] >= 1
+    assert signal_body["staged_drafts"]
+    assert "board packet" in signal_body["staged_drafts"][0]["draft_text"].lower()
 
     events = client.get("/app/api/events")
     assert events.status_code == 200
@@ -271,15 +275,55 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert webhook_test.json()["webhook"]["webhook_id"] == webhook_id
     assert webhook_test.json()["delivery"]["delivery_kind"] == "test"
 
+    drafts_before_channel_action = client.get("/app/api/drafts")
+    assert drafts_before_channel_action.status_code == 200
+    draft_count_before = len(drafts_before_channel_action.json())
     draft_action = next(item["action_href"] for item in channel_loop_body["items"] if item["tag"] == "Draft")
     redeemed = client.get(draft_action, follow_redirects=False)
     assert redeemed.status_code == 303
     assert redeemed.headers["location"] == "/app/channel-loop"
-    assert f"approval:{seeded['approval_id']}" not in client.get("/app/api/drafts").text
+    drafts_after_channel_action = client.get("/app/api/drafts")
+    assert drafts_after_channel_action.status_code == 200
+    assert len(drafts_after_channel_action.json()) == draft_count_before - 1
 
     diagnostics_after_channel_action = client.get("/app/api/diagnostics")
     assert diagnostics_after_channel_action.status_code == 200
     assert int(dict(diagnostics_after_channel_action.json()["analytics"]["counts"]).get("channel_action_redeemed") or 0) >= 1
+
+
+def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
+    principal_id = "exec-product-signal-draft"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:signal-draft-1",
+            "external_id": "gmail-message:signal-draft-1",
+        },
+    )
+    assert signal.status_code == 200
+    body = signal.json()
+    assert body["draft_count"] == 1
+    assert body["staged_drafts"][0]["recipient_summary"] == "Sofia N."
+    assert body["staged_drafts"][0]["intent"] == "reply"
+    assert "revised board packet" in body["staged_drafts"][0]["draft_text"].lower()
+
+    drafts = client.get("/app/api/drafts")
+    assert drafts.status_code == 200
+    assert any(item["id"] == body["staged_drafts"][0]["id"] for item in drafts.json())
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    counts = dict(diagnostics.json()["analytics"]["counts"])
+    assert int(counts.get("approval_requested") or 0) >= 1
 
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
