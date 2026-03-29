@@ -404,6 +404,73 @@ def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> 
     assert events.status_code == 200
     approved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_approved" and item["source_id"] == draft_ref.split(":", 1)[1])
     assert candidate_id in approved_event["payload"]["accepted_candidate_ids"]
+    assert approved_event["payload"]["delivery"]["status"] == "skipped"
+    assert approved_event["payload"]["delivery"]["reason"].startswith("google_")
+    assert approved_event["payload"]["followup_ref"].startswith("human_task:")
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    assert any(item["id"] == approved_event["payload"]["followup_ref"] for item in handoffs.json())
+
+
+def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(monkeypatch) -> None:
+    principal_id = "exec-product-signal-draft-send"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Signal Draft Send Office")
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "send_google_gmail_message",
+        lambda **_: google_oauth_service.GoogleGmailSendResult(
+            binding=None,
+            sender_email="tibor@myexternalbrain.com",
+            recipient_email="sofia@example.com",
+            subject="Re: Board packet follow-up",
+            rfc822_message_id="<ea-draft-test@ea.local>",
+            gmail_message_id="gmail-sent-123",
+            sent_at="2026-03-29T09:30:00Z",
+        ),
+    )
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "source_ref": "gmail-thread:signal-draft-send",
+            "external_id": "gmail-message:signal-draft-send",
+            "payload": {
+                "from_email": "sofia@example.com",
+                "from_name": "Sofia N.",
+                "thread_id": "thread-123",
+                "message_id": "message-123",
+            },
+        },
+    )
+    assert signal.status_code == 200
+    draft_ref = signal.json()["staged_drafts"][0]["id"]
+
+    approved = client.post(
+        f"/app/api/drafts/{draft_ref}/approve",
+        json={"reason": "Send it now."},
+    )
+    assert approved.status_code == 200
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    sent_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_sent")
+    assert sent_event["payload"]["recipient_email"] == "sofia@example.com"
+    assert sent_event["payload"]["gmail_message_id"] == "gmail-sent-123"
+    assert sent_event["payload"]["subject"] == "Re: Board packet follow-up"
+
+    approved_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_approved")
+    assert approved_event["payload"]["delivery"]["status"] == "sent"
+    assert approved_event["payload"]["delivery"]["gmail_message_id"] == "gmail-sent-123"
+    assert approved_event["payload"]["followup_ref"] == ""
 
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:

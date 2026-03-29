@@ -107,6 +107,15 @@ def _action_label(action_json: dict[str, object]) -> str:
     return raw or "review"
 
 
+def _gmail_resource_id(value: object, *, prefix: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.startswith(prefix):
+        return normalized.split(":", 1)[1].strip()
+    return normalized
+
+
 def _search_tokens(value: str) -> tuple[str, ...]:
     normalized = _COMMITMENT_KEY_RE.sub(" ", str(value or "").strip().lower()).strip()
     if not normalized:
@@ -460,6 +469,15 @@ class ProductService:
         subject = str(title or summary or "Follow-up").strip() or "Follow-up"
         if not subject.lower().startswith("re:"):
             subject = f"Re: {subject}"
+        payload_json = dict(payload or {})
+        gmail_thread_id = str(payload_json.get("thread_id") or "").strip() or _gmail_resource_id(
+            source_ref,
+            prefix="gmail-thread:",
+        )
+        gmail_message_id = str(payload_json.get("message_id") or "").strip() or _gmail_resource_id(
+            external_id,
+            prefix="gmail-message:",
+        )
         session_id = self._start_product_review_session(
             principal_id=principal_id,
             goal=f"Review reply draft for {recipient_label}",
@@ -482,6 +500,8 @@ class ProductService:
                 "thread_ref": str(source_ref or external_id or session_id).strip(),
                 "source_ref": str(source_ref or "").strip(),
                 "external_id": str(external_id or "").strip(),
+                "gmail_thread_id": gmail_thread_id,
+                "gmail_message_id": gmail_message_id,
                 "signal_type": normalized_signal,
                 "draft_origin": "office_signal",
                 "tone": preferred_tone,
@@ -575,6 +595,135 @@ class ProductService:
             if created is not None:
                 accepted.append(candidate_id)
         return tuple(accepted)
+
+    def _maybe_send_approved_draft(
+        self,
+        *,
+        principal_id: str,
+        draft_ref: str,
+        action_json: dict[str, object],
+    ) -> dict[str, object]:
+        channel = str(action_json.get("channel") or "").strip().lower()
+        if channel not in {"email", "gmail"}:
+            return {"status": "skipped", "reason": "unsupported_channel", "channel": channel}
+        recipient_email = str(action_json.get("recipient_email") or action_json.get("recipient") or "").strip().lower()
+        subject = str(action_json.get("subject") or "").strip()
+        body_text = str(action_json.get("draft_text") or action_json.get("content") or "").strip()
+        if not recipient_email or not body_text:
+            return {
+                "status": "skipped",
+                "reason": "draft_send_missing_recipient_or_content",
+                "channel": channel,
+                "recipient_email": recipient_email,
+                "subject": subject,
+            }
+        if not subject:
+            subject = compact_text(body_text, fallback="EA follow-up", limit=120)
+        thread_id = str(action_json.get("gmail_thread_id") or "").strip() or _gmail_resource_id(
+            action_json.get("source_ref"),
+            prefix="gmail-thread:",
+        )
+        try:
+            receipt = google_oauth_service.send_google_gmail_message(
+                container=self._container,
+                principal_id=principal_id,
+                recipient_email=recipient_email,
+                subject=subject,
+                body_text=body_text,
+                thread_id=thread_id or None,
+            )
+        except RuntimeError as exc:
+            reason = str(exc or "draft_send_failed")
+            skip_reasons = {
+                "google_oauth_binding_not_found",
+                "google_oauth_client_id_missing",
+                "google_oauth_client_secret_missing",
+                "google_oauth_redirect_uri_missing",
+                "google_oauth_state_secret_missing",
+                "google_oauth_provider_secret_key_missing",
+                "google_gmail_send_scope_missing",
+                "google_gmail_refresh_token_missing",
+                "google_gmail_access_token_missing",
+                "google_gmail_sender_missing",
+                "google_gmail_recipient_missing",
+                "google_gmail_body_missing",
+            }
+            status = "skipped" if reason in skip_reasons else "failed"
+            return {
+                "status": status,
+                "reason": reason,
+                "channel": channel,
+                "recipient_email": recipient_email,
+                "subject": subject,
+                "draft_ref": draft_ref,
+            }
+        return {
+            "status": "sent",
+            "channel": "gmail",
+            "recipient_email": receipt.recipient_email,
+            "sender_email": receipt.sender_email,
+            "subject": receipt.subject,
+            "gmail_message_id": receipt.gmail_message_id,
+            "rfc822_message_id": receipt.rfc822_message_id,
+            "sent_at": receipt.sent_at,
+            "draft_ref": draft_ref,
+        }
+
+    def _ensure_draft_delivery_followup(
+        self,
+        *,
+        principal_id: str,
+        request: ApprovalRequest,
+        action_json: dict[str, object],
+        delivery: dict[str, object],
+    ) -> HandoffNote | None:
+        status = str(delivery.get("status") or "").strip().lower()
+        if status not in {"skipped", "failed"}:
+            return None
+        draft_ref = str(delivery.get("draft_ref") or f"approval:{request.approval_id}").strip()
+        for task in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+            input_json = dict(task.input_json or {})
+            if str(input_json.get("draft_ref") or "").strip() == draft_ref and str(task.task_type or "").strip() == "delivery_followup":
+                return self._handoff_from_human_task(task)
+        recipient_label = str(action_json.get("recipient_label") or action_json.get("recipient_email") or action_json.get("recipient") or "recipient").strip()
+        subject = str(delivery.get("subject") or action_json.get("subject") or "").strip()
+        reason = str(delivery.get("reason") or "draft_send_pending_manual_followup").strip()
+        brief = f"Send approved reply to {recipient_label}"
+        if subject:
+            brief = f"{brief}: {compact_text(subject, fallback=subject, limit=72)}"
+        task = self._container.orchestrator.create_human_task(
+            session_id=request.session_id,
+            principal_id=principal_id,
+            task_type="delivery_followup",
+            role_required="operator",
+            brief=brief,
+            why_human=f"Automatic send did not complete ({reason}). Finish delivery manually.",
+            priority="high" if str(action_json.get("draft_origin") or "").strip() == "office_signal" else "normal",
+            sla_due_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            input_json={
+                "draft_ref": draft_ref,
+                "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
+                "subject": subject,
+                "reason": reason,
+            },
+            desired_output_json={
+                "resolution": "sent",
+                "proof": "Manual send completed and logged.",
+            },
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="draft_send_followup_created",
+            payload={
+                "draft_ref": draft_ref,
+                "handoff_ref": f"human_task:{task.human_task_id}",
+                "reason": reason,
+                "recipient_email": str(delivery.get("recipient_email") or action_json.get("recipient_email") or action_json.get("recipient") or "").strip(),
+                "subject": subject,
+            },
+            source_id=request.approval_id,
+        )
+        return self._handoff_from_human_task(task)
 
     def _pending_signal_draft_candidate_ids(self, *, principal_id: str) -> set[str]:
         hidden: set[str] = set()
@@ -2671,6 +2820,31 @@ class ProductService:
                 action_json=action_json,
                 reviewer=decided_by,
             )
+        delivery = self._maybe_send_approved_draft(
+            principal_id=principal_id,
+            draft_ref=draft_ref,
+            action_json=action_json,
+        )
+        if str(delivery.get("status") or "").strip() == "sent":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="draft_sent",
+                payload=dict(delivery),
+                source_id=request.approval_id,
+            )
+        elif str(delivery.get("status") or "").strip() == "failed":
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="draft_send_failed",
+                payload=dict(delivery),
+                source_id=request.approval_id,
+            )
+        followup = self._ensure_draft_delivery_followup(
+            principal_id=principal_id,
+            request=request,
+            action_json=action_json,
+            delivery=delivery,
+        )
         self._record_product_event(
             principal_id=principal_id,
             event_type="draft_approved",
@@ -2679,6 +2853,8 @@ class ProductService:
                 "decided_by": decided_by,
                 "reason": reason or "",
                 "accepted_candidate_ids": list(accepted_candidate_ids),
+                "delivery": dict(delivery),
+                "followup_ref": followup.id if followup is not None else "",
             },
             source_id=request.approval_id,
         )
