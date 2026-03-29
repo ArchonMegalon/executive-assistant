@@ -92,6 +92,11 @@ def test_register_start_reports_email_delivery_failure_without_aborting_flow(
 
 def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://myexternalbrain.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
     client = _client(monkeypatch)
 
     started = client.post("/v1/register/start", json={"email": "verify@example.com"})
@@ -122,7 +127,12 @@ def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch)
         },
     )
     assert verified.status_code == 200
-    assert verified.json()["access_url"].startswith("/workspace-access/")
+    verified_body = verified.json()
+    assert verified_body["access_url"].startswith("/workspace-access/")
+    google_start = dict(verified_body["google_start"])
+    assert google_start["ready"] is True
+    assert google_start["auth_url"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
+    assert google_start["start_url"] == google_start["auth_url"]
 
 
 def test_registration_email_payload_stays_english_and_uses_kleinhirn_sender(
