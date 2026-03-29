@@ -705,6 +705,7 @@ class GoogleSignalSyncOut(BaseModel):
     total: int = 0
     synced_total: int = 0
     deduplicated_total: int = 0
+    suppressed_total: int = 0
 
 
 class GoogleSignalSyncStatusOut(BaseModel):
@@ -719,6 +720,7 @@ class GoogleSignalSyncStatusOut(BaseModel):
     last_completed_at: str = ""
     last_synced_total: int = 0
     last_deduplicated_total: int = 0
+    last_suppressed_total: int = 0
     last_gmail_total: int = 0
     last_calendar_total: int = 0
     age_seconds: int | None = None

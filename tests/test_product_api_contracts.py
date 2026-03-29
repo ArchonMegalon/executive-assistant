@@ -1031,17 +1031,16 @@ def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise
     synced = client.post("/app/api/signals/google/sync", params={"email_limit": 5, "calendar_limit": 5})
     assert synced.status_code == 200
     body = synced.json()
-    assert body["total"] == 5
+    assert body["total"] == 4
+    assert body["suppressed_total"] == 1
 
     self_calendar = next(item for item in body["items"] if item["source_id"] == "calendar-event:self-1")
     meeting_calendar = next(item for item in body["items"] if item["source_id"] == "calendar-event:meeting-1")
-    promo_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:promo-1")
     memo_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:memo-1")
     actionable_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:action-1")
 
     assert self_calendar["staged_count"] == 0
     assert meeting_calendar["staged_count"] == 0
-    assert promo_email["staged_count"] == 0
     assert memo_email["staged_count"] == 0
     assert actionable_email["staged_count"] >= 1
 
@@ -1053,6 +1052,12 @@ def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise
     assert "Mit dem Omni-Plan deutlich mehr erhalten: Blitzangebot" not in titles
     assert "Morning memo digest" not in titles
     assert any("board packet" in title.lower() for title in titles)
+    assert not any(item["source_id"] == "gmail-thread:promo-1" for item in body["items"])
+
+    sync_status = client.get("/app/api/signals/google/status")
+    assert sync_status.status_code == 200
+    sync_status_body = sync_status.json()
+    assert sync_status_body["last_suppressed_total"] == 1
 
 
 def test_google_signal_sync_retires_preexisting_assistant_generated_candidate(monkeypatch) -> None:
@@ -1139,6 +1144,93 @@ def test_google_signal_sync_retires_preexisting_assistant_generated_candidate(mo
     diagnostics = client.get("/app/api/diagnostics")
     assert diagnostics.status_code == 200
     assert int(diagnostics.json()["analytics"]["counts"].get("commitment_candidate_rejected") or 0) >= 1
+
+
+def test_google_signal_sync_collapses_duplicate_gmail_threads(monkeypatch) -> None:
+    principal_id = "exec-product-google-thread-dupes"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="exec@example.com",
+            granted_scopes=(
+                google_oauth_service.GOOGLE_SCOPE_METADATA,
+                google_oauth_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+            ),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up",
+                    summary="Please send the revised board packet tomorrow morning.",
+                    text="Please send the revised board packet tomorrow morning.",
+                    source_ref="gmail-thread:duplicate-1",
+                    external_id="gmail-message:first",
+                    due_at=None,
+                    counterparty="Sofia N.",
+                    payload={
+                        "thread_id": "duplicate-1",
+                        "message_id": "first",
+                        "from_email": "sofia@example.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up (duplicate)",
+                    summary="Another noisy duplicate of same Gmail thread.",
+                    text="Another noisy duplicate of same Gmail thread.",
+                    source_ref="gmail-thread:duplicate-1",
+                    external_id="gmail-message:second",
+                    due_at=None,
+                    counterparty="Sofia N.",
+                    payload={
+                        "thread_id": "duplicate-1",
+                        "message_id": "second",
+                        "from_email": "sofia@example.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 2, "calendar_limit": 0})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["total"] == 1
+    assert body["synced_total"] == 1
+    assert body["deduplicated_total"] == 0
+    assert body["suppressed_total"] == 1
+    assert all(item["deduplicated"] is False for item in body["items"] if item["source_id"] == "gmail-thread:duplicate-1")
+    assert len(body["items"]) == 1
+
+    candidates = client.get("/app/api/commitments/candidates")
+    assert candidates.status_code == 200
+    candidate = next(item for item in candidates.json() if item["source_ref"] == "gmail-thread:duplicate-1")
+    assert candidate["source_ref"] == "gmail-thread:duplicate-1"
+
+    drafts = client.get("/app/api/drafts")
+    assert drafts.status_code == 200
+    assert len(drafts.json()) >= 2
+    assert any("investor follow-up" in str(item.get("draft_text") or "").lower() for item in drafts.json())
+    assert candidate["kind"] == "commitment"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    office_signal_events = [item for item in events.json()["items"] if item["event_type"] == "office_signal_email_thread"]
+    assert any(item["source_id"] == "gmail-thread:duplicate-1" for item in office_signal_events)
+
+    sync_status = client.get("/app/api/signals/google/status")
+    assert sync_status.status_code == 200
+    sync_status_body = sync_status.json()
+    assert sync_status_body["last_synced_total"] == 1
+    assert sync_status_body["last_deduplicated_total"] == 0
+    assert sync_status_body["last_suppressed_total"] == 1
 
 
 def test_channel_loop_approvals_digest_counts_reviewable_candidates_not_rejected_history() -> None:

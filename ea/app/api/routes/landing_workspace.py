@@ -696,6 +696,7 @@ def settings_google_detail(
                     _object_detail_row("Sync runs", str(sync.get("sync_completed") or 0), "Sync"),
                     _object_detail_row("Last synced total", str(sync.get("last_synced_total") or 0), "Signals"),
                     _object_detail_row("Last deduplicated total", str(sync.get("last_deduplicated_total") or 0), "Signals"),
+                    _object_detail_row("Last suppressed total", str(sync.get("last_suppressed_total") or 0), "Signals"),
                     _object_detail_row("Gmail signals", str(sync.get("last_gmail_total") or 0), "Gmail"),
                     _object_detail_row("Calendar signals", str(sync.get("last_calendar_total") or 0), "Calendar"),
                 ],
