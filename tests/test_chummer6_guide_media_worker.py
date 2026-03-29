@@ -78,19 +78,34 @@ def test_onemin_model_candidates_ignore_low_tier_policy_override(monkeypatch: py
     ]
 
 
-def test_routed_provider_order_prefers_magixai_for_quality_focus_targets(
+def test_routed_provider_order_prefers_onemin_for_direct_room_recovery_targets_even_with_no_health_skip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
     monkeypatch.setattr(media, "PROVIDER_HEALTH_OUT", tmp_path / "provider-health.json")
     media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
+    media.write_json_file(media.PROVIDER_HEALTH_OUT, {})
 
     routed = media.routed_provider_order_for_target(
         "assets/parts/hub.png",
         providers=["media_factory", "magixai", "onemin"],
     )
 
-    assert routed[0] == "magixai"
+    assert routed[0] == "onemin"
+
+
+def test_routed_provider_order_prefers_onemin_for_direct_room_recovery_targets_without_health_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_HEALTH_OUT", tmp_path / "provider-health.json")
+    media.LOCAL_ENV["AI_MAGICX_API_KEY"] = "magicx-key"
+    media.write_json_file(media.PROVIDER_HEALTH_OUT, {})
+
+    routed = media.routed_provider_order_for_target(
+        "assets/pages/parts-index.png",
+        providers=["media_factory", "magixai", "onemin"],
+    )
+
+    assert routed[0] == "onemin"
 
 
 def test_routed_provider_order_keeps_media_factory_first_for_forge() -> None:
@@ -208,7 +223,7 @@ def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkey
     def fake_urlopen(request, timeout=0):
         payload = json.loads(request.data.decode("utf-8"))
         calls.append((request.full_url, payload))
-        if payload["size"] == "landscape_16_9":
+        if str(payload.get("size") or payload.get("image_size") or "") == "landscape_16_9":
             return _HtmlResponse("<!DOCTYPE html><html><body>wrong surface</body></html>")
         return _JsonResponse({"data": [{"url": "https://example.test/magix-image.png"}]})
 
@@ -230,7 +245,7 @@ def test_run_magixai_api_provider_prefers_official_route_and_rejects_html(monkey
     assert detail == "downloaded"
     assert calls[0][0] == "https://www.aimagicx.com/api/v1/images/generations"
     assert calls[0][1]["size"] == "landscape_16_9"
-    assert calls[1][1]["size"] == "1280x720"
+    assert any(str(payload.get("size") or payload.get("image_size") or "") == "1280x720" for _url, payload in calls)
 
 
 def test_run_magixai_api_provider_respects_spec_model_priority(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -355,6 +370,7 @@ def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.
             "account_id": "ONEMIN_AI_API_KEY_FALLBACK_23",
         },
     )
+    monkeypatch.setattr(media, "_reserve_onemin_image_slot_locally", lambda **kwargs: (None, None))
     released: list[tuple[str, str, int | None, str]] = []
     monkeypatch.setattr(
         media,
@@ -509,6 +525,7 @@ def test_run_onemin_api_provider_trips_no_output_watchdog(
             "account_id": "ONEMIN_AI_API_KEY_FALLBACK_23",
         },
     )
+    monkeypatch.setattr(media, "_reserve_onemin_image_slot_locally", lambda **kwargs: (None, None))
     released: list[tuple[str, str, int | None, str]] = []
     monkeypatch.setattr(
         media,
@@ -832,6 +849,7 @@ def test_reserve_onemin_image_slot_locally_synthesizes_candidates_when_provider_
             {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "key": "fallback"},
         ],
     )
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
     monkeypatch.setitem(sys.modules, "app.services", services_pkg)
     monkeypatch.setitem(sys.modules, "app.services.responses_upstream", responses_upstream_mod)
@@ -884,6 +902,21 @@ def test_onemin_model_candidates_honors_spec_override_priority(monkeypatch: pyte
     ]
 
 
+def test_onemin_model_candidates_honors_strict_spec_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    assert media.onemin_model_candidates(
+        {
+            "target": "assets/pages/parts-index.png",
+            "onemin_models": ["gpt-image-1", "black-forest-labs/flux-schnell"],
+            "onemin_strict_models": True,
+        }
+    ) == ["gpt-image-1", "black-forest-labs/flux-schnell"]
+
+
 def test_resolve_onemin_image_slots_assigns_stable_names_to_script_only_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     fake_root = Path("/tmp/fake_ea_root")
@@ -906,6 +939,35 @@ def test_resolve_onemin_image_slots_assigns_stable_names_to_script_only_keys(mon
         {"env_name": "ONEMIN_AI_API_KEY", "key": "primary-key"},
         {"env_name": "ONEMIN_RESOLVED_SLOT_1", "key": "fallback-a"},
         {"env_name": "ONEMIN_RESOLVED_SLOT_2", "key": "fallback-b"},
+    ]
+
+
+def test_resolve_onemin_image_slots_reads_fallback_names_from_local_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    fake_root = Path("/tmp/fake_ea_root")
+    fake_script = fake_root / "scripts" / "resolve_onemin_ai_key.sh"
+    monkeypatch.setattr(media, "EA_ROOT", fake_root)
+    monkeypatch.delenv("ONEMIN_AI_API_KEY_FALLBACK_1", raising=False)
+    monkeypatch.delenv("ONEMIN_AI_API_KEY_FALLBACK_2", raising=False)
+    monkeypatch.setattr(
+        media,
+        "LOCAL_ENV",
+        {
+            "ONEMIN_AI_API_KEY": "primary-key",
+            "ONEMIN_AI_API_KEY_FALLBACK_1": "fallback-a",
+            "ONEMIN_AI_API_KEY_FALLBACK_2": "fallback-b",
+        },
+    )
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+    monkeypatch.setattr(media.subprocess, "check_output", lambda *args, **kwargs: "")
+    monkeypatch.setattr(type(fake_script), "exists", lambda self: str(self) == str(fake_script))
+
+    slots = media.resolve_onemin_image_slots()
+
+    assert slots[:3] == [
+        {"env_name": "ONEMIN_AI_API_KEY", "key": "primary-key"},
+        {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "key": "fallback-a"},
+        {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "key": "fallback-b"},
     ]
 
 
@@ -1115,6 +1177,8 @@ def test_resolve_onemin_image_keys_keeps_fallback_rotation_enabled_by_default(mo
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "fallback-1")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "fallback-2")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
     monkeypatch.setattr(media.subprocess, "check_output", lambda *args, **kwargs: "")
 
     assert media.resolve_onemin_image_keys() == ["primary", "fallback-1", "fallback-2"]
@@ -1555,6 +1619,63 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
     assert "poster energy is welcome when it stays tied to a lived scene" not in what_prompt.lower()
 
 
+def test_build_safe_onemin_prompt_uses_direct_scene_prompts_for_alice_nexus_and_parts_index() -> None:
+    media = _load_module()
+
+    alice_prompt = media.build_safe_onemin_prompt(
+        prompt="Crash lab scene.",
+        spec={
+            "target": "assets/horizons/alice.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "a crash lane",
+                    "environment": "a sim bench",
+                    "action": "branching possible outcomes",
+                    "composition": "simulation_lab",
+                    "mood": "tense",
+                },
+            },
+        },
+    )
+    nexus_prompt = media.build_safe_onemin_prompt(
+        prompt="Reconnect lane scene.",
+        spec={
+            "target": "assets/horizons/nexus-pan.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "a reconnect operator",
+                    "environment": "a van interior",
+                    "action": "patching a dropped mesh link",
+                    "composition": "van_interior",
+                    "mood": "pressured",
+                },
+            },
+        },
+    )
+    parts_prompt = media.build_safe_onemin_prompt(
+        prompt="Workzone map scene.",
+        spec={
+            "target": "assets/pages/parts-index.png",
+            "media_row": {
+                "scene_contract": {
+                    "subject": "a room map",
+                    "environment": "a warehouse floor",
+                    "action": "linking stations",
+                    "composition": "district_map",
+                    "mood": "grounded",
+                },
+            },
+        },
+    )
+
+    assert "deterministic crash-lab poster art" in alice_prompt.lower()
+    assert "no wall monitor" in alice_prompt.lower()
+    assert "reconnect-rig poster art" in nexus_prompt.lower()
+    assert "no readable exterior shop signs" in nexus_prompt.lower()
+    assert "six chummer parts become six physical stations" in parts_prompt.lower()
+    assert "no central table" in parts_prompt.lower()
+
+
 def test_build_safe_media_factory_prompt_uses_compact_flagship_scene_prompt() -> None:
     media = _load_module()
 
@@ -1626,6 +1747,17 @@ def test_onemin_size_candidates_honor_specified_wide_sizes() -> None:
         height=540,
         spec={"onemin_sizes": ["auto", "1536x1024"]},
     ) == ["auto", "1536x1024"]
+
+
+def test_onemin_size_candidates_prioritize_auto_for_wide_gpt_image_targets() -> None:
+    media = _load_module()
+
+    assert media.onemin_size_candidates("gpt-image-1", width=960, height=540) == [
+        "auto",
+        "1536x1024",
+        "1024x1024",
+        "1024x1536",
+    ]
 
 
 def test_overlay_mode_for_target_maps_flagship_assets() -> None:
@@ -1803,12 +1935,18 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     media = _load_module()
 
     assert media.first_contact_target("assets/hero/chummer6-hero.png") is True
-    assert media.first_contact_variant_count(target="assets/hero/chummer6-hero.png") == 8
+    assert media.first_contact_variant_count(target="assets/hero/chummer6-hero.png") == 10
     assert media.quality_focus_target("assets/pages/public-surfaces.png") is True
     assert media.quality_focus_target("assets/horizons/alice.png") is True
     assert media.first_contact_variant_count(target="assets/pages/public-surfaces.png") == 4
-    assert media.first_contact_variant_count(target="assets/horizons/alice.png") == 4
+    assert media.first_contact_variant_count(target="assets/horizons/alice.png") == 10
+    assert media.first_contact_variant_count(target="assets/horizons/nexus-pan.png") == 8
+    assert media.first_contact_variant_count(target="assets/horizons/runsite.png") == 8
+    assert media.first_contact_variant_count(target="assets/parts/hub.png") == 6
+    assert media.first_contact_variant_count(target="assets/pages/parts-index.png") == 10
     assert media.first_contact_variant_count(target="assets/parts/ui.png") == 1
+    assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png"}) is False
+    assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png", "review_overlay": True}) is True
 
 
 def test_first_contact_target_variant_count_honors_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2105,7 +2243,7 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
 
     result = media.apply_first_contact_overlay_postpass(
         image_path=image_path,
-        spec={"target": "assets/hero/chummer6-hero.png"},
+        spec={"target": "assets/hero/chummer6-hero.png", "review_overlay": True},
         width=960,
         height=540,
     )
@@ -2115,7 +2253,23 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
     assert "UPGRADING" in seen["command"][7]
     assert "TRUST CHECK" not in seen["command"][7]
     assert "NEURAL LINK RESYNC" in seen["command"][7]
-    assert "boxborderw=4" in seen["command"][7]
+    assert "boxborderw=3" in seen["command"][7]
+    assert "borderw=1" in seen["command"][7]
+
+
+def test_apply_first_contact_overlay_postpass_skips_public_assets_by_default(tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero.png"
+    image_path.write_bytes(b"png")
+
+    result = media.apply_first_contact_overlay_postpass(
+        image_path=image_path,
+        spec={"target": "assets/hero/chummer6-hero.png"},
+        width=960,
+        height=540,
+    )
+
+    assert result == "first_contact_overlay:skipped_public_clean"
 
 
 def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
@@ -2202,6 +2356,148 @@ def test_apply_flagship_finish_postpass_supports_horizons_index(tmp_path: Path) 
     assert result == "flagship_finish_postpass:applied_pillow"
 
 
+def test_apply_flagship_finish_postpass_supports_alice(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.Image is None:
+        pytest.skip("Pillow not available")
+    image_path = tmp_path / "alice.png"
+    base = media.Image.new("RGB", (240, 160), (18, 20, 28))
+    draw = media.ImageDraw.Draw(base)
+    draw.rectangle((18, 18, 82, 144), fill=(68, 214, 226))
+    draw.rectangle((88, 24, 168, 138), fill=(34, 52, 62))
+    draw.rectangle((160, 32, 226, 118), fill=(210, 84, 92))
+    base.save(image_path, format="PNG")
+
+    result = media.apply_flagship_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/horizons/alice.png"},
+    )
+
+    assert result == "flagship_finish_postpass:applied_pillow"
+
+
+def test_apply_flagship_finish_postpass_supports_parts_index(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.Image is None:
+        pytest.skip("Pillow not available")
+    image_path = tmp_path / "parts.png"
+    base = media.Image.new("RGB", (240, 160), (20, 24, 30))
+    draw = media.ImageDraw.Draw(base)
+    draw.rectangle((10, 28, 78, 110), fill=(42, 122, 164))
+    draw.rectangle((88, 54, 156, 146), fill=(108, 78, 72))
+    draw.rectangle((162, 24, 232, 120), fill=(214, 88, 74))
+    base.save(image_path, format="PNG")
+
+    result = media.apply_flagship_finish_postpass(
+        image_path=image_path,
+        spec={"target": "assets/pages/parts-index.png"},
+    )
+
+    assert result == "flagship_finish_postpass:applied_pillow"
+
+
+def test_apply_flagship_ambient_cue_postpass_supports_runsite(tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "runsite.png"
+    media.Image.new("RGB", (960, 540), (22, 26, 28)).save(image_path)
+    before = image_path.read_bytes()
+
+    result = media.apply_flagship_ambient_cue_postpass(
+        image_path=image_path,
+        spec={"target": "assets/horizons/runsite.png"},
+    )
+
+    assert result == "flagship_ambient_cue_postpass:applied"
+    assert image_path.read_bytes() != before
+
+
+def test_visual_audit_text_region_false_positive_tolerates_runsite_and_hub_geometry() -> None:
+    media = _load_module()
+
+    assert (
+        media._visual_audit_text_region_false_positive(
+            target="assets/horizons/runsite.png",
+            x=8,
+            y=74,
+            w=68,
+            h=162,
+            width=960,
+            height=540,
+            aspect=162 / 68,
+        )
+        is True
+    )
+    assert (
+        media._visual_audit_text_region_false_positive(
+            target="assets/parts/hub.png",
+            x=249,
+            y=443,
+            w=203,
+            h=97,
+            width=960,
+            height=540,
+            aspect=203 / 97,
+        )
+        is True
+    )
+    assert (
+        media._visual_audit_text_region_false_positive(
+            target="assets/horizons/table-pulse.png",
+            x=0,
+            y=0,
+            w=76,
+            h=166,
+            width=640,
+            height=360,
+            aspect=166 / 76,
+        )
+        is True
+    )
+    assert (
+        media._visual_audit_text_region_false_positive(
+            target="assets/horizons/table-pulse.png",
+            x=315,
+            y=79,
+            w=63,
+            h=135,
+            width=640,
+            height=360,
+            aspect=135 / 63,
+        )
+        is True
+    )
+
+
+def test_apply_text_suppression_repair_postpass_supports_karma_forge(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    image_path = tmp_path / "forge.png"
+    image_path.write_bytes(b"png")
+    seen: dict[str, object] = {}
+
+    def fake_repair(*, image_path: Path, target: str) -> str:
+        seen["image_path"] = image_path
+        seen["target"] = target
+        return "text_suppression_repair_postpass:applied:4"
+
+    def fake_forge_repair(*, image_path: Path) -> str:
+        seen["image_path"] = image_path
+        seen["target"] = "assets/horizons/karma-forge.png"
+        return "text_suppression_repair_postpass:applied_forge_overlay_sanitization"
+
+    monkeypatch.setattr(media, "_apply_forge_overlay_sanitization_postpass_pillow", fake_forge_repair)
+
+    result = media.apply_text_suppression_repair_postpass(
+        image_path=image_path,
+        spec={"target": "assets/horizons/karma-forge.png"},
+    )
+
+    assert result == "text_suppression_repair_postpass:applied_forge_overlay_sanitization"
+    assert seen["image_path"] == image_path
+    assert seen["target"] == "assets/horizons/karma-forge.png"
+
+
 def test_apply_public_asset_finish_postpass_uses_pillow_for_non_flagship_asset(tmp_path: Path) -> None:
     media = _load_module()
     if media.Image is None:
@@ -2261,8 +2557,9 @@ def test_apply_flagship_finish_postpass_uses_ffmpeg_when_pillow_is_unavailable(
     )
 
     assert result == "flagship_finish_postpass:applied_ffmpeg"
-    assert "unsharp=9:9:1.45:5:5:0.0" in seen["command"][7]
-    assert "eq=contrast=1.12:saturation=1.12:brightness=0.025" in seen["command"][7]
+    assert "cas=strength=0.22" in seen["command"][7]
+    assert "vibrance=intensity=0.10" in seen["command"][7]
+    assert "unsharp=5:5:0.64:3:3:0.0" in seen["command"][7]
 
 
 def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
@@ -2303,6 +2600,7 @@ def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> 
     assert "Trust Check" not in hero_prompt
     assert "clean base-scene plate" in karma_prompt
     assert "Keep the shared guide continuity in palette, texture, and world feel without softening the flagship poster finish." in karma_prompt
+    assert "readable approval" in karma_prompt
 
 
 def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() -> None:
@@ -2485,14 +2783,20 @@ def test_champion_entry_for_target_seeds_from_repo_asset(
     assert ledger["assets"][target]["path"] == str(target_path)
 
 
-def test_champion_entry_for_target_backfills_output_path_alias() -> None:
+def test_champion_entry_for_target_backfills_output_path_alias(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     media = _load_module()
-    ledger = {"assets": {"assets/pages/current-status.png": {"path": "/tmp/champion.png", "score": 123.0}}}
+    champion_path = tmp_path / "champion.png"
+    champion_path.write_bytes(b"png")
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", tmp_path / "Chummer6")
+    monkeypatch.setattr(media, "FLEET_STATE_ROOT", tmp_path / "fleet" / "state" / "chummer6")
+    ledger = {"assets": {"assets/pages/current-status.png": {"path": str(champion_path), "score": 123.0}}}
 
     entry = media.champion_entry_for_target(target="assets/pages/current-status.png", ledger=ledger)
 
-    assert entry["path"] == "/tmp/champion.png"
-    assert entry["output_path"] == "/tmp/champion.png"
+    assert entry["path"] == str(champion_path)
+    assert entry["output_path"] == str(champion_path)
 
 
 def test_champion_entry_for_target_refreshes_repo_seed_after_manual_promotion(
@@ -2528,6 +2832,42 @@ def test_champion_entry_for_target_refreshes_repo_seed_after_manual_promotion(
     assert entry["output_path"] == str(target_path)
     assert entry["score"] == 264.08333333333337
     assert ledger["assets"][target]["score"] == 264.08333333333337
+
+
+def test_champion_entry_for_target_prefers_stronger_local_archive_candidate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    repo_root = tmp_path / "Chummer6"
+    fleet_root = tmp_path / "fleet" / "state" / "chummer6"
+    target = "assets/hero/chummer6-hero.png"
+    repo_target = repo_root / target
+    archive_target = fleet_root / "ea_media_smoke_best" / target
+    repo_target.parent.mkdir(parents=True, exist_ok=True)
+    archive_target.parent.mkdir(parents=True, exist_ok=True)
+    repo_target.write_bytes(b"repo-png")
+    archive_target.write_bytes(b"archive-png")
+
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", repo_root)
+    monkeypatch.setattr(media, "FLEET_STATE_ROOT", fleet_root)
+    monkeypatch.setattr(media, "visual_audit_enabled", lambda **kwargs: True)
+
+    def _visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[str]]:
+        if image_path == archive_target:
+            return (333.6666666666667, [])
+        if image_path == repo_target:
+            return (279.5, [])
+        raise AssertionError(f"unexpected path: {image_path}")
+
+    monkeypatch.setattr(media, "visual_audit_score", _visual_audit_score)
+
+    ledger = {"assets": {}}
+    entry = media.champion_entry_for_target(target=target, ledger=ledger)
+
+    assert entry["path"] == str(archive_target)
+    assert entry["source"] == "local_archive_seed"
+    assert entry["score"] == 333.6666666666667
+    assert ledger["assets"][target]["path"] == str(archive_target)
 
 
 def test_provider_scheduler_entry_clears_stale_legacy_lock(
@@ -2647,6 +2987,63 @@ def test_critical_visual_gate_failures_reject_soft_finish_on_flagship_assets() -
     assert "critical_visual_gate:soft_finish" in failures
 
 
+def test_critical_visual_gate_failures_rejects_text_drift_on_horizons_index() -> None:
+    media = _load_module()
+
+    failures = media.critical_visual_gate_failures(
+        target="assets/pages/horizons-index.png",
+        base_score=118.0,
+        base_notes=["visual_audit:readable_signage_risk"],
+        final_score=302.0,
+        final_notes=["visual_audit:text_sprawl"],
+    )
+
+    assert "critical_visual_gate:readable_signage_risk" in failures
+    assert "critical_visual_gate:text_sprawl" in failures
+
+
+def test_critical_visual_gate_failures_rejects_dominant_wall_panel_on_alice() -> None:
+    media = _load_module()
+
+    failures = media.critical_visual_gate_failures(
+        target="assets/horizons/alice.png",
+        base_score=118.0,
+        base_notes=["visual_audit:dominant_wall_panel"],
+        final_score=322.0,
+        final_notes=["visual_audit:dominant_wall_panel"],
+    )
+
+    assert "critical_visual_gate:dominant_wall_panel" in failures
+
+
+def test_critical_visual_gate_failures_rejects_reference_wall_drift_on_runbook_press() -> None:
+    media = _load_module()
+
+    failures = media.critical_visual_gate_failures(
+        target="assets/horizons/runbook-press.png",
+        base_score=118.0,
+        base_notes=["visual_audit:reference_wall_risk"],
+        final_score=322.0,
+        final_notes=["visual_audit:reference_wall_risk"],
+    )
+
+    assert "critical_visual_gate:reference_wall_risk" in failures
+
+
+def test_critical_visual_gate_failures_rejects_sub_flagship_hero_score() -> None:
+    media = _load_module()
+
+    failures = media.critical_visual_gate_failures(
+        target="assets/hero/chummer6-hero.png",
+        base_score=120.0,
+        base_notes=[],
+        final_score=279.5,
+        final_notes=[],
+    )
+
+    assert "critical_visual_gate:final_score<300" in failures
+
+
 def test_scene_policy_for_target_uses_approval_rail_for_karma_forge() -> None:
     media = _load_module()
     specs = media.asset_specs()
@@ -2679,6 +3076,139 @@ def test_scene_policy_for_target_makes_karma_forge_an_industrial_materials_lab()
     assert "materials" in prompt or "awakened" in prompt
 
 
+def test_asset_specs_propagate_onemin_strict_models_for_direct_targets() -> None:
+    media = _load_module()
+    specs = media.asset_specs()
+    parts_index = next(spec for spec in specs if spec["target"] == "assets/pages/parts-index.png")
+    alice = next(spec for spec in specs if spec["target"] == "assets/horizons/alice.png")
+    nexus = next(spec for spec in specs if spec["target"] == "assets/horizons/nexus-pan.png")
+
+    assert parts_index["onemin_models"] == ["gpt-image-1"]
+    assert parts_index["onemin_strict_models"] is True
+    assert alice["onemin_models"] == ["gpt-image-1"]
+    assert alice["onemin_strict_models"] is True
+    assert nexus["onemin_models"] == ["gpt-image-1"]
+    assert nexus["onemin_strict_models"] is True
+    assert nexus["providers"] == ["onemin", "media_factory"]
+
+
+def test_visual_audit_dominant_panel_risk_flags_large_wall_panel(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "panel.png"
+    image = image_mod.new("RGB", (1536, 1024), (12, 16, 20))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((920, 120, 1450, 520), fill=(30, 214, 238))
+    image.save(image_path)
+
+    penalty, notes = media._visual_audit_dominant_panel_risk(
+        image_path=image_path,
+        target="assets/horizons/alice.png",
+    )
+
+    assert penalty > 0.0
+    assert "visual_audit:dominant_wall_panel" in notes
+
+
+def test_visual_audit_text_analysis_ignores_tall_alice_silhouette_false_positive(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "alice-silhouette.png"
+    image = image_mod.new("RGB", (960, 540), (18, 22, 28))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((24, 120, 96, 340), fill=(230, 240, 246))
+    draw.rectangle((136, 160, 204, 332), fill=(18, 210, 230))
+    image.save(image_path)
+
+    regions, _mask = media._visual_audit_text_analysis(
+        image_path=image_path,
+        target="assets/horizons/alice.png",
+    )
+
+    assert regions == []
+
+
+def test_visual_audit_text_analysis_ignores_parts_index_mirror_and_strip_false_positive(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "parts-index-mirror-strip.png"
+    image = image_mod.new("RGB", (960, 540), (18, 22, 28))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((418, 96, 484, 334), fill=(208, 226, 236))
+    draw.rectangle((600, 28, 760, 58), fill=(214, 224, 230))
+    image.save(image_path)
+
+    regions, _mask = media._visual_audit_text_analysis(
+        image_path=image_path,
+        target="assets/pages/parts-index.png",
+    )
+
+    assert regions == []
+
+
+def test_visual_audit_fake_signage_risk_flags_bright_header_anchor(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "fake-signage.png"
+    image = image_mod.new("RGB", (1280, 720), (12, 14, 18))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((140, 88, 520, 176), fill=(255, 84, 52))
+    for x in range(160, 500, 36):
+        draw.rectangle((x, 108, x + 18, 146), fill=(255, 230, 210))
+    image.save(image_path)
+
+    penalty, notes = media._visual_audit_fake_signage_risk(
+        image_path=image_path,
+        target="assets/horizons/runsite.png",
+    )
+
+    assert penalty > 0.0
+    assert "visual_audit:fake_signage_anchor" in notes
+
+
+def test_visual_audit_reference_wall_risk_flags_large_document_wall(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "reference-wall.png"
+    image = image_mod.new("RGB", (1280, 720), (18, 20, 24))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((520, 72, 1220, 612), fill=(218, 214, 202))
+    for y in range(104, 592, 56):
+        for x in range(556, 1180, 92):
+            draw.rectangle((x, y, x + 64, y + 38), outline=(64, 68, 74), width=2)
+            draw.line((x + 8, y + 14, x + 56, y + 14), fill=(76, 78, 84), width=2)
+            draw.line((x + 8, y + 26, x + 48, y + 26), fill=(82, 84, 90), width=2)
+    image.save(image_path)
+
+    penalty, notes = media._visual_audit_reference_wall_risk(
+        image_path=image_path,
+        target="assets/parts/design.png",
+    )
+
+    assert penalty > 0.0
+    assert "visual_audit:reference_wall_risk" in notes
+
+
 def test_ooda_variant_prompt_adds_room_finish_and_energy_corrections() -> None:
     media = _load_module()
 
@@ -2699,7 +3229,77 @@ def test_ooda_variant_prompt_adds_room_finish_and_energy_corrections() -> None:
     assert "harder edges" in lowered
     assert "stronger contrast" in lowered
     assert "clinic geography" in lowered
-    assert tags == ["wider_room_first", "harder_finish", "higher_energy"]
+    assert tags[:3] == ["wider_room_first", "harder_finish", "higher_energy"]
+    assert "hero_cast_clarity" in tags
+    assert "hero_room_story" in tags
+
+
+def test_ooda_variant_prompt_adds_runsite_and_hub_corrections() -> None:
+    media = _load_module()
+
+    runsite_prompt, runsite_tags = media.ooda_variant_prompt(
+        prompt="Base runsite prompt.",
+        target="assets/horizons/runsite.png",
+        variant=2,
+        previous_notes=["visual_audit:dominant_wall_panel", "visual_audit:text_sprawl"],
+        previous_gate_failures=[],
+    )
+    lowered_runsite = runsite_prompt.lower()
+    assert "real dock space" in lowered_runsite
+    assert "freestanding hologram slab" in lowered_runsite
+    assert "off-axis loading-bay corner" in lowered_runsite
+    assert "runsite_grounded_ingress" in runsite_tags
+    assert "runsite_no_slab" in runsite_tags
+    assert "runsite_reframe" in runsite_tags
+
+    hub_prompt, hub_tags = media.ooda_variant_prompt(
+        prompt="Base hub prompt.",
+        target="assets/parts/hub.png",
+        variant=2,
+        previous_notes=["visual_audit:dominant_wall_panel"],
+        previous_gate_failures=[],
+    )
+    lowered_hub = hub_prompt.lower()
+    assert "dense relay hardware" in lowered_hub
+    assert "dashboard wall" in lowered_hub
+    assert "side access cut" in lowered_hub
+    assert "hub_rack_density" in hub_tags
+    assert "hub_no_screen_wall" in hub_tags
+    assert "hub_reframe" in hub_tags
+
+
+def test_ooda_variant_prompt_adds_nexus_and_parts_index_corrections() -> None:
+    media = _load_module()
+
+    nexus_prompt, nexus_tags = media.ooda_variant_prompt(
+        prompt="Base nexus prompt.",
+        target="assets/horizons/nexus-pan.png",
+        variant=2,
+        previous_notes=["visual_audit:text_sprawl", "visual_audit:workzone_story_weak"],
+        previous_gate_failures=[],
+    )
+    lowered_nexus = nexus_prompt.lower()
+    assert "cramped van or service-rig interior" in lowered_nexus
+    assert "no readable exterior shop signs" in lowered_nexus
+    assert "side door or rear quarter" in lowered_nexus
+    assert "nexus_rig_density" in nexus_tags
+    assert "nexus_no_window_signage" in nexus_tags
+    assert "nexus_reframe" in nexus_tags
+
+    parts_prompt, parts_tags = media.ooda_variant_prompt(
+        prompt="Base parts prompt.",
+        target="assets/pages/parts-index.png",
+        variant=2,
+        previous_notes=["visual_audit:workzone_story_weak"],
+        previous_gate_failures=[],
+    )
+    lowered_parts = parts_prompt.lower()
+    assert "six distinct linked stations" in lowered_parts
+    assert "glass control rooms" in lowered_parts
+    assert "warehouse corner" in lowered_parts
+    assert "parts_station_density" in parts_tags
+    assert "parts_no_wall_panels" in parts_tags
+    assert "parts_diagonal_room" in parts_tags
 
 
 def test_ooda_variant_spec_switches_toward_room_or_finish_provider() -> None:
