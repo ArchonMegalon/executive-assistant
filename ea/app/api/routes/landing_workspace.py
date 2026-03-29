@@ -231,8 +231,13 @@ def settings_usage_detail(
                     _object_detail_row("Approval coverage rate", str(analytics.get("approval_coverage_rate") or 0), "Analytics"),
                     _object_detail_row("Approval send rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
                     _object_detail_row(
-                        "Follow-up resolution rate",
+                        "Follow-up closeout rate",
                         str(analytics.get("delivery_followup_resolution_rate") if analytics.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                        "Analytics",
+                    ),
+                    _object_detail_row(
+                        "Blocked follow-up rate",
+                        str(analytics.get("delivery_followup_blocked_rate") if analytics.get("delivery_followup_blocked_rate") is not None else "n/a"),
                         "Analytics",
                     ),
                     _object_detail_row("Commitment close rate", str(analytics.get("commitment_close_rate") or 0), "Analytics"),
@@ -370,8 +375,13 @@ def settings_support_detail(
                     _object_detail_row("Approval coverage rate", str(analytics.get("approval_coverage_rate") or 0), "Analytics"),
                     _object_detail_row("Approval send rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
                     _object_detail_row(
-                        "Follow-up resolution rate",
+                        "Follow-up closeout rate",
                         str(analytics.get("delivery_followup_resolution_rate") if analytics.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                        "Analytics",
+                    ),
+                    _object_detail_row(
+                        "Blocked follow-up rate",
+                        str(analytics.get("delivery_followup_blocked_rate") if analytics.get("delivery_followup_blocked_rate") is not None else "n/a"),
                         "Analytics",
                     ),
                     _object_detail_row("Commitment close rate", str(analytics.get("commitment_close_rate") or 0), "Analytics"),
@@ -447,8 +457,13 @@ def settings_outcomes_detail(
             _object_detail_row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or 0), "Review"),
             _object_detail_row("Approval send rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
             _object_detail_row(
-                "Follow-up resolution rate",
+                "Follow-up closeout rate",
                 str(outcomes.get("delivery_followup_resolution_rate") if outcomes.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                "Review",
+            ),
+            _object_detail_row(
+                "Blocked follow-up rate",
+                str(outcomes.get("delivery_followup_blocked_rate") if outcomes.get("delivery_followup_blocked_rate") is not None else "n/a"),
                 "Review",
             ),
             _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Closure"),
@@ -474,8 +489,13 @@ def settings_outcomes_detail(
                     _object_detail_row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or 0), "Approvals"),
                     _object_detail_row("Approval send rate", str(outcomes.get("approval_action_rate") or 0), "Approvals"),
                     _object_detail_row(
-                        "Follow-up resolution rate",
+                        "Follow-up closeout rate",
                         str(outcomes.get("delivery_followup_resolution_rate") if outcomes.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                        "Operators",
+                    ),
+                    _object_detail_row(
+                        "Blocked follow-up rate",
+                        str(outcomes.get("delivery_followup_blocked_rate") if outcomes.get("delivery_followup_blocked_rate") is not None else "n/a"),
                         "Operators",
                     ),
                     _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Commitments"),

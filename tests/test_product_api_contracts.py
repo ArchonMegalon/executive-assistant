@@ -572,6 +572,7 @@ def test_delivery_followup_completion_can_record_manual_send() -> None:
     assert outcomes_body["approval_coverage_rate"] == 1.0
     assert outcomes_body["approval_action_rate"] == 1.0
     assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
+    assert outcomes_body["delivery_followup_blocked_rate"] == 0.0
 
 
 def test_delivery_followup_completion_can_record_reauth_needed() -> None:
@@ -610,7 +611,8 @@ def test_delivery_followup_completion_can_record_reauth_needed() -> None:
     outcomes_body = outcomes.json()
     assert outcomes_body["approval_coverage_rate"] == 1.0
     assert outcomes_body["approval_action_rate"] == 0.0
-    assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
+    assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
+    assert outcomes_body["delivery_followup_blocked_rate"] == 1.0
 
 
 def test_delivery_followup_completion_can_record_waiting_on_principal() -> None:
@@ -649,7 +651,8 @@ def test_delivery_followup_completion_can_record_waiting_on_principal() -> None:
     outcomes_body = outcomes.json()
     assert outcomes_body["approval_coverage_rate"] == 1.0
     assert outcomes_body["approval_action_rate"] == 0.0
-    assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
+    assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
+    assert outcomes_body["delivery_followup_blocked_rate"] == 1.0
 
     handoff_page = client.get(f"/app/handoffs/{followup['id']}")
     assert handoff_page.status_code == 200
@@ -1436,6 +1439,7 @@ def test_product_diagnostics_include_value_events() -> None:
     assert outcomes_body["approval_coverage_rate"] >= outcomes_body["approval_action_rate"]
     assert outcomes_body["approval_action_rate"] == 0.0
     assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
+    assert outcomes_body["delivery_followup_blocked_rate"] == 0.0
     assert outcomes_body["counts"]["commitment_closed"] >= 1
     assert outcomes_body["success_summary"]
     assert "memo_loop" in outcomes_body
