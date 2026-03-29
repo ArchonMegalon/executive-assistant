@@ -23,3 +23,39 @@ def test_extract_commitment_candidates_normalizes_tomorrow_morning_deadline() ->
     assert candidates
     assert candidates[0].title == "Reply to Sofia"
     assert candidates[0].suggested_due_at == "2026-03-29T09:00:00+00:00"
+
+
+def test_extract_commitment_candidates_normalizes_weekday_deadline() -> None:
+    candidates = extract_commitment_candidates(
+        "Please send the revised board packet by Friday.",
+        counterparty="Sofia N.",
+        reference_at="2026-03-24T10:15:00+00:00",
+    )
+
+    assert candidates
+    assert candidates[0].title == "Send the revised board packet"
+    assert candidates[0].suggested_due_at == "2026-03-27T17:00:00+00:00"
+
+
+def test_extract_commitment_candidates_normalizes_next_weekday_daypart_deadline() -> None:
+    candidates = extract_commitment_candidates(
+        "Need to confirm the investor update next Tuesday afternoon.",
+        counterparty="Sofia N.",
+        reference_at="2026-03-23T10:15:00+00:00",
+    )
+
+    assert candidates
+    assert candidates[0].title == "Confirm the investor update"
+    assert candidates[0].suggested_due_at == "2026-03-24T15:00:00+00:00"
+
+
+def test_extract_commitment_candidates_normalizes_end_of_week_deadline() -> None:
+    candidates = extract_commitment_candidates(
+        "We will finalize the board memo by end of week.",
+        counterparty="Sofia N.",
+        reference_at="2026-03-24T10:15:00+00:00",
+    )
+
+    assert candidates
+    assert candidates[0].title == "Finalize the board memo"
+    assert candidates[0].suggested_due_at == "2026-03-27T17:00:00+00:00"

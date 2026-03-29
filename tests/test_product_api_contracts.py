@@ -75,6 +75,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert person_graph_detail.json()["profile"]["display_name"] == "Sofia N."
     assert any(item["statement"] == "Send board materials" for item in person_graph_detail.json()["commitments"])
     assert any(item["recipient_summary"] == "sofia@example.com" for item in person_graph_detail.json()["drafts"])
+    assert any(item["title"] == "sofia@example.com" for item in person_graph_detail.json()["threads"])
 
     handoffs = client.get("/app/api/handoffs")
     assert handoffs.status_code == 200
@@ -147,6 +148,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "memo_open_rate" in outcomes_body
     assert "approval_coverage_rate" in outcomes_body
     assert "approval_action_rate" in outcomes_body
+    assert "delivery_followup_closeout_count" in outcomes_body
+    assert "delivery_followup_blocked_count" in outcomes_body
     assert "delivery_followup_resolution_rate" in outcomes_body
     assert "commitment_close_rate" in outcomes_body
     assert "memo_loop" in outcomes_body
@@ -430,6 +433,17 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
     principal_id = "exec-product-signal-draft-send"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Signal Draft Send Office")
+    stakeholder = client.app.state.container.memory_runtime.upsert_stakeholder(
+        principal_id=principal_id,
+        display_name="Sofia N.",
+        channel_ref="sofia@example.com",
+        authority_level="board",
+        importance="high",
+        tone_pref="direct",
+        open_loops_json={"board_packet": True},
+        friction_points_json={},
+        last_interaction_at="2026-03-29T08:45:00+00:00",
+    )
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(
@@ -455,6 +469,7 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
             "summary": "Send revised board packet to Sofia by EOD.",
             "text": "Send revised board packet to Sofia by EOD.",
             "counterparty": "Sofia N.",
+            "stakeholder_id": stakeholder.stakeholder_id,
             "source_ref": "gmail-thread:signal-draft-send",
             "external_id": "gmail-message:signal-draft-send",
             "payload": {
@@ -501,6 +516,11 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
     thread_history = client.get("/app/api/threads/gmail-thread:signal-draft-send/history")
     assert thread_history.status_code == 200
     assert any(row["event_type"] == "draft_sent" for row in thread_history.json())
+
+    person_detail = client.get(f"/app/api/people/{stakeholder.stakeholder_id}/detail")
+    assert person_detail.status_code == 200
+    assert any(item["id"] == "thread:gmail-thread:signal-draft-send" for item in person_detail.json()["threads"])
+    assert any(item["event_type"] == "draft_sent" for item in person_detail.json()["history"])
 
 
 def test_queue_approval_resolution_uses_draft_delivery_runtime() -> None:
@@ -571,6 +591,8 @@ def test_delivery_followup_completion_can_record_manual_send() -> None:
     outcomes_body = outcomes.json()
     assert outcomes_body["approval_coverage_rate"] == 1.0
     assert outcomes_body["approval_action_rate"] == 1.0
+    assert outcomes_body["delivery_followup_closeout_count"] == 1
+    assert outcomes_body["delivery_followup_blocked_count"] == 0
     assert outcomes_body["delivery_followup_resolution_rate"] == 1.0
     assert outcomes_body["delivery_followup_blocked_rate"] == 0.0
 
@@ -611,6 +633,8 @@ def test_delivery_followup_completion_can_record_reauth_needed() -> None:
     outcomes_body = outcomes.json()
     assert outcomes_body["approval_coverage_rate"] == 1.0
     assert outcomes_body["approval_action_rate"] == 0.0
+    assert outcomes_body["delivery_followup_closeout_count"] == 0
+    assert outcomes_body["delivery_followup_blocked_count"] == 1
     assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
     assert outcomes_body["delivery_followup_blocked_rate"] == 1.0
 
@@ -651,6 +675,8 @@ def test_delivery_followup_completion_can_record_waiting_on_principal() -> None:
     outcomes_body = outcomes.json()
     assert outcomes_body["approval_coverage_rate"] == 1.0
     assert outcomes_body["approval_action_rate"] == 0.0
+    assert outcomes_body["delivery_followup_closeout_count"] == 0
+    assert outcomes_body["delivery_followup_blocked_count"] == 1
     assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
     assert outcomes_body["delivery_followup_blocked_rate"] == 1.0
 
@@ -752,6 +778,8 @@ def test_delivery_followup_surfaces_retry_connect_and_manual_send_actions_in_ope
     assert handoff_item["secondary_action_href"].endswith("return_to=/app/channel-loop/operator")
     assert handoff_item["tertiary_action_label"] == "Mark sent"
     assert "/app/channel-actions/" in handoff_item["tertiary_action_href"]
+    assert handoff_item["quaternary_action_label"] == "Waiting on principal"
+    assert "/app/channel-actions/" in handoff_item["quaternary_action_href"]
 
     center = client.get("/app/api/operator-center")
     assert center.status_code == 200
@@ -759,6 +787,7 @@ def test_delivery_followup_surfaces_retry_connect_and_manual_send_actions_in_ope
     assert next_action["action_label"] == "Retry send"
     assert next_action["secondary_action_label"] in {"Connect Google", "Reconnect Google"}
     assert next_action["tertiary_action_label"] == "Mark sent"
+    assert next_action["quaternary_action_label"] == "Waiting on principal"
 
 
 def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypatch) -> None:
@@ -1438,6 +1467,8 @@ def test_product_diagnostics_include_value_events() -> None:
     assert outcomes_body["counts"]["draft_send_followup_created"] >= 1
     assert outcomes_body["approval_coverage_rate"] >= outcomes_body["approval_action_rate"]
     assert outcomes_body["approval_action_rate"] == 0.0
+    assert outcomes_body["delivery_followup_closeout_count"] == 0
+    assert outcomes_body["delivery_followup_blocked_count"] == 0
     assert outcomes_body["delivery_followup_resolution_rate"] == 0.0
     assert outcomes_body["delivery_followup_blocked_rate"] == 0.0
     assert outcomes_body["counts"]["commitment_closed"] >= 1

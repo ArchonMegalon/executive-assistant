@@ -98,6 +98,16 @@ def handoff_action_options(
                 "channel_action": "sent",
             }
         )
+        options.append(
+            {
+                "kind": "complete",
+                "label": "Waiting on principal",
+                "value": "waiting_on_principal",
+                "route": "complete",
+                "method": "post",
+                "channel_action": "waiting_on_principal",
+            }
+        )
         return tuple(options)
     return (
         {

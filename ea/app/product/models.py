@@ -174,6 +174,7 @@ class PersonDetail:
     profile: PersonProfile
     commitments: tuple[CommitmentItem, ...] = ()
     drafts: tuple[DraftCandidate, ...] = ()
+    threads: tuple[ThreadItem, ...] = ()
     queue_items: tuple[DecisionQueueItem, ...] = ()
     handoffs: tuple[HandoffNote, ...] = ()
     evidence_refs: tuple[EvidenceRef, ...] = ()

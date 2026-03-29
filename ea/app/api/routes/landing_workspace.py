@@ -192,7 +192,7 @@ def settings_usage_detail(
                 "items": [
                     _object_detail_row("Memo opened", str(counts.get("memo_opened") or 0), "Analytics"),
                     _object_detail_row("Queue opened", str(counts.get("queue_opened") or 0), "Analytics"),
-                    _object_detail_row("Draft approvals cleared", str(counts.get("draft_approved") or 0), "Analytics"),
+                    _object_detail_row("Draft approvals granted", str(counts.get("draft_approved") or 0), "Analytics"),
                     _object_detail_row("Draft sent", str(counts.get("draft_sent") or 0), "Analytics"),
                     _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Analytics"),
                     _object_detail_row("First value event", str(analytics.get("first_value_event") or "not reached").replace("_", " "), "Analytics"),
@@ -546,9 +546,11 @@ def settings_outcomes_detail(
                 "eyebrow": "Counts",
                 "title": "Signals feeding the outcome posture",
                 "items": [
-                    _object_detail_row("Draft approvals cleared", str(counts.get("draft_approved") or 0), "Drafts"),
+                    _object_detail_row("Draft approvals granted", str(counts.get("draft_approved") or 0), "Drafts"),
                     _object_detail_row("Draft sent", str(counts.get("draft_sent") or 0), "Drafts"),
-                    _object_detail_row("Send follow-up resolved", str(counts.get("draft_send_followup_resolved") or 0), "Drafts"),
+                    _object_detail_row("Send follow-ups created", str(counts.get("draft_send_followup_created") or 0), "Drafts"),
+                    _object_detail_row("Send follow-ups closed", str(outcomes.get("delivery_followup_closeout_count") or 0), "Drafts"),
+                    _object_detail_row("Blocked send follow-ups", str(outcomes.get("delivery_followup_blocked_count") or 0), "Drafts"),
                     _object_detail_row("Commitment created", str(counts.get("commitment_created") or 0), "Commitments"),
                     _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Commitments"),
                     _object_detail_row("Handoff completed", str(counts.get("handoff_completed") or 0), "Handoffs"),

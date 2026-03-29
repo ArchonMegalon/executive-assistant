@@ -11,8 +11,20 @@ _PROMISE_PATTERNS = (
     re.compile(r"\b(?:i will|i'll|we will|we'll|please|need to|must)\s+([a-z0-9 ,.'/-]{4,120})", re.IGNORECASE),
     re.compile(r"\b(?:send|share|reply|confirm|schedule|reschedule|review|approve|prepare)\s+([a-z0-9 ,.'/-]{3,120})", re.IGNORECASE),
 )
+_WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+_DAYPART_HOURS = {
+    "morning": 9,
+    "afternoon": 15,
+    "evening": 18,
+}
+_WEEKDAY_PATTERN = re.compile(
+    r"\b(?:(next)\s+)?("
+    + "|".join(_WEEKDAY_NAMES)
+    + r")(?:\s+(morning|afternoon|evening))?\b",
+    re.IGNORECASE,
+)
 _TEMPORAL_SUFFIX = re.compile(
-    r"(?:\b(?:today|tomorrow(?: morning| afternoon| evening)?|tonight|this afternoon|this evening|this week|next week|before lunch|before dinner|by eod|by end of day)\b)$",
+    r"(?:\b(?:today|tomorrow(?: morning| afternoon| evening)?|tonight|this afternoon|this evening|this week|next week|before lunch|before dinner|by eod|by end of day|by cob|cob|close of business|by close of business|eow|end of week|by end of week|by end of this week|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?: morning| afternoon| evening)?|by (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b)$",
     re.IGNORECASE,
 )
 
@@ -39,12 +51,29 @@ def _with_local_clock(base: datetime, *, hour: int, minute: int = 0) -> str:
     return local_value.isoformat()
 
 
+def _weekday_due_at(local_base: datetime, *, weekday_name: str, has_next_prefix: bool, daypart: str = "") -> str:
+    target_weekday = _WEEKDAY_NAMES.index(str(weekday_name or "").strip().lower())
+    delta_days = (target_weekday - local_base.weekday()) % 7
+    if delta_days == 0 and has_next_prefix:
+        delta_days = 7
+    hour = _DAYPART_HOURS.get(str(daypart or "").strip().lower(), 17)
+    return _with_local_clock(local_base + timedelta(days=delta_days), hour=hour)
+
+
 def _infer_relative_due_at(text: str, *, reference_at: str | None) -> str | None:
     normalized = " ".join(str(text or "").lower().split())
     if not normalized:
         return None
     base = _parse_reference_datetime(reference_at)
     local_base = base.astimezone(base.tzinfo or timezone.utc)
+    weekday_match = _WEEKDAY_PATTERN.search(normalized)
+    if weekday_match is not None:
+        return _weekday_due_at(
+            local_base,
+            weekday_name=str(weekday_match.group(2) or ""),
+            has_next_prefix=bool(weekday_match.group(1)),
+            daypart=str(weekday_match.group(3) or ""),
+        )
     if "tomorrow morning" in normalized:
         return _with_local_clock(local_base + timedelta(days=1), hour=9)
     if "tomorrow afternoon" in normalized:
@@ -59,9 +88,9 @@ def _infer_relative_due_at(text: str, *, reference_at: str | None) -> str | None
         return _with_local_clock(local_base, hour=15)
     if "this evening" in normalized or "before dinner" in normalized:
         return _with_local_clock(local_base, hour=18)
-    if "by eod" in normalized or "by end of day" in normalized or "today" in normalized:
+    if any(token in normalized for token in ("by eod", "by end of day", "by cob", "cob", "close of business", "today")):
         return _with_local_clock(local_base, hour=17)
-    if "this week" in normalized:
+    if any(token in normalized for token in ("this week", "end of week", "by end of week", "by end of this week", "eow")):
         target = local_base + timedelta(days=max(4 - local_base.weekday(), 0))
         return _with_local_clock(target, hour=17)
     if "next week" in normalized:

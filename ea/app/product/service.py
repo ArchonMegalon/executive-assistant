@@ -1760,6 +1760,8 @@ class ProductService:
         memo_open_rate = float(analytics.get("memo_open_rate") or 0.0)
         approval_coverage_rate = float(analytics.get("approval_coverage_rate") or 0.0)
         approval_action_rate = float(analytics.get("approval_action_rate") or 0.0)
+        delivery_followup_closeout_count = int(analytics.get("delivery_followup_closeout_count") or 0)
+        delivery_followup_blocked_count = int(analytics.get("delivery_followup_blocked_count") or 0)
         delivery_followup_resolution_rate = analytics.get("delivery_followup_resolution_rate")
         delivery_followup_blocked_rate = analytics.get("delivery_followup_blocked_rate")
         commitment_close_rate = float(analytics.get("commitment_close_rate") or 0.0)
@@ -1825,6 +1827,8 @@ class ProductService:
             "memo_open_rate": memo_open_rate,
             "approval_coverage_rate": approval_coverage_rate,
             "approval_action_rate": approval_action_rate,
+            "delivery_followup_closeout_count": delivery_followup_closeout_count,
+            "delivery_followup_blocked_count": delivery_followup_blocked_count,
             "delivery_followup_resolution_rate": (
                 float(delivery_followup_resolution_rate)
                 if delivery_followup_resolution_rate is not None
@@ -3985,6 +3989,16 @@ class ProductService:
             for row in self.list_drafts(principal_id=principal_id, limit=100)
             if _matches(row.recipient_summary, row.draft_text, row.intent)
         )
+        threads = tuple(
+            row
+            for row in self.list_threads(principal_id=principal_id, limit=100)
+            if _matches(
+                row.title,
+                row.summary,
+                *row.counterparties,
+                *(ref.note for ref in row.evidence_refs),
+            )
+        )
         queue_items = tuple(
             row
             for row in self.list_queue(principal_id=principal_id, limit=100, operator_id=operator_id)
@@ -4005,24 +4019,62 @@ class ProductService:
         )
         evidence: list[EvidenceRef] = []
         seen: set[str] = set()
-        for refs in [*(row.proof_refs for row in commitments), *(row.provenance_refs for row in drafts), *(row.evidence_refs for row in queue_items), *(row.evidence_refs for row in handoffs)]:
+        for refs in [
+            *(row.proof_refs for row in commitments),
+            *(row.provenance_refs for row in drafts),
+            *(row.evidence_refs for row in threads),
+            *(row.evidence_refs for row in queue_items),
+            *(row.evidence_refs for row in handoffs),
+        ]:
             for ref in refs:
                 if ref.ref_id in seen:
                     continue
                 seen.add(ref.ref_id)
                 evidence.append(ref)
+        history_source_ids: list[str] = [person_id]
+        for values in (
+            *(row.id for row in commitments),
+            *(row.id for row in drafts),
+            *(row.id for row in handoffs),
+            *(row.id for row in threads),
+            *(draft_id for row in threads for draft_id in row.draft_ids),
+        ):
+            normalized = str(values or "").strip()
+            if not normalized:
+                continue
+            history_source_ids.append(normalized)
+            if ":" in normalized:
+                history_source_ids.append(normalized.split(":", 1)[1])
         return PersonDetail(
             profile=profile,
             commitments=commitments,
             drafts=drafts,
+            threads=threads,
             queue_items=queue_items,
             handoffs=handoffs,
             evidence_refs=tuple(evidence[:12]),
-            history=self._history_entries(principal_id=principal_id, source_ids=(person_id,), limit=12),
+            history=self._history_entries(principal_id=principal_id, source_ids=tuple(history_source_ids), limit=12),
         )
 
     def get_person_history(self, *, principal_id: str, person_id: str, limit: int = 20) -> tuple[HistoryEntry, ...]:
-        return self._history_entries(principal_id=principal_id, source_ids=(person_id,), limit=limit)
+        detail = self.get_person_detail(principal_id=principal_id, person_id=person_id)
+        if detail is None:
+            return ()
+        source_ids: list[str] = [person_id]
+        for values in (
+            *(row.id for row in detail.commitments),
+            *(row.id for row in detail.drafts),
+            *(row.id for row in detail.handoffs),
+            *(row.id for row in detail.threads),
+            *(draft_id for row in detail.threads for draft_id in row.draft_ids),
+        ):
+            normalized = str(values or "").strip()
+            if not normalized:
+                continue
+            source_ids.append(normalized)
+            if ":" in normalized:
+                source_ids.append(normalized.split(":", 1)[1])
+        return self._history_entries(principal_id=principal_id, source_ids=tuple(source_ids), limit=limit)
 
     def correct_person_profile(
         self,
@@ -4650,6 +4702,8 @@ class ProductService:
                 "memo_open_rate": memo_open_rate,
                 "approval_coverage_rate": approval_coverage_rate,
                 "approval_action_rate": approval_action_rate,
+                "delivery_followup_closeout_count": delivery_followup_terminal_resolution_count,
+                "delivery_followup_blocked_count": delivery_followup_blocked_count,
                 "delivery_followup_resolution_rate": delivery_followup_resolution_rate,
                 "delivery_followup_blocked_rate": delivery_followup_blocked_rate,
                 "commitment_close_rate": commitment_close_rate,
@@ -4914,6 +4968,11 @@ class ProductService:
                     "tertiary_action_value": str(delivery_actions[2].get("value") or "") if len(delivery_actions) > 2 else "",
                     "tertiary_action_method": str(delivery_actions[2].get("method") or "") if len(delivery_actions) > 2 else "",
                     "tertiary_return_to": "/admin/office" if len(delivery_actions) > 2 else "",
+                    "quaternary_action_href": str(delivery_actions[3].get("href") or "") if len(delivery_actions) > 3 else "",
+                    "quaternary_action_label": str(delivery_actions[3].get("label") or "") if len(delivery_actions) > 3 else "",
+                    "quaternary_action_value": str(delivery_actions[3].get("value") or "") if len(delivery_actions) > 3 else "",
+                    "quaternary_action_method": str(delivery_actions[3].get("method") or "") if len(delivery_actions) > 3 else "",
+                    "quaternary_return_to": "/admin/office" if len(delivery_actions) > 3 else "",
                 }
             )
         for item in assignment_suggestions:
@@ -5159,7 +5218,7 @@ class ProductService:
         return_to: str,
     ) -> tuple[dict[str, str], ...]:
         actions: list[dict[str, str]] = []
-        for option in handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)[:3]:
+        for option in handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)[:4]:
             route = str(option.get("route") or "").strip()
             href = str(option.get("href") or "").strip()
             action_href = href or (f"/app/actions/handoffs/{handoff.id}/{route}" if route else "")
@@ -5187,6 +5246,8 @@ class ProductService:
             return "Marked unable to send from operator digest."
         if normalized == "reauth_needed":
             return "Marked reauth required from operator digest."
+        if normalized == "waiting_on_principal":
+            return "Marked waiting on principal from operator digest."
         return "Resolved from operator digest."
 
     def _handoff_channel_actions(
@@ -5199,7 +5260,7 @@ class ProductService:
     ) -> tuple[dict[str, str], ...]:
         resolved_operator_id = str(operator_id or handoff.owner).strip()
         actions: list[dict[str, str]] = []
-        for option in handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)[:3]:
+        for option in handoff_action_options(handoff, operator_id=operator_id, return_to=return_to)[:4]:
             direct_href = str(option.get("href") or "").strip()
             channel_action = str(option.get("channel_action") or "").strip()
             if direct_href:
@@ -5356,6 +5417,9 @@ class ProductService:
                     "tertiary_action_href": str(actions[2].get("href") or "") if len(actions) > 2 else "",
                     "tertiary_action_label": str(actions[2].get("label") or "") if len(actions) > 2 else "",
                     "tertiary_action_method": str(actions[2].get("method") or "get") if len(actions) > 2 else "",
+                    "quaternary_action_href": str(actions[3].get("href") or "") if len(actions) > 3 else "",
+                    "quaternary_action_label": str(actions[3].get("label") or "") if len(actions) > 3 else "",
+                    "quaternary_action_method": str(actions[3].get("method") or "get") if len(actions) > 3 else "",
                 }
             )
         if snapshot.decisions:
@@ -5452,6 +5516,8 @@ class ProductService:
             secondary_href = absolute(str(item.get("secondary_action_href") or "").strip())
             tertiary_label = str(item.get("tertiary_action_label") or "").strip()
             tertiary_href = absolute(str(item.get("tertiary_action_href") or "").strip())
+            quaternary_label = str(item.get("quaternary_action_label") or "").strip()
+            quaternary_href = absolute(str(item.get("quaternary_action_href") or "").strip())
             href = absolute(str(item.get("href") or "").strip())
             header = f"{index}. [{tag}] {title}" if tag else f"{index}. {title}"
             lines.append(header)
@@ -5463,6 +5529,8 @@ class ProductService:
                 lines.append(f"   {secondary_label}: {secondary_href}")
             if tertiary_label and tertiary_href:
                 lines.append(f"   {tertiary_label}: {tertiary_href}")
+            if quaternary_label and quaternary_href:
+                lines.append(f"   {quaternary_label}: {quaternary_href}")
             elif href:
                 lines.append(f"   Open: {href}")
             lines.append("")
@@ -5922,6 +5990,9 @@ class ProductService:
                     "tertiary_action_href": str(actions[2].get("href") or "") if len(actions) > 2 else "",
                     "tertiary_action_label": str(actions[2].get("label") or "") if len(actions) > 2 else "",
                     "tertiary_action_method": str(actions[2].get("method") or "get") if len(actions) > 2 else "",
+                    "quaternary_action_href": str(actions[3].get("href") or "") if len(actions) > 3 else "",
+                    "quaternary_action_label": str(actions[3].get("label") or "") if len(actions) > 3 else "",
+                    "quaternary_action_method": str(actions[3].get("method") or "get") if len(actions) > 3 else "",
                 }
             )
         if snapshot.commitments:
