@@ -525,6 +525,7 @@ def test_morning_memo_issue_surfaces_reason_and_fix_target() -> None:
     assert outcomes_page.status_code == 200
     assert "Last memo issue" in outcomes_page.text
     assert "Domain not verified" in outcomes_page.text
+    assert "Memo delivery blocker" in outcomes_page.text
     assert "Open support" in outcomes_page.text
     assert "/app/settings/support" in outcomes_page.text
 
@@ -580,6 +581,34 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     redirected = client.get("/app/activity", follow_redirects=False)
     assert redirected.status_code == 303
     assert redirected.headers["location"] == "/admin/office"
+
+
+def test_support_page_explains_current_memo_issue_and_fix_detail() -> None:
+    principal_id = "exec-browser-support-memo-issue"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Support Memo Issue Office")
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-issue",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-issue",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+
+    support_page = client.get("/app/settings/support")
+    assert support_page.status_code == 200
+    assert "Last memo issue" in support_page.text
+    assert "Domain not verified" in support_page.text
+    assert "Memo fix detail" in support_page.text
+    assert "Verify the sending domain in the email provider before the next memo cycle." in support_page.text
+    assert "Memo fix target" in support_page.text
+    assert "Open support" in support_page.text
 
 
 def test_channel_loop_get_actions_work() -> None:
