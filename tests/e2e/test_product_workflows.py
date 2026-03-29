@@ -11,10 +11,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from uvicorn import Config, Server
 
+uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+
+Config = uvicorn.Config
+Server = uvicorn.Server
 
 from app.api.app import create_app
 from tests.product_test_helpers import seed_founder_fixture, seed_product_state, seed_team_fixture
