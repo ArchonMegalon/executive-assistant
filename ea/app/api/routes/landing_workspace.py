@@ -506,6 +506,10 @@ def settings_google_detail(
     sync = product.google_signal_sync_status(principal_id=context.principal_id)
     sync_error = str(request.query_params.get("sync_error") or "").strip()
     sync_status = str(request.query_params.get("sync_status") or "").strip()
+    covered_sync_candidates = int(sync.get("covered_signal_candidates") or 0)
+    sync_summary = f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · {int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
+    if covered_sync_candidates:
+        sync_summary = f"{sync_summary} · {covered_sync_candidates} covered by drafts"
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -516,7 +520,7 @@ def settings_google_detail(
         console_summary="Google signal sync should be visible in product language: connection state, freshness, staged work, and whether the office needs reauth before the next loop.",
         object_kind="Sync posture",
         object_title=str(sync.get("account_email") or "Google not connected"),
-        object_summary=f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · {int(sync.get('pending_commitment_candidates') or 0)} pending candidates",
+        object_summary=sync_summary,
         object_meta=[
             {"label": "Connected", "value": "Yes" if sync.get("connected") else "No"},
             {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
@@ -529,6 +533,7 @@ def settings_google_detail(
             _object_detail_row("Account email", str(sync.get("account_email") or "Not connected"), "Google"),
             _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
             _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+            _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
             _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
             _object_detail_row("Last manual sync", sync_error or ("Completed" if sync_status == "completed" else "Not recorded"), "Action"),
         ],
@@ -552,6 +557,7 @@ def settings_google_detail(
                     _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
                     _object_detail_row("Age seconds", str(sync.get("age_seconds") if sync.get("age_seconds") is not None else "n/a"), "Sync"),
                     _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
+                    _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
                     _object_detail_row("Office signals ingested", str(sync.get("office_signal_ingested") or 0), "Signals"),
                 ],
             },

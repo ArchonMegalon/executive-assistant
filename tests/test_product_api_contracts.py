@@ -509,7 +509,8 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert sync_analytics["google_account_email"] == "exec@example.com"
     assert sync_analytics["google_sync_freshness_state"] == "clear"
     assert sync_analytics["google_sync_last_completed_at"]
-    assert sync_analytics["pending_commitment_candidates"] >= 1
+    assert sync_analytics["pending_commitment_candidates"] == 0
+    assert sync_analytics["covered_signal_candidates"] >= 1
     sync_status = client.get("/app/api/signals/google/status")
     assert sync_status.status_code == 200
     sync_status_body = sync_status.json()
@@ -517,7 +518,8 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert sync_status_body["account_email"] == "exec@example.com"
     assert sync_status_body["freshness_state"] == "clear"
     assert sync_status_body["last_completed_at"]
-    assert sync_status_body["pending_commitment_candidates"] >= 1
+    assert sync_status_body["pending_commitment_candidates"] == 0
+    assert sync_status_body["covered_signal_candidates"] >= 1
 
     events_after_repeat = client.get("/app/api/events")
     assert events_after_repeat.status_code == 200
@@ -1235,7 +1237,8 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert body["sync"]["office_signal_ingested"] >= 1
     assert body["sync"]["google_account_email"] == "exec@example.com"
     assert body["sync"]["google_sync_freshness_state"] == "clear"
-    assert body["sync"]["pending_commitment_candidates"] >= 1
+    assert body["sync"]["pending_commitment_candidates"] == 0
+    assert body["sync"]["covered_signal_candidates"] >= 1
     assert any(item["label"] for item in body["next_actions"])
     assert "snapshot" in body
     assert body["snapshot"]["clearable_queue_items"] >= 1
