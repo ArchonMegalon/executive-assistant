@@ -567,23 +567,20 @@ def workspace_section_payload(
     remaining_unclaimed_handoffs = tuple(row for row in unclaimed_handoffs if row.id not in suggested_handoff_ids)
     blocked_actions = [str(value).replace("_", " ") for value in list(commercial.get("blocked_actions") or []) if str(value).strip()]
     warning_messages = [str(value) for value in list(commercial.get("warnings") or []) if str(value).strip()]
-    delivery_failure_total = (
-        int(analytics_delivery.get("registration_failed") or 0)
-        + int(analytics_delivery.get("invite_failed") or 0)
-        + int(analytics_delivery.get("digest_failed") or 0)
-    )
+    active_memo_delivery_blocker = 1 if str(memo_loop.get("last_issue_reason") or "").strip() else 0
+    active_delivery_issue_total = int(queue_health.get("delivery_errors") or 0) + active_memo_delivery_blocker
     exception_rows = [
         _row(
-            "Delivery failures",
+            "Delivery issues",
             (
                 f"{int(queue_health.get('delivery_errors') or 0)} queue delivery errors · "
-                f"{delivery_failure_total} email failures"
+                f"{active_memo_delivery_blocker} active memo blockers"
             ),
             "Support",
             href="/app/settings/support",
         )
         for _ in [0]
-        if int(queue_health.get("delivery_errors") or 0) or delivery_failure_total
+        if active_delivery_issue_total
     ] + [
         _row(
             "SLA breaches",
@@ -968,11 +965,32 @@ def workspace_section_payload(
             "console_form": {
                 "action": "/app/actions/settings/morning-memo",
                 "method": "post",
-                "eyebrow": "Memo controls",
-                "title": "Update morning memo schedule",
-                "copy": "Change the delivery window and recipient without reopening onboarding.",
-                "submit_label": "Save memo rules",
+                "eyebrow": "Workspace rules",
+                "title": "Update workspace and morning memo rules",
+                "copy": "Keep the office profile and the memo schedule editable after onboarding so the live loop can stay aligned with the real workspace.",
+                "submit_label": "Save workspace rules",
                 "fields": [
+                    {
+                        "label": "Workspace name",
+                        "name": "workspace_name",
+                        "type": "text",
+                        "value": str(dict(diagnostics.get("workspace") or {}).get("name") or ""),
+                        "placeholder": "Executive Workspace",
+                    },
+                    {
+                        "label": "Language",
+                        "name": "language",
+                        "type": "text",
+                        "value": str(dict(diagnostics.get("workspace") or {}).get("language") or "en"),
+                        "placeholder": "en",
+                    },
+                    {
+                        "label": "Timezone",
+                        "name": "timezone",
+                        "type": "text",
+                        "value": str(dict(diagnostics.get("workspace") or {}).get("timezone") or "Europe/Vienna"),
+                        "placeholder": "Europe/Vienna",
+                    },
                     {
                         "label": "Enable scheduled memo",
                         "name": "enabled",

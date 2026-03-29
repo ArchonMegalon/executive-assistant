@@ -34,6 +34,16 @@ def _registration_sender_email() -> str:
     return fallback or DEFAULT_SENDER_EMAIL
 
 
+def delivery_sender_emails() -> tuple[str, ...]:
+    values = {
+        DEFAULT_SENDER_EMAIL.strip().lower(),
+        str(os.environ.get("EA_EMAIL_DEFAULT_FROM") or "").strip().lower(),
+        str(os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "").strip().lower(),
+        _registration_sender_email().strip().lower(),
+    }
+    return tuple(sorted(value for value in values if value))
+
+
 def _registration_sender_name() -> str:
     configured = str(os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "").strip()
     if configured:
@@ -71,6 +81,32 @@ def _registration_text(*, verification_code: str, magic_link_url: str, expires_a
         "Google is connected after sign-up as a workspace data source. It is not your app login.\n\n"
         "If you did not request this email, you can ignore it.\n"
     )
+
+
+def _meta_ref(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+
+
+def _digest_preview_excerpt(plain_text: str, *, max_lines: int = 8, max_chars: int = 800) -> str:
+    lines: list[str] = []
+    for raw_line in str(plain_text or "").splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped.lower().startswith("open digest:"):
+            continue
+        if len(stripped) > 240 and "http" in stripped:
+            continue
+        lines.append(stripped)
+        if len(lines) >= max_lines:
+            break
+    excerpt = "\n".join(lines).strip()
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[: max_chars - 3].rstrip() + "..."
+    return excerpt
 
 
 def _send_emailit_email(
@@ -197,7 +233,7 @@ def send_workspace_invitation_email(
         subject=f"{inviter} invited you to Executive Assistant",
         text="\n".join(body).strip() + "\n",
         kind="ea_workspace_invitation",
-        meta={"invite_url": invite_url, "role": str(role or "").strip().lower()},
+        meta={"invite_ref": _meta_ref(invite_url), "role": str(role or "").strip().lower()},
     )
 
 
@@ -214,6 +250,7 @@ def send_channel_digest_email(
     minutes = _minutes_until(expires_at_iso=expires_at)
     label = str(headline or "Executive Assistant update").strip() or "Executive Assistant update"
     preview = str(preview_text or "").strip()
+    digest_excerpt = _digest_preview_excerpt(plain_text)
     body = [
         label,
         "",
@@ -229,12 +266,12 @@ def send_channel_digest_email(
             f"This link expires in about {minutes} minutes.",
         ]
     )
-    if plain_text:
-        body.extend(["", "Digest preview", "", str(plain_text or "").strip()])
+    if digest_excerpt:
+        body.extend(["", "Digest preview", "", digest_excerpt])
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject=label,
         text="\n".join(body).strip() + "\n",
         kind="ea_channel_digest_delivery",
-        meta={"digest_key": str(digest_key or "").strip().lower(), "delivery_url": delivery_url},
+        meta={"digest_key": str(digest_key or "").strip().lower(), "delivery_ref": _meta_ref(delivery_url)},
     )

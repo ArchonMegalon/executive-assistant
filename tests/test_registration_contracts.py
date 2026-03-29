@@ -177,3 +177,61 @@ def test_registration_email_payload_stays_english_and_uses_kleinhirn_sender(
     assert "Google is connected after sign-up as a workspace data source." in payload["text"]
     assert "https://myexternalbrain.com/register?token=test&code=654321" in payload["text"]
     assert receipt.message_id == "emailit-live-1"
+
+
+def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "Kleinhirn")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-digest-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_channel_digest_email(
+        recipient_email="tibor@myexternalbrain.com",
+        digest_key="memo",
+        headline="Morning memo digest",
+        preview_text="0 memo items, 0 commitments at risk, 0 open decisions.",
+        delivery_url="https://myexternalbrain.com/channel-loop/deliveries/token-123",
+        plain_text=(
+            "Open digest: https://myexternalbrain.com/channel-loop/deliveries/token-very-long\n"
+            "Morning memo digest\n"
+            "0 memo items, 0 commitments at risk, 0 open decisions.\n"
+            "\n"
+            "1. [Memo] Fix memo delivery blocker\n"
+            "   Domain not verified. Verify the sending domain in the email provider before the next memo cycle.\n"
+            "   Open support: https://myexternalbrain.com/app/settings/support\n"
+        ),
+        expires_at="2026-04-01T17:27:54+00:00",
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "Kleinhirn <kleinhirn@girschele.com>"
+    assert payload["subject"] == "Morning memo digest"
+    assert "Open this secure workspace view:" in payload["text"]
+    assert "https://myexternalbrain.com/channel-loop/deliveries/token-123" in payload["text"]
+    assert "Digest preview" in payload["text"]
+    assert "Open digest:" not in payload["text"]
+    assert "Fix memo delivery blocker" in payload["text"]
+    assert payload["meta"]["digest_key"] == "memo"
+    assert payload["meta"]["delivery_ref"]
+    assert "delivery_url" not in payload["meta"]
+    assert receipt.message_id == "emailit-digest-1"

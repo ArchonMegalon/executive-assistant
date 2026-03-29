@@ -921,6 +921,7 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
 
 def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise(monkeypatch) -> None:
     principal_id = "exec-product-google-noise"
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
 
@@ -990,6 +991,25 @@ def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise
                 google_oauth_service.GoogleWorkspaceSignal(
                     signal_type="email_thread",
                     channel="gmail",
+                    title="Morning memo digest",
+                    summary="Open this secure workspace view and review the current office loop.",
+                    text="Morning memo digest Open this secure workspace view and review the current office loop.",
+                    source_ref="gmail-thread:memo-1",
+                    external_id="gmail-message:memo-1",
+                    counterparty="Kleinhirn",
+                    due_at=None,
+                    payload={
+                        "thread_id": "memo-1",
+                        "message_id": "memo-1",
+                        "from_email": "kleinhirn@girschele.com",
+                        "from_name": "Kleinhirn",
+                        "snippet": "Open this secure workspace view and review the current office loop.",
+                        "labels": ["INBOX"],
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
                     title="Investor follow-up",
                     summary="Please send the revised board packet tomorrow morning.",
                     text="Please send the revised board packet tomorrow morning.",
@@ -1011,16 +1031,18 @@ def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise
     synced = client.post("/app/api/signals/google/sync", params={"email_limit": 5, "calendar_limit": 5})
     assert synced.status_code == 200
     body = synced.json()
-    assert body["total"] == 4
+    assert body["total"] == 5
 
     self_calendar = next(item for item in body["items"] if item["source_id"] == "calendar-event:self-1")
     meeting_calendar = next(item for item in body["items"] if item["source_id"] == "calendar-event:meeting-1")
     promo_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:promo-1")
+    memo_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:memo-1")
     actionable_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:action-1")
 
     assert self_calendar["staged_count"] == 0
     assert meeting_calendar["staged_count"] == 0
     assert promo_email["staged_count"] == 0
+    assert memo_email["staged_count"] == 0
     assert actionable_email["staged_count"] >= 1
 
     candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
@@ -1029,7 +1051,149 @@ def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise
     assert "ADHS psychiater" not in titles
     assert "Boulderbar noah kurs" not in titles
     assert "Mit dem Omni-Plan deutlich mehr erhalten: Blitzangebot" not in titles
+    assert "Morning memo digest" not in titles
     assert any("board packet" in title.lower() for title in titles)
+
+
+def test_google_signal_sync_retires_preexisting_assistant_generated_candidate(monkeypatch) -> None:
+    principal_id = "exec-product-google-memo-self-heal"
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    title = "Morning memo digest"
+    summary = "Open this secure workspace view and review the current office loop."
+    text = "Morning memo digest Open this secure workspace view and review the current office loop."
+    source_ref = "gmail-thread:memo-legacy"
+    external_id = "gmail-message:memo-legacy"
+    dedupe_key = "|".join(
+        part
+        for part in (
+            "office-signal",
+            principal_id,
+            "email_thread",
+            external_id,
+            source_ref,
+            text[:80],
+        )
+        if part
+    )
+
+    client.app.state.container.memory_runtime.stage_candidate(
+        principal_id=principal_id,
+        category="product_commitment_candidate",
+        summary=title,
+        fact_json={
+            "title": title,
+            "details": summary,
+            "source_text": text,
+            "counterparty": "Kleinhirn",
+            "channel_hint": "gmail",
+            "source_ref": source_ref,
+            "signal_type": "email_thread",
+            "kind": "commitment",
+        },
+    )
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="gmail",
+        event_type="office_signal_email_thread",
+        payload={
+            "title": title,
+            "summary": summary,
+            "text": text,
+            "from_email": "kleinhirn@girschele.com",
+            "snippet": summary,
+        },
+        source_id=source_ref,
+        external_id=external_id,
+        dedupe_key=dedupe_key,
+    )
+
+    ingested = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": title,
+            "summary": summary,
+            "text": text,
+            "source_ref": source_ref,
+            "external_id": external_id,
+            "counterparty": "Kleinhirn",
+            "payload": {
+                "from_email": "kleinhirn@girschele.com",
+                "snippet": summary,
+                "labels": ["INBOX"],
+            },
+        },
+    )
+    assert ingested.status_code == 200
+    assert ingested.json()["deduplicated"] is True
+    assert ingested.json()["staged_count"] == 0
+
+    candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert candidates.status_code == 200
+    assert "Morning memo digest" not in {item["title"] for item in candidates.json()}
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    assert int(diagnostics.json()["analytics"]["counts"].get("commitment_candidate_rejected") or 0) >= 1
+
+
+def test_channel_loop_approvals_digest_counts_reviewable_candidates_not_rejected_history() -> None:
+    principal_id = "exec-product-channel-loop-reviewable-candidates"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Reviewable Candidates Office")
+
+    runtime = client.app.state.container.memory_runtime
+
+    for index in range(3):
+        runtime.stage_candidate(
+            principal_id=principal_id,
+            category="product_commitment_candidate",
+            summary=f"Pending candidate {index + 1}",
+            fact_json={
+                "title": f"Pending candidate {index + 1}",
+                "details": "Needs review.",
+                "source_text": f"Pending candidate {index + 1}",
+                "counterparty": "Sofia N.",
+                "channel_hint": "gmail",
+                "source_ref": f"gmail-thread:pending-{index + 1}",
+                "signal_type": "email_thread",
+                "kind": "commitment",
+            },
+        )
+
+    for index in range(8):
+        rejected = runtime.stage_candidate(
+            principal_id=principal_id,
+            category="product_commitment_candidate",
+            summary=f"Rejected candidate {index + 1}",
+            fact_json={
+                "title": f"Rejected candidate {index + 1}",
+                "details": "Already reviewed.",
+                "source_text": f"Rejected candidate {index + 1}",
+                "counterparty": "Archive",
+                "channel_hint": "gmail",
+                "source_ref": f"gmail-thread:rejected-{index + 1}",
+                "signal_type": "email_thread",
+                "kind": "commitment",
+            },
+        )
+        runtime.reject_candidate(rejected.candidate_id, principal_id=principal_id, reviewer="operator-office")
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    approvals_digest = next(item for item in loop.json()["digests"] if item["key"] == "approvals")
+    assert approvals_digest["stats"]["pending_commitment_candidates"] == 3
+    candidate_items = [item for item in approvals_digest["items"] if item["tag"] == "Candidate"]
+    assert len(candidate_items) == 2
+    assert all("Pending candidate" in item["title"] for item in candidate_items)
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    assert diagnostics.json()["analytics"]["sync"]["pending_commitment_candidates"] == 3
 
 
 def test_channel_loop_approvals_digest_can_accept_and_reject_signal_candidates() -> None:
@@ -1910,6 +2074,61 @@ def test_operator_center_surfaces_memo_delivery_blocker_fix_action() -> None:
     assert blocker["action_method"] == "get"
 
 
+def test_operator_center_clears_historical_digest_failures_after_successful_memo_send() -> None:
+    principal_id = "exec-operator-center-memo-recovered"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seed_product_state(client, principal_id=principal_id)
+    runtime = client.app.state.container.channel_runtime
+    runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_failed",
+        payload={
+            "delivery_id": "memo-delivery-failed",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "error": 'registration_email_send_failed:422:{"error":"Domain not verified"}',
+        },
+        source_id="memo-delivery-failed",
+        dedupe_key=f"{principal_id}|manual-memo-failed",
+    )
+    runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="product",
+        event_type="channel_digest_delivery_email_sent",
+        payload={
+            "delivery_id": "memo-delivery-sent",
+            "digest_key": "memo",
+            "recipient_email": "tibor@myexternalbrain.com",
+            "email_delivery_status": "sent",
+        },
+        source_id="memo-delivery-sent",
+        dedupe_key=f"{principal_id}|manual-memo-sent",
+    )
+
+    outcomes = client.get("/app/api/outcomes")
+    assert outcomes.status_code == 200
+    assert outcomes.json()["memo_loop"]["last_issue_reason"] == ""
+
+    center = client.get("/app/api/operator-center")
+    assert center.status_code == 200
+    body = center.json()
+    delivery_lane = next(item for item in body["lanes"] if item["key"] == "delivery")
+    exceptions_lane = next(item for item in body["lanes"] if item["key"] == "exceptions")
+    assert delivery_lane["state"] == "clear"
+    assert delivery_lane["count"] == 0
+    assert "0 active memo blockers" in delivery_lane["detail"]
+    assert "0 delivery issues" in exceptions_lane["detail"]
+    assert not any(item["label"] == "Fix memo delivery blocker" for item in body["next_actions"])
+    assert any(str(item.get("event_type") or "") == "channel_digest_delivery_email_sent" for item in body["recent_runtime"])
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    reliability = diagnostics.json()["analytics"]["reliability"]
+    assert reliability["delivery_reliability_state"] == "clear"
+    assert reliability["active_delivery_issue_total"] == 0
+
+
 def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
     principal_id = "exec-workspace-invites"
     client = build_product_client(principal_id=principal_id)
@@ -2047,3 +2266,9 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     delivered_body = delivered_loop.json()
     assert delivered_body["headline"] == "Inline loop"
     assert any(item["key"] == "operator" for item in delivered_body["digests"])
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    counts = diagnostics.json()["analytics"]["counts"]
+    assert int(counts.get("channel_digest_delivery_opened") or 0) >= 1
+    assert int(counts.get("memo_opened") or 0) >= 1

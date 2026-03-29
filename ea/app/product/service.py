@@ -49,6 +49,7 @@ from app.product.projections import (
 )
 from app.services import google_oauth as google_oauth_service
 from app.services.registration_email import (
+    delivery_sender_emails,
     email_delivery_enabled,
     send_channel_digest_email,
     send_workspace_invitation_email,
@@ -71,6 +72,17 @@ _FAILED_PROVIDER_STATES = {"error", "failed", "auth_failed", "revoked", "deleted
 _SYSTEM_REPLY_SENDER_MARKERS = ("no-reply", "noreply", "donotreply", "do-not-reply", "mailer-daemon", "calendar-notification")
 _REPLY_SIGNAL_CUES = ("reply", "respond", "send", "share", "confirm", "follow up", "follow-up", "let me know", "can you", "could you", "please", "need to", "must", "review")
 _LOW_SIGNAL_GMAIL_LABELS = {"CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"}
+_EA_DELIVERY_SUBJECT_MARKERS = (
+    "morning memo digest",
+    "executive assistant update",
+    "verify your email for executive assistant",
+    "invited you to executive assistant",
+)
+_EA_DELIVERY_TEXT_MARKERS = (
+    "open this secure workspace view",
+    "use this verification code to create your executive assistant workspace",
+    "google is connected after sign-up as a workspace data source",
+)
 
 
 def _now_iso() -> str:
@@ -166,6 +178,20 @@ def _memo_issue_fix_detail(*, reason: str = "", error: str = "") -> str:
     if normalized_reason == "digest_not_available":
         return "Regenerate the memo after the workspace loop refreshes."
     return ""
+
+
+def _is_assistant_originated_delivery_email(*, title: str, summary: str, payload: dict[str, object] | None) -> bool:
+    payload_json = dict(payload or {})
+    from_email = str(payload_json.get("from_email") or "").strip().lower()
+    if not from_email or from_email not in set(delivery_sender_emails()):
+        return False
+    normalized_title = str(title or "").strip().lower()
+    normalized_summary = str(summary or "").strip().lower()
+    snippet = str(payload_json.get("snippet") or "").strip().lower()
+    if any(marker in normalized_title for marker in _EA_DELIVERY_SUBJECT_MARKERS):
+        return True
+    haystack = " ".join(part for part in (normalized_summary, snippet) if part).strip()
+    return any(marker in haystack for marker in _EA_DELIVERY_TEXT_MARKERS)
 
 
 def _memo_issue_channel_item(*, memo_loop: dict[str, object]) -> dict[str, str] | None:
@@ -1742,6 +1768,16 @@ class ProductService:
         summary_text = str(summary or "").strip()
         title_text = str(title or "").strip()
         source_text = str(text or "").strip() or " ".join(part for part in (title_text, summary_text) if part).strip()
+        payload_json = dict(payload or {})
+        suppress_candidate_staging = (
+            normalized_channel == "gmail"
+            and normalized_signal == "email_thread"
+            and _is_assistant_originated_delivery_email(
+                title=title_text,
+                summary=summary_text,
+                payload=payload_json,
+            )
+        )
         dedupe_parts = [
             "office-signal",
             principal_id,
@@ -1760,10 +1796,18 @@ class ProductService:
                 principal_id=principal_id,
                 source_ref=str(source_ref or "").strip(),
             )
+            if suppress_candidate_staging and existing_candidates:
+                for row in existing_candidates:
+                    self.reject_commitment_candidate(
+                        principal_id=principal_id,
+                        candidate_id=str(row.candidate_id or "").strip(),
+                        reviewer="signal_sync",
+                    )
+                existing_candidates = ()
             existing_draft_approval = self._find_pending_signal_draft_approval(
                 principal_id=principal_id,
                 source_ref=str(source_ref or "").strip(),
-                recipient_email=str(dict(payload or {}).get("from_email") or "").strip().lower(),
+                recipient_email=str(payload_json.get("from_email") or "").strip().lower(),
             )
             existing_drafts = (self._draft_from_approval(existing_draft_approval),) if existing_draft_approval is not None else ()
             return {
@@ -1779,13 +1823,17 @@ class ProductService:
                 "draft_count": len(existing_drafts),
                 "deduplicated": True,
             }
-        allow_generic_fallback = self._allow_generic_signal_candidate_fallback(
-            signal_type=normalized_signal,
-            channel=normalized_channel,
-            counterparty=counterparty,
-            stakeholder_id=stakeholder_id,
-            payload=dict(payload or {}),
-        )
+        allow_generic_fallback = False
+        if not suppress_candidate_staging:
+            allow_generic_fallback = self._allow_generic_signal_candidate_fallback(
+                signal_type=normalized_signal,
+                channel=normalized_channel,
+                title=title_text,
+                summary=summary_text,
+                counterparty=counterparty,
+                stakeholder_id=stakeholder_id,
+                payload=payload_json,
+            )
         staged = self.stage_extracted_commitments(
             principal_id=principal_id,
             text=source_text,
@@ -1804,9 +1852,9 @@ class ProductService:
             channel_hint=normalized_channel,
             source_ref=str(source_ref or "").strip(),
             signal_type=normalized_signal,
-            reference_at=str((payload or {}).get("received_at") or (payload or {}).get("start_at") or _now_iso()).strip(),
+            reference_at=str(payload_json.get("received_at") or payload_json.get("start_at") or _now_iso()).strip(),
             allow_generic_fallback=allow_generic_fallback,
-        ) if source_text else ()
+        ) if source_text and not suppress_candidate_staging else ()
         staged_draft = self._stage_signal_reply_draft(
             principal_id=principal_id,
             signal_type=normalized_signal,
@@ -1819,7 +1867,7 @@ class ProductService:
             counterparty=str(counterparty or "").strip(),
             stakeholder_id=str(stakeholder_id or "").strip(),
             due_at=due_at,
-            payload=dict(payload or {}),
+            payload=payload_json,
             staged_candidates=staged,
         )
         payload_json = {
@@ -3101,6 +3149,13 @@ class ProductService:
             projected = tuple(row for row in projected if str(row.status or "").strip().lower() == wanted)
         return tuple(projected[:limit])
 
+    def list_reviewable_commitment_candidates(self, *, principal_id: str, limit: int = 20) -> tuple[CommitmentCandidate, ...]:
+        return tuple(
+            row
+            for row in self.list_commitment_candidates(principal_id=principal_id, limit=max(limit * 4, 50), status=None)
+            if str(row.status or "").strip().lower() in {"pending", "duplicate"}
+        )[:limit]
+
     def get_commitment_candidate(self, *, principal_id: str, candidate_id: str) -> CommitmentCandidate | None:
         row = self._container.memory_runtime.get_candidate(candidate_id, principal_id=principal_id)
         if row is None or str(getattr(row, "category", "") or "") != "product_commitment_candidate":
@@ -3176,6 +3231,8 @@ class ProductService:
         *,
         signal_type: str,
         channel: str,
+        title: str,
+        summary: str,
         counterparty: str,
         stakeholder_id: str,
         payload: dict[str, object] | None,
@@ -3186,6 +3243,12 @@ class ProductService:
         if normalized_channel == "calendar" and normalized_signal == "calendar_note":
             return bool(str(payload_json.get("description") or "").strip())
         if normalized_channel == "gmail" and normalized_signal == "email_thread":
+            if _is_assistant_originated_delivery_email(
+                title=title,
+                summary=summary,
+                payload=payload_json,
+            ):
+                return False
             labels = {
                 str(value or "").strip().upper()
                 for value in (payload_json.get("labels") or [])
@@ -4594,7 +4657,7 @@ class ProductService:
         brief_items = self.list_brief_items(principal_id=principal_id, limit=8, operator_id=operator_id)
         queue_items = self.list_queue(principal_id=principal_id, limit=10, operator_id=operator_id)
         commitments = self.list_commitments(principal_id=principal_id, limit=10)
-        commitment_candidates = self.list_commitment_candidates(principal_id=principal_id, limit=8)
+        commitment_candidates = self.list_reviewable_commitment_candidates(principal_id=principal_id, limit=8)
         drafts = self.list_drafts(principal_id=principal_id, limit=8)
         decisions = self.list_decisions(principal_id=principal_id, limit=8)
         threads = self.list_threads(principal_id=principal_id, limit=8)
@@ -4780,7 +4843,7 @@ class ProductService:
                 )
             except Exception:
                 google_sync_age_seconds = None
-        pending_candidate_rows = list(self.list_commitment_candidates(principal_id=principal_id, limit=200, status="pending"))
+        pending_candidate_rows = list(self.list_reviewable_commitment_candidates(principal_id=principal_id, limit=200))
         hidden_candidate_ids = self._pending_signal_draft_candidate_ids(principal_id=principal_id)
         covered_signal_candidates = sum(
             1 for row in pending_candidate_rows if str(row.candidate_id or "").strip() in hidden_candidate_ids
@@ -4874,13 +4937,6 @@ class ProductService:
             if access_session_issued_count
             else None
         )
-        delivery_reliability_state = (
-            "critical"
-            if int(queue_health.get("delivery_errors") or 0) or delivery_failure_total
-            else "watch"
-            if int(queue_health.get("retrying_delivery") or 0)
-            else "clear"
-        )
         access_reliability_state = (
             "watch"
             if access_session_issued_count and access_session_opened_count == 0
@@ -4966,6 +5022,15 @@ class ProductService:
                 latest_memo_issue_fix_href = ""
                 latest_memo_issue_fix_label = ""
                 latest_memo_issue_fix_detail = ""
+        active_memo_delivery_blocker = 1 if latest_memo_issue_reason else 0
+        active_delivery_issue_total = int(queue_health.get("delivery_errors") or 0) + active_memo_delivery_blocker
+        delivery_reliability_state = (
+            "critical"
+            if active_delivery_issue_total
+            else "watch"
+            if int(queue_health.get("retrying_delivery") or 0)
+            else "clear"
+        )
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -5100,6 +5165,7 @@ class ProductService:
                 "reliability": {
                     "delivery_success_total": delivery_success_total,
                     "delivery_failure_total": delivery_failure_total,
+                    "active_delivery_issue_total": active_delivery_issue_total,
                     "delivery_success_rate": delivery_success_rate,
                     "registration_delivery_success_rate": registration_delivery_success_rate,
                     "invite_delivery_success_rate": invite_delivery_success_rate,
@@ -5137,16 +5203,12 @@ class ProductService:
         counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
         blocked_actions = [str(value).replace("_", " ") for value in list(commercial.get("blocked_actions") or []) if str(value).strip()]
         warning_messages = [str(value) for value in list(commercial.get("warnings") or []) if str(value).strip()]
-        delivery_failure_total = (
-            int(delivery.get("registration_failed") or 0)
-            + int(delivery.get("invite_failed") or 0)
-            + int(delivery.get("digest_failed") or 0)
-        )
+        active_memo_delivery_blocker = 1 if str(memo_loop.get("last_issue_reason") or "").strip() else 0
+        active_delivery_issue_total = int(queue_health.get("delivery_errors") or 0) + active_memo_delivery_blocker
         clearable_queue_items = [row for row in snapshot.queue_items if not bool(row.requires_principal)]
         exception_total = (
             int(queue_health.get("sla_breaches") or 0)
-            + int(queue_health.get("delivery_errors") or 0)
-            + delivery_failure_total
+            + active_delivery_issue_total
             + len(blocked_actions)
         )
         recent_events = [
@@ -5207,15 +5269,15 @@ class ProductService:
                 "key": "delivery",
                 "label": "Delivery health",
                 "state": "critical"
-                if int(queue_health.get("delivery_errors") or 0) or int(delivery.get("registration_failed") or 0) or int(delivery.get("digest_failed") or 0)
+                if active_delivery_issue_total
                 else "watch"
                 if int(queue_health.get("retrying_delivery") or 0)
                 else "clear",
-                "count": int(queue_health.get("pending_delivery") or 0),
+                "count": int(queue_health.get("pending_delivery") or 0) + active_memo_delivery_blocker,
                 "detail": (
                     f"{int(queue_health.get('retrying_delivery') or 0)} retrying · "
                     f"{int(queue_health.get('delivery_errors') or 0)} queue errors · "
-                    f"{int(delivery.get('registration_failed') or 0) + int(delivery.get('invite_failed') or 0) + int(delivery.get('digest_failed') or 0)} email failures"
+                    f"{active_memo_delivery_blocker} active memo blockers"
                 ),
                 "href": "/app/settings/support",
             },
@@ -5234,7 +5296,7 @@ class ProductService:
                 "count": exception_total,
                 "detail": (
                     f"{int(queue_health.get('sla_breaches') or 0)} SLA breaches · "
-                    f"{int(queue_health.get('delivery_errors') or 0) + delivery_failure_total} delivery issues · "
+                    f"{active_delivery_issue_total} delivery issues · "
                     f"{len(blocked_actions)} blocked actions"
                 ),
                 "href": "/app/settings/support",
@@ -5350,7 +5412,7 @@ class ProductService:
                     "return_to": "/admin/office" if handoff_id else "",
                 }
             )
-        if int(queue_health.get("retrying_delivery") or 0) or int(queue_health.get("delivery_errors") or 0):
+        if int(queue_health.get("retrying_delivery") or 0) or active_delivery_issue_total:
             next_actions.append(
                 {
                     "label": "Open support diagnostics",
@@ -5371,8 +5433,8 @@ class ProductService:
                             part
                             for part in (
                                 f"{int(queue_health.get('sla_breaches') or 0)} SLA breaches" if int(queue_health.get("sla_breaches") or 0) else "",
-                                f"{int(queue_health.get('delivery_errors') or 0) + delivery_failure_total} delivery issues"
-                                if int(queue_health.get("delivery_errors") or 0) + delivery_failure_total
+                                f"{active_delivery_issue_total} delivery issues"
+                                if active_delivery_issue_total
                                 else "",
                                 blocked_actions[0] if blocked_actions else "",
                                 warning_messages[0] if warning_messages else "",
@@ -6123,6 +6185,13 @@ class ProductService:
             source_id=delivery_id,
             dedupe_key=f"{principal_id}|{delivery_id}|opened",
         )
+        if digest_key == "memo":
+            self.record_surface_event(
+                principal_id=principal_id,
+                event_type="memo_opened",
+                surface="channel_digest_delivery",
+                actor=str(payload.get("recipient_email") or payload.get("role") or "delivery").strip(),
+            )
         return {
             "delivery_id": delivery_id,
             "digest_key": digest_key,
