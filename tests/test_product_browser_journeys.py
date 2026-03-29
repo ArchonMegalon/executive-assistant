@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import urllib.parse
+
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
@@ -53,6 +55,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Morning memo delivery" in settings.text
     assert "What is feeding the office loop" in settings.text
     assert "Office-loop proof" in settings.text
+    assert "Connect now" in settings.text
     assert "/app/settings/outcomes" in settings.text
     assert "/app/settings/google" in settings.text
     assert "/app/settings/support" not in settings.text
@@ -238,10 +241,34 @@ def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() ->
     handoff_page = client.get(f"/app/handoffs/{followup['id']}")
     assert handoff_page.status_code == 200
     assert "Delivery reason" in handoff_page.text
+    assert "Connect Google" in handoff_page.text or "Reconnect Google" in handoff_page.text
 
     handoff_detail = client.get(f"/app/api/handoffs/{followup['id']}")
     assert handoff_detail.status_code == 200
     assert handoff_detail.json()["delivery_reason"].startswith("google_")
+
+
+def test_google_settings_surface_connect_action_and_browser_connect_route(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    principal_id = "exec-browser-google-connect"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Connect Google" in settings.text
+    assert "/app/actions/google/connect?return_to=/app/settings/google" in settings.text
+
+    started = client.get("/app/actions/google/connect", params={"return_to": "/app/settings/google"}, follow_redirects=False)
+    assert started.status_code == 303
+    parsed = urllib.parse.urlparse(started.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
+    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
 
 
 def test_object_detail_routes_render_core_product_objects() -> None:

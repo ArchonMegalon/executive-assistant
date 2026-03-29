@@ -254,7 +254,9 @@ class WorkspaceOutcomesOut(BaseModel):
     time_to_first_value_seconds: int | None = None
     first_value_event: str = ""
     memo_open_rate: float = 0.0
+    approval_coverage_rate: float = 0.0
     approval_action_rate: float = 0.0
+    delivery_followup_resolution_rate: float | None = None
     commitment_close_rate: float = 0.0
     correction_rate: float = 0.0
     churn_risk: str = "watch"

@@ -19,6 +19,31 @@ from app.product.service import build_product_service
 router = APIRouter(tags=["landing"])
 
 
+def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/settings/google") -> dict[str, str]:
+    connected = bool(sync.get("connected"))
+    token_status = str(sync.get("token_status") or "missing").strip()
+    if not connected:
+        return {
+            "detail": "Google sync cannot start until the workspace is connected.",
+            "label": "Connect Google",
+            "href": f"/app/actions/google/connect?return_to={return_to}",
+            "method": "get",
+        }
+    if token_status not in {"active", "unknown"}:
+        return {
+            "detail": str(sync.get("reauth_required_reason") or "Google access needs attention before the next loop."),
+            "label": "Reconnect Google",
+            "href": f"/app/actions/google/connect?return_to={return_to}",
+            "method": "get",
+        }
+    return {
+        "detail": "Google is connected and ready for another sync.",
+        "label": "Run sync now",
+        "href": f"/app/actions/signals/google/sync?return_to={return_to}",
+        "method": "get",
+    }
+
+
 @router.get("/app/settings/plan", response_class=HTMLResponse)
 def settings_plan_detail(
     request: Request,
@@ -168,6 +193,7 @@ def settings_usage_detail(
                     _object_detail_row("Memo opened", str(counts.get("memo_opened") or 0), "Analytics"),
                     _object_detail_row("Queue opened", str(counts.get("queue_opened") or 0), "Analytics"),
                     _object_detail_row("Draft approved", str(counts.get("draft_approved") or 0), "Analytics"),
+                    _object_detail_row("Draft sent", str(counts.get("draft_sent") or 0), "Analytics"),
                     _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Analytics"),
                     _object_detail_row("First value event", str(analytics.get("first_value_event") or "not reached").replace("_", " "), "Analytics"),
                 ],
@@ -202,7 +228,13 @@ def settings_usage_detail(
                 "title": "Adoption, closure, and correction signals",
                 "items": [
                     _object_detail_row("Memo open rate", str(analytics.get("memo_open_rate") or 0), "Analytics"),
-                    _object_detail_row("Approval action rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval coverage rate", str(analytics.get("approval_coverage_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval send rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row(
+                        "Follow-up resolution rate",
+                        str(analytics.get("delivery_followup_resolution_rate") if analytics.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                        "Analytics",
+                    ),
                     _object_detail_row("Commitment close rate", str(analytics.get("commitment_close_rate") or 0), "Analytics"),
                     _object_detail_row("Correction rate", str(analytics.get("correction_rate") or 0), "Analytics"),
                     _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
@@ -335,7 +367,13 @@ def settings_support_detail(
                 "title": "Success metrics and churn risk",
                 "items": [
                     _object_detail_row("Memo open rate", str(analytics.get("memo_open_rate") or 0), "Analytics"),
-                    _object_detail_row("Approval action rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval coverage rate", str(analytics.get("approval_coverage_rate") or 0), "Analytics"),
+                    _object_detail_row("Approval send rate", str(analytics.get("approval_action_rate") or 0), "Analytics"),
+                    _object_detail_row(
+                        "Follow-up resolution rate",
+                        str(analytics.get("delivery_followup_resolution_rate") if analytics.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                        "Analytics",
+                    ),
                     _object_detail_row("Commitment close rate", str(analytics.get("commitment_close_rate") or 0), "Analytics"),
                     _object_detail_row("Correction rate", str(analytics.get("correction_rate") or 0), "Analytics"),
                     _object_detail_row("Churn risk", str(analytics.get("churn_risk") or "unknown").replace("_", " "), "Analytics"),
@@ -406,7 +444,13 @@ def settings_outcomes_detail(
         object_sidebar_rows=[
             _object_detail_row("Success summary", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
             _object_detail_row("Office-loop proof", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
-            _object_detail_row("Approval action rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
+            _object_detail_row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or 0), "Review"),
+            _object_detail_row("Approval send rate", str(outcomes.get("approval_action_rate") or 0), "Review"),
+            _object_detail_row(
+                "Follow-up resolution rate",
+                str(outcomes.get("delivery_followup_resolution_rate") if outcomes.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                "Review",
+            ),
             _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Closure"),
             _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
             _object_detail_row("Scheduled memo loop", str(memo_loop.get("state") or "watch").replace("_", " "), "Memo"),
@@ -427,7 +471,13 @@ def settings_outcomes_detail(
                 "title": "How the daily loop is performing",
                 "items": [
                     _object_detail_row("Memo open rate", str(outcomes.get("memo_open_rate") or 0), "Memo"),
-                    _object_detail_row("Approval action rate", str(outcomes.get("approval_action_rate") or 0), "Approvals"),
+                    _object_detail_row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or 0), "Approvals"),
+                    _object_detail_row("Approval send rate", str(outcomes.get("approval_action_rate") or 0), "Approvals"),
+                    _object_detail_row(
+                        "Follow-up resolution rate",
+                        str(outcomes.get("delivery_followup_resolution_rate") if outcomes.get("delivery_followup_resolution_rate") is not None else "n/a"),
+                        "Operators",
+                    ),
                     _object_detail_row("Commitment close rate", str(outcomes.get("commitment_close_rate") or 0), "Commitments"),
                     _object_detail_row("Correction rate", str(outcomes.get("correction_rate") or 0), "Learning"),
                     _object_detail_row("Churn risk", str(outcomes.get("churn_risk") or "watch").replace("_", " "), "Risk"),
@@ -508,7 +558,9 @@ def settings_google_detail(
     sync = product.google_signal_sync_status(principal_id=context.principal_id)
     sync_error = str(request.query_params.get("sync_error") or "").strip()
     sync_status = str(request.query_params.get("sync_status") or "").strip()
+    google_error = str(request.query_params.get("google_error") or "").strip()
     covered_sync_candidates = int(sync.get("covered_signal_candidates") or 0)
+    action = _google_connect_action(sync, return_to="/app/settings/google")
     sync_summary = f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · {int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
     if covered_sync_candidates:
         sync_summary = f"{sync_summary} · {covered_sync_candidates} covered by drafts"
@@ -537,7 +589,17 @@ def settings_google_detail(
             _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
             _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
             _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
-            _object_detail_row("Last manual sync", sync_error or ("Completed" if sync_status == "completed" else "Not recorded"), "Action"),
+            _object_detail_row(
+                "Next Google action",
+                action["detail"],
+                "Action",
+                href="/app/settings/google",
+                action_href=action["href"],
+                action_label=action["label"],
+                action_method=action["method"],
+                return_to="/app/settings/google",
+            ),
+            _object_detail_row("Last manual sync", sync_error or google_error or ("Completed" if sync_status == "completed" else "Not recorded"), "Action"),
         ],
         object_sections=[
             {
@@ -549,6 +611,16 @@ def settings_google_detail(
                     _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
+                    _object_detail_row(
+                        action["label"],
+                        action["detail"],
+                        "Action",
+                        href="/app/settings/google",
+                        action_href=action["href"],
+                        action_label=action["label"],
+                        action_method=action["method"],
+                        return_to="/app/settings/google",
+                    ),
                 ],
             },
             {
@@ -876,6 +948,28 @@ def app_google_signal_sync(
         error_value = urllib.parse.quote(str(exc or "google_sync_failed"), safe="")
         return RedirectResponse(f"{return_to}{separator}sync_error={error_value}", status_code=303)
     return RedirectResponse(f"{return_to}{separator}sync_status=completed", status_code=303)
+
+
+@router.get("/app/actions/google/connect")
+def app_google_connect(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    return_to = str(request.query_params.get("return_to") or "/app/settings/google").strip() or "/app/settings/google"
+    scope_bundle = str(request.query_params.get("scope_bundle") or "core").strip() or "core"
+    separator = "&" if "?" in return_to else "?"
+    try:
+        started = container.onboarding.start_google(principal_id=context.principal_id, scope_bundle=scope_bundle)
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "google_connect_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
+    google_start = dict(started.get("google_start") or {})
+    auth_url = str(google_start.get("auth_url") or google_start.get("start_url") or "").strip()
+    if bool(google_start.get("ready")) and auth_url:
+        return RedirectResponse(auth_url, status_code=303)
+    detail = urllib.parse.quote(str(google_start.get("detail") or "google_oauth_not_ready"), safe="")
+    return RedirectResponse(f"{return_to}{separator}google_error={detail}", status_code=303)
 
 
 @router.get("/app/search", response_class=HTMLResponse)
