@@ -822,12 +822,12 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
                     channel="calendar",
                     title="Board prep",
                     summary="Starts 2026-03-28T09:00:00+00:00",
-                    text="Board prep with Sofia N. before the memo review.",
+                    text="Please send the board prep agenda to Sofia before the memo review.",
                     source_ref="calendar-event:prep-1",
                     external_id="calendar-event:prep-1",
                     counterparty="Sofia N.",
                     due_at="2026-03-28T09:00:00+00:00",
-                    payload={"event_id": "prep-1"},
+                    payload={"event_id": "prep-1", "description": "Please send the board prep agenda to Sofia before the memo review."},
                 ),
             ),
         ),
@@ -893,7 +893,7 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert sync_analytics["google_account_email"] == "exec@example.com"
     assert sync_analytics["google_sync_freshness_state"] == "clear"
     assert sync_analytics["google_sync_last_completed_at"]
-    assert sync_analytics["pending_commitment_candidates"] == 0
+    assert sync_analytics["pending_commitment_candidates"] <= 1
     assert sync_analytics["covered_signal_candidates"] >= 1
     sync_status = client.get("/app/api/signals/google/status")
     assert sync_status.status_code == 200
@@ -902,7 +902,7 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert sync_status_body["account_email"] == "exec@example.com"
     assert sync_status_body["freshness_state"] == "clear"
     assert sync_status_body["last_completed_at"]
-    assert sync_status_body["pending_commitment_candidates"] == 0
+    assert sync_status_body["pending_commitment_candidates"] <= 1
     assert sync_status_body["covered_signal_candidates"] >= 1
 
     events_after_repeat = client.get("/app/api/events")
@@ -917,6 +917,119 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
         item for item in candidates_after_repeat.json() if "board packet" in str(item.get("title") or "").lower()
     ]
     assert len(board_packet_matches) == 1
+
+
+def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise(monkeypatch) -> None:
+    principal_id = "exec-product-google-noise"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="exec@example.com",
+            granted_scopes=(
+                google_oauth_service.GOOGLE_SCOPE_METADATA,
+                google_oauth_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+            ),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="calendar_note",
+                    channel="calendar",
+                    title="ADHS psychiater",
+                    summary="Starts 2026-03-30T09:00:00+00:00",
+                    text="ADHS psychiater",
+                    source_ref="calendar-event:self-1",
+                    external_id="calendar-event:self-1",
+                    counterparty="",
+                    due_at="2026-03-30T09:00:00+00:00",
+                    payload={
+                        "event_id": "self-1",
+                        "attendees": ["exec@example.com"],
+                        "organizer": "exec@example.com",
+                        "account_email": "exec@example.com",
+                        "description": "",
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Mit dem Omni-Plan deutlich mehr erhalten: Blitzangebot",
+                    summary="MyHeritage promotional message",
+                    text="Mit dem Omni-Plan deutlich mehr erhalten: Blitzangebot",
+                    source_ref="gmail-thread:promo-1",
+                    external_id="gmail-message:promo-1",
+                    counterparty="MyHeritage.com",
+                    due_at=None,
+                    payload={
+                        "thread_id": "promo-1",
+                        "message_id": "promo-1",
+                        "from_email": "offers@myheritage.com",
+                        "labels": ["INBOX", "CATEGORY_PROMOTIONS"],
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="calendar_note",
+                    channel="calendar",
+                    title="Boulderbar noah kurs",
+                    summary="Starts 2026-04-01T13:00:00+00:00",
+                    text="Boulderbar noah kurs Attendees: elisabeth.girschele@gmail.com",
+                    source_ref="calendar-event:meeting-1",
+                    external_id="calendar-event:meeting-1",
+                    counterparty="elisabeth.girschele@gmail.com",
+                    due_at="2026-04-01T13:00:00+00:00",
+                    payload={
+                        "event_id": "meeting-1",
+                        "attendees": ["elisabeth.girschele@gmail.com"],
+                        "organizer": "exec@example.com",
+                        "account_email": "exec@example.com",
+                        "description": "",
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Investor follow-up",
+                    summary="Please send the revised board packet tomorrow morning.",
+                    text="Please send the revised board packet tomorrow morning.",
+                    source_ref="gmail-thread:action-1",
+                    external_id="gmail-message:action-1",
+                    counterparty="Sofia N.",
+                    due_at=None,
+                    payload={
+                        "thread_id": "action-1",
+                        "message_id": "action-1",
+                        "from_email": "sofia@example.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 5, "calendar_limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["total"] == 4
+
+    self_calendar = next(item for item in body["items"] if item["source_id"] == "calendar-event:self-1")
+    meeting_calendar = next(item for item in body["items"] if item["source_id"] == "calendar-event:meeting-1")
+    promo_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:promo-1")
+    actionable_email = next(item for item in body["items"] if item["source_id"] == "gmail-thread:action-1")
+
+    assert self_calendar["staged_count"] == 0
+    assert meeting_calendar["staged_count"] == 0
+    assert promo_email["staged_count"] == 0
+    assert actionable_email["staged_count"] >= 1
+
+    candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert candidates.status_code == 200
+    titles = {item["title"] for item in candidates.json()}
+    assert "ADHS psychiater" not in titles
+    assert "Boulderbar noah kurs" not in titles
+    assert "Mit dem Omni-Plan deutlich mehr erhalten: Blitzangebot" not in titles
+    assert any("board packet" in title.lower() for title in titles)
 
 
 def test_channel_loop_approvals_digest_can_accept_and_reject_signal_candidates() -> None:

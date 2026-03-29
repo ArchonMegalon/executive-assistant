@@ -161,6 +161,7 @@ def extract_commitment_candidates(
     counterparty: str = "",
     due_at: str | None = None,
     reference_at: str | None = None,
+    allow_generic_fallback: bool = True,
 ) -> tuple[CommitmentCandidate, ...]:
     normalized = " ".join(str(text or "").split()).strip()
     if not normalized:
@@ -190,6 +191,8 @@ def extract_commitment_candidates(
                 )
     if rows:
         return tuple(rows[:5])
+    if not allow_generic_fallback:
+        return ()
     return (
         CommitmentCandidate(
             candidate_id="",

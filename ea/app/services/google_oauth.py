@@ -8,6 +8,7 @@ import os
 import secrets
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -627,6 +628,7 @@ def list_recent_workspace_signals(
     signals: list[GoogleWorkspaceSignal] = []
     normalized_email_limit = max(int(email_limit), 0)
     normalized_calendar_limit = max(int(calendar_limit), 0)
+    account_email = str(metadata.get("google_email") or "").strip().lower()
     if normalized_email_limit > 0 and (
         GOOGLE_SCOPE_METADATA in granted_scope_set or GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set
     ):
@@ -634,7 +636,13 @@ def list_recent_workspace_signals(
     if normalized_calendar_limit > 0 and (
         GOOGLE_SCOPE_CALENDAR_READONLY in granted_scope_set or GOOGLE_SCOPE_CALENDAR in granted_scope_set
     ):
-        signals.extend(_list_recent_calendar_signals(access_token=access_token, max_results=normalized_calendar_limit))
+        signals.extend(
+            _list_recent_calendar_signals(
+                access_token=access_token,
+                max_results=normalized_calendar_limit,
+                account_email=account_email,
+            )
+        )
     updated_metadata = dict(metadata)
     updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
     updated_metadata["last_refresh_at"] = _utc_iso_now()
@@ -681,14 +689,7 @@ def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret
 def _list_recent_gmail_signals(*, access_token: str, max_results: int) -> list[GoogleWorkspaceSignal]:
     if max_results <= 0:
         return []
-    query = urllib.parse.urlencode({"maxResults": str(max_results), "labelIds": "INBOX", "q": "newer_than:7d"})
-    request = urllib.request.Request(
-        f"https://gmail.googleapis.com/gmail/v1/users/me/messages?{query}",
-        headers={"Authorization": f"Bearer {access_token}"},
-        method="GET",
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = _gmail_messages_payload(access_token=access_token, max_results=max_results)
     rows: list[GoogleWorkspaceSignal] = []
     for item in list(payload.get("messages") or []):
         message_id = str(item.get("id") or "").strip()
@@ -728,12 +729,52 @@ def _list_recent_gmail_signals(*, access_token: str, max_results: int) -> list[G
                     "received_at": headers.get("date") or "",
                     "from_email": sender_email.strip().lower(),
                     "from_name": sender_name.strip(),
+                    "list_unsubscribe": headers.get("list-unsubscribe") or "",
+                    "auto_submitted": headers.get("auto-submitted") or "",
+                    "precedence": headers.get("precedence") or "",
                     "labels": list(details.get("labelIds") or []),
                     "snippet": snippet,
                 },
             )
         )
     return rows
+
+
+def _gmail_messages_payload(*, access_token: str, max_results: int) -> dict[str, Any]:
+    try:
+        return _gmail_messages_payload_request(
+            access_token=access_token,
+            max_results=max_results,
+            apply_recent_filter=True,
+        )
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        if exc.code == 403 and "Metadata scope does not support 'q' parameter" in body:
+            return _gmail_messages_payload_request(
+                access_token=access_token,
+                max_results=max_results,
+                apply_recent_filter=False,
+            )
+        raise
+
+
+def _gmail_messages_payload_request(
+    *,
+    access_token: str,
+    max_results: int,
+    apply_recent_filter: bool,
+) -> dict[str, Any]:
+    query_items: list[tuple[str, str]] = [("maxResults", str(max_results)), ("labelIds", "INBOX")]
+    if apply_recent_filter:
+        query_items.append(("q", "newer_than:7d"))
+    query = urllib.parse.urlencode(query_items)
+    request = urllib.request.Request(
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages?{query}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def _gmail_message_metadata(*, access_token: str, message_id: str) -> dict[str, Any]:
@@ -743,6 +784,12 @@ def _gmail_message_metadata(*, access_token: str, message_id: str) -> dict[str, 
             ("metadataHeaders", "Subject"),
             ("metadataHeaders", "From"),
             ("metadataHeaders", "Date"),
+            ("metadataHeaders", "Message-ID"),
+            ("metadataHeaders", "In-Reply-To"),
+            ("metadataHeaders", "References"),
+            ("metadataHeaders", "List-Unsubscribe"),
+            ("metadataHeaders", "Auto-Submitted"),
+            ("metadataHeaders", "Precedence"),
         ]
     )
     request = urllib.request.Request(
@@ -754,7 +801,7 @@ def _gmail_message_metadata(*, access_token: str, message_id: str) -> dict[str, 
         return json.loads(response.read().decode("utf-8"))
 
 
-def _list_recent_calendar_signals(*, access_token: str, max_results: int) -> list[GoogleWorkspaceSignal]:
+def _list_recent_calendar_signals(*, access_token: str, max_results: int, account_email: str = "") -> list[GoogleWorkspaceSignal]:
     if max_results <= 0:
         return []
     now = datetime.now(timezone.utc)
@@ -775,6 +822,7 @@ def _list_recent_calendar_signals(*, access_token: str, max_results: int) -> lis
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.loads(response.read().decode("utf-8"))
     rows: list[GoogleWorkspaceSignal] = []
+    normalized_account_email = str(account_email or "").strip().lower()
     for item in list(payload.get("items") or []):
         if str(item.get("status") or "").strip().lower() == "cancelled":
             continue
@@ -786,12 +834,27 @@ def _list_recent_calendar_signals(*, access_token: str, max_results: int) -> lis
         end = dict(item.get("end") or {})
         start_at = str(start.get("dateTime") or start.get("date") or "").strip()
         attendees = [
-            str(row.get("displayName") or row.get("email") or "").strip()
+            {
+                "label": str(row.get("displayName") or row.get("email") or "").strip(),
+                "email": str(row.get("email") or "").strip().lower(),
+            }
             for row in list(item.get("attendees") or [])
             if isinstance(row, dict) and str(row.get("displayName") or row.get("email") or "").strip()
         ]
-        organizer = str((item.get("organizer") or {}).get("displayName") or (item.get("organizer") or {}).get("email") or "").strip()
-        counterparty = next((name for name in attendees if name), organizer)
+        attendee_labels = [row["label"] for row in attendees if row["label"]]
+        non_self_attendees = [
+            row["label"]
+            for row in attendees
+            if row["label"] and (not normalized_account_email or row["email"] != normalized_account_email)
+        ]
+        visible_attendees = non_self_attendees if normalized_account_email else attendee_labels
+        organizer_email = str((item.get("organizer") or {}).get("email") or "").strip().lower()
+        organizer = str((item.get("organizer") or {}).get("displayName") or organizer_email).strip()
+        counterparty = next(
+            (name for name in non_self_attendees if name),
+            organizer if organizer and (not normalized_account_email or organizer_email != normalized_account_email) else "",
+        )
+        description = str(item.get("description") or "").strip()
         summary_parts = [title]
         if start_at:
             summary_parts.append(f"Starts {start_at}")
@@ -799,10 +862,10 @@ def _list_recent_calendar_signals(*, access_token: str, max_results: int) -> lis
             summary_parts.append(f"Location {str(item.get('location') or '').strip()}")
         summary = ". ".join(summary_parts)
         text_parts = [title]
-        if counterparty:
-            text_parts.append(f"Attendees: {', '.join(attendees[:4])}")
-        if str(item.get("description") or "").strip():
-            text_parts.append(str(item.get("description") or "").strip())
+        if visible_attendees:
+            text_parts.append(f"Attendees: {', '.join(visible_attendees[:4])}")
+        if description:
+            text_parts.append(description)
         rows.append(
             GoogleWorkspaceSignal(
                 signal_type="calendar_note",
@@ -819,8 +882,10 @@ def _list_recent_calendar_signals(*, access_token: str, max_results: int) -> lis
                     "location": str(item.get("location") or "").strip(),
                     "start_at": start_at,
                     "end_at": str(end.get("dateTime") or end.get("date") or "").strip(),
-                    "attendees": attendees,
+                    "attendees": attendee_labels,
                     "organizer": organizer,
+                    "account_email": normalized_account_email,
+                    "description": description,
                     "html_link": str(item.get("htmlLink") or "").strip(),
                 },
             )

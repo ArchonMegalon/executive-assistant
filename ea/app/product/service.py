@@ -70,6 +70,7 @@ _DEGRADED_PROVIDER_STATES = {"degraded", "cooldown", "rate_limited", "quarantine
 _FAILED_PROVIDER_STATES = {"error", "failed", "auth_failed", "revoked", "deleted", "expired", "unavailable", "missing"}
 _SYSTEM_REPLY_SENDER_MARKERS = ("no-reply", "noreply", "donotreply", "do-not-reply", "mailer-daemon", "calendar-notification")
 _REPLY_SIGNAL_CUES = ("reply", "respond", "send", "share", "confirm", "follow up", "follow-up", "let me know", "can you", "could you", "please", "need to", "must", "review")
+_LOW_SIGNAL_GMAIL_LABELS = {"CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"}
 
 
 def _now_iso() -> str:
@@ -1778,6 +1779,13 @@ class ProductService:
                 "draft_count": len(existing_drafts),
                 "deduplicated": True,
             }
+        allow_generic_fallback = self._allow_generic_signal_candidate_fallback(
+            signal_type=normalized_signal,
+            channel=normalized_channel,
+            counterparty=counterparty,
+            stakeholder_id=stakeholder_id,
+            payload=dict(payload or {}),
+        )
         staged = self.stage_extracted_commitments(
             principal_id=principal_id,
             text=source_text,
@@ -1797,6 +1805,7 @@ class ProductService:
             source_ref=str(source_ref or "").strip(),
             signal_type=normalized_signal,
             reference_at=str((payload or {}).get("received_at") or (payload or {}).get("start_at") or _now_iso()).strip(),
+            allow_generic_fallback=allow_generic_fallback,
         ) if source_text else ()
         staged_draft = self._stage_signal_reply_draft(
             principal_id=principal_id,
@@ -3049,12 +3058,14 @@ class ProductService:
         counterparty: str = "",
         due_at: str | None = None,
         reference_at: str | None = None,
+        allow_generic_fallback: bool = True,
     ) -> tuple[CommitmentCandidate, ...]:
         return extract_commitment_candidates(
             text,
             counterparty=counterparty,
             due_at=due_at,
             reference_at=reference_at,
+            allow_generic_fallback=allow_generic_fallback,
         )
 
     def _candidate_from_memory_row(self, row) -> CommitmentCandidate:  # type: ignore[no-untyped-def]
@@ -3109,12 +3120,14 @@ class ProductService:
         source_ref: str = "",
         signal_type: str = "",
         reference_at: str | None = None,
+        allow_generic_fallback: bool = True,
     ) -> tuple[CommitmentCandidate, ...]:
         extracted = self.extract_commitments(
             text=text,
             counterparty=counterparty,
             due_at=due_at,
             reference_at=reference_at,
+            allow_generic_fallback=allow_generic_fallback,
         )
         staged: list[CommitmentCandidate] = []
         normalized_kind = str(kind or "commitment").strip().lower() or "commitment"
@@ -3157,6 +3170,35 @@ class ProductService:
                 source_id=row.candidate_id,
             )
         return tuple(staged)
+
+    def _allow_generic_signal_candidate_fallback(
+        self,
+        *,
+        signal_type: str,
+        channel: str,
+        counterparty: str,
+        stakeholder_id: str,
+        payload: dict[str, object] | None,
+    ) -> bool:
+        normalized_signal = str(signal_type or "").strip().lower()
+        normalized_channel = str(channel or "").strip().lower()
+        payload_json = dict(payload or {})
+        if normalized_channel == "calendar" and normalized_signal == "calendar_note":
+            return bool(str(payload_json.get("description") or "").strip())
+        if normalized_channel == "gmail" and normalized_signal == "email_thread":
+            labels = {
+                str(value or "").strip().upper()
+                for value in (payload_json.get("labels") or [])
+                if str(value or "").strip()
+            }
+            if labels & _LOW_SIGNAL_GMAIL_LABELS:
+                return False
+            auto_submitted = str(payload_json.get("auto_submitted") or "").strip().lower()
+            if auto_submitted and auto_submitted != "no":
+                return False
+            if str(payload_json.get("precedence") or "").strip().lower() in {"bulk", "list", "junk"}:
+                return False
+        return True
 
     def accept_commitment_candidate(
         self,
