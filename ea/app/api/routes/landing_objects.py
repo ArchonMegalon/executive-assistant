@@ -269,9 +269,24 @@ def handoff_detail(
         raise HTTPException(status_code=404, detail="handoff_not_found")
     task_id = handoff.id.split(":", 1)[1] if handoff.id.startswith("human_task:") else handoff.id
     history_rows = container.orchestrator.list_human_task_assignment_history(task_id, principal_id=context.principal_id, limit=8)
+    send_error = str(request.query_params.get("send_error") or "").strip()
+    send_status = str(request.query_params.get("send_status") or "").strip()
+    delivery_followup_open = (
+        str(handoff.task_type or "").strip() == "delivery_followup"
+        and str(handoff.status or "").strip() in {"pending", "claimed"}
+        and str(handoff.resolution or "").strip() != "sent"
+    )
+    if send_error:
+        retry_detail = send_error
+    elif send_status == "sent" or str(handoff.resolution or "").strip() == "sent":
+        retry_detail = "Retry send completed."
+    elif delivery_followup_open:
+        retry_detail = "Try the stored approved draft again after reconnecting Google."
+    else:
+        retry_detail = "Retry send is no longer needed for this handoff."
     google_delivery_action = (
         _google_delivery_action(str(handoff.delivery_reason or ""), return_to=f"/app/handoffs/{handoff_ref}")
-        if str(handoff.task_type or "").strip() == "delivery_followup" and str(handoff.delivery_reason or "").strip().startswith("google_")
+        if delivery_followup_open and str(handoff.delivery_reason or "").strip().startswith("google_")
         else {}
     )
     product.record_surface_event(
@@ -305,6 +320,16 @@ def handoff_detail(
             _object_detail_row("Draft ref", handoff.draft_ref or "No draft is attached to this handoff.", "Draft"),
             _object_detail_row("Recipient", handoff.recipient_email or "No recipient metadata attached.", "Recipient"),
             _object_detail_row("Delivery reason", handoff.delivery_reason or "No delivery blocker is attached.", "Reason"),
+            _object_detail_row(
+                "Retry send in EA",
+                retry_detail,
+                "Action",
+                href=f"/app/handoffs/{handoff_ref}",
+                action_href=f"/app/actions/handoffs/{handoff_ref}/retry-send" if delivery_followup_open else "",
+                action_label="Retry send" if delivery_followup_open else "",
+                action_method="post" if delivery_followup_open else "",
+                return_to=f"/app/handoffs/{handoff_ref}" if delivery_followup_open else "",
+            ),
             _object_detail_row(
                 str(google_delivery_action.get("label") or "Google delivery action"),
                 "Repair Google access for this workspace before retrying delivery."
@@ -364,6 +389,8 @@ def thread_detail(
     if thread is None:
         raise HTTPException(status_code=404, detail="thread_not_found")
     history = product.get_thread_history(principal_id=context.principal_id, thread_ref=thread_ref, limit=8)
+    send_error = str(request.query_params.get("send_error") or "").strip()
+    send_status = str(request.query_params.get("send_status") or "").strip()
     thread_google_action = (
         _google_delivery_action(str(thread.summary or ""), return_to=f"/app/threads/{thread_ref}")
         if str(thread.status or "").strip() in {"delivery_followup", "reauth_needed"} and str(thread.summary or "").strip().startswith("google_")
@@ -398,6 +425,11 @@ def thread_detail(
             _object_detail_row("Counterparties", " · ".join(thread.counterparties or []) or "No counterparties projected.", "People"),
             _object_detail_row("Drafts", ", ".join(thread.draft_ids or []) or "No active draft ids.", "Drafts"),
             _object_detail_row("Commitments", ", ".join(thread.related_commitment_ids or []) or "No linked commitments yet.", "Ledger"),
+            _object_detail_row(
+                "Retry send in EA",
+                send_error or ("Retry send completed." if send_status == "sent" else "Use the linked delivery follow-up to retry inside EA after reconnecting Google."),
+                "Action",
+            ),
             _object_detail_row(
                 str(thread_google_action.get("label") or "Google delivery action"),
                 "Repair Google access before retrying the send path attached to this thread."

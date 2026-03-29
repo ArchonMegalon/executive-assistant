@@ -612,6 +612,29 @@ def complete_handoff(
     return handoff_out(updated)
 
 
+@router.post("/handoffs/{handoff_ref:path}/retry-send", response_model=HandoffNoteOut)
+def retry_handoff_send(
+    handoff_ref: str,
+    body: HandoffAssignIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HandoffNoteOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or body.operator_id).strip()
+    try:
+        updated = service.retry_delivery_followup_send(
+            principal_id=context.principal_id,
+            handoff_ref=handoff_ref,
+            operator_id=body.operator_id,
+            actor=actor,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="handoff_not_retryable")
+    return handoff_out(updated)
+
+
 @router.get("/evidence", response_model=EvidenceResponse)
 def list_evidence(
     limit: int = Query(default=40, ge=1, le=200),
