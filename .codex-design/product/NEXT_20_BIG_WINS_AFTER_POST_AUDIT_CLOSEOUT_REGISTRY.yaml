@@ -118,7 +118,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-hub
-    status: in_progress
+    status: complete
     exit_criteria:
       - Users can model multiple future advancement paths with deterministic tradeoff explanations.
       - Planner output respects campaign-aware constraints and hands off cleanly into living dossier truth.
@@ -132,7 +132,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-hub
-    status: in_progress
+    status: complete
     exit_criteria:
       - Build Lab can reason about crew fit, role overlap, missing capabilities, and campaign role pressure.
       - Team optimization results are grounded in explainable receipts instead of opaque scoring folklore.

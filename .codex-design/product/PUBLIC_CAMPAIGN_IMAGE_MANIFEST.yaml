@@ -3,7 +3,7 @@ surface: chummer.run
 version: 2
 mode: raster_campaign_only
 style_anchor: |
-  premium software-campaign still, grounded Shadowrun-inspired cyberpunk fantasy, editorial realism, original composition, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to gear, tools, or anatomy, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, realistic skin and materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
+  premium software-campaign still, grounded Shadowrun-inspired cyberpunk fantasy, editorial realism, original composition, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to gear, tools, or anatomy, visible grime, fatigue, cheap-med aftermath, vermin pressure, bruising, and hard-used spaces, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, realistic skin and materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
 negative_prompt: |
   readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, entertainment poster pose, action-movie gun pose, anime, comic art, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
 output_rules:
@@ -41,6 +41,7 @@ semantic_anchors:
   - integrity_seal_or_evidence_clip
   - commlink_or_data_chip
   - reviewer_witness_or_operator_relationship
+  - social_damage_aftermath
 rejection_criteria:
   - giant_letterform_or_centered_signboard
   - empty_neon_boulevard
@@ -64,13 +65,13 @@ assets:
     prompt_variants:
       - name: hero_a_intake_trust_under_pressure
         prompt: |
-          A premium first-contact still inside a midnight shadowrunner intake bay overlooking a rain-heavy city. Foreground: open dossier folios, cyberware calibration trays, detached chrome forearm hardware, sealed evidence sleeves, six-sided dice, med patches, a commlink, a Paper Lotus charm, and abstract medscan overlays with no readable text. Midground: an ork or elf streetdoc stabilizes a scarred troll runner with visible treated chrome while a teammate watches the numbers and gear. Background: service racks, clipped hell hound and barghest field photos, partial Ares or Renraku med hardware shells with logos obscured, one Blood Orchid botanical plate, wet glass, deep city lights, subtle awakened-magic cues, and one drone silhouette. Dense, layered, information-rich, unmistakably Shadowrun, not poster art.
+          A premium first-contact still inside a midnight shadowrunner intake bay overlooking a rain-heavy city. Foreground: open dossier folios, cyberware calibration trays, detached chrome forearm hardware, sealed evidence sleeves, six-sided dice, med patches, stained gauze, a used stim inhaler, a commlink, a Paper Lotus charm, and abstract medscan overlays with no readable text. Midground: an ork or elf streetdoc stabilizes a scarred troll runner with visible treated chrome, rough body hair, bruising, dried blood, and ugly clinic fatigue while a teammate watches the numbers and gear. Background: service racks, clipped hell hound and barghest field photos, partial Ares or Renraku med hardware shells with logos obscured, one Blood Orchid botanical plate, wet glass, deep city lights, rat-trap and mold hints, subtle awakened-magic cues, and one drone silhouette. Dense, layered, information-rich, unmistakably Shadowrun, not poster art.
       - name: hero_b_boulevard_of_futures
         prompt: |
-          A premium hero still on a rain-polished near-future boulevard with multiple branching paths hinting at product lanes like runsites, dossiers, creator tools, and replay through grounded props and architecture instead of signs. A troll courier with a chrome leg, an elf decker with trodes, and one handler pause in the foreground, comparing a packet and AR route state before moving. Layered reflections, city depth, subtle magic-tech fusion, clear sense of choice and momentum, dense and cinematic, not an empty road scene.
+          A premium hero still on a rain-polished near-future boulevard with multiple branching paths hinting at product lanes like runsites, dossiers, creator tools, and replay through grounded props and architecture instead of signs. A troll courier with a chrome leg, an elf decker with trodes, and one handler pause in the foreground, comparing a packet and AR route state before moving. Let the city look meaner: sleeping-bag shadows under an awning, a devil rat warning tin, grime, wet trash, bruised faces, and one burned-out stim kiosk shell at the edge of frame. Layered reflections, city depth, subtle magic-tech fusion, clear sense of choice and momentum, dense and cinematic, not an empty road scene.
       - name: hero_c_service_rack_prep
         prompt: |
-          A premium landing hero inside a high-end prep bay with service racks, med storage, deck modules, gear bins, dossier props, and cyberware housings. Two metahuman runners collaborate over build verification while a third support figure observes, with chrome knuckles, datajacks, trode bands, and anchored AR fit checks visible at banner scale. Seed the room with Sixth World lore crumbs: an obscured Shiawase or Evo device shell, clipped devil rat pest snapshots, and a faint astral totem silhouette or ward scar near the work glass. Rain-glow city beyond glass, electric blue and warm amber accents, semantic richness everywhere, software trust under pressure, realistic editorial campaign photography.
+          A premium landing hero inside a high-end prep bay with service racks, med storage, deck modules, gear bins, dossier props, and cyberware housings. Two metahuman runners collaborate over build verification while a third support figure observes, with chrome knuckles, datajacks, trode bands, anchored AR fit checks, and visible exhaustion at banner scale. Seed the room with Sixth World lore crumbs: an obscured Shiawase or Evo device shell, clipped devil rat pest snapshots, one grimy cleanup tray, a cough-syrup bottle, and a faint astral totem silhouette or ward scar near the work glass. Rain-glow city beyond glass, electric blue and warm amber accents, semantic richness everywhere, software trust under pressure, realistic editorial campaign photography.
   - id: capability_build_runner
     filename_base: capability-build-runner
     runtime_targets:
@@ -80,7 +81,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A professional runner-build workspace inside a safehouse. One player compares dossier fragments, metatype cues, obvious cyberware parts, lifestyle markers, gear pieces, spell fetishes, and six-sided dice while an assistant or GM leans in from the edge of frame to review. Show at least one obvious chrome limb seam, trode rig, or datajack in the cast, with abstract branching tradeoff overlays anchored to devices and body gear and no readable text. The feeling is explainable character creation, not generic desk glamour. Dense props, believable materials, grounded premium realism.
+      A professional runner-build workspace inside a safehouse. One player compares dossier fragments, metatype cues, obvious cyberware parts, lifestyle markers, gear pieces, spell fetishes, and six-sided dice while an assistant or GM leans in from the edge of frame to review. Show at least one obvious chrome limb seam, trode rig, or datajack in the cast, plus harder-world texture like grime, rat-chewed packaging, old bandages, or a spent stim patch. The feeling is explainable character creation in a rough life, not generic desk glamour. Dense props, believable materials, grounded premium realism.
   - id: capability_check_rules
     filename_base: capability-check-rules
     runtime_targets:
@@ -112,7 +113,7 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A simulation bench for loadout and rules testing. Modular cyberware parts, partial cyberlimb housings, magical focus objects, six-sided dice, consequence traces, receipt markers, measured overlay paths, and test instruments across a dense work surface. One builder and one reviewer, with at least one metahuman or visibly augmented body cue in frame, clinical precision with cinematic polish. It should feel like explainable what-if analysis, not hacker fantasy.
+      A simulation bench for loadout and rules testing. Modular cyberware parts, partial cyberlimb housings, magical focus objects, six-sided dice, consequence traces, receipt markers, measured overlay paths, and test instruments across a dense work surface. One builder and one reviewer, with at least one metahuman or visibly augmented body cue in frame, plus ugly reality cues like stained wraps, crash-kit residue, bruising charts, or a rat trap under the bench. Clinical precision with cinematic polish. It should feel like explainable what-if analysis, not hacker fantasy.
   - id: capability_carry_dossier
     filename_base: capability-carry-dossier
     runtime_targets:
@@ -195,7 +196,7 @@ assets:
     long_side_px: 2500
     negative_space: side_35
     prompt: |
-      A player-prep nook in a compact safehouse. Open runner dossier, gear layout, cyberdeck, fake identity cards, medkit, visible chrome limb or datajack cue, subtle magic cue, six-sided dice, and a focused user deciding between tradeoffs. Professional, tactile, quietly intense, with AR fit-check traces hugging the gear. It should feel like “I can build and understand my character,” not like a moody wallpaper.
+      A player-prep nook in a compact safehouse. Open runner dossier, gear layout, cyberdeck, fake identity cards, medkit, visible chrome limb or datajack cue, subtle magic cue, six-sided dice, and a focused user deciding between tradeoffs. Include hardship cues like worn synthleather, grime, sleepless eyes, stained wraps, or a spent stim patch so it feels like a character built for a hard city, not a moody wallpaper.
   - id: lane_gm
     filename_base: lane-gm
     runtime_targets:
@@ -205,7 +206,7 @@ assets:
     long_side_px: 2500
     negative_space: side_35
     prompt: |
-      A GM orchestration table with route overlays, threat markers, timeline fragments, district map pieces, NPC tokens, brief packet fragments, and one person clearly guiding the run. Include at least one metahuman or chrome-heavy runner clue in the cast or prop cluster so it reads as Shadowrun table life rather than generic cyber thriller prep. Composed authority, evidence and clarity over drama, premium realism, no combat-poster energy.
+      A GM orchestration table with route overlays, threat markers, timeline fragments, district map pieces, NPC tokens, brief packet fragments, and one person clearly guiding the run. Include at least one metahuman or chrome-heavy runner clue in the cast or prop cluster so it reads as Shadowrun table life rather than generic cyber thriller prep, plus rough fallout like ash, cheap meds, dirty cups, or urban sickness around the edges. Composed authority, evidence and clarity over drama, premium realism, no combat-poster energy.
   - id: lane_creator
     filename_base: lane-creator
     runtime_targets:
@@ -215,7 +216,7 @@ assets:
     long_side_px: 2500
     negative_space: side_35
     prompt: |
-      A creator-lane workstation with packet design proofs, curated reference fragments, packaged artifact cards, a scanning setup, careful rules stewardship, and at least one chrome or awakened-world clue among the props. Creative but disciplined, premium materials, strong sense of publishing and curation, not generic content-creator desk clutter.
+      A creator-lane workstation with packet design proofs, curated reference fragments, packaged artifact cards, a scanning setup, careful rules stewardship, and at least one chrome or awakened-world clue among the props. Let the room feel lived in and slightly wrecked: coffee rot, old nicotine haze, cracked drawers, a clinic-waste bin, or one burnout cue at the margins. Creative but disciplined, strong sense of publishing and curation, not generic content-creator desk clutter.
   - id: participation_ops_lane
     filename_base: participation-ops-lane
     runtime_targets:
