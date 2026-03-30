@@ -6974,6 +6974,7 @@ class ProductService:
             snapshot=snapshot,
             operator_key=operator_key,
             principal_id=principal_id,
+            diagnostics=diagnostics,
             memo_loop=memo_loop,
         )
         return {
@@ -7314,14 +7315,18 @@ class ProductService:
         snapshot: ProductSnapshot,
         operator_key: str,
         principal_id: str,
+        diagnostics: dict[str, object] | None = None,
         memo_loop: dict[str, object] | None = None,
     ) -> list[dict[str, object]]:
+        diagnostics_payload = dict(diagnostics or {})
         at_risk_commitments = [
             item
             for item in snapshot.commitments
             if _is_past_due(item.due_at) or item.risk_level in {"high", "critical", "due_now"}
         ]
         support_verification = self._support_fix_verification_projection(principal_id=principal_id)
+        support_grounding = self._support_assistant_grounding_pack(diagnostics=diagnostics_payload) if diagnostics_payload else {}
+        operator_grounding = self._operator_memo_grounding_pack(diagnostics=diagnostics_payload) if diagnostics_payload else {}
         resolved_memo_loop = dict(memo_loop or {})
         memo_blocker_item = _memo_issue_channel_item(memo_loop=resolved_memo_loop)
         open_decisions = [item for item in snapshot.decisions if item.status != "decided"]
@@ -7340,6 +7345,18 @@ class ProductService:
         visible_handoffs = assigned_handoffs[:1] + unclaimed_handoffs[:2]
         if not visible_handoffs:
             visible_handoffs = list(snapshot.handoffs[:2])
+
+        def first_get_action(pack: dict[str, object], *, fallback_label: str, fallback_href: str) -> tuple[str, str, str]:
+            for action in list(pack.get("actions") or []):
+                if not isinstance(action, dict):
+                    continue
+                href = str(action.get("href") or "").strip()
+                method = str(action.get("method") or "get").strip().lower() or "get"
+                label = str(action.get("label") or "").strip()
+                if href and method == "get" and label:
+                    return label, href, method
+            return fallback_label, fallback_href, "get"
+
         memo_items: list[dict[str, str]] = []
         if str(support_verification.get("request_id") or "").strip() and str(support_verification.get("confirmation_state") or "").strip() != "confirmed":
             memo_items.append(
@@ -7365,6 +7382,23 @@ class ProductService:
             )
         if memo_blocker_item is not None:
             memo_items.append(dict(memo_blocker_item))
+        if support_grounding:
+            support_action_label, support_action_href, support_action_method = first_get_action(
+                support_grounding,
+                fallback_label="Open support",
+                fallback_href="/app/settings/support",
+            )
+            memo_items.append(
+                {
+                    "title": str(support_grounding.get("title") or "Support closure grounding"),
+                    "detail": str(support_grounding.get("summary") or "Support posture should stay grounded in mirrored trust and scorecard truth."),
+                    "tag": "Grounding",
+                    "href": "/app/settings/support",
+                    "action_href": support_action_href,
+                    "action_label": support_action_label,
+                    "action_method": support_action_method,
+                }
+            )
         for item in snapshot.brief_items[:2]:
             memo_items.append(
                 {
@@ -7530,6 +7564,23 @@ class ProductService:
         operator_items: list[dict[str, str]] = []
         if memo_blocker_item is not None:
             operator_items.append(dict(memo_blocker_item))
+        if operator_grounding:
+            operator_action_label, operator_action_href, operator_action_method = first_get_action(
+                operator_grounding,
+                fallback_label="Open activity",
+                fallback_href="/app/activity",
+            )
+            operator_items.append(
+                {
+                    "title": str(operator_grounding.get("title") or "Operator memo grounding"),
+                    "detail": str(operator_grounding.get("summary") or "Operator memos should stay grounded in weekly product-control evidence."),
+                    "tag": "Grounding",
+                    "href": "/app/activity",
+                    "action_href": operator_action_href,
+                    "action_label": operator_action_label,
+                    "action_method": operator_action_method,
+                }
+            )
         for handoff in visible_handoffs:
             actions = self._handoff_channel_actions(
                 principal_id=principal_id,
