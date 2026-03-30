@@ -379,6 +379,20 @@ def test_models_list_returns_responses_aliases() -> None:
     assert "x-ai/grok-code-fast-1" in model_ids
 
 
+def test_codex_profiles_helper_without_container_keeps_governance_expectations() -> None:
+    from app.api.routes import responses
+
+    profiles = responses._codex_profiles()
+    easy = next(item for item in profiles if item["profile"] == "easy")
+    audit = next(item for item in profiles if item["profile"] == "audit")
+
+    assert easy["work_class"] == "easy"
+    assert "Easy lane" in easy["expectation_summary"]
+    assert easy["review_cadence"]["review"] == "weekly"
+    assert audit["work_class"] == "audit_jury"
+    assert "Audit/jury lane" in audit["expectation_summary"]
+
+
 def test_responses_openapi_publishes_explicit_request_and_response_schema() -> None:
     client = _client(principal_id="codex-test")
 

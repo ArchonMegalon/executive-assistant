@@ -1458,7 +1458,7 @@ def _codex_profiles(
 ) -> tuple[dict[str, object], ...]:
     router = _brain_router(container)
     if router is None:
-        return _CODEx_PROFILES
+        return tuple(_enrich_codex_profile(dict(item)) for item in _CODEx_PROFILES)
     rows = []
     for profile in router.list_profile_decisions(principal_id=principal_id or None):
         rows.append(

@@ -335,6 +335,9 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "public help:" in result.stdout
     assert "support question:" in result.stdout
     assert "operator cadence:" in result.stdout
+    assert "-- codex governance --" in result.stdout
+    assert "hard coder:" in result.stdout
+    assert "support/help:" in result.stdout
 
 
 def test_support_bundle_writes_grounding_summary() -> None:
@@ -369,6 +372,10 @@ def test_support_bundle_writes_grounding_summary() -> None:
     assert "public_help_heading=" in text
     assert "support_scorecard_question=" in text
     assert "operator_review_cadence=" in text
+    assert "-- codex governance --" in text
+    assert "codex_review_cadence=" in text
+    assert "codex_core_expectation=" in text
+    assert "codex_support_help_boundary=" in text
 
 
 def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
