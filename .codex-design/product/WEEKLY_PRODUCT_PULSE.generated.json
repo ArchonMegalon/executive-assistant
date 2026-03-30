@@ -6,13 +6,13 @@
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is blocked; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine.",
+  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is ready; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine.",
   "active_wave": "Next 20 Big Wins After Post-Audit Closeout",
   "active_wave_status": "in_progress",
   "journey_gate_health": {
-    "state": "blocked",
-    "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-    "blocked_count": 1,
+    "state": "ready",
+    "reason": "Journey proof is steady on current published evidence.",
+    "blocked_count": 0,
     "warning_count": 0
   },
   "governor_decisions": [
@@ -37,9 +37,9 @@
       "front_door_wave_closed": true
     },
     "journey_gate_health": {
-      "state": "blocked",
-      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-      "blocked_count": 1,
+      "state": "ready",
+      "reason": "Journey proof is steady on current published evidence.",
+      "blocked_count": 0,
       "warning_count": 0
     },
     "top_support_or_feedback_clusters": [
@@ -93,12 +93,12 @@
     "phase_label": "Public-fit polish",
     "history_snapshot_count": 5,
     "longest_pole": "Core Engine",
-    "launch_readiness": "Hold launch expansion while Core Engine keeps trust-critical proof blocked.",
+    "launch_readiness": "Wave remains active. Keep launch expansion behind governed canaries until support fallout stays stable.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
-      "canary_status": "Canary review required before widening defaults",
+      "canary_status": "Canary green on all active lanes",
       "review_due": "2026-04-13",
-      "next_decision": "Hold default promotion until blocked journey proof and trust fallout are cleared."
+      "next_decision": "Promote once support fallout remains stable."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
