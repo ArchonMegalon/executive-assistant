@@ -25,7 +25,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
     inbox = client.get("/app/inbox")
     assert inbox.status_code == 200
-    assert "Commitments" in inbox.text
+    assert "Draft Queue" in inbox.text
+    assert "Open commitments" in inbox.text
     assert "Send board materials" in inbox.text
     assert "sofia@example.com" in inbox.text
 
@@ -148,6 +149,19 @@ def test_browser_action_routes_match_rendered_forms() -> None:
     assert closed.headers["location"] == "/app/inbox"
     assert "Send board materials" not in client.get("/app/inbox").text
 
+    reseeded_commitment = seed_product_state(client, principal_id=principal_id)
+    deferred = client.post(
+        f"/app/actions/queue/follow_up:{reseeded_commitment['follow_up_id']}/resolve",
+        data={"action": "defer", "return_to": "/app/follow-ups"},
+        follow_redirects=False,
+    )
+    assert deferred.status_code == 303
+    assert deferred.headers["location"] == "/app/follow-ups"
+    deferred_followups = client.get("/app/follow-ups")
+    assert deferred_followups.status_code == 200
+    assert "Confirm investor meeting time" in deferred_followups.text
+    assert "Defer" in deferred_followups.text
+
     dropped = client.post(
         f"/app/actions/queue/follow_up:{seeded['follow_up_id']}/resolve",
         data={"action": "drop", "return_to": "/app/follow-ups"},
@@ -155,7 +169,9 @@ def test_browser_action_routes_match_rendered_forms() -> None:
     )
     assert dropped.status_code == 303
     assert dropped.headers["location"] == "/app/follow-ups"
-    assert "Confirm investor meeting time" not in client.get("/app/follow-ups").text
+    dropped_detail = client.get(f"/app/api/commitments/follow_up:{seeded['follow_up_id']}")
+    assert dropped_detail.status_code == 200
+    assert dropped_detail.json()["status"] == "dropped"
 
     reseeded = seed_product_state(client, principal_id=principal_id)
     rejected = client.post(

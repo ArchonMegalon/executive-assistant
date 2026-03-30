@@ -1471,6 +1471,15 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     assert reopened.json()["status"] == "open"
     assert reopened.json()["resolution_code"] == ""
 
+    deferred = client.post(
+        f"/app/api/commitments/{commitment_ref}/resolve",
+        json={"action": "defer", "reason": "Waiting on the next board window"},
+    )
+    assert deferred.status_code == 200
+    assert deferred.json()["status"] == "open"
+    assert deferred.json()["resolution_code"] == "deferred"
+    assert deferred.json()["resolution_reason"] == "Waiting on the next board window"
+
     created = client.post(
         "/app/api/commitments",
         json={

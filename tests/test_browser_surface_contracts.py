@@ -96,7 +96,8 @@ def test_app_surface_routes_render_without_product_drift() -> None:
 
     queue = client.get("/app/queue")
     assert "Decision Queue" in queue.text
-    assert "What must be resolved next" in queue.text
+    assert "What changed since the last memo" in queue.text
+    assert "What gets tight first" in queue.text
 
     people = client.get("/app/people")
     assert "People Graph" in people.text
