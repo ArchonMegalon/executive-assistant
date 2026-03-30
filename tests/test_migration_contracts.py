@@ -35,6 +35,7 @@ def test_db_bootstrap_includes_latest_migrations() -> None:
 def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_column() -> None:
     provider_bindings = (ROOT / "ea/schema/20260305_v0_32_provider_bindings_kernel.sql").read_text()
     runtime_policy = (ROOT / "ea/schema/20260305_v0_33_task_contract_runtime_policy.sql").read_text()
+    artifact_scope = (ROOT / "ea/schema/20260305_v0_31_artifact_principal_scope.sql").read_text()
 
     assert "CREATE TABLE IF NOT EXISTS provider_bindings" in provider_bindings
     assert "idx_provider_bindings_principal_provider" in provider_bindings
@@ -42,6 +43,7 @@ def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_co
 
     assert "ALTER TABLE task_contracts" in runtime_policy
     assert "ADD COLUMN IF NOT EXISTS runtime_policy_json JSONB NOT NULL DEFAULT '{}'::jsonb" in runtime_policy
+    assert "WHERE a.session_id = es.session_id::text" in artifact_scope
 
 
 def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
@@ -61,6 +63,7 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
 def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> None:
     ledger = (ROOT / "ea/schema/20260305_v0_6_execution_ledger_v2.sql").read_text()
     approvals = (ROOT / "ea/schema/20260305_v0_7_approvals_kernel.sql").read_text()
+    human_tasks = (ROOT / "ea/schema/20260305_v0_24_human_tasks_kernel.sql").read_text()
 
     assert "Some older installations use UUID-typed session identifiers" in ledger
     assert "format_type(a.atttypid, a.atttypmod)" in ledger
@@ -71,6 +74,11 @@ def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> 
     assert "approval_decision_id" in approvals
     assert "SET approval_id = 'legacy-' || approval_request_id::text" in approvals
     assert "SET decision_id = 'legacy-' || approval_decision_id::text" in approvals
+
+    assert "Some upgraded installations may still use UUID-typed session identifiers" in human_tasks
+    assert "format_type(a.atttypid, a.atttypmod)" in human_tasks
+    assert "session_id %s NOT NULL REFERENCES execution_sessions(session_id)" in human_tasks
+    assert "step_id %s NULL REFERENCES execution_steps(step_id)" in human_tasks
 
 
 def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:

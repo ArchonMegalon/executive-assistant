@@ -1763,6 +1763,8 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     assert "EA_RUNTIME_MODE=prod" in readme
     assert "EA_RUNTIME_MODE=prod" in runbook
     assert "EA_RUNTIME_MODE" in env_matrix
+    assert 'set_env_value "EA_API_TOKEN" "smoke-prod-token"' in smoke_postgres
+    assert "EA_RUNTIME_MODE=prod requires (DATABASE_URL|a durable postgres runtime profile)" in smoke_postgres
     assert "prod fail-fast path ok" in smoke_postgres
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "runtime_mode_fail_fast_storage")
