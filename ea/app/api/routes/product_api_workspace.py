@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
@@ -161,4 +161,23 @@ def get_workspace_support_detail(
         surface="support_api",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
+
+
+@router.post("/support/fix-verification/request", response_model=WorkspaceSupportBundleOut)
+def request_support_fix_verification(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceSupportBundleOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "support").strip()
+    try:
+        service.request_support_fix_verification(
+            principal_id=context.principal_id,
+            actor=actor,
+            base_url=str(request.base_url),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))

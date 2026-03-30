@@ -681,6 +681,8 @@ class ProductService:
             "request_action_href": "/app/actions/support/fix-verification/request" if recipient_email else "",
             "request_action_method": "post",
             "request_action_label": request_action_label if recipient_email else "",
+            "request_api_href": "/app/api/support/fix-verification/request" if recipient_email else "",
+            "request_api_method": "post" if recipient_email else "",
             "recommended_action": recommended_action,
             "confirm_action_href": confirm_action_href,
             "display_name": str(contact.get("display_name") or "").strip(),
