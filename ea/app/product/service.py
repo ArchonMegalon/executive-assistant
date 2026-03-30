@@ -1071,7 +1071,7 @@ class ProductService:
             "available": available,
             "state": str(journey_state or "watch").strip().lower() or "watch",
             "summary": compact_text(summary, fallback="Product-control pulse is not available.", limit=220),
-            "projection_note": "Mirrors weekly pulse and published journey gates; it does not replace design, Fleet, or Hub ownership.",
+            "projection_note": "Mirrors weekly pulse, published journey gates, support fallout, and public-guide freshness; it does not replace design, Fleet, or Hub ownership.",
             "active_wave": str((pulse_payload or {}).get("active_wave") or "").strip(),
             "active_wave_status": str((pulse_payload or {}).get("active_wave_status") or "").strip(),
             "next_checkpoint_question": str((pulse_payload or {}).get("next_checkpoint_question") or "").strip(),

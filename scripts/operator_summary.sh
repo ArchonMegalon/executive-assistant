@@ -46,12 +46,23 @@ configured_journey = str(signals.get("journey_gate_source") or "").strip()
 journey_path = (root / configured_journey).resolve() if configured_journey else default_journey_path
 journey = load_json(journey_path) if journey_path.exists() else None
 journey_summary = dict((journey or {}).get("summary") or {})
+journies = [dict(row) for row in list((journey or {}).get("journeys") or []) if isinstance(row, dict)]
 pulse_gate = dict((pulse or {}).get("journey_gate_health") or {})
 route = dict(signals.get("provider_route_stewardship") or {})
 public_guide = _public_guide_freshness_projection()
+support_closures_waiting = sum(int(dict(row.get("signals") or {}).get("support_closure_waiting_count") or 0) for row in journies)
+support_human_responses = sum(int(dict(row.get("signals") or {}).get("support_needs_human_response_count") or 0) for row in journies)
 
 journey_state = str(pulse_gate.get("state") or journey_summary.get("overall_state") or "missing").strip() or "missing"
 journey_action = str(journey_summary.get("recommended_action") or pulse_gate.get("reason") or "No published journey action.").strip()
+support_fallout = "clear"
+if support_closures_waiting or support_human_responses:
+    parts = []
+    if support_closures_waiting:
+        parts.append(f"{support_closures_waiting} closures waiting")
+    if support_human_responses:
+        parts.append(f"{support_human_responses} human responses needed")
+    support_fallout = " · ".join(parts)
 
 print(f"weekly pulse:      {pulse_path if pulse_path.exists() else 'missing'}")
 print(f"pulse generated:   {str((pulse or {}).get('generated_at') or 'missing').strip() or 'missing'}")
@@ -62,6 +73,7 @@ print(f"journey gates:     {journey_path if journey_path.exists() else 'missing'
 print(f"journey generated: {str((journey or {}).get('generated_at') or 'missing').strip() or 'missing'}")
 print(f"journey gate:      {journey_state}")
 print(f"journey action:    {journey_action}")
+print(f"support fallout:   {support_fallout}")
 print(f"route review due:  {str(route.get('review_due') or 'not published').strip() or 'not published'}")
 print(f"public guide:      {str(public_guide.get('path') or 'missing').strip() or 'missing'}")
 print(f"guide updated:     {str(public_guide.get('generated_at') or 'missing').strip() or 'missing'}")
