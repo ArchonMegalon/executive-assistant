@@ -135,6 +135,7 @@ QUALITY_FOCUS_TARGETS = frozenset(
         "assets/parts/hub-registry.png",
         "assets/parts/media-factory.png",
         "assets/parts/mobile.png",
+        "assets/parts/ui.png",
         "assets/parts/ui-kit.png",
     }
 )
@@ -146,6 +147,7 @@ REFERENCE_WALL_RISK_TARGETS = frozenset(
         "assets/parts/design.png",
         "assets/parts/hub-registry.png",
         "assets/parts/media-factory.png",
+        "assets/parts/ui.png",
         "assets/parts/ui-kit.png",
     }
 )
@@ -1259,12 +1261,27 @@ def _flagship_no_improvement_limit(target: str) -> int:
     return 5 if _flagship_target(normalized) else 3
 
 
+def _gate_failures_from_review(*, target: str, score: float, notes: list[str]) -> list[str]:
+    normalized = str(target or "").replace("\\", "/").strip()
+    if not normalized or not visual_audit_enabled(target=normalized):
+        return []
+    cleaned_notes = [str(entry).strip() for entry in notes if str(entry).strip()]
+    return critical_visual_gate_failures(
+        target=normalized,
+        base_score=float(score),
+        base_notes=cleaned_notes,
+        final_score=float(score),
+        final_notes=cleaned_notes,
+    )
+
+
 def challenger_beats_champion(
     *,
     champion: dict[str, object] | None,
     target: str,
     score: float,
     notes: list[str],
+    gate_failures: list[str] | None = None,
 ) -> bool:
     data = champion if isinstance(champion, dict) else {}
     if not data:
@@ -1272,8 +1289,19 @@ def challenger_beats_champion(
     normalized_target = str(target or "").replace("\\", "/").strip()
     champion_score = _floatish(data.get("score"), default=float("-inf"))
     champion_notes = [str(entry).strip() for entry in (data.get("notes") or []) if str(entry).strip()]
+    champion_gate_failures = [str(entry).strip() for entry in (data.get("gate_failures") or []) if str(entry).strip()]
+    if not champion_gate_failures:
+        champion_gate_failures = _gate_failures_from_review(target=normalized_target, score=champion_score, notes=champion_notes)
     champion_penalties = _semantic_review_penalty_count(champion_notes)
     challenger_penalties = _semantic_review_penalty_count(notes)
+    challenger_gate_failures = [str(entry).strip() for entry in (gate_failures or []) if str(entry).strip()]
+    if not challenger_gate_failures:
+        challenger_gate_failures = _gate_failures_from_review(target=normalized_target, score=score, notes=notes)
+    if not challenger_gate_failures and champion_gate_failures:
+        return True
+    if champion_gate_failures and len(challenger_gate_failures) < len(champion_gate_failures):
+        if score >= champion_score - (4.0 if _flagship_target(normalized_target) else 6.0):
+            return True
     if _flagship_target(normalized_target):
         if challenger_penalties == 0 and champion_penalties > 0 and score >= champion_score - 1.5:
             return True
@@ -1516,9 +1544,13 @@ def _same_resolved_path(left: Path, right: Path) -> bool:
         return str(left) == str(right)
 
 
-def _champion_candidate_rank(entry: dict[str, object]) -> tuple[float, int, float]:
+def _champion_candidate_rank(entry: dict[str, object]) -> tuple[float, int, float, float]:
     score = _floatish(entry.get("score"), default=float("-inf"))
     notes = [str(item).strip() for item in (entry.get("notes") or []) if str(item).strip()]
+    target = str(entry.get("target") or "").replace("\\", "/").strip()
+    gate_failures = [str(item).strip() for item in (entry.get("gate_failures") or []) if str(item).strip()]
+    if target and not gate_failures:
+        gate_failures = _gate_failures_from_review(target=target, score=score, notes=notes)
     path_str = str(entry.get("path") or entry.get("output_path") or "").strip()
     mtime = 0.0
     if path_str:
@@ -1526,7 +1558,7 @@ def _champion_candidate_rank(entry: dict[str, object]) -> tuple[float, int, floa
             mtime = float(Path(path_str).stat().st_mtime)
         except Exception:
             mtime = 0.0
-    return (score, -len(notes), mtime)
+    return (-float(len(gate_failures)), -_semantic_review_penalty_count(notes), score, mtime)
 
 
 def _prefer_champion_candidate(current: dict[str, object], candidate: dict[str, object]) -> dict[str, object]:
@@ -1541,9 +1573,12 @@ def _seed_champion_entry_from_path(*, target: str, path: Path, source: str) -> d
     if not path.exists() or not visual_audit_enabled(target=target):
         return {}
     score, notes = visual_audit_score(image_path=path, target=target)
+    gate_failures = _gate_failures_from_review(target=target, score=score, notes=notes)
     return {
+        "target": str(target or "").replace("\\", "/").strip(),
         "score": score,
         "notes": list(notes),
+        "gate_failures": gate_failures,
         "path": str(path),
         "output_path": str(path),
         "source": str(source or "").strip() or "repo_seed",
@@ -1629,6 +1664,7 @@ def record_champion_result(
     output_path: Path,
     score: float,
     notes: list[str],
+    gate_failures: list[str],
     provider: str,
     status: str,
     source: str,
@@ -1638,8 +1674,10 @@ def record_champion_result(
         assets = {}
         ledger["assets"] = assets
     assets[target] = {
+        "target": str(target or "").replace("\\", "/").strip(),
         "score": float(score),
         "notes": [str(note).strip() for note in notes if str(note).strip()],
+        "gate_failures": [str(note).strip() for note in gate_failures if str(note).strip()],
         "path": str(output_path),
         "output_path": str(output_path),
         "provider": str(provider or "").strip(),
@@ -1656,6 +1694,7 @@ def record_challenger_attempt(
     output_path: Path,
     score: float,
     notes: list[str],
+    gate_failures: list[str],
     provider: str,
     status: str,
     beat_champion: bool,
@@ -1668,6 +1707,7 @@ def record_challenger_attempt(
     current["last_challenger"] = {
         "score": float(score),
         "notes": [str(note).strip() for note in notes if str(note).strip()],
+        "gate_failures": [str(note).strip() for note in gate_failures if str(note).strip()],
         "path": str(output_path),
         "output_path": str(output_path),
         "provider": str(provider or "").strip(),
@@ -4458,11 +4498,14 @@ def critical_visual_gate_failures(
             "min_base_score": 70.0,
             "min_final_score": 300.0,
             "reject_notes": {
+                "visual_audit:dominant_wall_panel",
                 "visual_audit:dead_negative_space",
                 "visual_audit:low_semantic_density",
                 "visual_audit:readable_signage_risk",
+                "visual_audit:reference_wall_risk",
                 "visual_audit:text_sprawl",
                 "visual_audit:subject_crop_too_tight",
+                "visual_audit:workzone_story_weak",
             },
         },
         "assets/parts/ui-kit.png": {
@@ -6160,6 +6203,11 @@ def _visual_audit_text_risk(*, image_path: Path, target: str) -> tuple[float, li
         readable_count = 4
         sprawl_threshold = 20.0
         sprawl_count = 6
+    elif target == "assets/parts/ui.png":
+        readable_threshold = 10.0
+        readable_count = 3
+        sprawl_threshold = 16.0
+        sprawl_count = 4
     if matched_regions >= readable_count and weighted_regions >= readable_threshold:
         notes.append("visual_audit:readable_signage_risk")
         penalty += 18.0
@@ -6175,6 +6223,7 @@ def _visual_audit_dominant_panel_risk(*, image_path: Path, target: str) -> tuple
         "assets/horizons/alice.png",
         "assets/pages/parts-index.png",
         "assets/horizons/runsite.png",
+        "assets/parts/ui.png",
     }:
         return 0.0, []
     if cv2 is None or np is None:
@@ -6244,6 +6293,7 @@ def _visual_audit_fake_signage_risk(*, image_path: Path, target: str) -> tuple[f
         "assets/horizons/runsite.png",
         "assets/pages/parts-index.png",
         "assets/parts/hub.png",
+        "assets/parts/ui.png",
     }:
         return 0.0, []
     if cv2 is None or np is None:
@@ -7939,6 +7989,20 @@ def ooda_variant_prompt(
                 "hub_reframe",
                 "Hub correction: shift off-axis and break the runway composition with a side access cut, staggered endcaps, and hardware in the near foreground so the image stops reading like a stock data-center aisle."
             )
+    elif normalized == "assets/parts/ui.png" and (correction_tags or variant >= 1):
+        _add_correction(
+            "ui_real_bench",
+            "UI correction: replace every hallway, icon wall, kiosk, poster-lined corridor, and glowing symbol panel with one oblique prep bench showing hands, build wafers, inspection rails, compare slate, clipped notes, and gear trays under practical light."
+        )
+        _add_correction(
+            "ui_no_wall_panels",
+            "UI correction: no framed posters, no menu panels, no x-ray display wall, no checklist board, and no dominant glowing monitor rectangle. Keep the logic on the bench, mirror, rail, acrylic frame, and small component pieces instead."
+        )
+        if variant >= 2:
+            _add_correction(
+                "ui_reframe",
+                "UI correction: use a tighter oblique bench angle with a clear foreground prop cluster, midground hands, and background inspection surfaces so the scene reads like active build work instead of wall browsing."
+            )
     elif normalized in {
         "assets/horizons/alice.png",
         "assets/horizons/nexus-pan.png",
@@ -9243,6 +9307,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 target=target,
                 score=score,
                 notes=[*base_notes, *notes],
+                gate_failures=gate_failures,
             )
             if champion_entry:
                 statuses.append(f"challenger:champion_score:{champion_score:.2f}")
@@ -9312,6 +9377,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
             output_path=canonical_path if keep_existing_champion else out_path,
             score=best_final_score,
             notes=best_notes,
+            gate_failures=best_gate_failures,
             provider=str(best_result["provider"]),
             status=str(best_result["status"]),
             beat_champion=best_beats_champion,
@@ -9323,6 +9389,7 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
                 output_path=canonical_path if keep_existing_champion else out_path,
                 score=best_final_score,
                 notes=best_notes,
+                gate_failures=best_gate_failures,
                 provider=str(best_result["provider"]),
                 status=str(best_result["status"]),
                 source="repo_output" if _same_resolved_path(out_path, canonical_path) else "render_output",
