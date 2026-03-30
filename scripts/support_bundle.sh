@@ -88,12 +88,16 @@ configured_journey = str(signals.get("journey_gate_source") or "").strip()
 journey_path = (root / configured_journey).resolve() if configured_journey else default_journey_path
 journey = load_json(journey_path) if journey_path.exists() else None
 journey_summary = dict((journey or {}).get("summary") or {})
+journies = [dict(row) for row in list((journey or {}).get("journeys") or []) if isinstance(row, dict)]
 pulse_gate = dict((pulse or {}).get("journey_gate_health") or {})
 route = dict(signals.get("provider_route_stewardship") or {})
 public_guide = _public_guide_freshness_projection()
+support_closures_waiting = sum(int(dict(row.get("signals") or {}).get("support_closure_waiting_count") or 0) for row in journies)
+support_human_responses = sum(int(dict(row.get("signals") or {}).get("support_needs_human_response_count") or 0) for row in journies)
 
 journey_state = str(pulse_gate.get("state") or journey_summary.get("overall_state") or "missing").strip() or "missing"
 journey_action = str(journey_summary.get("recommended_action") or pulse_gate.get("reason") or "No published journey action.").strip()
+support_fallout_state = "watch" if (support_closures_waiting or support_human_responses) else "clear"
 
 print(f"pulse_path={pulse_path if pulse_path.exists() else 'missing'}")
 print(f"pulse_generated_at={str((pulse or {}).get('generated_at') or 'missing').strip() or 'missing'}")
@@ -104,6 +108,9 @@ print(f"journey_gates_path={journey_path if journey_path.exists() else 'missing'
 print(f"journey_generated_at={str((journey or {}).get('generated_at') or 'missing').strip() or 'missing'}")
 print(f"journey_gate_state={journey_state}")
 print(f"journey_gate_action={journey_action}")
+print(f"support_fallout_state={support_fallout_state}")
+print(f"support_closures_waiting={support_closures_waiting}")
+print(f"support_human_responses_needed={support_human_responses}")
 print(f"route_review_due={str(route.get('review_due') or 'not published').strip() or 'not published'}")
 print(f"public_guide_path={str(public_guide.get('path') or 'missing').strip() or 'missing'}")
 print(f"public_guide_generated_at={str(public_guide.get('generated_at') or 'missing').strip() or 'missing'}")
