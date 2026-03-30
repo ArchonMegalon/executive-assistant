@@ -104,6 +104,7 @@ def _start_browser_server(client: TestClient, *, seeded: dict[str, object]) -> I
     try:
         yield {
             "base_url": base_url,
+            "client": client,
             "seeded": seeded,
         }
     finally:
@@ -505,6 +506,75 @@ def test_people_correction_and_support_bundle_in_real_browser(page: Page, produc
     assert '"billing"' in page.content()
     assert '"analytics"' in page.content()
     assert '"support_bundle_opened"' in page.content()
+
+
+def test_support_fix_verification_flow_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
+    base_url = str(product_browser_server["base_url"])
+    client = product_browser_server["client"]
+
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "return_to": "/app/settings",
+            "enabled": "true",
+            "cadence": "daily_morning",
+            "recipient_email": "tibor@example.com",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+
+    response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Fix verification" in page.content()
+
+    next_action_row = page.locator(".object-row", has_text="Next action")
+    with page.expect_response(lambda value: "/app/actions/support/fix-verification/request" in value.url and value.request.method == "POST") as request_response:
+        next_action_row.get_by_role("button", name="Request confirmation").click()
+    assert request_response.value.status == 303
+    page.wait_for_url(f"{base_url}/app/settings/support*")
+    page.wait_for_load_state("networkidle")
+    assert "Open delivery link" in page.content()
+    assert "Open workspace link" in page.content()
+    next_action_row = page.locator(".object-row", has_text="Next action")
+
+    with page.expect_response(lambda value: "/channel-loop/deliveries/" in value.url) as delivery_response:
+        next_action_row.get_by_role("link", name="Open delivery link").click()
+    assert delivery_response.value.status == 303
+    page.wait_for_url(f"{base_url}/app/channel-loop/memo")
+    page.wait_for_load_state("networkidle")
+    assert "Confirm the fix reached you" in page.content()
+
+    response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Recipient opened the support verification digest." in page.content()
+    next_action_row = page.locator(".object-row", has_text="Next action")
+
+    with page.expect_response(lambda value: "/workspace-access/" in value.url) as access_response:
+        next_action_row.get_by_role("link", name="Open workspace link").click()
+    assert access_response.value.status == 303
+    page.wait_for_url(f"{base_url}/app/today")
+    page.wait_for_load_state("networkidle")
+
+    response = page.goto(f"{base_url}/app/channel-loop/memo", wait_until="networkidle")
+    assert response is not None and response.ok
+    support_item_row = page.locator(".console-row", has_text="Confirm the fix reached you")
+    with page.expect_response(lambda value: "/app/channel-actions/" in value.url) as confirm_response:
+        support_item_row.get_by_role("link", name="Confirm", exact=True).click()
+    assert confirm_response.value.status == 200
+    assert "Executive Assistant action applied" in page.content()
+    page.get_by_role("link", name="Open the related workspace surface").click()
+    page.wait_for_url(f"{base_url}/app/channel-loop/memo")
+    page.wait_for_load_state("networkidle")
+
+    response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Support verification is confirmed on the current channel." in page.content()
+    assert "Recipient opened the workspace link attached to the verification request." in page.content()
+    assert "Recipient explicitly confirmed the fix from the support verification link." in page.content()
 
 
 def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
