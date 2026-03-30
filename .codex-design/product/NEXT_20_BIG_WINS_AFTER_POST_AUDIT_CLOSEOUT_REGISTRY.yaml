@@ -281,7 +281,7 @@ milestones:
       - fleet
       - chummer6-core
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - The support assistant can tell whether a user has received a fix on their install and channel and can ask for confirmation.
       - Proactive verification remains grounded in release, install, and case truth instead of assistant-local guesswork.
@@ -296,7 +296,7 @@ milestones:
       - chummer6-hub-registry
       - fleet
       - chummer6-ui
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Trust pages show what is fixed, who can get it now, what is recommended, and what still needs caution.
       - Install-specific status and adoption health are visible without collapsing release truth into hand-maintained prose.
