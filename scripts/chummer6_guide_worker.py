@@ -1131,6 +1131,7 @@ def visual_contract_guardrails_for_target(target: str) -> list[str]:
     if world_markers:
         prefix = f"Keep at least {world_marker_minimum} Shadowrun world markers visible" if world_marker_minimum else "Keep Shadowrun world markers visible"
         rules.append(prefix + ": " + "; ".join(world_markers[:4]) + ".")
+        rules.append("At least one of those world markers should land as a lore crumb on a prop or wall: megacorp gear, critter ephemera, parabotany plate, corp scrip, or astral totem cue.")
     anchors = _string_list(contract.get("must_show_semantic_anchors"))
     if anchors:
         rules.append("Make these semantic anchors legible: " + "; ".join(anchors) + ".")
@@ -5043,6 +5044,8 @@ Requirements:
 - hero art must read as a lived Shadowrun triage scene: metahuman clinician, ugly troll patient, and one assistant or teammate in an improvised garage clinic or getaway-bay, not a lone operator in a mood void
 - the room must do at least half the storytelling for the hero: visible floor, doorway, bay hardware, shelves, tool wall, side bench, hanging lights, and improvised med clutter belong in frame
 - the troll patient must stay visibly troll-sized with readable tusks, rough skin, hair texture, and treated chrome, not a generic shaved human or a clean sci-fi mannequin
+- seed the hero with small Sixth World lore crumbs such as cropped Ares or Renraku med gear, critter photo strips, Blood Orchid or Paper Lotus ephemera, corp scrip, or a faint astral totem residue, but never a readable ad or product board
+- if magic appears in the hero, make it warded or totemic: astral residue, fetish bundles, or a totem portrait glow, not generic fantasy light spam
 - medscan or upgrade overlays must feel anchored to anatomy, tools, rails, or work surfaces; never solve the hero with floating UI wallpaper or a clean monitor wall
 - avoid clean clinics, white-coat doctor staging, hallway symmetry, quiet back-view pairs, or any bedside crop that turns the hero into generic sci-fi medicine
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
@@ -5134,6 +5137,8 @@ Requirements:
 - visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
 - if the part naturally implies a person or team, choose believable cyberpunk people
 - if the part naturally implies a machine room, archive, workshop, or table scene, make that spatial metaphor visibly legible
+- use at least one concrete Sixth World lore crumb when it fits: cropped megacorp consumer shells, corp scrip, critter photos, Blood Orchid or Paper Lotus ephemera, talismonger leftovers, or astral-totem residue
+- if magic shows up in a part image, keep it to wards, fetishes, or a totem portrait ghost, not generic fantasy casting glamour
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - visible copy and meta should read like concept-stage guide material, not a verified ops label
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
@@ -5228,6 +5233,8 @@ Requirements:
 - if the title reads like a personal codename, make the focal subject feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - if the horizon is a forge / approval / rollback / consequence lane, make the scene a standing rulesmith plus reviewer or witness inside an industrial approval rail with visibly more apparatus than faces; never a quiet workbench or paperwork table
+- seed the horizon with small Sixth World lore crumbs such as cropped megacorp product cues, critter field photos, Paper Lotus or Blood Orchid ephemera, talismonger leftovers, or a totem portrait hanging in astral glow
+- if magic appears, make it read as astral Shadowrun magic with wards, fetishes, or a mentor-animal silhouette rather than generic fantasy spellfire
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible copy should sell the horizon without pretending it is active build work
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words

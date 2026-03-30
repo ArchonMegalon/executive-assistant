@@ -119,7 +119,7 @@
     }
   },
   "assets/pages/parts-index.png": {
-    "visual_prompt": "Program map as one believable backroom warehouse floor: six distinct stations linked by floor paint, cable trays, rails, mirror panels, bins, relay hardware, and render gantries, seen from an oblique corner angle so the room reads as a walkable product map instead of a table collage, control room, or infographic wall. No readable labels, no central table, no giant wall panel, and no screen island dominating the shot.",
+    "visual_prompt": "Program map as one believable backroom warehouse floor: six distinct stations linked by floor paint, cable trays, rails, mirror panels, bins, relay hardware, and render gantries, seen from an oblique corner angle so the room reads as a walkable product map instead of a table collage, control room, or infographic wall. Seed the room with Sixth World crumbs like cropped Ares or Renraku housings, critter field photos, Paper Lotus charms, and one faint totem-glow reflection on safety glass. No readable labels, no central table, no giant wall panel, and no screen island dominating the shot.",
     "scene_contract": {
       "subject": "the Chummer parts expressed as six linked physical stations in one room",
       "environment": "an oblique warehouse workfloor with diagonal route lines, racks, mirrors, rails, bins, cages, and relay hardware",
@@ -134,7 +134,7 @@
     }
   },
   "assets/pages/horizons-index.png": {
-    "visual_prompt": "Dense horizon boulevard crossroads at street level: multiple future lanes split into differentiated clinics, archive drops, transit cuts, rulesmith benches, and sim-lab stress corridors with wet pavement, service clutter, cables, layered window glow, and several distinct grounded clues pulling the eye deeper. The image must sell branching possibility and multiple futures worth clicking, not one empty road, not one signboard, and not a central symbol doing all the work. Make it environment-first with no lone centered silhouette, no single corridor vanishing point, and no freestanding sign or kiosk. No readable text, no billboard centerpiece, no menu-board composition, no empty darkness.",
+    "visual_prompt": "Dense horizon boulevard crossroads at street level: multiple future lanes split into differentiated clinics, archive drops, transit cuts, rulesmith benches, and sim-lab stress corridors with wet pavement, service clutter, cables, layered window glow, and several distinct grounded clues pulling the eye deeper. Seed the district with Sixth World lore crumbs like cropped Horizon and Renraku consumer shells, a devil rat extermination tin, clipped barghest or hell hound photos, and one astral totem portrait blooming faintly around a distant shaman. The image must sell branching possibility and multiple futures worth clicking, not one empty road, not one signboard, and not a central symbol doing all the work. Make it environment-first with no lone centered silhouette, no single corridor vanishing point, and no freestanding sign or kiosk. No readable text, no billboard centerpiece, no menu-board composition, no empty darkness.",
     "scene_contract": {
       "subject": "a horizon boulevard crossroads where five future districts tempt the viewer deeper",
       "environment": "a neon transit district with ramps, alleys, station mouths, maintenance cuts, and future neighborhoods receding into rain",
@@ -178,13 +178,13 @@
     }
   },
   "assets/parts/mobile.png": {
-    "visual_prompt": "Transit-side mobile play shell scene: one runner has just rejoined from a station platform or cafe threshold while initiative, effects, and reconnect state snap back onto a phone and one secondary tablet, asymmetrical device realism over diagram vibes, no huddle shot.",
+    "visual_prompt": "Transit-side mobile play shell scene: an ork or elf runner with a visible chrome forearm, trode band, or datajack has just rejoined from a station platform or cafe threshold while initiative, effects, and reconnect state snap back onto a battered Renraku-style handset and one secondary tablet. Seed the space with a torn hell hound notice, a devil rat bait tin, and one cropped commuter ad or corp shell with no readable text. Asymmetrical device realism over diagram vibes, no huddle shot.",
     "scene_contract": {
       "subject": "one runner rejoining the play shell while the session keeps moving",
-      "environment": "a transit threshold with one phone, one tablet, wet coats, and portable session clutter",
+      "environment": "a transit threshold with one phone, one tablet, wet coats, portable session clutter, and small Sixth World commuter debris",
       "action": "keeping the shared state alive even when one device drops and comes back mid-session",
       "composition": "transit_checkpoint",
-      "props": ["phone", "tablet", "initiative tracker", "coffee cup"],
+      "props": ["phone", "tablet", "initiative tracker", "coffee cup", "devil rat bait tin", "Paper Lotus charm"],
       "mood": "busy, resilient, and controlled",
       "easter_egg_kind": "troll phone-case sticker",
       "easter_egg_placement": "on the nearest phone case along the lower-right third",
@@ -193,13 +193,13 @@
     }
   },
   "assets/parts/hub.png": {
-    "visual_prompt": "Hosted coordination as a dense relay aisle with staggered rack depth, patch bays, cartridge housings, service hatches, cable gutters, and one side access cut where remote-presence traces cling to real hardware seams. Make it feel operational and inhabited instead of a stock tunnel, white-portal runway, or giant monitor wall. Any operator must stay secondary to the rack geometry, with no centered lone-walker composition and no readable labels.",
+    "visual_prompt": "Hosted coordination as a dense relay aisle with staggered rack depth, patch bays, cartridge housings, service hatches, cable gutters, and one side access cut where remote-presence traces cling to real hardware seams. An ork or dwarf maintainer with a visible cyberarm, datajack, or trode rig should be patching one rack instead of walking a clean tunnel. Seed the aisle with cropped Shiawase or Renraku hardware shells, clipped devil rat extermination photos, a barghest field snapshot, and a faint ward scar on the service glass. Make it feel operational and inhabited instead of a stock tunnel, white-portal runway, or giant monitor wall. Any operator must stay secondary to the rack geometry, with no centered lone-walker composition and no readable labels.",
     "scene_contract": {
-      "subject": "one hosted coordination lane connecting local and remote session state through real relay hardware",
-      "environment": "a staggered relay aisle with rack faces, patch rails, cartridge housings, service hatches, and a side access cut",
+      "subject": "one hosted coordination lane connecting local and remote session state through real relay hardware and a visibly augmented maintainer",
+      "environment": "a staggered relay aisle with rack faces, patch rails, cartridge housings, service hatches, a side access cut, and clipped Sixth World maintenance ephemera",
       "action": "showing where hosted coordination becomes materially useful instead of just abstract infrastructure",
       "composition": "service_rack",
-      "props": ["patch bay", "relay cartridge", "service hatch", "cable gutter", "rack seam", "status light"],
+      "props": ["patch bay", "relay cartridge", "service hatch", "cable gutter", "rack seam", "status light", "critter field photo", "corp hardware shell"],
       "mood": "quietly competent",
       "easter_egg_kind": "troll rack decal",
       "easter_egg_placement": "on the face of the small service rack in the mid-right third",
@@ -268,17 +268,19 @@
     }
   },
   "assets/horizons/alice.png": {
-    "visual_prompt": "Cold simulation lab with a runner strapped into a crash bench while an operator studies the exact failure point on nearby glass, seeded breach outcomes ghosted around the chamber, one test mannequin or projected body silhouette showing where the build folds, grounded and clinical with dark humor, no abstract HUD wallpaper, no person simply holding a glowing panel, no readable text.",
+    "visual_prompt": "Cold simulation lab with a runner strapped into a crash bench while an operator studies the exact failure point on nearby glass, seeded breach outcomes ghosted around the chamber, one test mannequin or projected body silhouette showing where the build folds, and a faint Raven, Rat, or Wolf totem portrait blooming in astral glow around a background shamanic test pass. Seed the room with cropped corp lab housings, a Paper Lotus charm, and clipped critter gait-study photos. Grounded and clinical with dark humor, no abstract HUD wallpaper, no person simply holding a glowing panel, no readable text.",
     "scene_contract": {
       "composition": "simulation_lab",
       "subject": "one operator, one crash bench, and one failing build trace made painfully visible",
-      "environment": "a cold sim lab with glass partitions, restraint hardware, and seeded scenario telemetry",
+      "environment": "a cold sim lab with glass partitions, restraint hardware, seeded scenario telemetry, and shamanic astral residue in the safety glass",
       "action": "showing the exact moment a build collapses before the real table finds out the hard way",
       "props": [
         "crash bench",
         "glass telemetry",
         "failure trace",
-        "test mannequin"
+        "test mannequin",
+        "Paper Lotus charm",
+        "critter study photos"
       ],
       "mood": "clinical, mean, and useful",
       "easter_egg_kind": "troll warning decal",
@@ -338,7 +340,7 @@
     }
   },
   "assets/horizons/jackpoint.png": {
-    "visual_prompt": "Mission-brief dossier desk: verified and inferred material clearly separated, coffee rings, chip cases, and one grounded brief ready for the table, stylish but evidence-bound, no readable forms or labels.",
+    "visual_prompt": "Mission-brief dossier desk: verified and inferred material clearly separated, coffee rings, chip cases, one chrome hand or cyberarm in frame, and one grounded brief ready for the table, stylish but evidence-bound, no readable forms or labels. Seed the desk with a clipped barghest or hell hound field photo, a Blood Orchid botanical card, a Paper Lotus charm, and one cropped Ares or Saeder-Krupp product shell.",
     "scene_contract": {
       "composition": "dossier_desk",
       "easter_egg_kind": "troll wax seal",
@@ -372,17 +374,19 @@
     }
   },
   "assets/horizons/nexus-pan.png": {
-    "visual_prompt": "Asymmetrical rain-soaked reconnect scene during a live Shadowrun firefight: one operator at the edge of the session has just gotten a phone back online, AR initiative and penalty traces snap back across the device, a secondary tablet, and nearby gear while the rest of the table lives only as distant blur, grounded cinematic realism, no centered four-person pose, no readable text, no app icons, no letters on the phone.",
+    "visual_prompt": "Asymmetrical rain-soaked reconnect scene during a live Shadowrun firefight: one operator at the edge of the session has just gotten a phone back online, AR initiative and penalty traces snap back across a Renraku-style or Horizon-style device shell, a secondary tablet, and nearby gear while the rest of the table lives only as distant blur. Make the operator clearly metahuman or visibly augmented with a datajack, smart lenses, trode band, or cyberarm. Seed the scene with a clipped hell hound photo, a Paper Lotus charm, and one faint totem portrait or ward reflection in the wet glass. Grounded cinematic realism, no centered four-person pose, no readable text, no app icons, no letters on the phone.",
     "scene_contract": {
       "composition": "solo_operator",
       "subject": "a reconnecting phone, one relieved returning operator, and the rest of the session already moving in the blur",
-      "environment": "a wet-window cafe edge with a phone, a secondary tablet, and rain-lit street glow bleeding in",
+      "environment": "a wet-window cafe edge with a phone, a secondary tablet, rain-lit street glow bleeding in, and small Sixth World detritus on the sill",
       "action": "replaying missed table state onto the just-rejoined device before anybody starts forensic accounting",
       "props": [
         "reconnecting phone",
         "secondary tablet",
         "coffee cup",
-        "initiative traces"
+        "initiative traces",
+        "Paper Lotus charm",
+        "hell hound photo clipping"
       ],
       "mood": "relieved, kinetic, and slightly mean to Wi-Fi",
       "easter_egg_kind": "troll phone sticker",

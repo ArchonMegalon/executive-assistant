@@ -765,6 +765,7 @@ def test_variation_guardrails_include_visual_contract_requirements_for_hero() ->
     assert "packed and layered" in joined
     assert "two to four people" in joined
     assert "garage clinic" in joined or "getaway-van triage" in joined
+    assert "lore crumb on a prop or wall" in joined
     assert "overlay ooda mode: medscan_diagnostic" in joined
     assert "pseudo-text" in joined or "fake lettering" in joined
 

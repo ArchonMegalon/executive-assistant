@@ -92,7 +92,10 @@ The next full pass should deliberately switch to a different style epoch instead
 - Give the image one focal action, one readable prop cluster, and one secondary clue.
 - First-contact assets need stronger density: layered foreground, readable midground action, and a background that carries semantic clues instead of empty darkness.
 - Keep the world grounded: table play, desks, alleys, labs, archives, shops, transit, cheap neon, expensive mistakes.
+- Show metahumans like metahumans and cyberware like cyberware. Do not settle for clean humans in stylish jackets when tusks, pointed ears, dermal texture, chrome seams, trode bands, or datajacks should be visible.
 - Prefer props that explain the feature before the third paragraph does.
+- Seed the frame with small Sixth World receipts: cropped Ares/Renraku/Shiawase/Evo/Aztechnology/Wuxing/Horizon product shells, corp scrip, critter photo strips, Blood Orchid or Paper Lotus ephemera, devil rat bait tins, or a pinned barghest / hell hound field shot.
+- If magic appears, make it Sixth World magic: fetishes, ward scars, astral residue, or a totemic portrait glow around the caster, not generic fantasy sparkle.
 - Use symbol-first signage and unreadable paperwork. If the scene wants a joke sign, make it a pictogram, partial scribble, or crossed-out mascot, not crisp words.
 - Avoid abstract UI wallpaper, floating icon soup, generic skylines, and brochure-cover posing.
 - Diegetic overlays are fine if they appear attached to actual screens, AR views, or surfaces.
@@ -161,6 +164,8 @@ Use this language in prompts:
 Create a grounded cinematic 16:9 cyberpunk scene for a human-facing product guide.
 Show a real moment, not an abstract infographic.
 Include one clear focal action, one readable prop cluster, and one secondary story clue.
+Include one or two background lore crumbs from the Sixth World, such as cropped megacorp consumer gear, critter photos, parabotany plates, corp scrip, or a totemic astral trace.
+Make at least one body in the frame read as clearly metahuman or visibly augmented when the scene supports people.
 Include one small recurring Chummer troll motif in-world, visible but secondary, inside the safe crop area.
 The troll motif must feel diegetic: a pin, patch, sticker, stamp, tattoo, ad, screen mascot, or background figure in the classic Chummer stance.
 Do not center it. Do not make it the subject. Do not crop it out.
@@ -203,6 +208,7 @@ Do not use the motif on the README hero, the horizons index, or `KARMA FORGE`. T
 - Simulation and lab scenes: warning decal on the bench or housing
 - Discovery and market scenes: CRT mascot, ad panel, vendor patch
 - Street and transit scenes: crossed-out troll pictogram on a side door, service panel, or bar placard
+- Lore crumbs anywhere: blurred Ares or Renraku packaging, clipped barghest or hell hound polaroids, Blood Orchid plate, Paper Lotus charm, devil rat extermination tin, or a shaman's totem portrait ghosting through astral haze
 
 ## Composition rules
 
