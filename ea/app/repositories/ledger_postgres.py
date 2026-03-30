@@ -61,6 +61,244 @@ class PostgresExecutionLedgerRepository:
 
         return Json(value)
 
+    def _column_type(self, cur, table_name: str, column_name: str, default: str = "text") -> str:  # type: ignore[no-untyped-def]
+        cur.execute(
+            """
+            SELECT format_type(a.atttypid, a.atttypmod)
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relname = %s
+              AND a.attname = %s
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            """,
+            (table_name, column_name),
+        )
+        row = cur.fetchone()
+        raw = str(row[0] if row else "").strip().lower()
+        return raw or (str(default or "text").strip().lower() or "text")
+
+    def _table_columns(self, cur, table_name: str) -> set[str]:  # type: ignore[no-untyped-def]
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            (table_name,),
+        )
+        return {str(row[0] or "").strip() for row in cur.fetchall()}
+
+    def _ensure_execution_events_compatibility(self, cur) -> None:  # type: ignore[no-untyped-def]
+        cur.execute(
+            """
+            ALTER TABLE execution_events
+            ADD COLUMN IF NOT EXISTS name TEXT
+            """
+        )
+        if self._column_type(cur, "execution_events", "event_id", "text") != "text":
+            cur.execute(
+                """
+                ALTER TABLE execution_events
+                ALTER COLUMN event_id DROP DEFAULT
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE execution_events
+                ALTER COLUMN event_id TYPE TEXT USING event_id::text
+                """
+            )
+
+        event_columns = self._table_columns(cur, "execution_events")
+        name_sources = ["NULLIF(name, '')"]
+        if "event_type" in event_columns:
+            name_sources.append("NULLIF(event_type, '')")
+            cur.execute(
+                """
+                ALTER TABLE execution_events
+                ALTER COLUMN event_type SET DEFAULT 'event'
+                """
+            )
+        if "message" in event_columns:
+            name_sources.append("NULLIF(message, '')")
+            cur.execute(
+                """
+                ALTER TABLE execution_events
+                ALTER COLUMN message SET DEFAULT ''
+                """
+            )
+        name_sources.append("'event'")
+        cur.execute(
+            f"""
+            UPDATE execution_events
+            SET name = COALESCE({", ".join(name_sources)})
+            WHERE COALESCE(name, '') = ''
+            """
+        )
+        if "event_type" in event_columns:
+            cur.execute(
+                """
+                UPDATE execution_events
+                SET event_type = COALESCE(NULLIF(event_type, ''), name, 'event')
+                WHERE COALESCE(event_type, '') = ''
+                """
+            )
+        if "message" in event_columns:
+            cur.execute(
+                """
+                UPDATE execution_events
+                SET message = COALESCE(message, '')
+                """
+            )
+        cur.execute(
+            """
+            UPDATE execution_events
+            SET payload_json = COALESCE(payload_json, '{}'::jsonb),
+                created_at = COALESCE(created_at, NOW())
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE execution_events
+            ALTER COLUMN name SET NOT NULL,
+            ALTER COLUMN payload_json SET NOT NULL,
+            ALTER COLUMN created_at SET NOT NULL
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_execution_events_session_created
+            ON execution_events(session_id, created_at)
+            """
+        )
+
+    def _ensure_execution_steps_compatibility(self, cur) -> None:  # type: ignore[no-untyped-def]
+        cur.execute(
+            """
+            ALTER TABLE execution_steps
+            ADD COLUMN IF NOT EXISTS parent_step_id TEXT,
+            ADD COLUMN IF NOT EXISTS step_kind TEXT,
+            ADD COLUMN IF NOT EXISTS state TEXT,
+            ADD COLUMN IF NOT EXISTS attempt_count INT,
+            ADD COLUMN IF NOT EXISTS input_json JSONB,
+            ADD COLUMN IF NOT EXISTS output_json JSONB,
+            ADD COLUMN IF NOT EXISTS error_json JSONB,
+            ADD COLUMN IF NOT EXISTS correlation_id TEXT,
+            ADD COLUMN IF NOT EXISTS causation_id TEXT,
+            ADD COLUMN IF NOT EXISTS actor_type TEXT,
+            ADD COLUMN IF NOT EXISTS actor_id TEXT
+            """
+        )
+
+        step_columns = self._table_columns(cur, "execution_steps")
+
+        step_kind_sources = ["NULLIF(step_kind, '')"]
+        if "step_key" in step_columns:
+            step_kind_sources.append("NULLIF(step_key, '')")
+        if "step_title" in step_columns:
+            step_kind_sources.append("NULLIF(step_title, '')")
+        step_kind_sources.append("'step'")
+        cur.execute(
+            f"""
+            UPDATE execution_steps
+            SET step_kind = COALESCE({", ".join(step_kind_sources)})
+            WHERE COALESCE(step_kind, '') = ''
+            """
+        )
+
+        state_sources = ["NULLIF(state, '')"]
+        if "status" in step_columns:
+            state_sources.append("NULLIF(status, '')")
+        state_sources.append("'queued'")
+        cur.execute(
+            f"""
+            UPDATE execution_steps
+            SET state = COALESCE({", ".join(state_sources)})
+            WHERE COALESCE(state, '') = ''
+            """
+        )
+
+        input_sources = ["input_json"]
+        if "preconditions_json" in step_columns:
+            input_sources.append("preconditions_json")
+        input_sources.append("'{}'::jsonb")
+        cur.execute(
+            f"""
+            UPDATE execution_steps
+            SET input_json = COALESCE({", ".join(input_sources)})
+            WHERE input_json IS NULL
+            """
+        )
+
+        output_sources = ["output_json"]
+        if "result_json" in step_columns:
+            output_sources.append("NULLIF(result_json, '{}'::jsonb)")
+        if "evidence_json" in step_columns:
+            output_sources.append("NULLIF(evidence_json, '{}'::jsonb)")
+        output_sources.append("'{}'::jsonb")
+        cur.execute(
+            f"""
+            UPDATE execution_steps
+            SET output_json = COALESCE({", ".join(output_sources)})
+            WHERE output_json IS NULL
+            """
+        )
+
+        if "error_text" in step_columns:
+            cur.execute(
+                """
+                UPDATE execution_steps
+                SET error_json = CASE
+                    WHEN COALESCE(BTRIM(error_text), '') <> '' THEN jsonb_build_object('message', error_text)
+                    ELSE '{}'::jsonb
+                END
+                WHERE error_json IS NULL
+                """
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE execution_steps
+                SET error_json = '{}'::jsonb
+                WHERE error_json IS NULL
+                """
+            )
+
+        cur.execute(
+            """
+            UPDATE execution_steps
+            SET attempt_count = COALESCE(attempt_count, 0),
+                correlation_id = COALESCE(correlation_id, ''),
+                causation_id = COALESCE(causation_id, ''),
+                actor_type = COALESCE(NULLIF(actor_type, ''), 'system'),
+                actor_id = COALESCE(NULLIF(actor_id, ''), 'orchestrator')
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE execution_steps
+            ALTER COLUMN step_kind SET NOT NULL,
+            ALTER COLUMN state SET NOT NULL,
+            ALTER COLUMN attempt_count SET NOT NULL,
+            ALTER COLUMN input_json SET NOT NULL,
+            ALTER COLUMN output_json SET NOT NULL,
+            ALTER COLUMN error_json SET NOT NULL,
+            ALTER COLUMN correlation_id SET NOT NULL,
+            ALTER COLUMN causation_id SET NOT NULL,
+            ALTER COLUMN actor_type SET NOT NULL,
+            ALTER COLUMN actor_id SET NOT NULL
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_execution_steps_session_created
+            ON execution_steps(session_id, created_at, step_id)
+            """
+        )
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -75,17 +313,21 @@ class PostgresExecutionLedgerRepository:
                     )
                     """
                 )
+                session_id_type = self._column_type(cur, "execution_sessions", "session_id", "text")
+                if session_id_type not in {"text", "uuid"}:
+                    session_id_type = "text"
                 cur.execute(
-                    """
+                    f"""
                     CREATE TABLE IF NOT EXISTS execution_events (
                         event_id TEXT PRIMARY KEY,
-                        session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+                        session_id {session_id_type} NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
                         name TEXT NOT NULL,
                         payload_json JSONB NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL
                     )
                     """
                 )
+                self._ensure_execution_events_compatibility(cur)
                 cur.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_execution_events_session_created
@@ -93,10 +335,10 @@ class PostgresExecutionLedgerRepository:
                     """
                 )
                 cur.execute(
-                    """
+                    f"""
                     CREATE TABLE IF NOT EXISTS execution_steps (
                         step_id TEXT PRIMARY KEY,
-                        session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+                        session_id {session_id_type} NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
                         parent_step_id TEXT NULL,
                         step_kind TEXT NOT NULL,
                         state TEXT NOT NULL,
@@ -113,6 +355,10 @@ class PostgresExecutionLedgerRepository:
                     )
                     """
                 )
+                self._ensure_execution_steps_compatibility(cur)
+                step_id_type = self._column_type(cur, "execution_steps", "step_id", "text")
+                if step_id_type not in {"text", "uuid"}:
+                    step_id_type = "text"
                 cur.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_execution_steps_session_created
@@ -120,11 +366,11 @@ class PostgresExecutionLedgerRepository:
                     """
                 )
                 cur.execute(
-                    """
+                    f"""
                     CREATE TABLE IF NOT EXISTS execution_queue (
                         queue_id TEXT PRIMARY KEY,
-                        session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
-                        step_id TEXT NOT NULL REFERENCES execution_steps(step_id) ON DELETE CASCADE,
+                        session_id {session_id_type} NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+                        step_id {step_id_type} NOT NULL REFERENCES execution_steps(step_id) ON DELETE CASCADE,
                         state TEXT NOT NULL,
                         lease_owner TEXT NOT NULL,
                         lease_expires_at TIMESTAMPTZ NULL,
@@ -150,11 +396,11 @@ class PostgresExecutionLedgerRepository:
                     """
                 )
                 cur.execute(
-                    """
+                    f"""
                     CREATE TABLE IF NOT EXISTS tool_receipts (
                         receipt_id TEXT PRIMARY KEY,
-                        session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
-                        step_id TEXT NOT NULL REFERENCES execution_steps(step_id) ON DELETE CASCADE,
+                        session_id {session_id_type} NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+                        step_id {step_id_type} NOT NULL REFERENCES execution_steps(step_id) ON DELETE CASCADE,
                         tool_name TEXT NOT NULL,
                         action_kind TEXT NOT NULL,
                         target_ref TEXT NOT NULL,
@@ -170,10 +416,10 @@ class PostgresExecutionLedgerRepository:
                     """
                 )
                 cur.execute(
-                    """
+                    f"""
                     CREATE TABLE IF NOT EXISTS run_costs (
                         cost_id TEXT PRIMARY KEY,
-                        session_id TEXT NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
+                        session_id {session_id_type} NOT NULL REFERENCES execution_sessions(session_id) ON DELETE CASCADE,
                         model_name TEXT NOT NULL,
                         tokens_in BIGINT NOT NULL,
                         tokens_out BIGINT NOT NULL,
@@ -188,6 +434,7 @@ class PostgresExecutionLedgerRepository:
                     ON run_costs(session_id, created_at, cost_id)
                     """
                 )
+                self._execution_event_columns = self._table_columns(cur, "execution_events")
 
     def _session_from_db_row(self, row: tuple[Any, Any, Any, Any, Any]) -> ExecutionSession:
         session_id, intent_json, status, created_at, updated_at = row
@@ -346,19 +593,52 @@ class PostgresExecutionLedgerRepository:
         )
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO execution_events (event_id, session_id, name, payload_json, created_at)
-                    VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    (
-                        event.event_id,
-                        event.session_id,
-                        event.name,
-                        self._json_value(event.payload),
-                        event.created_at,
-                    ),
-                )
+                event_columns = set(getattr(self, "_execution_event_columns", set()))
+                if {"event_type", "message"}.issubset(event_columns):
+                    cur.execute(
+                        """
+                        INSERT INTO execution_events (event_id, session_id, name, event_type, message, payload_json, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            event.event_id,
+                            event.session_id,
+                            event.name,
+                            event.name,
+                            "",
+                            self._json_value(event.payload),
+                            event.created_at,
+                        ),
+                    )
+                elif "event_type" in event_columns:
+                    cur.execute(
+                        """
+                        INSERT INTO execution_events (event_id, session_id, name, event_type, payload_json, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            event.event_id,
+                            event.session_id,
+                            event.name,
+                            event.name,
+                            self._json_value(event.payload),
+                            event.created_at,
+                        ),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO execution_events (event_id, session_id, name, payload_json, created_at)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            event.event_id,
+                            event.session_id,
+                            event.name,
+                            self._json_value(event.payload),
+                            event.created_at,
+                        ),
+                    )
         return event
 
     def get_session(self, session_id: str) -> ExecutionSession | None:

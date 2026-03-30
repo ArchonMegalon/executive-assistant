@@ -1586,6 +1586,7 @@ def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> No
     assert "principal_id: str" in rewrite_route
     assert "principal_id: str" in plans_route
     assert "principal_id TEXT NOT NULL" in artifact_repo
+    assert "WHERE a.session_id = es.session_id::text" in artifact_repo
     assert 'loaded.principal_id == "exec-1"' in postgres_test
     assert 'scoped_artifact[0].principal_id == "exec-1"' in rewrite_scope_test
     assert 'payload["principal_id"] == "exec-1"' in rewrite_api_scope_test
@@ -1593,6 +1594,29 @@ def test_artifact_principal_ownership_is_guarded_across_routes_and_smoke() -> No
     assert 'fetched_artifact.json()["principal_id"] == "exec-1"' in smoke_test
     assert "first.get('principal_id','')" in smoke_script
     assert 'match="principal_id_required"' in (ROOT / "tests/test_tool_execution.py").read_text(encoding="utf-8")
+
+
+def test_postgres_ledger_runtime_compatibility_is_guarded_across_runtime_and_smoke() -> None:
+    ledger_repo = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text(encoding="utf-8")
+    smoke_postgres = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS name TEXT" in ledger_repo
+    assert "ALTER COLUMN event_id TYPE TEXT USING event_id::text" in ledger_repo
+    assert "ALTER COLUMN event_type SET DEFAULT 'event'" in ledger_repo
+    assert "ADD COLUMN IF NOT EXISTS step_kind TEXT" in ledger_repo
+    assert "ADD COLUMN IF NOT EXISTS state TEXT" in ledger_repo
+    assert "execution_events missing runtime columns" in smoke_postgres
+    assert "execution_events.event_id type mismatch" in smoke_postgres
+    assert "execution_steps missing runtime columns" in smoke_postgres
+
+
+def test_postgres_approval_runtime_compatibility_is_guarded() -> None:
+    approvals_repo = (ROOT / "ea/app/repositories/approvals_postgres.py").read_text(encoding="utf-8")
+
+    assert "SELECT approval_request_id" in approvals_repo
+    assert "approval_request_id" in approvals_repo
+    assert "decision_payload_json" in approvals_repo
+    assert "request_status = %s" in approvals_repo
 
 
 def test_artifact_principal_ownership_docs_and_milestone_cover_explicit_scope() -> None:

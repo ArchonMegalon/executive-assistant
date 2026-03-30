@@ -37,6 +37,17 @@ class PostgresApprovalRepository:
 
         return Json(value)
 
+    def _table_columns(self, cur, table_name: str) -> set[str]:  # type: ignore[no-untyped-def]
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            (table_name,),
+        )
+        return {str(row[0] or "").strip() for row in cur.fetchall()}
+
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -81,6 +92,8 @@ class PostgresApprovalRepository:
                     ON approval_decisions(session_id, created_at DESC)
                     """
                 )
+                self._approval_request_columns = self._table_columns(cur, "approval_requests")
+                self._approval_decision_columns = self._table_columns(cur, "approval_decisions")
 
     def _append_decision(self, cur, request: ApprovalRequest, *, decision: str, decided_by: str, reason: str) -> ApprovalDecision:  # type: ignore[no-untyped-def]
         row = ApprovalDecision(
@@ -93,23 +106,80 @@ class PostgresApprovalRepository:
             reason=str(reason or ""),
             created_at=now_utc_iso(),
         )
-        cur.execute(
-            """
-            INSERT INTO approval_decisions
-            (decision_id, approval_id, session_id, step_id, decision, decided_by, reason, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                row.decision_id,
-                row.approval_id,
-                row.session_id,
-                row.step_id,
-                row.decision,
-                row.decided_by,
-                row.reason,
-                row.created_at,
-            ),
-        )
+        decision_columns = set(getattr(self, "_approval_decision_columns", set()))
+        request_columns = set(getattr(self, "_approval_request_columns", set()))
+        legacy_request_id = None
+        if "approval_request_id" in decision_columns and "approval_request_id" in request_columns:
+            cur.execute(
+                """
+                SELECT approval_request_id
+                FROM approval_requests
+                WHERE approval_id = %s
+                """,
+                (request.approval_id,),
+            )
+            legacy_row = cur.fetchone()
+            legacy_request_id = legacy_row[0] if legacy_row else None
+            if legacy_request_id is None:
+                raise KeyError(f"missing legacy approval_request_id for approval_id={request.approval_id}")
+
+        if "approval_request_id" in decision_columns and "decision_payload_json" in decision_columns:
+            cur.execute(
+                """
+                INSERT INTO approval_decisions
+                (decision_id, approval_id, session_id, step_id, decision, decided_by, reason, created_at, approval_request_id, decision_payload_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    row.decision_id,
+                    row.approval_id,
+                    row.session_id,
+                    row.step_id,
+                    row.decision,
+                    row.decided_by,
+                    row.reason,
+                    row.created_at,
+                    legacy_request_id,
+                    self._json_value({"decision": row.decision, "decided_by": row.decided_by, "reason": row.reason}),
+                ),
+            )
+        elif "approval_request_id" in decision_columns:
+            cur.execute(
+                """
+                INSERT INTO approval_decisions
+                (decision_id, approval_id, session_id, step_id, decision, decided_by, reason, created_at, approval_request_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    row.decision_id,
+                    row.approval_id,
+                    row.session_id,
+                    row.step_id,
+                    row.decision,
+                    row.decided_by,
+                    row.reason,
+                    row.created_at,
+                    legacy_request_id,
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO approval_decisions
+                (decision_id, approval_id, session_id, step_id, decision, decided_by, reason, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    row.decision_id,
+                    row.approval_id,
+                    row.session_id,
+                    row.step_id,
+                    row.decision,
+                    row.decided_by,
+                    row.reason,
+                    row.created_at,
+                ),
+            )
         return row
 
     def _expire_pending(self, cur) -> int:  # type: ignore[no-untyped-def]
@@ -305,6 +375,31 @@ class PostgresApprovalRepository:
                 if not req_row:
                     return None
                 request = self._request_from_row(req_row)
+                request_columns = set(getattr(self, "_approval_request_columns", set()))
+                if "request_status" in request_columns or "decided_at" in request_columns:
+                    update_parts: list[str] = []
+                    update_params: list[object] = []
+                    if "request_status" in request_columns:
+                        update_parts.append("request_status = %s")
+                        update_params.append(status)
+                    if "decided_at" in request_columns:
+                        update_parts.append(
+                            """
+                            decided_at = CASE
+                                WHEN %s IN ('approved', 'expired', 'denied') THEN COALESCE(decided_at, %s)
+                                ELSE decided_at
+                            END
+                            """
+                        )
+                        update_params.extend((status, now_utc_iso()))
+                    cur.execute(
+                        f"""
+                        UPDATE approval_requests
+                        SET {", ".join(update_parts)}
+                        WHERE approval_id = %s
+                        """,
+                        tuple(update_params + [aid]),
+                    )
                 decision_row = self._append_decision(
                     cur,
                     request,

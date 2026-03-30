@@ -17,6 +17,8 @@ def test_schema_readme_lists_latest_migrations() -> None:
     assert "20260305_v0_31_artifact_principal_scope.sql" in text
     assert "20260305_v0_32_provider_bindings_kernel.sql" in text
     assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
+    assert "20260305_v0_34_assistant_onboarding_canonical_schema.sql" in text
+    assert "20260305_v0_35_execution_ledger_legacy_compat.sql" in text
 
 
 def test_db_bootstrap_includes_latest_migrations() -> None:
@@ -30,6 +32,8 @@ def test_db_bootstrap_includes_latest_migrations() -> None:
     assert "20260305_v0_31_artifact_principal_scope.sql" in text
     assert "20260305_v0_32_provider_bindings_kernel.sql" in text
     assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
+    assert "20260305_v0_34_assistant_onboarding_canonical_schema.sql" in text
+    assert "20260305_v0_35_execution_ledger_legacy_compat.sql" in text
 
 
 def test_latest_kernel_migrations_define_provider_bindings_and_runtime_policy_column() -> None:
@@ -55,6 +59,9 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "validate_legacy_upgrade()" in smoke
     assert 'POSTGRES_DB="${SMOKE_DB}" bash scripts/db_bootstrap.sh' in smoke
     assert "smoke-postgres legacy fixture complete" in smoke
+    assert "execution_events missing runtime columns" in smoke
+    assert "execution_events.event_id type mismatch" in smoke
+    assert "execution_steps missing runtime columns" in smoke
     assert "approval_requests missing runtime columns" in smoke
     assert "approval_decisions missing runtime columns" in smoke
     assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
@@ -62,12 +69,21 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
 
 def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> None:
     ledger = (ROOT / "ea/schema/20260305_v0_6_execution_ledger_v2.sql").read_text()
+    ledger_compat = (ROOT / "ea/schema/20260305_v0_35_execution_ledger_legacy_compat.sql").read_text()
     approvals = (ROOT / "ea/schema/20260305_v0_7_approvals_kernel.sql").read_text()
     human_tasks = (ROOT / "ea/schema/20260305_v0_24_human_tasks_kernel.sql").read_text()
 
     assert "Some older installations use UUID-typed session identifiers" in ledger
     assert "format_type(a.atttypid, a.atttypmod)" in ledger
     assert "session_id %s NOT NULL REFERENCES execution_sessions(session_id)" in ledger
+
+    assert "Older rewrite installations may still expose bigint event IDs" in ledger_compat
+    assert "ADD COLUMN IF NOT EXISTS name TEXT" in ledger_compat
+    assert "ALTER COLUMN event_id TYPE TEXT USING event_id::text" in ledger_compat
+    assert "ALTER COLUMN event_type SET DEFAULT ''event''" in ledger_compat
+    assert "ADD COLUMN IF NOT EXISTS step_kind TEXT" in ledger_compat
+    assert "ADD COLUMN IF NOT EXISTS state TEXT" in ledger_compat
+    assert "ADD COLUMN IF NOT EXISTS error_json JSONB" in ledger_compat
 
     assert "Older installations may have legacy approval tables" in approvals
     assert "approval_request_id" in approvals
@@ -79,6 +95,17 @@ def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> 
     assert "format_type(a.atttypid, a.atttypmod)" in human_tasks
     assert "session_id %s NOT NULL REFERENCES execution_sessions(session_id)" in human_tasks
     assert "step_id %s NULL REFERENCES execution_steps(step_id)" in human_tasks
+
+
+def test_postgres_ledger_runtime_bootstrap_heals_legacy_event_and_step_shapes() -> None:
+    ledger_repo = (ROOT / "ea/app/repositories/ledger_postgres.py").read_text()
+
+    assert "format_type(a.atttypid, a.atttypmod)" in ledger_repo
+    assert "ADD COLUMN IF NOT EXISTS name TEXT" in ledger_repo
+    assert "ALTER COLUMN event_id TYPE TEXT USING event_id::text" in ledger_repo
+    assert "ALTER COLUMN event_type SET DEFAULT 'event'" in ledger_repo
+    assert "ADD COLUMN IF NOT EXISTS step_kind TEXT" in ledger_repo
+    assert "ADD COLUMN IF NOT EXISTS error_json JSONB" in ledger_repo
 
 
 def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
