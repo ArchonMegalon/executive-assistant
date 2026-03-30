@@ -2806,12 +2806,14 @@ class ProductService:
             )
 
         for draft in self.list_drafts(principal_id=principal_id, limit=max(limit * 2, 25)):
+            thread_ref = str(draft.thread_ref or "").strip()
+            thread_id = thread_ref if thread_ref.startswith("thread:") else (f"thread:{thread_ref}" if thread_ref else "")
             add_result(
                 id=draft.id,
                 kind="draft",
                 title=draft.recipient_summary or draft.intent,
                 summary=f"{draft.intent} · {draft.send_channel} · {draft.approval_status}",
-                href=f"/app/inbox?focus={urllib.parse.quote(draft.id, safe='')}",
+                href=f"/app/threads/{urllib.parse.quote(thread_id, safe='')}" if thread_id else "/app/inbox",
                 secondary_label=draft.approval_status,
                 related_object_refs=(draft.id, draft.thread_ref) if draft.thread_ref else (draft.id,),
                 extra=(draft.thread_ref, draft.intent, draft.send_channel, draft.draft_text, draft.recipient_summary, draft.tone),
@@ -2828,7 +2830,7 @@ class ProductService:
                 kind="commitment",
                 title=commitment.statement,
                 summary=f"{commitment.counterparty} · {commitment.status} · {commitment.risk_level}",
-                href=f"/app/follow-ups?focus={urllib.parse.quote(commitment.id, safe='')}",
+                href=f"/app/commitment-items/{urllib.parse.quote(commitment.id, safe='')}",
                 secondary_label=commitment.status,
                 related_object_refs=(commitment.id,),
                 extra=(commitment.counterparty, commitment.owner, commitment.channel_hint, commitment.source_ref),
