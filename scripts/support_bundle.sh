@@ -17,6 +17,7 @@ Environment:
   SUPPORT_INCLUDE_DB=0|1                Include ea-db logs (default: 1)
   SUPPORT_INCLUDE_DB_VOLUME=0|1         Include ea-db mount/volume attribution (default: 1)
   SUPPORT_INCLUDE_DB_SIZE=0|1           Include DB size snapshot via db_size.sh (default: 1)
+  SUPPORT_INCLUDE_PRODUCT_CONTROL=0|1   Include mirrored weekly pulse and journey-gate summary (default: 1)
   SUPPORT_DB_SIZE_LIMIT=<n>             Top table count for DB size snapshot (default: 10)
   SUPPORT_INCLUDE_QUEUE=0|1             Include queued task snapshot (default: 1)
 EOF
@@ -40,6 +41,7 @@ INCLUDE_DB="${SUPPORT_INCLUDE_DB:-1}"
 INCLUDE_API="${SUPPORT_INCLUDE_API:-1}"
 INCLUDE_DB_VOLUME="${SUPPORT_INCLUDE_DB_VOLUME:-1}"
 INCLUDE_DB_SIZE="${SUPPORT_INCLUDE_DB_SIZE:-1}"
+INCLUDE_PRODUCT_CONTROL="${SUPPORT_INCLUDE_PRODUCT_CONTROL:-1}"
 DB_SIZE_LIMIT="${SUPPORT_DB_SIZE_LIMIT:-10}"
 INCLUDE_QUEUE="${SUPPORT_INCLUDE_QUEUE:-1}"
 DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
@@ -54,6 +56,50 @@ redact() {
     -e 's#([Aa][Pp][Ii][_-]?[Kk][Ee][Yy][^=:\n]{0,40}[=:])[^\n ]+#\1REDACTED#g'
 }
 
+print_product_control_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+root = Path.cwd()
+pulse_path = root / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
+default_journey_path = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+
+
+def load_json(path: Path) -> dict[str, object] | None:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+pulse = load_json(pulse_path) if pulse_path.exists() else None
+signals = dict((pulse or {}).get("supporting_signals") or {})
+configured_journey = str(signals.get("journey_gate_source") or "").strip()
+journey_path = (root / configured_journey).resolve() if configured_journey else default_journey_path
+journey = load_json(journey_path) if journey_path.exists() else None
+journey_summary = dict((journey or {}).get("summary") or {})
+pulse_gate = dict((pulse or {}).get("journey_gate_health") or {})
+route = dict(signals.get("provider_route_stewardship") or {})
+
+journey_state = str(pulse_gate.get("state") or journey_summary.get("overall_state") or "missing").strip() or "missing"
+journey_action = str(journey_summary.get("recommended_action") or pulse_gate.get("reason") or "No published journey action.").strip()
+
+print(f"pulse_path={pulse_path if pulse_path.exists() else 'missing'}")
+print(f"pulse_generated_at={str((pulse or {}).get('generated_at') or 'missing').strip() or 'missing'}")
+print(f"active_wave={str((pulse or {}).get('active_wave') or 'missing').strip() or 'missing'}")
+print(f"active_wave_status={str((pulse or {}).get('active_wave_status') or 'missing').strip() or 'missing'}")
+print(f"launch_readiness={str(signals.get('launch_readiness') or 'missing').strip() or 'missing'}")
+print(f"journey_gates_path={journey_path if journey_path.exists() else 'missing'}")
+print(f"journey_generated_at={str((journey or {}).get('generated_at') or 'missing').strip() or 'missing'}")
+print(f"journey_gate_state={journey_state}")
+print(f"journey_gate_action={journey_action}")
+print(f"route_review_due={str(route.get('review_due') or 'not published').strip() or 'not published'}")
+PY
+}
+
 {
   echo "== Support Bundle =="
   echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -62,6 +108,16 @@ redact() {
   echo "-- version info --"
   bash scripts/version_info.sh || true
   echo
+
+  if [[ "${INCLUDE_PRODUCT_CONTROL}" == "1" ]]; then
+    echo "-- product control --"
+    print_product_control_summary | redact || true
+    echo
+  else
+    echo "-- product control --"
+    echo "skipped (SUPPORT_INCLUDE_PRODUCT_CONTROL=${INCLUDE_PRODUCT_CONTROL})"
+    echo
+  fi
 
   echo "-- compose ps --"
   "${DC[@]}" ps || true
