@@ -37,6 +37,7 @@ semantic_anchors:
   - critter_photo_or_parabotany_plate
   - magical_focus_or_reagent
   - astral_totem_or_ward_scar
+  - sixth_world_location_cue
   - route_overlay_or_threat_marker
   - integrity_seal_or_evidence_clip
   - commlink_or_data_chip
@@ -65,10 +66,10 @@ assets:
     prompt_variants:
       - name: hero_a_intake_trust_under_pressure
         prompt: |
-          A premium first-contact still inside a midnight shadowrunner intake bay overlooking a rain-heavy city. Foreground: open dossier folios, cyberware calibration trays, detached chrome forearm hardware, sealed evidence sleeves, six-sided dice, med patches, stained gauze, a used stim inhaler, a commlink, a Paper Lotus charm, and abstract medscan overlays with no readable text. Midground: an ork or elf streetdoc stabilizes a scarred troll runner with visible treated chrome, rough body hair, bruising, dried blood, and ugly clinic fatigue while a teammate watches the numbers and gear. Background: service racks, clipped hell hound and barghest field photos, partial Ares or Renraku med hardware shells with logos obscured, one Blood Orchid botanical plate, wet glass, deep city lights, rat-trap and mold hints, subtle awakened-magic cues, and one drone silhouette. Dense, layered, information-rich, unmistakably Shadowrun, not poster art.
+          A premium first-contact still inside a midnight shadowrunner intake bay overlooking a rain-heavy city. Foreground: open dossier folios, cyberware calibration trays, detached chrome forearm hardware, sealed evidence sleeves, six-sided dice, med patches, stained gauze, a used stim inhaler, a commlink, a Paper Lotus charm, and abstract medscan overlays with no readable text. Midground: an ork or elf streetdoc stabilizes a scarred troll runner with visible treated chrome, rough body hair, bruising, dried blood, and ugly clinic fatigue while a teammate watches the numbers and gear. Background: service racks, clipped hell hound and barghest field photos, partial Ares or Renraku med hardware shells with logos obscured, one Blood Orchid botanical plate, wet glass, rat-trap and mold hints, and a skyline cue that could plausibly be Chicago after Bug City or a scarred Arcology district. Dense, layered, information-rich, unmistakably Shadowrun, not poster art.
       - name: hero_b_boulevard_of_futures
         prompt: |
-          A premium hero still on a rain-polished near-future boulevard with multiple branching paths hinting at product lanes like runsites, dossiers, creator tools, and replay through grounded props and architecture instead of signs. A troll courier with a chrome leg, an elf decker with trodes, and one handler pause in the foreground, comparing a packet and AR route state before moving. Let the city look meaner: sleeping-bag shadows under an awning, a devil rat warning tin, grime, wet trash, bruised faces, and one burned-out stim kiosk shell at the edge of frame. Layered reflections, city depth, subtle magic-tech fusion, clear sense of choice and momentum, dense and cinematic, not an empty road scene.
+          A premium hero still on a rain-polished near-future boulevard with multiple branching paths hinting at product lanes like runsites, dossiers, creator tools, and replay through grounded props and architecture instead of signs. A troll courier with a chrome leg, an elf decker with trodes, and one handler pause in the foreground, comparing a packet and AR route state before moving. Let the city look meaner: sleeping-bag shadows under an awning, a devil rat warning tin, grime, wet trash, bruised faces, and one burned-out stim kiosk shell at the edge of frame. Use recognizable location residue if it helps, such as Redmond Barrens bus shelter geometry, Puyallup ash on the curb, or distant Chicago containment-tower silhouettes. Layered reflections, city depth, subtle magic-tech fusion, clear sense of choice and momentum, dense and cinematic, not an empty road scene.
       - name: hero_c_service_rack_prep
         prompt: |
           A premium landing hero inside a high-end prep bay with service racks, med storage, deck modules, gear bins, dossier props, and cyberware housings. Two metahuman runners collaborate over build verification while a third support figure observes, with chrome knuckles, datajacks, trode bands, anchored AR fit checks, and visible exhaustion at banner scale. Seed the room with Sixth World lore crumbs: an obscured Shiawase or Evo device shell, clipped devil rat pest snapshots, one grimy cleanup tray, a cough-syrup bottle, and a faint astral totem silhouette or ward scar near the work glass. Rain-glow city beyond glass, electric blue and warm amber accents, semantic richness everywhere, software trust under pressure, realistic editorial campaign photography.
@@ -124,7 +125,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A rain-lit continuity scene where the same mission dossier and run state moves across phone, tablet, laptop, and a printed packet as the team transitions from street to safehouse. Repeated visual anchors prove continuity across devices without showing text. Include metahuman runner cues, at least one obvious cyberarm or trode rig, and AR continuity traces clinging to real devices. Motion without chaos, product-grade confidence, grounded shadowrunner realism, wet reflections, serious not flashy.
+      A rain-lit continuity scene where the same mission dossier and run state moves across phone, tablet, laptop, and a printed packet as the team transitions from street to safehouse. Repeated visual anchors prove continuity across devices without showing text. Include metahuman runner cues, at least one obvious cyberarm or trode rig, and AR continuity traces clinging to real devices. Let the location read as a real lore place if useful, like a Redmond cut-through, Ork Underground approach, or Arcology-shadow transit edge. Motion without chaos, product-grade confidence, grounded shadowrunner realism, wet reflections, serious not flashy.
   - id: capability_brief_run
     filename_base: capability-brief-run
     runtime_targets:
@@ -155,7 +156,7 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A premium night exterior of a controlled release facility in a rain-wet city district. Lit windows, secure loading bay, one courier case transfer, subtle integrity markers, calm industrial polish, and a sense of disciplined rollout. No giant signage, no empty parking lot, no generic sci-fi warehouse.
+      A premium night exterior of a controlled release facility in a rain-wet city district. Lit windows, secure loading bay, one courier case transfer, subtle integrity markers, calm industrial polish, and a sense of disciplined rollout. If the scene can support it, nod to recognizable lore geography such as Arcology-adjacent massing, Chicago containment scars, or Puyallup ash settling on the curb. No giant signage, no empty parking lot, no generic sci-fi warehouse.
   - id: auth_entry_blueglass
     filename_base: auth-entry-blueglass
     runtime_targets:
@@ -176,7 +177,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A rain-polished boulevard that branches into distinct future work lanes for runsites, dossiers, creator tools, and replay, hinted through grounded props, architecture, and traffic flow rather than signs. Two people in the foreground discuss the next path while city depth and reflections create energy. Bold but disciplined lighting, dense environment, absolutely no billboard centerpiece and no empty road.
+      A rain-polished boulevard that branches into distinct future work lanes for runsites, dossiers, creator tools, and replay, hinted through grounded props, architecture, and traffic flow rather than signs. Two people in the foreground discuss the next path while city depth and reflections create energy. Seed the boulevard with lore-place residue such as Bug City tower ghosts, Redmond bus stop grime, Ork Underground access tile, or Glow City hazard fencing. Bold but disciplined lighting, dense environment, absolutely no billboard centerpiece and no empty road.
   - id: scene_prop_cluster
     filename_base: scene-prop-cluster
     runtime_targets:

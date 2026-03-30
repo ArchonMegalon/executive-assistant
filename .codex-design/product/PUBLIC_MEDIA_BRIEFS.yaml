@@ -48,6 +48,7 @@ world_marker_bucket:
   - partial megacorp product lineage such as Ares, Aztechnology, Renraku, Shiawase, Saeder-Krupp, Horizon, Evo, or Wuxing gear cues with logos blurred or cropped
   - critter or parabotany ephemera such as devil rat traps, barghest or hell hound field photos, Blood Orchid plates, or Paper Lotus charms
   - magical focus, fetish, talisman, ward scar, or awakened-world hint
+  - recognizable Sixth World geography or landmark residue such as Chicago Bug City towers, Renraku Arcology scar, Redmond Barrens street cues, Ork Underground tilework, Puyallup ash, Glow City fencing, or Touristville market grime
   - rain-soaked streets, sodium-vapor plus neon mix, or grimy utilitarian spaces
   - cables, duct tape, jury-rigged hardware, synthskin wrap, med patches, or off-brand med or corp gear
   - runner-life or shadow-community setting such as clinic, safehouse, van, alley, rooftop, market, back room, industrial rail, or matrix nook
@@ -69,6 +70,7 @@ rules:
   - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
   - Flagship assets should usually carry both a metahuman cue and a body-worn cyberware cue; rain and grime alone do not make the frame feel Shadowrun.
   - Lore crumbs should survive in flagship and quality-focus assets: cropped corp packaging, critter photo strips, talismonger ephemera, and parabotany prints are preferred over generic neon clutter.
+  - Recognizable lore locations are encouraged when they help the frame: Bug City skyline scars, Arcology shadows, Barrens infrastructure, Underground markets, ash plains, and containment architecture should read as place cues, not tourism postcards.
   - The Sixth World should look expensive, dirty, and physically punishing: grime, vermin, sickness, old blood, crash fatigue, and damaged spaces are welcome when they stay scene-bound and believable.
   - Drug-use or vice cues should read as fallout, dependency, or hard living through spent inhalers, burned spoons, stim patches, crash kits, or shakes; never glamorize them as lifestyle beauty shots.
   - Gore should stay grounded and adult: dried blood, meat-glue residue, stained bandages, trauma cleanup, or ugly clinic aftermath are good; splatter spectacle and torture-porn are failures.
