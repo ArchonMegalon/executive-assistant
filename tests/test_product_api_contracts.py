@@ -2105,19 +2105,19 @@ def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> N
     start_workspace(client, mode="personal", workspace_name="Support Verification Office")
 
     updated = client.post(
-        "/app/actions/settings/morning-memo",
-        data={
-            "return_to": "/app/settings",
-            "enabled": "true",
+        "/app/api/settings/morning-memo",
+        json={
+            "workspace_name": "Support Verification Office",
+            "enabled": True,
             "cadence": "daily_morning",
             "recipient_email": "tibor@example.com",
             "delivery_time_local": "08:00",
             "quiet_hours_start": "20:00",
             "quiet_hours_end": "07:00",
         },
-        follow_redirects=False,
     )
-    assert updated.status_code == 303
+    assert updated.status_code == 200
+    assert updated.json()["workspace"]["name"] == "Support Verification Office"
 
     requested = client.post("/app/api/support/fix-verification/request")
     assert requested.status_code == 200
@@ -2169,19 +2169,19 @@ def test_workspace_outcomes_expose_last_memo_issue_and_fix_target() -> None:
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Memo Issue Office")
     updated = client.post(
-        "/app/actions/settings/morning-memo",
-        data={
-            "return_to": "/app/settings",
-            "enabled": "true",
+        "/app/api/settings/morning-memo",
+        json={
+            "workspace_name": "Memo Issue Office",
+            "enabled": True,
             "cadence": "daily_morning",
             "recipient_email": "tibor@myexternalbrain.com",
             "delivery_time_local": "08:00",
             "quiet_hours_start": "20:00",
             "quiet_hours_end": "07:00",
         },
-        follow_redirects=False,
     )
-    assert updated.status_code == 303
+    assert updated.status_code == 200
+    assert updated.json()["workspace"]["name"] == "Memo Issue Office"
     client.app.state.container.channel_runtime.ingest_observation(
         principal_id=principal_id,
         channel="product",

@@ -692,6 +692,18 @@ class HandoffCompleteIn(BaseModel):
     resolution: str = "completed"
 
 
+class WorkspaceMorningMemoSettingsIn(BaseModel):
+    workspace_name: str = ""
+    language: str = "en"
+    timezone: str = "Europe/Vienna"
+    enabled: bool = False
+    cadence: str = "daily_morning"
+    recipient_email: str = ""
+    delivery_time_local: str = "08:00"
+    quiet_hours_start: str = "20:00"
+    quiet_hours_end: str = "07:00"
+
+
 class PersonCorrectionIn(BaseModel):
     preferred_tone: str = ""
     add_theme: str = ""
