@@ -133,6 +133,55 @@ def _seed_admin_state(client: TestClient, *, principal_id: str) -> None:
         },
     )
     assert queued.status_code == 200
+    pending_invite = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "operator-community@example.com",
+            "role": "operator",
+            "display_name": "Community Operator",
+            "note": "Hold backup organizer access for launch week.",
+            "expires_in_days": 7,
+        },
+    )
+    assert pending_invite.status_code == 200
+    accepted_invite = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "principal-community@example.com",
+            "role": "principal",
+            "display_name": "Principal Community",
+            "note": "Join the live support loop.",
+            "expires_in_days": 7,
+        },
+    )
+    assert accepted_invite.status_code == 200
+    accepted = client.post(
+        "/app/api/invitations/accept",
+        json={"token": accepted_invite.json()["invite_token"], "display_name": "Principal Community"},
+    )
+    assert accepted.status_code == 200
+    active_access = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "community-access@example.com",
+            "role": "principal",
+            "display_name": "Community Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert active_access.status_code == 200
+    revoked_access = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "revoked-community@example.com",
+            "role": "principal",
+            "display_name": "Revoked Community",
+            "expires_in_hours": 24,
+        },
+    )
+    assert revoked_access.status_code == 200
+    revoked = client.post(f"/app/api/access-sessions/{revoked_access.json()['session_id']}/revoke")
+    assert revoked.status_code == 200
 
 
 def test_admin_surfaces_render_live_runtime_state() -> None:
@@ -167,6 +216,17 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Needs reauth" in operators.text
     assert "Returned handoffs" in operators.text
     assert "Close investor dinner handoff" in operators.text
+
+    community = client.get("/admin/community")
+    assert community.status_code == 200
+    assert "Organizer / Community" in community.text
+    assert "What participation and release currently look like" in community.text
+    assert "operator-community@example.com" in community.text
+    assert "principal-community@example.com" in community.text
+    assert "community-access@example.com" in community.text
+    assert "Release and support" in community.text
+    assert "Launch readiness" in community.text
+    assert "Support verification" in community.text
 
     diagnostics = client.get("/admin/api")
     assert diagnostics.status_code == 200

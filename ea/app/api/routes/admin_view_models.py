@@ -654,6 +654,126 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         )
         for item in list(office.get("recent_runtime") or [])[:10]
     ]
+    pending_invitations = [dict(item) for item in product.list_workspace_invitations(principal_id=principal_id, status="pending", limit=12)]
+    accepted_invitations = [dict(item) for item in product.list_workspace_invitations(principal_id=principal_id, status="accepted", limit=8)]
+    revoked_invitations = [dict(item) for item in product.list_workspace_invitations(principal_id=principal_id, status="revoked", limit=8)]
+    active_access_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=12)]
+    revoked_access_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=principal_id, status="revoked", limit=8)]
+    invitation_rows = [
+        _row(
+            str(item.get("email") or "unknown"),
+            " · ".join(
+                part
+                for part in (
+                    str(item.get("role") or "operator").replace("_", " "),
+                    f"delivery {str(item.get('email_delivery_status') or 'not attempted').replace('_', ' ')}",
+                    f"expires {str(item.get('expires_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "pending" else "",
+                    f"accepted {str(item.get('accepted_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "accepted" else "",
+                    f"revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "revoked" else "",
+                )
+                if str(part or "").strip()
+            )
+            or "Workspace invitation posture is visible here.",
+            _humanize(str(item.get("status") or "pending")).title(),
+            href="/app/settings/invitations",
+        )
+        for item in [*pending_invitations, *accepted_invitations, *revoked_invitations][:12]
+    ]
+    access_rows = [
+        _row(
+            str(item.get("email") or "unknown"),
+            " · ".join(
+                part
+                for part in (
+                    str(item.get("role") or "principal").replace("_", " "),
+                    str(item.get("default_target") or "/app/today"),
+                    f"expires {str(item.get('expires_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "active" else "",
+                    f"revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "revoked" else "",
+                )
+                if str(part or "").strip()
+            )
+            or "Workspace access posture is visible here.",
+            _humanize(str(item.get("status") or "active")).title(),
+            href="/app/settings/access",
+        )
+        for item in [*active_access_sessions, *revoked_access_sessions][:12]
+    ]
+    invitation_delivery_sent = sum(
+        1
+        for item in [*pending_invitations, *accepted_invitations, *revoked_invitations]
+        if str(item.get("email_delivery_status") or "").strip() == "sent"
+    )
+    invitation_delivery_failed = sum(
+        1
+        for item in [*pending_invitations, *accepted_invitations, *revoked_invitations]
+        if str(item.get("email_delivery_status") or "").strip() == "failed"
+    )
+    community_overview_rows = [
+        _row(
+            "Participation posture",
+            f"{len(pending_invitations)} pending invites · {len(accepted_invitations)} accepted · {len(active_access_sessions)} active links",
+            "Community",
+            href="/app/settings/invitations",
+        ),
+        _row(
+            "Invite delivery",
+            f"{invitation_delivery_sent} sent · {invitation_delivery_failed} failed",
+            "Delivery",
+            href="/app/settings/invitations",
+        ),
+        _row(
+            "Access reachability",
+            f"{str(office_access.get('opened') or 0)} opens recorded · {len(revoked_access_sessions)} revoked links",
+            "Access",
+            href="/app/settings/access",
+        ),
+        _row(
+            "Journey gate health",
+            str(diagnostics_journey_gate.get("recommended_action") or diagnostics_journey_gate.get("reason") or "No published journey-gate action."),
+            _humanize(str(diagnostics_journey_gate.get("state") or "missing")).title(),
+            href="/app/settings/outcomes",
+        ),
+        _row(
+            "Support verification",
+            str(diagnostics_support_verification.get("summary") or "No support verification request is active."),
+            _humanize(str(diagnostics_support_verification.get("state") or "not_requested")).title(),
+            href="/app/settings/support",
+        ),
+        _row(
+            "Launch readiness",
+            str(diagnostics_product_control.get("launch_readiness") or "No launch-readiness note is mirrored yet."),
+            "Release",
+            href="/app/settings/outcomes",
+        ),
+    ]
+    community_release_rows = [
+        _row("Active product wave", str(diagnostics_product_control.get("active_wave") or "No active wave mirrored."), "Product", href="/app/settings/outcomes"),
+        _row("Wave status", str(diagnostics_product_control.get("active_wave_status") or "No active wave status is mirrored."), "Product", href="/app/settings/outcomes"),
+        _row(
+            "Next checkpoint question",
+            str(diagnostics_product_control.get("next_checkpoint_question") or "No checkpoint question is mirrored yet."),
+            "Product",
+            href="/app/settings/outcomes",
+        ),
+        _row(
+            "Governor decision",
+            str(dict(diagnostics_product_control.get("governor_decision") or {}).get("reason") or "No governor decision is mirrored yet."),
+            _humanize(str(dict(diagnostics_product_control.get("governor_decision") or {}).get("action") or "watch")).title(),
+            href="/app/settings/outcomes",
+        ),
+        _row(
+            "Fix verification next action",
+            str(diagnostics_support_verification.get("recommended_action") or "No support verification action is recommended."),
+            _humanize(str(diagnostics_support_verification.get("confirmation_state") or "not_requested")).title(),
+            href="/app/settings/support",
+        ),
+        _row(
+            "Route review due",
+            str(diagnostics_route_stewardship.get("review_due") or "No route review due published."),
+            "Route",
+            href="/app/settings/outcomes",
+        ),
+    ]
 
     mapping: dict[str, dict[str, object]] = {
         "office": {
@@ -767,6 +887,34 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 },
             ],
         },
+        "community": {
+            "title": "Organizer / Community",
+            "summary": "Mirror participation, access, release, and support posture in one organizer-safe view without inventing community authority locally.",
+            "cards": [
+                {
+                    "eyebrow": "Current posture",
+                    "title": "What participation and release currently look like",
+                    "items": community_overview_rows,
+                },
+                {
+                    "eyebrow": "Invitation lane",
+                    "title": "Who is waiting, joined, or was withdrawn",
+                    "items": invitation_rows
+                    or [_row("No invitations yet", "Invites will appear here after the workspace starts adding operators or reviewers.", "Clear", href="/app/settings/invitations")],
+                },
+                {
+                    "eyebrow": "Access links",
+                    "title": "Which direct workspace links are still live",
+                    "items": access_rows
+                    or [_row("No active access links", "Workspace access links will appear here after direct entry is issued.", "Clear", href="/app/settings/access")],
+                },
+                {
+                    "eyebrow": "Release and support",
+                    "title": "What could block broader participation confidence",
+                    "items": community_release_rows,
+                },
+            ],
+        },
         "api": {
             "title": "Diagnostics",
             "summary": "Plan, readiness, usage, and support posture for the current workspace deployment.",
@@ -792,6 +940,13 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             {"label": "Exceptions", "value": str(office_snapshot.get("exception_count") or 0)},
             {"label": "Clearable", "value": str(office_snapshot.get("clearable_queue_items") or 0)},
             {"label": "Decisions", "value": str(office_snapshot.get("open_decisions") or 0)},
+        ]
+    elif section == "community":
+        stats = [
+            {"label": "Pending invites", "value": str(len(pending_invitations))},
+            {"label": "Active links", "value": str(len(active_access_sessions))},
+            {"label": "Gate health", "value": _humanize(str(diagnostics_journey_gate.get("state") or "missing")).title()},
+            {"label": "Fix verification", "value": _humanize(str(diagnostics_support_verification.get("state") or "not_requested")).title()},
         ]
     return {
         "stats": stats,

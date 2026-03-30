@@ -593,6 +593,7 @@ def test_browser_shell_routes_and_nav_links_resolve() -> None:
         "/admin/providers",
         "/admin/audit-trail",
         "/admin/operators",
+        "/admin/community",
         "/admin/api",
     ):
         page = operator.get(path)
