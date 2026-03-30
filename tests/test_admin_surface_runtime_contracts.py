@@ -186,6 +186,9 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Load score" in diagnostics.text
     assert "Provider risk" in diagnostics.text
     assert "Fallback lanes" in diagnostics.text
+    assert "Active product wave" in diagnostics.text
+    assert "Journey gate health" in diagnostics.text
+    assert "Launch readiness" in diagnostics.text
     assert "Blocked send follow-ups" in diagnostics.text
     assert "Send follow-ups closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text

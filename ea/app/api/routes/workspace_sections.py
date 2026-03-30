@@ -467,10 +467,12 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
     readiness = dict(diagnostics.get("readiness") or {})
     providers = dict(diagnostics.get("providers") or {})
     queue_health = dict(diagnostics.get("queue_health") or {})
+    product_control = dict(diagnostics.get("product_control") or {})
     analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(analytics.get("counts") or {})
     analytics_delivery = dict(analytics.get("delivery") or {})
     analytics_sync = dict(analytics.get("sync") or {})
+    journey_gate = dict(product_control.get("journey_gate_health") or {})
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
     feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
     return [
@@ -486,6 +488,9 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Seats used", str(operators.get("seats_used") or 0), "Entitlement", href="/app/settings/usage"),
         _row("Seats remaining", str(operators.get("seats_remaining") or 0), "Entitlement", href="/app/settings/usage"),
         _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime", href="/app/settings/support"),
+        _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Product", href="/app/settings/support"),
+        _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " "), "Product", href="/app/settings/support"),
+        _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Product", href="/app/settings/support"),
         _row("Provider risk", str(providers.get("risk_state") or "unknown").replace("_", " "), "Support", href="/app/settings/support"),
         _row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
         _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/activity"),
@@ -548,10 +553,14 @@ def workspace_section_payload(
     provider_posture = dict(diagnostics.get("providers") or {})
     commercial = dict(diagnostics.get("commercial") or {})
     readiness = dict(diagnostics.get("readiness") or {})
+    product_control = dict(diagnostics.get("product_control") or {})
     analytics = dict(diagnostics.get("analytics") or {})
     analytics_delivery = dict(analytics.get("delivery") or {})
     analytics_access = dict(analytics.get("access") or {})
     analytics_sync = dict(analytics.get("sync") or {})
+    journey_gate = dict(product_control.get("journey_gate_health") or {})
+    journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
+    route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     memo_loop = dict(outcomes.get("memo_loop") or analytics.get("memo_loop") or {})
     office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
     proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
@@ -1092,6 +1101,21 @@ def workspace_section_payload(
                     "title": "What this office currently allows",
                     "body": "Rules should explain the review-first posture, channel boundary, and durable controls behind the current loop.",
                     "items": _rule_rows(snapshot.rules[:8]),
+                },
+                {
+                    "eyebrow": "Product control",
+                    "title": "What the release proof says right now",
+                    "body": "This surface should mirror the weekly product pulse and published journey-gate truth without turning the assistant into a second roadmap owner.",
+                    "items": [
+                        _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave", href="/app/settings/outcomes"),
+                        _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
+                        _row("Journey gate action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate", href="/app/settings/outcomes"),
+                        _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
+                        _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
+                        _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
+                        _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
+                        _row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof", href="/app/settings/outcomes"),
+                    ],
                 },
                 {
                     "eyebrow": "Office-loop proof",

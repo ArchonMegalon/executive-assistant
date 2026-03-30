@@ -118,6 +118,10 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "lanes_with_fallback" in diagnostics_body["providers"]
     assert "load_score" in diagnostics_body["queue_health"]
     assert "retrying_delivery" in diagnostics_body["queue_health"]
+    assert diagnostics_body["product_control"]["summary"]
+    assert "journey_gate_health" in diagnostics_body["product_control"]
+    assert "provider_route_stewardship" in diagnostics_body["product_control"]
+    assert "launch_readiness" in diagnostics_body["product_control"]
 
     plan = client.get("/app/api/plan")
     assert plan.status_code == 200
@@ -177,6 +181,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "sync_reliability_state" in support_body["analytics"]["reliability"]
     assert "sync" in support_body["analytics"]
     assert "google_token_status" in support_body["analytics"]["sync"]
+    assert support_body["product_control"]["summary"]
+    assert "journey_highlights" in support_body["product_control"]
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200
@@ -1920,6 +1926,8 @@ def test_product_diagnostics_include_value_events() -> None:
     assert body["billing"]["renewal_owner_role"] == "principal"
     assert "pending" in body["approvals"]
     assert isinstance(body["human_tasks"], list)
+    assert body["product_control"]["summary"]
+    assert "journey_gate_freshness" in body["product_control"]
 
 
 def test_workspace_outcomes_expose_last_memo_issue_and_fix_target() -> None:

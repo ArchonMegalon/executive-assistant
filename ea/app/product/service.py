@@ -4,9 +4,11 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -83,6 +85,8 @@ _EA_DELIVERY_TEXT_MARKERS = (
     "use this verification code to create your executive assistant workspace",
     "google is connected after sign-up as a workspace data source",
 )
+_PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
+_PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
 
 
 def _now_iso() -> str:
@@ -267,6 +271,127 @@ def _search_score(*, tokens: tuple[str, ...], title: str = "", summary: str = ""
     return score
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _resolve_repo_path(raw: str, *, default: Path) -> Path:
+    normalized = str(raw or "").strip()
+    if not normalized:
+        return default
+    candidate = Path(normalized).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return (_repo_root() / candidate).resolve()
+
+
+def _weekly_product_pulse_path() -> Path:
+    return _resolve_repo_path(
+        str(os.getenv("EA_WEEKLY_PRODUCT_PULSE_PATH") or "").strip(),
+        default=_repo_root() / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    )
+
+
+def _default_journey_gates_path() -> Path:
+    return _resolve_repo_path(
+        str(os.getenv("EA_JOURNEY_GATES_PATH") or "").strip(),
+        default=Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"),
+    )
+
+
+def _load_json_dict(path: Path) -> dict[str, object] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _artifact_age_seconds(value: str | None) -> int | None:
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return None
+    return max(int((_utcnow() - parsed).total_seconds()), 0)
+
+
+def _freshness_state_from_age(age_seconds: int | None) -> str:
+    if age_seconds is None:
+        return "watch"
+    if age_seconds <= _PRODUCT_PULSE_FRESH_SECONDS:
+        return "fresh"
+    if age_seconds <= _PRODUCT_PULSE_STALE_SECONDS:
+        return "watch"
+    return "stale"
+
+
+def _freshness_label(state: str) -> str:
+    return str(state or "watch").replace("_", " ")
+
+
+def _journey_freshness_summary(payload: dict[str, object]) -> tuple[str, str]:
+    freshness = dict(payload.get("artifact_freshness") or {})
+    if not freshness:
+        generated_at = str(payload.get("generated_at") or "").strip()
+        state = _freshness_state_from_age(_artifact_age_seconds(generated_at))
+        detail = (
+            f"Published journey gates generated at {generated_at}."
+            if generated_at
+            else "Journey-gate freshness metadata is missing."
+        )
+        return state, detail
+    severity = {"fresh": 0, "watch": 1, "stale": 2, "missing": 3}
+    worst_state = "fresh"
+    detail_parts: list[str] = []
+    for key, value in freshness.items():
+        item = dict(value or {}) if isinstance(value, dict) else {}
+        available = bool(item.get("available"))
+        raw_state = str(item.get("state") or "").strip().lower()
+        state = "missing" if not available else raw_state or _freshness_state_from_age(int(item.get("age_seconds") or 0))
+        if state not in severity:
+            state = "watch"
+        if severity[state] > severity[worst_state]:
+            worst_state = state
+        detail_parts.append(f"{str(key).replace('_', ' ')} {_freshness_label(state)}")
+    return worst_state, "; ".join(detail_parts[:3])
+
+
+def _journey_highlights(payload: dict[str, object]) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    for value in list(payload.get("journeys") or []):
+        row = dict(value or {}) if isinstance(value, dict) else {}
+        signals = dict(row.get("signals") or {})
+        state = str(row.get("state") or "unknown").strip().lower()
+        blocking_reasons = [str(item) for item in list(row.get("blocking_reasons") or []) if str(item).strip()]
+        warning_reasons = [str(item) for item in list(row.get("warning_reasons") or []) if str(item).strip()]
+        support_waiting = int(signals.get("support_closure_waiting_count") or 0)
+        needs_human = int(signals.get("support_needs_human_response_count") or 0)
+        candidates.append(
+            {
+                "id": str(row.get("id") or "").strip(),
+                "title": str(row.get("title") or row.get("id") or "Journey").strip() or "Journey",
+                "state": state or "unknown",
+                "recommended_action": str(row.get("recommended_action") or "").strip(),
+                "blocking_reasons": blocking_reasons[:2],
+                "warning_reasons": warning_reasons[:2],
+                "support_closure_waiting_count": support_waiting,
+                "support_needs_human_response_count": needs_human,
+            }
+        )
+    if not candidates:
+        return []
+    priority = {"blocked": 2, "warning": 1, "watch": 1, "ready": 0, "clear": 0}
+    candidates.sort(
+        key=lambda row: (
+            -priority.get(str(row.get("state") or "").strip().lower(), 0),
+            -int(row.get("support_closure_waiting_count") or 0),
+            -int(row.get("support_needs_human_response_count") or 0),
+            str(row.get("title") or ""),
+        )
+    )
+    non_ready = [row for row in candidates if str(row.get("state") or "").strip().lower() not in {"ready", "clear"}]
+    return non_ready[:3] if non_ready else candidates[:2]
+
+
 def _operator_id_from_email(value: str) -> str:
     normalized = str(value or "").strip().lower()
     local = normalized.split("@", 1)[0] if "@" in normalized else normalized
@@ -357,6 +482,101 @@ def _verify_channel_payload(*, secret: str, token: str) -> dict[str, object] | N
 class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
+
+    def _product_control_projection(self) -> dict[str, object]:
+        pulse_path = _weekly_product_pulse_path()
+        pulse_payload = _load_json_dict(pulse_path)
+        pulse_generated_at = str((pulse_payload or {}).get("generated_at") or "").strip()
+        pulse_age_seconds = _artifact_age_seconds(pulse_generated_at)
+        pulse_freshness_state = "missing" if pulse_payload is None else _freshness_state_from_age(pulse_age_seconds)
+
+        supporting_signals = dict((pulse_payload or {}).get("supporting_signals") or {})
+        configured_journey_source = str(supporting_signals.get("journey_gate_source") or "").strip()
+        journey_path = _resolve_repo_path(configured_journey_source, default=_default_journey_gates_path())
+        journey_payload = _load_json_dict(journey_path)
+        journey_generated_at = str((journey_payload or {}).get("generated_at") or "").strip()
+        journey_summary = dict((journey_payload or {}).get("summary") or {})
+        pulse_journey_health = dict((pulse_payload or {}).get("journey_gate_health") or {})
+        journey_freshness_state = "missing"
+        journey_freshness_detail = "Published journey gates are not available on this host."
+        if journey_payload is not None:
+            journey_freshness_state, journey_freshness_detail = _journey_freshness_summary(journey_payload)
+
+        journey_state = (
+            str(pulse_journey_health.get("state") or "").strip()
+            or str(journey_summary.get("overall_state") or "").strip()
+            or ("missing" if journey_payload is None else "watch")
+        )
+        journey_reason = (
+            str(pulse_journey_health.get("reason") or "").strip()
+            or str(journey_summary.get("recommended_action") or "").strip()
+            or "Journey-gate posture is not available."
+        )
+        journey_highlights = _journey_highlights(journey_payload or {})
+        governor_decision = next(
+            (
+                dict(value)
+                for value in list((pulse_payload or {}).get("governor_decisions") or [])
+                if isinstance(value, dict)
+            ),
+            {},
+        )
+        route_stewardship = dict(supporting_signals.get("provider_route_stewardship") or {})
+        launch_readiness = str(supporting_signals.get("launch_readiness") or "").strip()
+        summary = str((pulse_payload or {}).get("summary") or "").strip()
+        if not summary:
+            summary = str(journey_summary.get("recommended_action") or "").strip() or "Product-control pulse is not available."
+        available = pulse_payload is not None or journey_payload is not None
+        return {
+            "available": available,
+            "state": str(journey_state or "watch").strip().lower() or "watch",
+            "summary": compact_text(summary, fallback="Product-control pulse is not available.", limit=220),
+            "projection_note": "Mirrors weekly pulse and published journey gates; it does not replace design, Fleet, or Hub ownership.",
+            "active_wave": str((pulse_payload or {}).get("active_wave") or "").strip(),
+            "active_wave_status": str((pulse_payload or {}).get("active_wave_status") or "").strip(),
+            "next_checkpoint_question": str((pulse_payload or {}).get("next_checkpoint_question") or "").strip(),
+            "launch_readiness": launch_readiness,
+            "provider_route_stewardship": {
+                "default_status": str(route_stewardship.get("default_status") or "").strip(),
+                "canary_status": str(route_stewardship.get("canary_status") or "").strip(),
+                "review_due": str(route_stewardship.get("review_due") or "").strip(),
+                "next_decision": str(route_stewardship.get("next_decision") or "").strip(),
+            },
+            "governor_decision": {
+                "decision_id": str(governor_decision.get("decision_id") or "").strip(),
+                "action": str(governor_decision.get("action") or "").strip(),
+                "reason": compact_text(str(governor_decision.get("reason") or "").strip(), fallback="", limit=220),
+            },
+            "journey_gate_health": {
+                "state": str(journey_state or "watch").strip().lower() or "watch",
+                "reason": compact_text(journey_reason, fallback="Journey-gate posture is not available.", limit=220),
+                "ready_count": int(journey_summary.get("ready_count") or 0),
+                "warning_count": int(pulse_journey_health.get("warning_count") or journey_summary.get("warning_count") or 0),
+                "blocked_count": int(pulse_journey_health.get("blocked_count") or journey_summary.get("blocked_count") or 0),
+                "recommended_action": compact_text(
+                    str(journey_summary.get("recommended_action") or journey_reason).strip(),
+                    fallback="Journey-gate posture is not available.",
+                    limit=220,
+                ),
+            },
+            "journey_gate_freshness": {
+                "state": journey_freshness_state,
+                "detail": compact_text(journey_freshness_detail, fallback="Journey-gate freshness is not available.", limit=220),
+                "generated_at": journey_generated_at,
+            },
+            "pulse_freshness": {
+                "state": pulse_freshness_state,
+                "generated_at": pulse_generated_at,
+                "age_seconds": pulse_age_seconds,
+            },
+            "journey_highlights": journey_highlights,
+            "sources": {
+                "pulse_path": str(pulse_path),
+                "journey_gates_path": str(journey_path),
+                "pulse_generated_at": pulse_generated_at,
+                "journey_gates_generated_at": journey_generated_at,
+            },
+        }
 
     def _gmail_signal_labels(
         self,
@@ -5082,6 +5302,7 @@ class ProductService:
             if int(queue_health.get("retrying_delivery") or 0)
             else "clear"
         )
+        product_control = self._product_control_projection()
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -5143,6 +5364,7 @@ class ProductService:
                     for row in assignment_suggestions
                 ],
             },
+            "product_control": product_control,
             "usage": usage_stats,
             "analytics": {
                 "counts": analytics_counts,
@@ -5632,6 +5854,7 @@ class ProductService:
             "entitlements": diagnostics["entitlements"],
             "commercial": diagnostics["commercial"],
             "readiness": diagnostics["readiness"],
+            "product_control": diagnostics["product_control"],
             "usage": diagnostics["usage"],
             "analytics": diagnostics["analytics"],
             "approvals": {

@@ -227,6 +227,7 @@ class WorkspaceDiagnosticsOut(BaseModel):
     operators: dict[str, object]
     providers: dict[str, object]
     queue_health: dict[str, object]
+    product_control: dict[str, object] = Field(default_factory=dict)
     usage: dict[str, int]
     analytics: dict[str, object]
 
@@ -291,6 +292,7 @@ class WorkspaceSupportBundleOut(BaseModel):
     entitlements: dict[str, object]
     commercial: dict[str, object]
     readiness: dict[str, object]
+    product_control: dict[str, object] = Field(default_factory=dict)
     usage: dict[str, object]
     analytics: dict[str, object]
     approvals: dict[str, object]

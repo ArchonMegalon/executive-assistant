@@ -55,6 +55,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Morning memo delivery" in settings.text
     assert "What is feeding the office loop" in settings.text
     assert "Office-loop proof" in settings.text
+    assert "Journey gate health" in settings.text
     assert "Connect now" in settings.text
     assert "/app/settings/outcomes" in settings.text
     assert "/app/settings/google" in settings.text
@@ -420,6 +421,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert support_page.status_code == 200
     assert "Support and diagnostics" in support_page.text
     assert "Operational reliability" in support_page.text
+    assert "Weekly pulse and journey-gate truth" in support_page.text
+    assert "What the published release gate is saying" in support_page.text
     assert "Open bundle" in support_page.text
 
     outcomes_page = client.get("/app/settings/outcomes")

@@ -429,9 +429,12 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     diagnostics_provider = dict(diagnostics.get("providers") or {})
     diagnostics_queue = dict(diagnostics.get("queue_health") or {})
     diagnostics_operator = dict(diagnostics.get("operators") or {})
+    diagnostics_product_control = dict(diagnostics.get("product_control") or {})
     diagnostics_analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(diagnostics_analytics.get("counts") or {})
     diagnostics_channels = list(diagnostics.get("selected_channels") or [])
+    diagnostics_journey_gate = dict(diagnostics_product_control.get("journey_gate_health") or {})
+    diagnostics_route_stewardship = dict(diagnostics_product_control.get("provider_route_stewardship") or {})
     workspace_rows = [
         _row("Workspace", str(diagnostics_workspace.get("name") or "Executive Workspace"), "Workspace"),
         _row("Mode", _humanize(str(diagnostics_workspace.get("mode") or "personal")).title(), "Workspace"),
@@ -485,6 +488,15 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Provider risk", str(diagnostics_provider.get("risk_state") or "unknown"), "Support"),
         _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
         _row("Queued delivery", str(diagnostics_queue.get("pending_delivery") or 0), "Support"),
+        _row("Active product wave", str(diagnostics_product_control.get("active_wave") or "No active wave mirrored."), "Product"),
+        _row("Journey gate health", str(diagnostics_journey_gate.get("state") or "missing").replace("_", " "), "Product"),
+        _row(
+            "Journey gate action",
+            str(diagnostics_journey_gate.get("recommended_action") or diagnostics_journey_gate.get("reason") or "No published action."),
+            "Product",
+        ),
+        _row("Launch readiness", str(diagnostics_product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
+        _row("Route review due", str(diagnostics_route_stewardship.get("review_due") or "No route review due published."), "Route"),
         _row("Memo items", str(diagnostics_usage.get("brief_items") or 0), "Usage"),
         _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
         _row("Commitments", str(diagnostics_usage.get("commitments") or 0), "Usage"),
