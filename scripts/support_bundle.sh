@@ -19,6 +19,7 @@ Environment:
   SUPPORT_INCLUDE_DB_SIZE=0|1           Include DB size snapshot via db_size.sh (default: 1)
   SUPPORT_INCLUDE_PRODUCT_CONTROL=0|1   Include mirrored weekly pulse and journey-gate summary (default: 1)
   SUPPORT_INCLUDE_GROUNDING=0|1         Include mirrored help/support/operator grounding summary (default: 1)
+                                        and codex governance guidance (default: 1)
   SUPPORT_DB_SIZE_LIMIT=<n>             Top table count for DB size snapshot (default: 10)
   SUPPORT_INCLUDE_QUEUE=0|1             Include queued task snapshot (default: 1)
 EOF
@@ -154,6 +155,42 @@ print(f"operator_snapshot_owner={compact(cadence.get('snapshot_owner') or 'produ
 PY
 }
 
+print_codex_governance_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+sys.path.insert(0, str(root / "ea"))
+
+from app.api.routes.responses import _codex_governance_payload, _codex_profiles
+
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+
+profiles = {
+    str(item.get("profile") or "").strip(): dict(item)
+    for item in _codex_profiles()
+    if isinstance(item, dict)
+}
+governance = _codex_governance_payload()
+cadence = dict(governance.get("review_cadence") or {})
+support = dict(governance.get("support_help_boundary") or {})
+
+print(f"codex_review_cadence={compact(cadence.get('review') or 'weekly')}")
+print(f"codex_snapshot_owner={compact(cadence.get('snapshot_owner') or 'product_governor')}")
+print(f"codex_easy_expectation={compact(dict(profiles.get('easy') or {}).get('expectation_summary'))}")
+print(f"codex_core_expectation={compact(dict(profiles.get('core') or {}).get('expectation_summary'))}")
+print(f"codex_groundwork_expectation={compact(dict(profiles.get('groundwork') or {}).get('expectation_summary'))}")
+print(f"codex_audit_expectation={compact(dict(profiles.get('audit') or {}).get('expectation_summary'))}")
+print(f"codex_support_help_boundary={compact(support.get('summary'))}")
+PY
+}
+
 {
   echo "== Support Bundle =="
   echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -177,8 +214,14 @@ PY
     echo "-- grounding --"
     print_grounding_summary | redact || true
     echo
+    echo "-- codex governance --"
+    print_codex_governance_summary | redact || true
+    echo
   else
     echo "-- grounding --"
+    echo "skipped (SUPPORT_INCLUDE_GROUNDING=${INCLUDE_GROUNDING})"
+    echo
+    echo "-- codex governance --"
     echo "skipped (SUPPORT_INCLUDE_GROUNDING=${INCLUDE_GROUNDING})"
     echo
   fi

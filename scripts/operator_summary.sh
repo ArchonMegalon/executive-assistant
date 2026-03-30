@@ -12,7 +12,7 @@ Usage:
 Print a compact operator command summary including deploy, smoke, readiness,
 release, support, and documentation shortcuts plus current version metadata,
 the current mirrored product-control pulse, and grounded help/support/operator
-packet guidance from the local design mirror.
+packet guidance plus codex lane governance from the local design mirror.
 EOF
   exit 0
 fi
@@ -113,6 +113,45 @@ print(f"snapshot owner:    {compact(cadence.get('snapshot_owner') or 'product_go
 PY
 }
 
+print_codex_governance_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+sys.path.insert(0, str(root / "ea"))
+
+from app.api.routes.responses import _codex_governance_payload, _codex_profiles
+
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+
+profiles = {
+    str(item.get("profile") or "").strip(): dict(item)
+    for item in _codex_profiles()
+    if isinstance(item, dict)
+}
+governance = _codex_governance_payload()
+cadence = dict(governance.get("review_cadence") or {})
+support = dict(governance.get("support_help_boundary") or {})
+
+for key, label in (
+    ("easy", "easy"),
+    ("core", "hard coder"),
+    ("groundwork", "groundwork"),
+    ("audit", "audit/jury"),
+):
+    row = profiles.get(key, {})
+    print(f"{label}:           {compact(row.get('expectation_summary'))}")
+print(f"review cadence:  {compact(cadence.get('review') or 'weekly')} / {compact(cadence.get('snapshot_owner') or 'product_governor')}")
+print(f"support/help:    {compact(support.get('summary'))}")
+PY
+}
+
 echo "== Operator Summary =="
 echo
 
@@ -166,6 +205,10 @@ echo
 
 echo "-- grounded packets --"
 print_grounding_summary
+echo
+
+echo "-- codex governance --"
+print_codex_governance_summary
 echo
 
 echo "-- queued task --"
