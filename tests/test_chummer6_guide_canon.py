@@ -66,12 +66,29 @@ def test_load_faq_and_help_canon_track_public_question_sets() -> None:
 
     faq = canon.load_faq_canon()
     help_copy = canon.load_help_canon()
+    release = canon.load_release_experience_canon()
+    trust = canon.load_trust_content_canon()
 
     assert "participation_and_preview" in faq
     questions = {entry["question"] for entry in faq["participation_and_preview"]["entries"]}
     assert "What is guided contribution?" in questions
     assert "Will guided-preview access open wider later?" in questions
     assert "the cheap baseline remains the default path" in help_copy["privacy_and_review_safety"]
+    assert canon.design_root() == ROOT / ".codex-design" / "product"
+    assert "one clear public download" in str(release["release_notes_summary"]).lower()
+    trust_pages = {str(page.get("id") or ""): page for page in trust.get("trust_pages") or [] if isinstance(page, dict)}
+    help_page = dict(trust_pages["help"])
+    assert "downloads and setup stay clear" in [str(value).lower() for value in help_page.get("summary_points") or []]
+    faq_pages = [page for page in trust.get("faq_pages") or [] if isinstance(page, dict)]
+    faq_questions = {
+        str(entry.get("question") or "")
+        for page in faq_pages
+        for section in page.get("sections") or []
+        if isinstance(section, dict)
+        for entry in section.get("entries") or []
+        if isinstance(entry, dict)
+    }
+    assert "Do I need an account to download the current preview?" in faq_questions
 
 
 def test_asset_visual_profile_derives_critical_first_contact_requirements() -> None:

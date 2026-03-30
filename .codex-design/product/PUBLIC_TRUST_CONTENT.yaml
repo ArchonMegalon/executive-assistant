@@ -5,13 +5,13 @@ trust_pages:
   - id: help
     eyebrow: "Help"
     heading: "Get help without guessing"
-    intro: "Use the first-party product path first: install help, account recovery, current release truth, and a real support intake before you fall through to deeper technical material."
+    intro: "Use the first-party product path first: download help, account recovery, current release truth, and a real support intake before you fall through to deeper technical material."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
       - "First-party help comes first"
       - "Support is separate from participation"
-      - "Downloads and account stay connected"
+      - "Downloads and setup stay clear"
     actions:
       - label: "Open support intake"
         href: "/contact#support-intake"
@@ -25,19 +25,19 @@ trust_pages:
     sections:
       - id: install-update
         eyebrow: "Install or update"
-        heading: "Start with the release page and install help"
-        body: "The release page should answer the normal install questions directly: recommended installer, known issues, update status, and the next support step if the path still is not clear."
+        heading: "Start with the release page and download help"
+        body: "The release page should answer the normal download and setup questions directly: current package, known issues, update status, and the next support step if the path still is not clear."
         bullets:
-          - "One recommended installer is the default path."
-          - "Alternative builds and manual packages are advanced paths."
-          - "Signed-in downloads keep the install handoff attached from first launch."
-          - "Devices and access is where linked copies and claim codes stay visible later."
+          - "The release page should make the current public download obvious."
+          - "Installer language stays off until an installer is actually published."
+          - "Create an account when you want tracked support, recovery, or future linked installs."
+          - "Check the release page before assuming another platform is on the public shelf."
       - id: sign-in-recovery
         eyebrow: "Sign-in or account recovery"
         heading: "Keep access and recovery on one calm path"
         body: "Account creation, sign-in, and recovery should stay boring. Use the account surface and the recovery flow before you fall back to manual troubleshooting."
         bullets:
-          - "Create an account when you want preview downloads, recovery, and tracked support."
+          - "Create an account when you want recovery, tracked support, and a cleaner return path for future downloads."
           - "Use recovery email so one sign-in method is never the whole story."
           - "Devices and access stays separate from identity recovery."
       - id: product-bug
@@ -63,7 +63,7 @@ trust_pages:
     effective_date: "2026-03-25"
     updated_date: "2026-03-28"
     summary_points:
-      - "The installer stays the same for everyone"
+      - "The published package stays the same for everyone"
       - "Hub stores account and support state"
       - "Provider secrets stay out of Hub"
     actions:
@@ -83,8 +83,8 @@ trust_pages:
         body: "The hosted account keeps your basic profile, linked sign-in methods, devices and access state, support cases, and preview preferences so the public and signed-in surfaces stay coherent."
       - id: install-linking
         eyebrow: "Install linking"
-        heading: "The installer stays the same; the account handoff is the variable part"
-        body: "Chummer does not personalize the installer binary. The account-aware part is the signed-in receipt and short-lived claim code that can bind the local copy back to your account on first launch."
+        heading: "The published package stays the same; the account handoff is separate"
+        body: "The installer stays the same for everyone when one is published, and the same rule applies to the current public package. Chummer does not personalize the published package. When linked handoff is available, the account-aware part is the signed-in receipt and short-lived code that can reconnect a local copy back to your account."
       - id: not-in-hub
         eyebrow: "What stays out"
         heading: "Temporary provider auth material and raw secrets do not belong in Hub"
@@ -96,12 +96,12 @@ trust_pages:
   - id: terms
     eyebrow: "Terms"
     heading: "Preview terms in plain language"
-    intro: "The current hosted promise is straightforward: early access, honest labels, installer-first delivery when available, and support that should explain the current boundary instead of hiding it."
+    intro: "The current hosted promise is straightforward: early access, honest labels, the public download that is honestly available today, and support that should explain the current boundary instead of hiding it."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
       - "Early access, not finished breadth"
-      - "Installer-first when available"
+      - "Current downloads when available"
       - "Support is first-party"
     actions:
       - label: "Open downloads"
@@ -117,15 +117,15 @@ trust_pages:
       - id: preview-posture
         eyebrow: "Preview status"
         heading: "The product is real, but still early access"
-        body: "Expect real surfaces, current installers, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
+        body: "Expect real surfaces, current downloads, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
       - id: account-support
         eyebrow: "Account and support"
         heading: "Accounts should be boring, support should be first-party"
         body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help paths before any deeper public issue workflow."
       - id: delivery
         eyebrow: "Delivery"
-        heading: "Installer-first when available, advanced packages only when necessary"
-        body: "Installer builds are the default product path. Manual packages remain available for edge cases, but they are not the default first-run experience."
+        heading: "Use the current public download first; advanced packages only when necessary"
+        body: "Public downloads should match what is honestly on the shelf right now. Promoted installers can become the default path when they exist, but manual packages remain a fallback for edge cases or support-directed setup."
   - id: contact
     eyebrow: "Contact"
     heading: "Open the right support case"
@@ -154,7 +154,7 @@ trust_pages:
       - id: tracked-support
         eyebrow: "Tracked follow-up"
         heading: "Create an account when you want support history inside Chummer"
-        body: "You can submit help here without a GitHub account. Create a Chummer account when you want case history, linked installs, and release follow-up to stay visible in Account."
+        body: "You can submit help here without a GitHub account. Create a Chummer account when you want case history, linked downloads when they exist, and release follow-up to stay visible in Account."
       - id: public-issues
         eyebrow: "Advanced public issues"
         heading: "GitHub is the advanced public bug path, not the main support door"
@@ -178,22 +178,22 @@ faq_pages:
       - title: "Using Chummer"
         entries:
           - question: "Can I actually use Chummer right now?"
-            answer: "Yes, as an honest early-access preview. There is a current installer shelf, a real proof trail, and explicit labels for what is live, inspectable, or still opening next."
+            answer: "Yes, as an honest early-access preview. There is a current public download, a real proof trail, and explicit labels for what is live, inspectable, or still opening next."
           - question: "Why would I trust it more than an opaque assistant?"
             answer: "Because the product is trying to keep the result, the trail, and the release posture visible together instead of asking you to trust mystery math."
           - question: "What does account creation give me right away?"
-            answer: "Account creation gives you signed-in downloads, install-link handoff, recovery posture, support history in Account, and a cleaner return path for the next preview."
+            answer: "Account creation gives you recovery, support history in Account, and a cleaner return path when linked downloads or account-aware preview features are available."
       - title: "Downloads and installs"
         entries:
-          - question: "Why is the current preview gated behind an account?"
-            answer: "The current preview uses account-aware download handoff so the first installed copy can attach back to your account from first launch instead of becoming an orphaned preview."
-          - question: "Do I get a personalized installer?"
-            answer: "No. The installer stays the same for everyone. The account-aware part is the receipt and short-lived claim code that links the installed copy back to you."
+          - question: "Do I need an account to download the current preview?"
+            answer: "No. The current Linux package is open public. Create an account when you want recovery, tracked support, and a cleaner return path when linked downloads are available."
+          - question: "Do I get a personalized download?"
+            answer: "No. The published package stays the same for everyone. Any account-aware receipt or handoff is separate from the file itself."
           - question: "Where do I go if install or update goes sideways?"
-            answer: "Start with Downloads, then use Contact or Account > Support. GitHub is the advanced public issue lane, not the default support door."
+            answer: "Start with Downloads, then use Contact or Account > Support. GitHub is the advanced public issue path, not the default support door."
       - title: "Participation and support"
         entries:
           - question: "Do I need to participate to help or report a bug?"
             answer: "No. Support and feedback stand on their own. Participation is optional and separate from the normal customer help path."
           - question: "Can I get help without a GitHub account?"
-            answer: "Yes. The first-party support intake is the default help lane. Create a Chummer account if you want tracked support history inside your account."
+            answer: "Yes. The first-party support intake is the default help path. Create a Chummer account if you want tracked support history inside your account."

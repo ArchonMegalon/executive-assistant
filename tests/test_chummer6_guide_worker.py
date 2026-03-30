@@ -1306,6 +1306,8 @@ def test_page_prompts_include_faq_and_help_ids() -> None:
     assert "how_can_i_help" in worker.PAGE_PROMPTS
     assert worker.PAGE_PROMPTS["faq"]["source"]
     assert worker.PAGE_PROMPTS["how_can_i_help"]["source"]
+    assert "Do I need an account to download the current preview?" in worker.PAGE_PROMPTS["faq"]["source"]
+    assert "one clear public download" in worker.PAGE_PROMPTS["how_can_i_help"]["source"]
 
 
 def test_copy_quality_findings_requires_concept_posture_on_first_contact_pages() -> None:
