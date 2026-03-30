@@ -2040,9 +2040,9 @@ class ProductService:
             rows.append(self._commitment_item_from_follow_up(follow_up, stakeholders))
         return rows
 
-    def list_commitments(self, *, principal_id: str, limit: int = 50) -> tuple[CommitmentItem, ...]:
+    def list_commitments(self, *, principal_id: str, limit: int = 50, include_closed: bool = False) -> tuple[CommitmentItem, ...]:
         rows = self._all_commitment_items(principal_id=principal_id, limit=limit)
-        rows = [row for row in rows if status_open(row.status)]
+        rows = rows if include_closed else [row for row in rows if status_open(row.status)]
         rows.sort(key=lambda row: (priority_weight(row.risk_level), due_bonus(row.due_at), row.statement.lower()), reverse=True)
         return tuple(rows[:limit])
 
@@ -2820,7 +2820,9 @@ class ProductService:
                 action_method="post",
             )
 
-        for commitment in self.list_commitments(principal_id=principal_id, limit=max(limit * 3, 40)):
+        for commitment in self.list_commitments(principal_id=principal_id, limit=max(limit * 3, 40), include_closed=True):
+            normalized_status = str(commitment.status or "").strip().lower()
+            actionable_open = status_open(normalized_status)
             add_result(
                 id=commitment.id,
                 kind="commitment",
@@ -2831,9 +2833,9 @@ class ProductService:
                 related_object_refs=(commitment.id,),
                 extra=(commitment.counterparty, commitment.owner, commitment.channel_hint, commitment.source_ref),
                 action_href=f"/app/actions/queue/{urllib.parse.quote(commitment.id, safe='')}/resolve",
-                action_label="Close" if commitment.status == "open" else "Reopen" if commitment.status == "completed" else "Review",
+                action_label="Close" if actionable_open else "Reopen",
                 action_method="post",
-                action_value="close" if commitment.status == "open" else "reopen" if commitment.status == "completed" else "",
+                action_value="close" if actionable_open else "reopen",
             )
 
         for decision in self.list_decisions(principal_id=principal_id, limit=max(limit * 2, 25)):

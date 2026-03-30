@@ -133,6 +133,11 @@ def test_browser_journey_updates_after_approval_and_commitment_closure() -> None
     assert "What just moved through the operator lane" in activity_after_close.text
     assert "Send board materials" in activity_after_close.text
 
+    search_after_close = client.get("/app/search", params={"query": "board materials"})
+    assert search_after_close.status_code == 200
+    assert "Send board materials" in search_after_close.text
+    assert "Reopen" in search_after_close.text
+
 
 def test_browser_action_routes_match_rendered_forms() -> None:
     principal_id = "exec-browser-action-routes"

@@ -249,11 +249,15 @@ def get_thread(
 @router.get("/commitments", response_model=list[CommitmentOut])
 def list_commitments(
     limit: int = Query(default=50, ge=1, le=200),
+    include_closed: bool = Query(default=False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> list[CommitmentOut]:
     service = build_product_service(container)
-    return [commitment_out(item) for item in service.list_commitments(principal_id=context.principal_id, limit=limit)]
+    return [
+        commitment_out(item)
+        for item in service.list_commitments(principal_id=context.principal_id, limit=limit, include_closed=include_closed)
+    ]
 
 
 @router.post("/commitments", response_model=CommitmentOut)
