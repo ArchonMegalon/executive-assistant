@@ -65,8 +65,8 @@ horizons:
     enabled: true
     order: 20
   pain_label: We only discover weak builds after they explode in public.
-  wow_promise: Builders get grounded what-if analysis without trusting fuzzy assistants.
-  table_scene: A player compares two builds and sees grounded tradeoffs with receipts instead of vibe-based suggestions.
+  wow_promise: Builders get grounded what-if analysis without trusting black-box suggestions.
+  table_scene: A player compares two builds and sees grounded tradeoffs with the math and the source trail still visible.
   build_path:
     intent: eventual_product_lane
     current_state: horizon
@@ -104,7 +104,7 @@ horizons:
     enabled: true
     order: 30
   pain_label: I want house rules without fork chaos.
-  wow_promise: Tables can evolve governed rulesets without splintering into unreadable forks.
+  wow_promise: Tables can evolve house rules without splintering into unreadable forks.
   table_scene: A GM promotes a house-rule pack with visible impact, approval history, and reversible publication state.
   build_path:
     intent: eventual_product_lane
@@ -194,7 +194,7 @@ horizons:
     enabled: true
     order: 40
   pain_label: I want dossiers, recaps, and briefings that feel good without making things up.
-  wow_promise: The table gets grounded short-to-medium-form artifacts that feel finished without severing provenance.
+  wow_promise: The table gets polished short-to-medium-form dossiers, recaps, and briefings that still show their source trail.
   table_scene: After a run, the GM exports a dossier-plus-recap packet with narration, evidence rooms, and share-safe previews.
   build_path:
     intent: eventual_product_lane
@@ -291,7 +291,7 @@ horizons:
     order: 60
   pain_label: I want real primers, handbooks, and campaign books without duct-taping ten tools together.
   wow_promise: Long-form publishing becomes governed, reusable, and materially better than one-off document hacks.
-  table_scene: A creator turns approved Chummer artifacts into a district guide or campaign book without vendor dashboards becoming the source of truth.
+  table_scene: A creator turns approved Chummer source material into a district guide or campaign book without making vendor dashboards the source of truth.
   build_path:
     intent: eventual_product_lane
     current_state: horizon
@@ -384,7 +384,7 @@ horizons:
     enabled: true
     order: 75
   pain_label: I know the table drifted, but I cannot say where the energy, pacing, or spotlight balance broke.
-  wow_promise: GMs get bounded post-session coaching about table dynamics without turning Chummer into live surveillance.
+  wow_promise: GMs get opt-in post-session coaching about table dynamics without turning Chummer into surveillance.
   table_scene: After an online session, the GM opens a coaching packet and sees spotlight balance, pacing heat zones, disengagement markers, and one or two concrete suggestions for the next run.
   build_path:
     intent: eventual_product_lane

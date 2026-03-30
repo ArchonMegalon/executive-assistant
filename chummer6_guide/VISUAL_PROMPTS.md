@@ -23,6 +23,16 @@ Why the postpass exists as a fallback:
 
 The worker now supports targeted rerenders so one bad banner does not force a full pack rerun.
 
+## Curation lock
+
+When an asset is marked `review_status: editorial_cover` with a manual `source_override` in `PUBLIC_GUIDE_IMAGE_CURATION.yaml`, treat that asset as canon-finished art.
+
+- prefer the curated source by default
+- do not burn credits rerendering it just because a provider can make a variant
+- only reopen the asset when the art direction has actually changed enough to justify a recut
+- if a curated asset fails audit, fix or replace the curated source rather than quietly drifting back to prompt-only generation
+- raw-scene fake-signage and text-sprawl gates apply before editorial composition; approved final cover typography is not the same failure mode
+
 ## Variation ledger
 
 The guide should not keep discovering the same four leather jackets around the same table.

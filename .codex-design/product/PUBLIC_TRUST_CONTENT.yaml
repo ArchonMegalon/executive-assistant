@@ -26,7 +26,7 @@ trust_pages:
       - id: install-update
         eyebrow: "Install or update"
         heading: "Start with the release page and install help"
-        body: "The release page should answer the normal install questions directly: recommended installer, known issues, update posture, and the next support step if the path still is not clear."
+        body: "The release page should answer the normal install questions directly: recommended installer, known issues, update status, and the next support step if the path still is not clear."
         bullets:
           - "One recommended installer is the default path."
           - "Alternative builds and manual packages are advanced paths."
@@ -43,15 +43,15 @@ trust_pages:
       - id: product-bug
         eyebrow: "Product bug"
         heading: "Product help should become a support case, not a rumor"
-        body: "The first-party intake is the default lane for install trouble, product bugs, and practical feedback. GitHub is the advanced public issue lane, not the main customer entry point."
+        body: "The first-party intake is the default path for install trouble, product bugs, and practical feedback. GitHub is the advanced public issue path, not the main customer entry point."
         bullets:
           - "Use Contact for install trouble, product bugs, or UX friction."
           - "Use Account > Support when you want tracked case history attached to your account."
           - "Use GitHub only when you intentionally want a public technical issue trail."
       - id: product-question
         eyebrow: "Product question or UX confusion"
-        heading: "Ask from the product surface first"
-        body: "Normal preview questions should be answerable from the product shell itself. Support and FAQ exist so you do not need to infer the answer from repo language or implementation details."
+        heading: "Ask from inside Chummer first"
+        body: "Normal preview questions should be answerable from inside the product. Support and FAQ exist so you do not need to infer the answer from implementation language or implementation details."
         bullets:
           - "FAQ answers the normal preview and product questions in plain language."
           - "Support cases stay separate from optional participation."
@@ -59,7 +59,7 @@ trust_pages:
   - id: privacy
     eyebrow: "Privacy"
     heading: "What Chummer stores, and what it does not"
-    intro: "This is the practical hosted-product posture right now: what the account keeps, what stays out of Hub, and how install linking and support stay bounded."
+    intro: "This is the practical hosted-product picture right now: what the account keeps, what stays out of Hub, and how install linking and support stay bounded."
     effective_date: "2026-03-25"
     updated_date: "2026-03-28"
     summary_points:
@@ -92,7 +92,7 @@ trust_pages:
       - id: recognition-privacy
         eyebrow: "Privacy and recognition"
         heading: "Recognition should not force publicity"
-        body: "Participation and recognition remain optional layers. Private product use, private support, and a quiet account posture remain valid even while community surfaces exist."
+        body: "Participation and recognition remain optional layers. Private product use, private support, and a quiet account setup remain valid even while community pages exist."
   - id: terms
     eyebrow: "Terms"
     heading: "Preview terms in plain language"
@@ -115,17 +115,17 @@ trust_pages:
         tone: ghost
     sections:
       - id: preview-posture
-        eyebrow: "Preview posture"
+        eyebrow: "Preview status"
         heading: "The product is real, but still early access"
         body: "Expect real surfaces, current installers, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
       - id: account-support
         eyebrow: "Account and support"
         heading: "Accounts should be boring, support should be first-party"
-        body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help lanes before any deeper public issue workflow."
+        body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help paths before any deeper public issue workflow."
       - id: delivery
         eyebrow: "Delivery"
         heading: "Installer-first when available, advanced packages only when necessary"
-        body: "Installer builds are the default product posture. Manual packages remain available for edge cases, but they are not the default first-run experience."
+        body: "Installer builds are the default product path. Manual packages remain available for edge cases, but they are not the default first-run experience."
   - id: contact
     eyebrow: "Contact"
     heading: "Open the right support case"
@@ -157,8 +157,8 @@ trust_pages:
         body: "You can submit help here without a GitHub account. Create a Chummer account when you want case history, linked installs, and release follow-up to stay visible in Account."
       - id: public-issues
         eyebrow: "Advanced public issues"
-        heading: "GitHub is the advanced public bug lane, not the main support door"
-        body: "Use the public issue tracker only when you intentionally want a public technical discussion. Normal customers should be able to start with the first-party product surface."
+        heading: "GitHub is the advanced public bug path, not the main support door"
+        body: "Use the public issue tracker only when you intentionally want a public technical discussion. Normal customers should be able to start with the first-party product path."
 faq_pages:
   - id: faq
     eyebrow: "FAQ"

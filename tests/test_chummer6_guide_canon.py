@@ -129,6 +129,23 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert "reviewer" in " ".join(forge["must_show_semantic_anchors"]).lower()
 
 
+def test_asset_image_curation_tracks_editorial_cover_locks() -> None:
+    canon = _load_module()
+
+    ui = canon.asset_image_curation("assets/parts/ui.png")
+    runsite = canon.asset_image_curation("assets/horizons/runsite.png")
+    parts_index = canon.asset_image_curation("assets/pages/parts-index.png")
+
+    assert ui["review_status"] == "editorial_cover"
+    assert ui["embed_policy"] == "manual"
+    assert ui["curation_locked"] is True
+    assert Path(ui["source_path"]).exists()
+    assert runsite["curation_locked"] is True
+    assert Path(runsite["source_path"]).exists()
+    assert parts_index["curation_locked"] is True
+    assert Path(parts_index["source_path"]).exists()
+
+
 def test_critical_asset_contracts_returns_three_targeted_rerun_profiles() -> None:
     canon = _load_module()
 

@@ -6,7 +6,7 @@ Players often discover bad builds, illegal interactions, or weak upgrade paths o
 
 ## Bounded product move
 
-Chummer would provide grounded comparative analysis, preflight quality checks, and guided build insight that stay tied to deterministic engine truth.
+Chummer would compare builds, catch trouble before play, and explain tradeoffs without making up rules or legality.
 
 ## Likely owners
 
@@ -20,10 +20,10 @@ Research and assistive drafting tools may support operator-facing explanations, 
 
 ## Foundations
 
-* explain canon
-* deterministic runtime DTO canon
-* workbench compare flows
+* explain views that show their work
+* deterministic runtime data
+* strong comparison flows
 
 ## Why still a horizon
 
-The product still needs authoritative explain and comparison seams before it can safely add higher-level advisory analysis.
+The product still needs reliable comparison and explanation surfaces before it should hand out higher-level build advice.
