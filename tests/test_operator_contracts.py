@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -320,6 +321,54 @@ def test_support_bundle_help_mentions_db_volume_attribution() -> None:
         check=True,
     )
     assert "SUPPORT_INCLUDE_DB_VOLUME=0|1" in result.stdout
+
+
+def test_operator_summary_prints_grounded_packet_guidance() -> None:
+    result = subprocess.run(
+        ["bash", "scripts/operator_summary.sh"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "-- grounded packets --" in result.stdout
+    assert "public help:" in result.stdout
+    assert "support question:" in result.stdout
+    assert "operator cadence:" in result.stdout
+
+
+def test_support_bundle_writes_grounding_summary() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "SUPPORT_BUNDLE_PREFIX": "grounding_contract",
+            "SUPPORT_INCLUDE_API": "0",
+            "SUPPORT_INCLUDE_DB": "0",
+            "SUPPORT_INCLUDE_DB_VOLUME": "0",
+            "SUPPORT_INCLUDE_DB_SIZE": "0",
+            "SUPPORT_INCLUDE_QUEUE": "0",
+            "SUPPORT_LOG_TAIL_LINES": "1",
+        }
+    )
+    result = subprocess.run(
+        ["bash", "scripts/support_bundle.sh"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    match = re.search(r"support bundle written: (.+)", result.stdout)
+    assert match is not None
+    bundle_path = Path(match.group(1).strip())
+    try:
+        text = bundle_path.read_text(encoding="utf-8")
+    finally:
+        bundle_path.unlink(missing_ok=True)
+    assert "-- grounding --" in text
+    assert "public_help_heading=" in text
+    assert "support_scorecard_question=" in text
+    assert "operator_review_cadence=" in text
 
 
 def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:

@@ -10,8 +10,9 @@ Usage:
   bash scripts/operator_summary.sh
 
 Print a compact operator command summary including deploy, smoke, readiness,
-release, support, and documentation shortcuts plus current version metadata
-and the current mirrored product-control pulse.
+release, support, and documentation shortcuts plus current version metadata,
+the current mirrored product-control pulse, and grounded help/support/operator
+packet guidance from the local design mirror.
 EOF
   exit 0
 fi
@@ -57,6 +58,58 @@ print(f"journey generated: {str((journey or {}).get('generated_at') or 'missing'
 print(f"journey gate:      {journey_state}")
 print(f"journey action:    {journey_action}")
 print(f"route review due:  {str(route.get('review_due') or 'not published').strip() or 'not published'}")
+PY
+}
+
+print_grounding_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+root = Path.cwd()
+design_root = root / ".codex-design" / "product"
+
+
+def load_yaml(path: Path) -> dict[str, object]:
+    try:
+        payload = yaml.safe_load(path.read_text())
+    except Exception:
+        return {}
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+
+trust = load_yaml(design_root / "PUBLIC_TRUST_CONTENT.yaml")
+release = load_yaml(design_root / "PUBLIC_RELEASE_EXPERIENCE.yaml")
+scorecard = load_yaml(design_root / "PRODUCT_HEALTH_SCORECARD.yaml")
+
+help_page = next(
+    (dict(row) for row in list(trust.get("trust_pages") or []) if isinstance(row, dict) and str(row.get("id") or "").strip() == "help"),
+    {},
+)
+support_scorecard = next(
+    (dict(row) for row in list(scorecard.get("scorecards") or []) if isinstance(row, dict) and str(row.get("id") or "").strip() == "support_and_feedback_closure"),
+    {},
+)
+first_action = next((dict(row) for row in list(help_page.get("actions") or []) if isinstance(row, dict)), {})
+first_metric = next((dict(row) for row in list(support_scorecard.get("metrics") or []) if isinstance(row, dict)), {})
+cadence = dict(scorecard.get("cadence") or {})
+
+print(f"public help:       {compact(help_page.get('heading') or 'Get help without guessing')}")
+print(f"help summary:      {compact(help_page.get('intro') or release.get('release_notes_summary'))}")
+if first_action:
+    print(f"help first action: {compact(first_action.get('label'))} -> {compact(first_action.get('href'))}")
+print(f"support question:  {compact(support_scorecard.get('question'))}")
+if first_metric:
+    print(f"support target:    {compact(first_metric.get('name'))} target {compact(first_metric.get('target'))}")
+print(f"operator cadence:  {compact(cadence.get('review') or 'weekly')}")
+print(f"snapshot owner:    {compact(cadence.get('snapshot_owner') or 'product_governor')}")
 PY
 }
 
@@ -109,6 +162,10 @@ echo
 
 echo "-- product control --"
 print_product_control_summary
+echo
+
+echo "-- grounded packets --"
+print_grounding_summary
 echo
 
 echo "-- queued task --"

@@ -18,6 +18,7 @@ Environment:
   SUPPORT_INCLUDE_DB_VOLUME=0|1         Include ea-db mount/volume attribution (default: 1)
   SUPPORT_INCLUDE_DB_SIZE=0|1           Include DB size snapshot via db_size.sh (default: 1)
   SUPPORT_INCLUDE_PRODUCT_CONTROL=0|1   Include mirrored weekly pulse and journey-gate summary (default: 1)
+  SUPPORT_INCLUDE_GROUNDING=0|1         Include mirrored help/support/operator grounding summary (default: 1)
   SUPPORT_DB_SIZE_LIMIT=<n>             Top table count for DB size snapshot (default: 10)
   SUPPORT_INCLUDE_QUEUE=0|1             Include queued task snapshot (default: 1)
 EOF
@@ -42,6 +43,7 @@ INCLUDE_API="${SUPPORT_INCLUDE_API:-1}"
 INCLUDE_DB_VOLUME="${SUPPORT_INCLUDE_DB_VOLUME:-1}"
 INCLUDE_DB_SIZE="${SUPPORT_INCLUDE_DB_SIZE:-1}"
 INCLUDE_PRODUCT_CONTROL="${SUPPORT_INCLUDE_PRODUCT_CONTROL:-1}"
+INCLUDE_GROUNDING="${SUPPORT_INCLUDE_GROUNDING:-1}"
 DB_SIZE_LIMIT="${SUPPORT_DB_SIZE_LIMIT:-10}"
 INCLUDE_QUEUE="${SUPPORT_INCLUDE_QUEUE:-1}"
 DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
@@ -100,6 +102,58 @@ print(f"route_review_due={str(route.get('review_due') or 'not published').strip(
 PY
 }
 
+print_grounding_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+root = Path.cwd()
+design_root = root / ".codex-design" / "product"
+
+
+def load_yaml(path: Path) -> dict[str, object]:
+    try:
+        payload = yaml.safe_load(path.read_text())
+    except Exception:
+        return {}
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+
+trust = load_yaml(design_root / "PUBLIC_TRUST_CONTENT.yaml")
+release = load_yaml(design_root / "PUBLIC_RELEASE_EXPERIENCE.yaml")
+scorecard = load_yaml(design_root / "PRODUCT_HEALTH_SCORECARD.yaml")
+
+help_page = next(
+    (dict(row) for row in list(trust.get("trust_pages") or []) if isinstance(row, dict) and str(row.get("id") or "").strip() == "help"),
+    {},
+)
+support_scorecard = next(
+    (dict(row) for row in list(scorecard.get("scorecards") or []) if isinstance(row, dict) and str(row.get("id") or "").strip() == "support_and_feedback_closure"),
+    {},
+)
+first_action = next((dict(row) for row in list(help_page.get("actions") or []) if isinstance(row, dict)), {})
+first_metric = next((dict(row) for row in list(support_scorecard.get("metrics") or []) if isinstance(row, dict)), {})
+cadence = dict(scorecard.get("cadence") or {})
+
+print(f"public_help_heading={compact(help_page.get('heading') or 'Get help without guessing')}")
+print(f"public_help_summary={compact(help_page.get('intro') or release.get('release_notes_summary'))}")
+if first_action:
+    print(f"public_help_primary_action={compact(first_action.get('label'))} -> {compact(first_action.get('href'))}")
+print(f"support_scorecard_question={compact(support_scorecard.get('question'))}")
+if first_metric:
+    print(f"support_scorecard_target={compact(first_metric.get('name'))} target {compact(first_metric.get('target'))}")
+print(f"operator_review_cadence={compact(cadence.get('review') or 'weekly')}")
+print(f"operator_snapshot_owner={compact(cadence.get('snapshot_owner') or 'product_governor')}")
+PY
+}
+
 {
   echo "== Support Bundle =="
   echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -116,6 +170,16 @@ PY
   else
     echo "-- product control --"
     echo "skipped (SUPPORT_INCLUDE_PRODUCT_CONTROL=${INCLUDE_PRODUCT_CONTROL})"
+    echo
+  fi
+
+  if [[ "${INCLUDE_GROUNDING}" == "1" ]]; then
+    echo "-- grounding --"
+    print_grounding_summary | redact || true
+    echo
+  else
+    echo "-- grounding --"
+    echo "skipped (SUPPORT_INCLUDE_GROUNDING=${INCLUDE_GROUNDING})"
     echo
   fi
 
