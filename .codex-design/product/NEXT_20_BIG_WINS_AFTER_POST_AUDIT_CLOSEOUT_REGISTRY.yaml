@@ -191,7 +191,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-hub-registry
-    status: in_progress
+    status: complete
     exit_criteria:
       - Import and export behaves as a real ecosystem seam with receipts and compatibility notes.
       - Portable dossier and campaign exchange no longer reads like a backup-only sidecar.
@@ -206,7 +206,7 @@ milestones:
       - chummer6-mobile
       - chummer6-media-factory
       - chummer6-hub-registry
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Runs can emit durable replay and recap packages that survive publication, return, and audit.
       - Replay and recap artifacts carry provenance that survives formatting, review, and shelf projection.
