@@ -11,6 +11,8 @@ from app.api.routes.product_api_contracts import (
     CommitmentCreateIn,
     CommitmentExtractIn,
     CommitmentOut,
+    DeadlineOut,
+    DeadlineResponse,
     DecisionItemOut,
     DecisionQueueItemOut,
     DecisionResponse,
@@ -53,6 +55,7 @@ from app.api.routes.product_api_contracts import (
     brief_out,
     commitment_candidate_out,
     commitment_out,
+    deadline_out,
     decision_out,
     draft_out,
     evidence_item_out,
@@ -184,6 +187,67 @@ def resolve_decision(
     if updated is None:
         raise HTTPException(status_code=404, detail="decision_not_found")
     return decision_out(updated)
+
+
+@router.get("/deadlines", response_model=DeadlineResponse)
+def list_deadlines(
+    limit: int = Query(default=20, ge=1, le=100),
+    include_closed: bool = Query(default=False),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> DeadlineResponse:
+    service = build_product_service(container)
+    items = service.list_deadlines(principal_id=context.principal_id, limit=limit, include_closed=include_closed)
+    return DeadlineResponse(generated_at=now_iso(), items=[deadline_out(item) for item in items], total=len(items))
+
+
+@router.get("/deadlines/{deadline_ref:path}/history", response_model=list[HistoryEntryOut])
+def get_deadline_history(
+    deadline_ref: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> list[HistoryEntryOut]:
+    service = build_product_service(container)
+    found = service.get_deadline(principal_id=context.principal_id, deadline_ref=deadline_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="deadline_not_found")
+    return [history_out(item) for item in service.get_deadline_history(principal_id=context.principal_id, deadline_ref=deadline_ref, limit=limit)]
+
+
+@router.get("/deadlines/{deadline_ref:path}", response_model=DeadlineOut)
+def get_deadline(
+    deadline_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> DeadlineOut:
+    service = build_product_service(container)
+    found = service.get_deadline(principal_id=context.principal_id, deadline_ref=deadline_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="deadline_not_found")
+    return deadline_out(found)
+
+
+@router.post("/deadlines/{deadline_ref:path}/resolve", response_model=DeadlineOut)
+def resolve_deadline(
+    deadline_ref: str,
+    body: QueueResolveIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> DeadlineOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
+    updated = service.resolve_deadline(
+        principal_id=context.principal_id,
+        deadline_ref=deadline_ref,
+        actor=actor,
+        action=body.action,
+        reason=body.reason,
+        due_at=body.due_at,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="deadline_not_found")
+    return deadline_out(updated)
 
 
 @router.post("/queue/{item_ref:path}/resolve", response_model=DecisionQueueItemOut)

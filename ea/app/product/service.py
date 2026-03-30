@@ -2841,7 +2841,8 @@ class ProductService:
                 action_value="close" if actionable_open else "reopen",
             )
 
-        for decision in self.list_decisions(principal_id=principal_id, limit=max(limit * 2, 25)):
+        for decision in self.list_decisions(principal_id=principal_id, limit=max(limit * 2, 25), include_closed=True):
+            actionable_open = status_open(decision.status)
             add_result(
                 id=decision.id,
                 kind="decision",
@@ -2852,9 +2853,9 @@ class ProductService:
                 related_object_refs=tuple(decision.related_commitment_ids) + tuple(decision.linked_thread_ids),
                 extra=tuple(decision.options) + tuple(decision.related_people) + (decision.recommendation, decision.next_action, decision.rationale),
                 action_href=f"/app/actions/queue/{urllib.parse.quote(decision.id, safe='')}/resolve",
-                action_label="Resolve" if decision.status == "open" else "Review",
-                action_method="post" if decision.status == "open" else "",
-                action_value="resolve" if decision.status == "open" else "",
+                action_label="Resolve" if actionable_open else "Reopen",
+                action_method="post",
+                action_value="resolve" if actionable_open else "reopen",
             )
 
         for deadline in self.list_deadlines(principal_id=principal_id, limit=max(limit * 2, 25), include_closed=True):
@@ -4595,6 +4596,29 @@ class ProductService:
         if updated is None:
             return None
         return self.get_decision(principal_id=principal_id, decision_ref=item_ref)
+
+    def resolve_deadline(
+        self,
+        *,
+        principal_id: str,
+        deadline_ref: str,
+        actor: str,
+        action: str,
+        reason: str = "",
+        due_at: str | None = None,
+    ) -> DeadlineItem | None:
+        item_ref = deadline_ref if deadline_ref.startswith("deadline:") else f"deadline:{deadline_ref}"
+        updated = self.resolve_queue_item(
+            principal_id=principal_id,
+            item_ref=item_ref,
+            action=action,
+            actor=actor,
+            reason=reason,
+            due_at=due_at,
+        )
+        if updated is None:
+            return None
+        return self.get_deadline(principal_id=principal_id, deadline_ref=item_ref)
 
     def list_threads(self, *, principal_id: str, limit: int = 20) -> tuple[ThreadItem, ...]:
         drafts = self.list_drafts(principal_id=principal_id, limit=max(limit, 20))
