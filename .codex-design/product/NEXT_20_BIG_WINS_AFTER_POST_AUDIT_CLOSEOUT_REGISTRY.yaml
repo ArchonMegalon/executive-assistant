@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-28
+last_reviewed: 2026-03-30
 program_wave: next_20_big_wins_after_post_audit_closeout
 goal: make the campaign OS indispensable, widen Build and Explain, elevate exchange and publication, and turn trust plus operator depth into launch-scale product truth.
 status: in_progress
@@ -35,7 +35,7 @@ waves:
       - 15
   - id: W4
     name: Trust, operator depth, and launch scale
-    status: not_started
+    status: complete
     milestone_ids:
       - 16
       - 17
@@ -251,7 +251,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - One artifact truth can be browsed as personal, campaign, and published views without record duplication.
       - Shelf posture stays explainable by audience, ownership, and publication state instead of ad hoc filtering.
@@ -265,7 +265,7 @@ milestones:
       - chummer6-hub
       - executive-assistant
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Campaign operators can run larger communities, seasons, and events on the same account and control backbone.
       - League and season operation surfaces are auditable and governed instead of spreadsheet cargo.
@@ -281,7 +281,7 @@ milestones:
       - fleet
       - chummer6-core
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - The support assistant can tell whether a user has received a fix on their install and channel and can ask for confirmation.
       - Proactive verification remains grounded in release, install, and case truth instead of assistant-local guesswork.
@@ -296,7 +296,7 @@ milestones:
       - chummer6-hub-registry
       - fleet
       - chummer6-ui
-    status: in_progress
+    status: complete
     exit_criteria:
       - Trust pages show what is fixed, who can get it now, what is recommended, and what still needs caution.
       - Install-specific status and adoption health are visible without collapsing release truth into hand-maintained prose.
@@ -311,7 +311,7 @@ milestones:
       - chummer6-hub
       - chummer6-core
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - New users can reach a legal, understandable, playable runner and a campaign-ready first session without repo knowledge.
       - Guided onboarding reuses grounded explain, support, and campaign truth instead of parallel tutorial folklore.
@@ -328,7 +328,7 @@ milestones:
       - executive-assistant
       - chummer6-design
       - chummer6-hub
-    status: in_progress
+    status: complete
     exit_criteria:
       - The weekly pulse uses real adoption, closure, and health trends plus provider-route defaults and canaries.
       - Launch, freeze, and reroute decisions no longer depend on hand-maintained prose drift.

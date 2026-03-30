@@ -1,10 +1,10 @@
 # JACKPOINT
 
-## Table pain
+## The problem
 
 Players and GMs want dossiers, recaps, primers, and narrated briefings, but most content tools either invent details or strip away where the facts came from.
 
-## Bounded product move
+## What it would do
 
 JACKPOINT would turn approved session material into dossiers, recaps, narrated briefings, evidence rooms, share cards, and creator packs.
 It is the short-to-medium-form publishing studio, not a replacement for full books.
@@ -26,7 +26,7 @@ It is the short-to-medium-form publishing studio, not a replacement for full boo
 * `Mootion` - bounded video support
 * `First Book ai` - bounded overflow support when the artifact lane needs long-form carryover
 
-## Foundations
+## What has to be true first
 
 * a fact trail that survives formatting
 * approval states
@@ -34,7 +34,7 @@ It is the short-to-medium-form publishing studio, not a replacement for full boo
 * source classification
 * reliable publication workflows
 
-## Why still a horizon
+## Why it is not ready yet
 
 These outputs only matter if the source trail survives writing, narration, preview generation, and publication.
 Until that chain is reliable, Chummer should not sell the studio as ready.

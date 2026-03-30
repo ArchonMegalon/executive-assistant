@@ -93,6 +93,14 @@ It is a bounded analysis lane:
 
 ## Autopilot loop
 
+Canonical meaning for the loop lives in design canon.
+The live operator implementation lives in Fleet:
+
+* design defines signal meaning, authority, freeze/reroute rules, and allowed actions
+* Fleet owns the durable runtime loop, traces, evals, canaries, packets, dashboards, and operator evidence
+* Hub owns the user, install, community, and support/control truth those loops read or update
+* shell sessions may start or inspect the loop, but they are entrypoints only and not the durable control plane
+
 The closed loop is:
 
 1. Observe
@@ -169,8 +177,12 @@ The minimum weekly pulse publishes:
 * release-health status
 * open blocker age posture
 * support and feedback closure posture
+* provider-route stewardship and canary posture
+* measured adoption health and history summary
+* launch and expansion posture for the active trail
 * design-drift count
 * public-promise drift count
+* progress trend direction and delta
 * top freeze or reroute decisions
 * the next checkpoint question
 

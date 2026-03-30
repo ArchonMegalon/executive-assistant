@@ -25,16 +25,16 @@ sections:
     entries:
       - question: How can I help?
         required: true
-        answer: Start with public bug reports, guide feedback, and future-feature suggestions. If you want to go further, the guided contribution path exists for opt-in temporary support on top of the free baseline.
+        answer: Start with public bug reports, documentation feedback, and future-feature suggestions. If you want to go further, guided contribution exists as an optional hands-on path on top of the free baseline.
       - question: What is guided contribution?
         required: true
-        answer: Guided contribution is an opt-in temporary support path for people who want to lend extra help on top of the free baseline. It is bounded, review-safe, and still not a bypass around governance.
+        answer: Guided contribution is an optional hands-on path for people who want to help more directly on top of the free baseline. It stays review-safe and does not bypass governance.
       - question: Do I need to join guided contribution to help?
         required: true
-        answer: No. Public bug reports, guide feedback, and future-feature suggestions still matter. Guided contribution is optional and additive, not the price of admission.
+        answer: No. Public bug reports, documentation feedback, and future-feature suggestions still matter. Guided contribution is optional and additive, not the price of admission.
       - question: Should I use the public issue tracker for a crash?
         required: true
-        answer: Use the in-product private crash path when diagnostics or logs are involved. Public issues stay best for public-safe reproducible bugs, guide feedback, and future-feature suggestions.
+        answer: Use the in-product private crash path when diagnostics or logs are involved. Public issues stay best for public-safe reproducible bugs, documentation feedback, and future-feature suggestions.
       - question: Why are some things preview-only?
         required: true
         answer: Because some surfaces are real enough to try while their support, release, or compatibility story is still catching up. Preview means shape can move, not that the product is pretending.
@@ -58,4 +58,4 @@ sections:
         answer: In the owning code repos. Chummer6 exists so you do not have to reverse-engineer the product story from commit archaeology.
       - question: Where do I propose public-facing changes?
         required: true
-        answer: Use the Chummer6 issue tracker for public guide feedback, bug reports, and future-feature suggestions. That keeps normal users out of the design repo.
+        answer: Use the Chummer6 issue tracker for documentation feedback, bug reports, and future-feature suggestions. That keeps normal users out of the design repo.

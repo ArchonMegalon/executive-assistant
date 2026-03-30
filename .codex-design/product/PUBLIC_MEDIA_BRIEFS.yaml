@@ -22,14 +22,14 @@ render_rules:
 shared_prompt_scaffold:
   applies_to: secondary_guide_art_only
   style_anchor: |
-    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, lived-in materials, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, textured surfaces, layered physical props, high information density, product-specific semantics, no readable text, no logos
+    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to real gear or anatomy, lived-in materials, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, textured surfaces, layered physical props, high information density, product-specific semantics, no readable text, no logos
   negative_prompt: |
     readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
 critical_asset_style_epoch:
   mode: flagship_poster
   overrides_shared_prompt_scaffold: true
   style_anchor: |
-    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, neon and sodium-vapor contrast, metahuman street-life specificity, dense practical props, diegetic overlays added in post, unmistakably Shadowrun-adjacent runner life, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
+    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, diegetic AR added in post, neon and sodium-vapor contrast, dense practical props, unmistakably Shadowrun-adjacent runner life, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
   negative_prompt: |
     stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still
 semantic_anchors:
@@ -41,13 +41,15 @@ semantic_anchors:
   - integrity seal or evidence clip
   - commlink or data chip
   - reviewer, witness, or operator relationship
-world_marker_minimum: 2
+world_marker_minimum: 3
 world_marker_bucket:
-  - metahuman presence or metahuman-adjacent physiology
-  - patched cyberware, datajack, trodes, smartgun, or rig components
-  - magical focus, fetish, talisman, or awakened-world hint
+  - metahuman presence with readable tusks, pointed ears, horns, stature, dermal texture, or other nonhuman physiology
+  - obvious cyberlimb, datajack, trodes, smartlink contacts, rig socket, or patched augment hardware
+  - partial megacorp product lineage such as Ares, Aztechnology, Renraku, Shiawase, Saeder-Krupp, Horizon, Evo, or Wuxing gear cues with logos blurred or cropped
+  - critter or parabotany ephemera such as devil rat traps, barghest or hell hound field photos, Blood Orchid plates, or Paper Lotus charms
+  - magical focus, fetish, talisman, ward scar, or awakened-world hint
   - rain-soaked streets, sodium-vapor plus neon mix, or grimy utilitarian spaces
-  - cables, duct tape, jury-rigged hardware, or off-brand med or corp gear
+  - cables, duct tape, jury-rigged hardware, synthskin wrap, med patches, or off-brand med or corp gear
   - runner-life or shadow-community setting such as clinic, safehouse, van, alley, rooftop, market, back room, industrial rail, or matrix nook
 rules:
   - No provider names appear in public landing assets.
@@ -64,6 +66,9 @@ rules:
   - Poster energy is welcome on flagship assets when it still reads as a lived product scene instead of a title card or fashion pose.
   - Critical public assets must choose one overlay posture before compositing: none, ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
   - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
+  - Flagship assets should usually carry both a metahuman cue and a body-worn cyberware cue; rain and grime alone do not make the frame feel Shadowrun.
+  - Lore crumbs should survive in flagship and quality-focus assets: cropped corp packaging, critter photo strips, talismonger ephemera, and parabotany prints are preferred over generic neon clutter.
+  - When a scene includes humor, keep it adult, peripheral, and diegetic through pictograms, mascot stickers, crossed-out icons, or cropped scribbles rather than readable joke signage.
   - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
   - Calm isolated workstation energy is not enough for first contact; show relationships, pressure, and proof props.
   - Every generated frame must keep decisive action inside the safe center so one master can survive desktop and mobile crops.
@@ -180,17 +185,19 @@ visual_contract:
     pseudo_text_allowed: false
     required_setting_markers:
       - multiple future districts or lanes
-      - street-level cyberpunk clues
+      - street-level chrome or awakened-world clues
+      - metahuman traffic or runner-life traces
       - differentiated faction or domain hints
     forbidden_environment_markers:
       - empty road ambience
       - sparse interchange
       - one sign carrying the whole image
-    cyberpunk_intensity: medium_high
-    shadowrun_lore_weight: medium
+    cyberpunk_intensity: high
+    shadowrun_lore_weight: high
     must_show_semantic_anchors:
       - branching plurality
       - differentiated future or work lanes
+      - at least one metahuman or body-worn cyberware clue that survives banner scale
       - multiple grounded clues instead of one central marker
     must_not_show:
       - menu-board composition
@@ -258,7 +265,7 @@ asset_overlay_contracts:
   assets/hero/chummer6-hero.png:
     style_epoch_force_only: true
     required_overlay_mode: medscan_diagnostic
-    world_marker_minimum: 3
+    world_marker_minimum: 4
     environment_share_minimum: 0.58
     subject_crop_maximum: 0.26
     cast_readability_required: true
@@ -290,7 +297,7 @@ asset_overlay_contracts:
       Anchor chips to the attribute rail or the treated augment zone; avoid
       face or torso coverage.
   assets/pages/horizons-index.png:
-    world_marker_minimum: 3
+    world_marker_minimum: 4
     environment_share_minimum: 0.72
     subject_crop_maximum: 0.18
     overlay_anchor_required: true
@@ -409,7 +416,7 @@ asset_overlay_contracts:
       - base_scene
       - verified_overlay_optional
   assets/pages/parts-index.png:
-    world_marker_minimum: 3
+    world_marker_minimum: 4
     environment_share_minimum: 0.74
     subject_crop_maximum: 0.18
     overlay_anchor_required: true
@@ -429,12 +436,15 @@ asset_overlay_contracts:
       - base_scene
       - verified_overlay_optional
   assets/horizons/alice.png:
-    world_marker_minimum: 3
+    world_marker_minimum: 4
     environment_share_minimum: 0.58
     apparatus_share_minimum: 0.34
     subject_crop_maximum: 0.24
     cast_readability_required: true
     overlay_anchor_required: true
+    required_cast_markers:
+      - metahuman test subject or operator visible
+      - obvious cyberlimb, datajack, trode band, or rig socket visible
     allowed_overlay_modes:
       - none
       - ambient_diegetic
@@ -475,12 +485,15 @@ asset_overlay_contracts:
       - base_scene
       - verified_overlay_optional
   assets/parts/hub.png:
-    world_marker_minimum: 3
+    world_marker_minimum: 4
     environment_share_minimum: 0.62
     apparatus_share_minimum: 0.45
     subject_crop_maximum: 0.24
     cast_readability_required: true
     overlay_anchor_required: true
+    required_cast_markers:
+      - metahuman maintainer or operator visible
+      - obvious cyberarm, datajack, trode band, or rig socket visible
     allowed_overlay_modes:
       - none
       - ambient_diegetic
@@ -492,6 +505,81 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Any overlay must attach to racks, seams, or aisle hardware and should
       reinforce hosted coordination instead of becoming a screen wall.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/mobile.png:
+    world_marker_minimum: 4
+    environment_share_minimum: 0.56
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - metahuman commuter or runner visible
+      - obvious handheld cyberware cue, trode rig, or datajack visible
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - reconnect arcs
+      - handheld sync halos
+      - continuity brackets
+      - gesture taps
+    overlay_actionability_rule: >
+      Keep reconnect cues attached to the returning device, sleeve, trode rig,
+      or table edge; avoid turning the image into a generic phone demo.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/jackpoint.png:
+    world_marker_minimum: 4
+    environment_share_minimum: 0.52
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - metahuman handler, runner, or fixer cue visible
+      - obvious cyberhand, chrome forearm, datajack, or trode band visible
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - dead-drop brackets
+      - dossier anchor rails
+      - route shards
+      - redaction bars
+    overlay_actionability_rule: >
+      Keep dossier cues attached to packets, evidence sleeves, chip trays, and
+      table edges; never let a fake readable form become the subject.
+    overlay_render_strategy: verified_post_composite_optional
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/nexus-pan.png:
+    world_marker_minimum: 4
+    environment_share_minimum: 0.56
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - metahuman returning operator or runner visible
+      - obvious datajack, trode band, smartlink lens, or cyberarm visible
+    allowed_overlay_modes:
+      - none
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - reconnect arcs
+      - continuity rails
+      - signal halos
+      - sync brackets
+    overlay_actionability_rule: >
+      Keep reconnect cues attached to the returning device, sleeve, cable nest,
+      or van hardware; avoid generic phone-demo framing.
     overlay_render_strategy: verified_post_composite_optional
     render_layers:
       - base_scene

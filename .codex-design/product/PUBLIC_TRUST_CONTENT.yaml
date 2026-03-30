@@ -35,11 +35,11 @@ trust_pages:
       - id: sign-in-recovery
         eyebrow: "Sign-in or account recovery"
         heading: "Keep access and recovery on one calm path"
-        body: "Account creation, sign-in, and recovery should stay boring. Use the account surface and the recovery flow before you fall back to manual troubleshooting."
+        body: "Account creation, sign-in, and recovery should stay boring. Use the account page and the recovery flow before you fall back to manual troubleshooting."
         bullets:
           - "Create an account when you want recovery, tracked support, and a cleaner return path for future downloads."
           - "Use recovery email so one sign-in method is never the whole story."
-          - "Devices and access stays separate from identity recovery."
+          - "Devices and access stay separate from identity recovery."
       - id: product-bug
         eyebrow: "Product bug"
         heading: "Product help should become a support case, not a rumor"
@@ -59,7 +59,7 @@ trust_pages:
   - id: privacy
     eyebrow: "Privacy"
     heading: "What Chummer stores, and what it does not"
-    intro: "This is the practical hosted-product picture right now: what the account keeps, what stays out of Hub, and how install linking and support stay bounded."
+    intro: "This is the practical hosted-product picture right now: what the account keeps, what stays out of Hub, and how install linking and support work today."
     effective_date: "2026-03-25"
     updated_date: "2026-03-28"
     summary_points:
@@ -80,7 +80,7 @@ trust_pages:
       - id: hosted-account
         eyebrow: "Account record"
         heading: "Hub keeps the account, preferences, and access state together"
-        body: "The hosted account keeps your basic profile, linked sign-in methods, devices and access state, support cases, and preview preferences so the public and signed-in surfaces stay coherent."
+        body: "The hosted account keeps your basic profile, linked sign-in methods, devices and access state, support cases, and preview preferences so the public and signed-in pages stay coherent."
       - id: install-linking
         eyebrow: "Install linking"
         heading: "The published package stays the same; the account handoff is separate"
@@ -117,11 +117,11 @@ trust_pages:
       - id: preview-posture
         eyebrow: "Preview status"
         heading: "The product is real, but still early access"
-        body: "Expect real surfaces, current downloads, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
+        body: "Expect real pages, current downloads, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
       - id: account-support
         eyebrow: "Account and support"
         heading: "Accounts should be boring, support should be first-party"
-        body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help paths before any deeper public issue workflow."
+        body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help paths before any deeper public issue path."
       - id: delivery
         eyebrow: "Delivery"
         heading: "Use the current public download first; advanced packages only when necessary"
@@ -180,7 +180,7 @@ faq_pages:
           - question: "Can I actually use Chummer right now?"
             answer: "Yes, as an honest early-access preview. There is a current public download, a real proof trail, and explicit labels for what is live, inspectable, or still opening next."
           - question: "Why would I trust it more than an opaque assistant?"
-            answer: "Because the product is trying to keep the result, the trail, and the release posture visible together instead of asking you to trust mystery math."
+            answer: "Because the product is trying to keep the result, the trail, and the current release picture visible together instead of asking you to trust mystery math."
           - question: "What does account creation give me right away?"
             answer: "Account creation gives you recovery, support history in Account, and a cleaner return path when linked downloads or account-aware preview features are available."
       - title: "Downloads and installs"
