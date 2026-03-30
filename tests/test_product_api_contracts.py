@@ -715,6 +715,56 @@ def test_delivery_followup_completion_can_record_waiting_on_principal() -> None:
     assert "Waiting on principal" in handoff_page.text
 
 
+def test_thread_delivery_followup_can_be_resumed_via_product_api() -> None:
+    principal_id = "exec-product-thread-resume-followup"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    approved = client.post(
+        f"/app/api/drafts/approval:{seeded['approval_id']}/approve",
+        json={"reason": "Route to manual delivery"},
+    )
+    assert approved.status_code == 200
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    followup = next(item for item in handoffs.json() if item["task_type"] == "delivery_followup")
+
+    assigned = client.post(
+        f"/app/api/handoffs/{followup['id']}/assign",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert assigned.status_code == 200
+
+    completed = client.post(
+        f"/app/api/handoffs/{followup['id']}/complete",
+        json={"operator_id": seeded["operator_id"], "resolution": "waiting_on_principal"},
+    )
+    assert completed.status_code == 200
+
+    threads = client.get("/app/api/threads")
+    assert threads.status_code == 200
+    thread_id = next(item["id"] for item in threads.json()["items"] if item["status"] == "waiting_on_principal")
+
+    resumed = client.post(
+        f"/app/api/threads/{thread_id}/resume-delivery",
+        json={"operator_id": seeded["operator_id"]},
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["task_type"] == "delivery_followup"
+    assert resumed.json()["draft_ref"] == f"approval:{seeded['approval_id']}"
+    assert resumed.json()["owner"] == seeded["operator_id"]
+
+    pending_handoffs = client.get("/app/api/handoffs")
+    assert pending_handoffs.status_code == 200
+    reopened = next(item for item in pending_handoffs.json() if item["task_type"] == "delivery_followup")
+    assert reopened["draft_ref"] == f"approval:{seeded['approval_id']}"
+
+    thread_history = client.get(f"/app/api/threads/{thread_id}/history")
+    assert thread_history.status_code == 200
+    assert any(row["event_type"] == "draft_send_followup_reopened" for row in thread_history.json())
+
+
 def test_delivery_followup_retry_send_reuses_saved_draft_payload(monkeypatch) -> None:
     principal_id = "exec-product-delivery-followup-retry"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
