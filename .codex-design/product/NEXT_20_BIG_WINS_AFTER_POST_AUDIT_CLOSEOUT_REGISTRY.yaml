@@ -75,7 +75,7 @@ milestones:
       - chummer6-hub
       - executive-assistant
       - chummer6-ui
-    status: in_progress
+    status: complete
     exit_criteria:
       - Dossiers can move between rosters, campaigns, and groups with explicit ownership transfer and auditability.
       - Organizer and GM actions stay on the same governed account and control backbone as normal user flows.
@@ -104,7 +104,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - chummer6-mobile
-    status: in_progress
+    status: complete
     exit_criteria:
       - Claimed devices can prefetch dossier, campaign, rule-environment, and artifact truth for bounded offline use.
       - Travel and safehouse mode keep install-local caches local while making offline readiness visible and deliberate.
