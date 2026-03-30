@@ -108,12 +108,14 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert hero["render_layers"] == ["base_scene", "verified_overlay"]
     assert "AGI or ESS" in hero["status_binding_rule"]
     assert "tusks" in " ".join(hero["required_troll_markers"]).lower()
-    assert hero["world_marker_minimum"] == 3
+    assert hero["world_marker_minimum"] == 4
     assert hero["environment_share_minimum"] == 0.58
     assert hero["subject_crop_maximum"] == 0.26
     assert hero["cast_readability_required"] is True
     assert hero["overlay_anchor_required"] is True
     assert "metahuman presence" in " ".join(hero["world_marker_bucket"]).lower()
+    assert "paper lotus" in " ".join(hero["world_marker_bucket"]).lower()
+    assert "megacorp" in " ".join(hero["world_marker_bucket"]).lower()
     assert "slim attribute rails" in " ".join(hero["overlay_geometry"]).lower()
     assert "illustrated cover-grade promo poster" in hero["critical_style_anchor"].lower()
     assert "visible operator relationship" in " ".join(hero["must_show_semantic_anchors"]).lower()
@@ -123,7 +125,7 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert horizons["visual_density_profile"] == "page_index"
     assert horizons["required_overlay_density"] == "medium"
     assert horizons["required_overlay_mode"] == "ambient_diegetic"
-    assert horizons["world_marker_minimum"] == 3
+    assert horizons["world_marker_minimum"] == 4
     assert horizons["environment_share_minimum"] == 0.72
     assert horizons["subject_crop_maximum"] == 0.18
     assert horizons["overlay_anchor_required"] is True

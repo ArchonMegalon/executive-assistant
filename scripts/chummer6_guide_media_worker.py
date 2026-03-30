@@ -984,11 +984,11 @@ def person_count_target_for_target(target: str) -> str:
 def cast_prompt_clause_for_target(target: str) -> str:
     profile = person_count_target_for_target(target)
     if profile == "duo_or_team":
-        return "Prefer two to four people with one focal operator relationship instead of a lone isolated figure."
+        return "Prefer two to four people with one focal operator relationship instead of a lone isolated figure, and let at least one person read as metahuman or visibly augmented."
     if profile == "plurality_optional":
-        return "Keep the environment plural; if people appear, use multiple partial figures or crews instead of a lone centered silhouette."
+        return "Keep the environment plural; if people appear, use multiple partial figures or crews instead of a lone centered silhouette, with at least one metahuman or chrome-heavy clue surviving at banner scale."
     if profile == "duo_preferred":
-        return "Prefer one active operator plus a visible reviewer, witness, or second pair of hands instead of one isolated person in a glow void."
+        return "Prefer one active operator plus a visible reviewer, witness, or second pair of hands instead of one isolated person in a glow void, and make at least one body read as metahuman or visibly augmented."
     return ""
 
 
@@ -4130,11 +4130,11 @@ def lore_background_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
     if composition == "horizon_boulevard":
-        return "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, or ward marks, but never as readable signage."
+        return "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, cropped megacorp commuter ads, devil rat warnings, or ward marks, but never as readable signage."
     if composition in {"street_front", "city_edge", "transit_checkpoint", "platform_edge", "van_interior", "district_map"}:
-        return "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, or ward marks."
+        return "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, cropped Renraku or Horizon consumer gear cues, devil rat bait tins, barghest or hell hound photo scraps, or ward marks."
     if composition in {"dossier_desk", "workshop_bench", "proof_room", "simulation_lab", "solo_operator", "review_bay", "clinic_intake", "render_lane"}:
-        return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, or dog-eared bounty card."
+        return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, clipped devil rat / barghest / hell hound field photos, a Blood Orchid plate, a Paper Lotus charm, cropped corp packaging, or a faint totem portrait in astral residue."
     return ""
 
 
@@ -7117,6 +7117,11 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
                 f"Keep at least {minimum} Shadowrun world markers visible, such as: {joined}."
                 if not compact
                 else f"world markers {joined}"
+            )
+            parts.append(
+                "Let at least one of those world markers land as a lore crumb on a prop or wall: megacorp gear, critter ephemera, parabotany plate, corp scrip, or astral totem cue."
+                if not compact
+                else "one lore crumb on a prop or wall"
             )
     if negative_space_cap == "low":
         parts.append(

@@ -2026,6 +2026,8 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("pipeline layers: base scene, verified overlay" in part.lower() for part in hero_parts)
     assert any("troll patient must read clearly" in part.lower() for part in hero_parts)
     assert any("shadowrun world markers visible" in part.lower() for part in hero_parts)
+    assert any("lore crumb on a prop or wall" in part.lower() for part in hero_parts)
+    assert any("paper lotus" in part.lower() or "megacorp" in part.lower() or "barghest" in part.lower() for part in hero_parts)
     assert any("room, district, or surrounding environment doing at least about 58% of the storytelling area" in part.lower() for part in hero_parts)
     assert any("single figure or tight subject cluster read larger than about 26% of the frame" in part.lower() for part in hero_parts)
     assert any("any overlay chip, rail, or callout must clearly anchor" in part.lower() or "all overlays must visibly anchor" in part.lower() for part in hero_parts)
