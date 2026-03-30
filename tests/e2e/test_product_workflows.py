@@ -221,7 +221,7 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert response is not None and response.ok
     assert "Rules" in page.content()
     assert "Morning memo delivery" in page.content()
-    assert "Google signal loop" in page.content()
+    assert "What is feeding the office loop" in page.content()
     assert "Draft approval" in page.content()
     assert "Google-first activation" in page.content()
 
@@ -320,6 +320,8 @@ def test_admin_operator_queue_actions_in_real_browser(page: Page, product_browse
     with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as claim_response:
         page.locator(".console-row", has_text="Prepare board follow-up handoff").get_by_role("button", name="Claim").first.click()
     assert claim_response.value.status == 303
+    page.wait_for_url(f"{base_url}/admin/operators")
+    page.wait_for_load_state("networkidle")
 
     with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as complete_response:
         page.locator(".console-row", has_text="Prepare board follow-up handoff").get_by_role("button", name="Complete").first.click()
