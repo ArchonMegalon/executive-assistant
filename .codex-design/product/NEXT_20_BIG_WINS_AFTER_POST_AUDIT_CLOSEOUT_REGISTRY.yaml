@@ -8,7 +8,7 @@ status: in_progress
 waves:
   - id: W1
     name: Make the campaign OS indispensable
-    status: in_progress
+    status: complete
     milestone_ids:
       - 1
       - 2
@@ -89,7 +89,7 @@ milestones:
       - chummer6-core
       - chummer6-media-factory
       - chummer6-ui
-    status: in_progress
+    status: complete
     exit_criteria:
       - Opposition, scene, and prep packets are reusable governed objects with search and campaign-binding semantics.
       - GM prep flows can launch governed opposition truth without recreating local shadow packet models.
@@ -147,7 +147,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Rules answers show how a custom environment differs from baseline and why.
       - Explain flows reuse the same governed rule-environment truth across product, support, and public-safe surfaces.
@@ -162,7 +162,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Sandbox, campaign-approved, and published rule-environment states are real product flows with lineage and rollback.
       - Promotion, rollback, and lineage posture are visible in both canon and runtime flows.
@@ -176,7 +176,7 @@ milestones:
       - chummer6-ui
       - chummer6-mobile
       - chummer6-hub
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Numbers, imports, migration decisions, update eligibility, and support resolutions expose grounded receipts.
       - Receipt posture is consistent across UI, mobile, hub, and support-facing product surfaces.
