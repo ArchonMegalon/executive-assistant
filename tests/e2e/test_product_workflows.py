@@ -4,6 +4,7 @@ import os
 import socket
 import threading
 import time
+import urllib.parse
 import urllib.request
 import zlib
 from collections.abc import Iterator
@@ -342,6 +343,36 @@ def test_commitment_detail_lifecycle_form_in_real_browser(page: Page, product_br
     assert "What is blocked outside the office loop" in page.content()
     assert "Send board materials" in page.content()
     assert "Scheduled" in page.content()
+
+
+def test_search_results_open_object_detail_and_preserve_search_context_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
+    base_url = str(product_browser_server["base_url"])
+    seeded = dict(product_browser_server["seeded"])
+    commitment_ref = f"commitment:{seeded['commitment_id']}"
+    encoded_commitment_ref = urllib.parse.quote(commitment_ref, safe="")
+    search_path = f"{base_url}/app/search?{urllib.parse.urlencode({'query': 'board materials'})}"
+    redirected_search_path = f"{base_url}/app/search?{urllib.parse.urlencode({'query': 'board materials', 'limit': 20})}"
+    detail_path = f"{base_url}/app/commitment-items/{encoded_commitment_ref}"
+
+    response = page.goto(search_path, wait_until="networkidle")
+    assert response is not None and response.ok
+    page.get_by_role("link", name="Send board materials").click()
+    page.wait_for_url(detail_path)
+    page.wait_for_load_state("networkidle")
+    assert "Update commitment state" in page.content()
+
+    response = page.goto(search_path, wait_until="networkidle")
+    assert response is not None and response.ok
+    with page.expect_response(
+        lambda value: f"/app/actions/queue/{encoded_commitment_ref}/resolve" in value.url and value.request.method == "POST"
+    ) as close_response:
+        page.locator(".console-row", has_text="Send board materials").get_by_role("button", name="Close").click()
+    assert close_response.value.status == 303
+    page.wait_for_url(redirected_search_path)
+    page.wait_for_load_state("networkidle")
+    assert "Results for “board materials”" in page.content()
+    assert "Send board materials" in page.content()
+    assert "Reopen" in page.content()
 
 
 def test_admin_audit_surface_renders_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:

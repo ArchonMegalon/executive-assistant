@@ -74,6 +74,9 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Workspace search" in search_page.text
     assert "Results for “Sofia”" in search_page.text
     assert "Sofia N." in search_page.text
+    assert "/app/threads/" in search_page.text
+    assert "/app/inbox?focus=" not in search_page.text
+    assert 'name="return_to" value="/app/search?query=Sofia&amp;limit=20"' in search_page.text
 
     person_detail = client.get(f"/app/people/{seeded['stakeholder_id']}")
     assert person_detail.status_code == 200
@@ -137,6 +140,12 @@ def test_browser_journey_updates_after_approval_and_commitment_closure() -> None
     assert search_after_close.status_code == 200
     assert "Send board materials" in search_after_close.text
     assert "Reopen" in search_after_close.text
+    assert "/app/commitment-items/" in search_after_close.text
+    assert "/app/follow-ups?focus=" not in search_after_close.text
+    commitment_search_ref = f"commitment:{seeded['commitment_id']}"
+    commitment_search_href = f"/app/commitment-items/{urllib.parse.quote(commitment_search_ref, safe='')}"
+    assert search_after_close.text.count(commitment_search_href) == 1
+    assert 'name="return_to" value="/app/search?query=board+materials&amp;limit=20"' in search_after_close.text
 
 
 def test_browser_action_routes_match_rendered_forms() -> None:

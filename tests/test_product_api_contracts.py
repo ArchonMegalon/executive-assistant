@@ -267,6 +267,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert any(item["kind"] == "thread" and item["title"] == "sofia@example.com" for item in search_body["items"])
     assert any(item["kind"] == "draft" for item in search_body["items"])
     assert all(item["score"] > 0 for item in search_body["items"])
+    draft_result = next(item for item in search_body["items"] if item["kind"] == "draft")
+    assert draft_result["href"].startswith("/app/threads/")
+    assert "?focus=" not in draft_result["href"]
 
     board_search = client.get("/app/api/search", params={"query": "board", "limit": 5})
     assert board_search.status_code == 200
@@ -280,6 +283,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert decision_result["action_label"] in {"Resolve", "Review"}
     assert decision_result["action_href"].startswith("/app/actions/queue/")
     commitment_result = next(item for item in board_body["items"] if item["kind"] == "commitment")
+    assert commitment_result["href"].startswith("/app/commitment-items/")
+    assert "?focus=" not in commitment_result["href"]
     assert commitment_result["action_label"] in {"Close", "Reopen", "Review"}
     assert commitment_result["action_href"].startswith("/app/actions/queue/")
 

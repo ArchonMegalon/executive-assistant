@@ -19,6 +19,14 @@ from app.product.service import build_product_service
 router = APIRouter(tags=["landing"])
 
 
+def _search_item_key(item: dict[str, object]) -> tuple[str, str, str]:
+    return (
+        str(item.get("kind") or "").strip(),
+        str(item.get("id") or "").strip(),
+        str(item.get("href") or "").strip(),
+    )
+
+
 def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/settings/google") -> dict[str, str]:
     connected = bool(sync.get("connected"))
     token_status = str(sync.get("token_status") or "missing").strip()
@@ -1158,6 +1166,15 @@ def app_search(
         )
     ) if normalized_query else []
     if normalized_query:
+        search_return_to = f"/app/search?{urllib.parse.urlencode({'query': normalized_query, 'limit': limit})}"
+        items = [
+            {
+                **item,
+                **({"return_to": search_return_to} if str(item.get("action_href") or "").strip() else {}),
+            }
+            for item in items
+        ]
+    if normalized_query:
         product.record_surface_event(
             principal_id=context.principal_id,
             event_type="workspace_search_opened",
@@ -1171,6 +1188,8 @@ def app_search(
         kind = str(item.get("kind") or "workspace").strip() or "workspace"
         kind_counts[kind] = int(kind_counts.get(kind) or 0) + 1
         grouped.setdefault(kind, []).append(item)
+    primary_items = items[:12]
+    primary_keys = {_search_item_key(item) for item in primary_items}
     stats = [
         {"label": "Results", "value": str(len(items))},
         {"label": "People", "value": str(kind_counts.get("person") or 0)},
@@ -1186,7 +1205,7 @@ def app_search(
                 if normalized_query
                 else "Search across people, threads, commitments, decisions, evidence, rules, and handoffs from one browser surface."
             ),
-            "items": items[:12] if normalized_query else [
+            "items": primary_items if normalized_query else [
                 {
                     "title": "Try a person, thread, or obligation",
                     "detail": "Search for Sofia, board, investor, renewal, or a concrete commitment title.",
@@ -1223,12 +1242,15 @@ def app_search(
     ]
     if normalized_query:
         for kind, rows in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))[:4]:
+            overflow_rows = [row for row in rows if _search_item_key(row) not in primary_keys][:6]
+            if not overflow_rows:
+                continue
             cards.append(
                 {
                     "eyebrow": "Kind slice",
                     "title": f"{kind.title()} matches",
                     "body": f"Top {kind} hits for “{normalized_query}”.",
-                    "items": rows[:6],
+                    "items": overflow_rows,
                 }
             )
     return _render_public_template(
