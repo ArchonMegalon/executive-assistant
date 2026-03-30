@@ -1944,7 +1944,8 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     assert media.first_contact_variant_count(target="assets/horizons/runsite.png") == 8
     assert media.first_contact_variant_count(target="assets/parts/hub.png") == 6
     assert media.first_contact_variant_count(target="assets/pages/parts-index.png") == 10
-    assert media.first_contact_variant_count(target="assets/parts/ui.png") == 1
+    assert media.quality_focus_target("assets/parts/ui.png") is True
+    assert media.first_contact_variant_count(target="assets/parts/ui.png") == 5
     assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png"}) is False
     assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png", "review_overlay": True}) is True
 
@@ -2078,7 +2079,7 @@ def test_visual_audit_enabled_uses_ffmpeg_fallback_when_pil_missing(monkeypatch:
 
     assert media.visual_audit_enabled(target="assets/hero/chummer6-hero.png") is True
     assert media.visual_audit_enabled(target="assets/pages/public-surfaces.png") is True
-    assert media.visual_audit_enabled(target="assets/parts/ui.png") is False
+    assert media.visual_audit_enabled(target="assets/parts/ui.png") is True
 
 
 def _synthetic_grid(*, active_tiles: set[tuple[int, int]], bright_tiles: set[tuple[int, int]] | None = None) -> tuple[int, int, list[int]]:
@@ -2783,6 +2784,36 @@ def test_champion_entry_for_target_seeds_from_repo_asset(
     assert ledger["assets"][target]["path"] == str(target_path)
 
 
+def test_champion_entry_for_target_persists_gate_failures_for_repo_seed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    repo_root = tmp_path / "Chummer6"
+    target = "assets/pages/parts-index.png"
+    target_path = repo_root / target
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_bytes(b"png")
+
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", repo_root)
+    monkeypatch.setattr(media, "visual_audit_enabled", lambda **kwargs: True)
+    monkeypatch.setattr(
+        media,
+        "visual_audit_score",
+        lambda **kwargs: (153.75, ["visual_audit:text_sprawl", "visual_audit:readable_signage_risk"]),
+    )
+    monkeypatch.setattr(
+        media,
+        "critical_visual_gate_failures",
+        lambda **kwargs: ["critical_visual_gate:final_score<300", "critical_visual_gate:text_sprawl"],
+    )
+
+    ledger = {"assets": {}}
+    entry = media.champion_entry_for_target(target=target, ledger=ledger)
+
+    assert entry["gate_failures"] == ["critical_visual_gate:final_score<300", "critical_visual_gate:text_sprawl"]
+    assert ledger["assets"][target]["gate_failures"] == ["critical_visual_gate:final_score<300", "critical_visual_gate:text_sprawl"]
+
+
 def test_champion_entry_for_target_backfills_output_path_alias(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2868,6 +2899,64 @@ def test_champion_entry_for_target_prefers_stronger_local_archive_candidate(
     assert entry["source"] == "local_archive_seed"
     assert entry["score"] == 333.6666666666667
     assert ledger["assets"][target]["path"] == str(archive_target)
+
+
+def test_champion_entry_for_target_prefers_gate_clean_archive_candidate_over_gate_failing_repo_seed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    repo_root = tmp_path / "Chummer6"
+    fleet_root = tmp_path / "fleet" / "state" / "chummer6"
+    target = "assets/parts/hub.png"
+    repo_target = repo_root / target
+    archive_target = fleet_root / "ea_media_upgrade" / target
+    repo_target.parent.mkdir(parents=True, exist_ok=True)
+    archive_target.parent.mkdir(parents=True, exist_ok=True)
+    repo_target.write_bytes(b"repo-png")
+    archive_target.write_bytes(b"archive-png")
+
+    monkeypatch.setattr(media, "CHUMMER6_REPO_ROOT", repo_root)
+    monkeypatch.setattr(media, "FLEET_STATE_ROOT", fleet_root)
+    monkeypatch.setattr(media, "visual_audit_enabled", lambda **kwargs: True)
+
+    def _visual_audit_score(*, image_path: Path, target: str) -> tuple[float, list[str]]:
+        if image_path == archive_target:
+            return (305.0, [])
+        if image_path == repo_target:
+            return (320.0, ["visual_audit:text_sprawl"])
+        raise AssertionError(f"unexpected path: {image_path}")
+
+    def _critical_visual_gate_failures(**kwargs: object) -> list[str]:
+        final_notes = list(kwargs.get("final_notes") or [])
+        return ["critical_visual_gate:text_sprawl"] if "visual_audit:text_sprawl" in final_notes else []
+
+    monkeypatch.setattr(media, "visual_audit_score", _visual_audit_score)
+    monkeypatch.setattr(media, "critical_visual_gate_failures", _critical_visual_gate_failures)
+
+    ledger = {"assets": {}}
+    entry = media.champion_entry_for_target(target=target, ledger=ledger)
+
+    assert entry["path"] == str(archive_target)
+    assert entry["source"] == "local_archive_seed"
+    assert entry["gate_failures"] == []
+
+
+def test_challenger_beats_champion_when_champion_has_gate_failures_and_challenger_clears_them() -> None:
+    media = _load_module()
+
+    result = media.challenger_beats_champion(
+        champion={
+            "score": 320.0,
+            "notes": ["visual_audit:text_sprawl"],
+            "gate_failures": ["critical_visual_gate:text_sprawl"],
+        },
+        target="assets/parts/hub.png",
+        score=306.0,
+        notes=[],
+        gate_failures=[],
+    )
+
+    assert result is True
 
 
 def test_provider_scheduler_entry_clears_stale_legacy_lock(

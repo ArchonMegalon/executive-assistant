@@ -119,17 +119,17 @@
     }
   },
   "assets/pages/parts-index.png": {
-    "visual_prompt": "Program map turned into a lived-in tabletop district view: laptops, tablets, dossiers, and service nodes arranged like neighborhoods around a real worktable, cinematic and legible without becoming an infographic.",
+    "visual_prompt": "Program map as one believable backroom warehouse floor: six distinct stations linked by floor paint, cable trays, rails, mirror panels, bins, relay hardware, and render gantries, seen from an oblique corner angle so the room reads as a walkable product map instead of a table collage, control room, or infographic wall. No readable labels, no central table, no giant wall panel, and no screen island dominating the shot.",
     "scene_contract": {
-      "subject": "the program map expressed through real tools and work zones on one table",
-      "environment": "a wide prep table where each part has a distinct physical station",
+      "subject": "the Chummer parts expressed as six linked physical stations in one room",
+      "environment": "an oblique warehouse workfloor with diagonal route lines, racks, mirrors, rails, bins, cages, and relay hardware",
       "action": "making the parts feel like landmarks a user can touch",
       "composition": "district_map",
-      "props": ["laptop station", "phone dock", "service rack", "dossier stack"],
+      "props": ["proof rail", "mirror nook", "route gate", "service rack slice", "render gantry", "seal bins"],
       "mood": "curious, organized, and slightly mischievous",
       "easter_egg_kind": "troll desk sticker",
-      "easter_egg_placement": "on the edge of the central table in the lower-left third",
-      "easter_egg_detail": "classic Chummer troll as a scuffed workbench sticker",
+      "easter_egg_placement": "on a battered rail bracket in the lower-left third",
+      "easter_egg_detail": "classic Chummer troll as a scuffed maintenance sticker on the route hardware",
       "easter_egg_visibility": "readable on the banner"
     }
   },
@@ -163,13 +163,13 @@
     }
   },
   "assets/parts/ui.png": {
-    "visual_prompt": "Prep-and-inspect workbench scene: one runner sheet on screen, gear comparison and inspection spread on the desk, human hands interacting with the tool, tactile and grounded.",
+    "visual_prompt": "Oblique prep-and-inspect bench with one main runner-build screen, one secondary compare slate, open gear trays, clipped notes, and human hands actively sorting loadout pieces under practical light. The desk and hardware must carry the story, not a symbol wall, kiosk, hallway display, or lone person staring at glowing icons. Keep it tactile, grounded, and obviously useful before a run, with no readable text.",
     "scene_contract": {
-      "subject": "a player building and inspecting a runner before the run",
-      "environment": "a prep desk with one main screen, notes, and gear cards",
-      "action": "showing the part you touch while building, comparing, and inspecting",
+      "subject": "a player building and inspecting a runner before the run with their hands inside the tool and the gear",
+      "environment": "a scarred prep bench with one main monitor, one compare slate, gear trays, clipped notes, and accessory clutter",
+      "action": "showing the workbench as something you physically touch while building, comparing, and inspecting",
       "composition": "desk_still_life",
-      "props": ["laptop", "gear cards", "stylus", "runner notes"],
+      "props": ["main monitor", "compare slate", "gear tray", "stylus", "runner notes", "inspection tokens"],
       "mood": "focused and practical",
       "easter_egg_kind": "troll monitor sticker",
       "easter_egg_placement": "on the bezel of the main screen near the upper-left quarter",
@@ -193,13 +193,13 @@
     }
   },
   "assets/parts/hub.png": {
-    "visual_prompt": "Hosted coordination scene that actually needs a service layer: one compact service rack, one control surface, and one remote session presence tied cleanly to a live local state feed, believable screens and rack hardware, not a cloud diagram and not another table meeting shot.",
+    "visual_prompt": "Hosted coordination as a dense relay aisle with staggered rack depth, patch bays, cartridge housings, service hatches, cable gutters, and one side access cut where remote-presence traces cling to real hardware seams. Make it feel operational and inhabited instead of a stock tunnel, white-portal runway, or giant monitor wall. Any operator must stay secondary to the rack geometry, with no centered lone-walker composition and no readable labels.",
     "scene_contract": {
-      "subject": "one coordination surface connecting local and remote session state",
-      "environment": "a back-room ops station with a rack, one control screen, and remote presences",
-      "action": "showing where hosted coordination starts being honestly useful",
+      "subject": "one hosted coordination lane connecting local and remote session state through real relay hardware",
+      "environment": "a staggered relay aisle with rack faces, patch rails, cartridge housings, service hatches, and a side access cut",
+      "action": "showing where hosted coordination becomes materially useful instead of just abstract infrastructure",
       "composition": "service_rack",
-      "props": ["service rack", "control screen", "remote session window", "network lights"],
+      "props": ["patch bay", "relay cartridge", "service hatch", "cable gutter", "rack seam", "status light"],
       "mood": "quietly competent",
       "easter_egg_kind": "troll rack decal",
       "easter_egg_placement": "on the face of the small service rack in the mid-right third",
@@ -238,13 +238,13 @@
     }
   },
   "assets/parts/media-factory.png": {
-    "visual_prompt": "Render queue workshop with outputs becoming real artifacts: dossier cards, thumbnails, and export rigs in a believable media station, industrial and tactile rather than abstract render icons.",
+    "visual_prompt": "Heated render bay where assets become real outputs: one operator working between a render rig, clipped proof rails, output trays, acrylic cue cards, export hardware, and pinned image swatches under industrial practical light. The room should read as a production line, not a portrait, paperwork desk, or generic office. No readable proof sheets, no seated hero pose, and no giant empty wall.",
     "scene_contract": {
-      "subject": "a media station turning jobs into visible outputs",
-      "environment": "a cramped render workshop with monitors, print proofs, and hardware",
-      "action": "showing where assets and artifacts are manufactured, not merely imagined",
+      "subject": "a media station turning queued jobs into visible outputs",
+      "environment": "a cramped render bay with proof rails, output trays, hardware rigs, pinned swatches, and hot practical light",
+      "action": "showing where assets and artifacts are manufactured instead of merely discussed",
       "composition": "workshop",
-      "props": ["render monitor", "print proofs", "hardware rig", "asset trays"],
+      "props": ["render rig", "output tray", "proof rail", "pinned swatches", "asset tray", "export dock"],
       "mood": "busy, practical, and slightly overheated",
       "easter_egg_kind": "troll rig sticker",
       "easter_egg_placement": "on the render rig casing in the right third",
