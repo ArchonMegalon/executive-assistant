@@ -36,3 +36,5 @@ Current rewrite kernel migrations:
 - `20260305_v0_31_artifact_principal_scope.sql`
 - `20260305_v0_32_provider_bindings_kernel.sql`
 - `20260305_v0_33_task_contract_runtime_policy.sql`
+- `20260305_v0_34_assistant_onboarding_canonical_schema.sql`
+- `20260305_v0_35_execution_ledger_legacy_compat.sql`

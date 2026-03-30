@@ -85,7 +85,7 @@ class PostgresArtifactRepository:
                             UPDATE artifacts AS a
                             SET principal_id = COALESCE(NULLIF(a.principal_id, ''), COALESCE(es.intent_json->>'principal_id', ''))
                             FROM execution_sessions AS es
-                            WHERE a.session_id = es.session_id
+                            WHERE a.session_id = es.session_id::text
                               AND COALESCE(a.principal_id, '') = '';
                         END IF;
                     END

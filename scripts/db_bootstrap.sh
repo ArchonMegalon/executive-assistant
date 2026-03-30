@@ -42,6 +42,7 @@ Applies kernel migrations in order:
   - v0_32 provider bindings kernel
   - v0_33 task contract runtime-policy kernel
   - v0_34 assistant onboarding canonical schema
+  - v0_35 execution ledger legacy compatibility
 EOF
   exit 0
 fi
@@ -90,6 +91,7 @@ SQL_FILES=(
   "ea/schema/20260305_v0_32_provider_bindings_kernel.sql"
   "ea/schema/20260305_v0_33_task_contract_runtime_policy.sql"
   "ea/schema/20260305_v0_34_assistant_onboarding_canonical_schema.sql"
+  "ea/schema/20260305_v0_35_execution_ledger_legacy_compat.sql"
 )
 
 echo "== EA DB bootstrap =="

@@ -189,16 +189,34 @@ validate_legacy_upgrade() {
     exit 41
   fi
 
+  event_cols="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='execution_events' AND column_name IN ('event_id','session_id','name','payload_json','created_at');" | tr -d '[:space:]')"
+  if [[ "${event_cols}" -lt 5 ]]; then
+    echo "legacy upgrade check failed: execution_events missing runtime columns" >&2
+    exit 42
+  fi
+
+  event_id_type="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='execution_events' AND column_name='event_id';" | tr -d '[:space:]')"
+  if [[ "${event_id_type}" != "text" ]]; then
+    echo "legacy upgrade check failed: execution_events.event_id type mismatch" >&2
+    exit 43
+  fi
+
+  step_cols="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='execution_steps' AND column_name IN ('parent_step_id','step_kind','state','attempt_count','input_json','output_json','error_json','correlation_id','causation_id','actor_type','actor_id');" | tr -d '[:space:]')"
+  if [[ "${step_cols}" -lt 11 ]]; then
+    echo "legacy upgrade check failed: execution_steps missing runtime columns" >&2
+    exit 44
+  fi
+
   req_cols="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='approval_requests' AND column_name IN ('approval_id','session_id','step_id','reason','requested_action_json','status','created_at','updated_at');" | tr -d '[:space:]')"
   if [[ "${req_cols}" -lt 8 ]]; then
     echo "legacy upgrade check failed: approval_requests missing runtime columns" >&2
-    exit 42
+    exit 45
   fi
 
   dec_cols="$(docker exec -i "${DB_CONTAINER}" psql -At -U "${DB_USER}" -d "${SMOKE_DB}" -c "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='approval_decisions' AND column_name IN ('decision_id','approval_id','session_id','step_id','decision','decided_by','reason','created_at');" | tr -d '[:space:]')"
   if [[ "${dec_cols}" -lt 8 ]]; then
     echo "legacy upgrade check failed: approval_decisions missing runtime columns" >&2
-    exit 43
+    exit 46
   fi
 }
 
