@@ -1459,6 +1459,9 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     assert updated.json()["status"] == "completed"
     assert updated.json()["resolution_code"] == "sent"
     assert updated.json()["resolution_reason"] == "Materials sent"
+    listed_with_closed = client.get("/app/api/commitments", params={"include_closed": True})
+    assert listed_with_closed.status_code == 200
+    assert any(row["id"] == commitment_ref and row["status"] == "completed" for row in listed_with_closed.json())
     history = client.get(f"/app/api/commitments/{commitment_ref}/history")
     assert history.status_code == 200
     assert any(row["event_type"] == "commitment_closed" for row in history.json())
