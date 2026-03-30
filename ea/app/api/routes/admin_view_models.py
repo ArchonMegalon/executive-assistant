@@ -430,6 +430,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     diagnostics_queue = dict(diagnostics.get("queue_health") or {})
     diagnostics_operator = dict(diagnostics.get("operators") or {})
     diagnostics_product_control = dict(diagnostics.get("product_control") or {})
+    diagnostics_support_verification = dict(diagnostics.get("support_verification") or {})
     diagnostics_analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(diagnostics_analytics.get("counts") or {})
     diagnostics_channels = list(diagnostics.get("selected_channels") or [])
@@ -497,6 +498,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         ),
         _row("Launch readiness", str(diagnostics_product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
         _row("Route review due", str(diagnostics_route_stewardship.get("review_due") or "No route review due published."), "Route"),
+        _row("Fix verification", str(diagnostics_support_verification.get("state") or "not_requested").replace("_", " "), "Support"),
+        _row("Channel receipt", str(diagnostics_support_verification.get("channel_receipt_state") or "not_requested").replace("_", " "), "Support"),
+        _row("Install receipt", str(diagnostics_support_verification.get("install_receipt_state") or "not_requested").replace("_", " "), "Support"),
         _row("Memo items", str(diagnostics_usage.get("brief_items") or 0), "Usage"),
         _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
         _row("Commitments", str(diagnostics_usage.get("commitments") or 0), "Usage"),

@@ -299,6 +299,29 @@ async def app_resume_thread_delivery_followup(
     return RedirectResponse(f"{return_to}{separator}send_status=resumed", status_code=303)
 
 
+@router.post("/app/actions/support/fix-verification/request")
+async def app_request_support_fix_verification(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _form_value(body, "return_to", "/app/settings/support")
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "support").strip()
+    separator = "&" if "?" in return_to else "?"
+    try:
+        product.request_support_fix_verification(
+            principal_id=context.principal_id,
+            actor=actor,
+            base_url=str(request.base_url),
+        )
+    except (RuntimeError, ValueError) as exc:
+        error_value = urllib.parse.quote(str(exc or "support_fix_verification_request_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}support_verification_error={error_value}", status_code=303)
+    return RedirectResponse(f"{return_to}{separator}support_verification=requested", status_code=303)
+
+
 @router.post("/app/actions/people/{person_id}/correct")
 async def app_correct_person(
     person_id: str,
