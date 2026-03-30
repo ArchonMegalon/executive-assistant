@@ -210,12 +210,15 @@ def test_product_api_projects_real_runtime_objects() -> None:
     digests = {item["key"]: item for item in channel_loop_body["digests"]}
     assert {"memo", "approvals", "operator"} <= set(digests)
     assert digests["memo"]["preview_text"]
+    assert any(item["title"] == "Support closure grounding" for item in digests["memo"]["items"])
     assert any(item["action_label"] == "Approve now" for item in digests["approvals"]["items"])
     assert any(item["secondary_action_label"] == "Reject" for item in digests["approvals"]["items"] if item["tag"] == "Draft")
     assert any(item["tag"] == "Handoff" for item in digests["operator"]["items"])
+    assert any(item["title"] == "Operator memo grounding" for item in digests["operator"]["items"])
     memo_plain = client.get("/app/api/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
     assert "Morning memo digest" in memo_plain.text
+    assert "Support closure grounding" in memo_plain.text
     assert "/app/channel-actions/" in memo_plain.text
 
     webhook = client.post(

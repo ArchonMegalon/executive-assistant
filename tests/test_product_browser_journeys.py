@@ -547,15 +547,18 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     memo_digest = client.get("/app/channel-loop/memo")
     assert memo_digest.status_code == 200
     assert "Morning memo digest" in memo_digest.text
+    assert "Support closure grounding" in memo_digest.text
     assert "Open memo" in memo_digest.text
     memo_plain = client.get("/app/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
     assert "Morning memo digest" in memo_plain.text
+    assert "Support closure grounding" in memo_plain.text
     assert "Open memo:" in memo_plain.text
 
     operator_digest = client.get("/app/channel-loop/operator")
     assert operator_digest.status_code == 200
     assert "Operator handoff digest" in operator_digest.text
+    assert "Operator memo grounding" in operator_digest.text
 
 
 def test_commitment_detail_form_can_schedule_commitment() -> None:
