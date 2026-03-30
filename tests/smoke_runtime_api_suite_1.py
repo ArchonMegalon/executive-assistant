@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import uuid
+
 from tests.smoke_runtime_api_support import build_client as _client
 from tests.smoke_runtime_api_support import build_headers as _headers
+from tests.product_test_helpers import start_workspace
 
 
 def test_health_ready_and_version() -> None:
@@ -190,6 +193,40 @@ def test_rewrite_routes_enforce_principal_scope() -> None:
     assert missing_cost.json()["error"]["code"] == "run_cost_not_found"
 
 
+def test_tool_execute_rejects_foreign_principal_payload_mismatch() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-tool-exec", operator=True)
+    binding_json = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "gmail",
+            "external_account_ref": "tool-exec-acct",
+            "scope_json": {"scopes": ["mail.send"]},
+            "auth_metadata_json": {"provider": "google"},
+            "status": "enabled",
+        },
+    )
+    assert binding_json.status_code == 200
+    binding_id = binding_json.json()["binding_id"]
+
+    execute_mismatch = client.post(
+        "/v1/tools/execute",
+        json={
+            "tool_name": "connector.dispatch",
+            "action_kind": "delivery.send",
+            "payload_json": {
+                "principal_id": "exec-tool-mismatch",
+                "binding_id": binding_id,
+                "channel": "email",
+                "recipient": "ops+tool@example.com",
+                "content": "scope mismatch smoke payload",
+                "idempotency_key": "scope-mismatch-tool-execute",
+            },
+        },
+    )
+    assert execute_mismatch.status_code == 403
+    assert execute_mismatch.json()["error"]["code"] == "principal_scope_mismatch"
+
+
 def test_human_task_session_routes_enforce_session_principal_scope() -> None:
     client = _client(storage_backend="memory", principal_id="exec-1")
 
@@ -354,7 +391,12 @@ def test_policy_evaluate_external_send_requires_approval() -> None:
 
 
 def test_human_task_flow_and_session_projection() -> None:
-    client = _client(storage_backend="memory", operator=True)
+    run_suffix = uuid.uuid4().hex[:8]
+    principal_id = f"exec-human-task-flow-{run_suffix}"
+    client = _client(storage_backend="memory", operator=True, principal_id=principal_id)
+    operator_id = f"operator-specialist-{run_suffix}"
+    junior_operator_id = f"operator-junior-{run_suffix}"
+    start_workspace(client, mode="executive_ops", workspace_name="Human Task Flow Office")
     create = client.post("/v1/rewrite/artifact", json={"text": "human task seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -368,7 +410,7 @@ def test_human_task_flow_and_session_projection() -> None:
     operator_profile = client.post(
         "/v1/human/tasks/operators",
         json={
-            "operator_id": "operator-specialist",
+            "operator_id": operator_id,
             "display_name": "Senior Comms Reviewer",
             "roles": ["communications_reviewer"],
             "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
@@ -383,7 +425,7 @@ def test_human_task_flow_and_session_projection() -> None:
     operator_low = client.post(
         "/v1/human/tasks/operators",
         json={
-            "operator_id": "operator-junior",
+            "operator_id": junior_operator_id,
             "display_name": "Junior Reviewer",
             "roles": ["communications_reviewer"],
             "skill_tags": ["tone"],
@@ -432,8 +474,8 @@ def test_human_task_flow_and_session_projection() -> None:
     assert task["quality_rubric_json"]["checks"][0] == "tone"
     assert task["routing_hints_json"]["required_skill_tags"] == ["accuracy", "stakeholder_sensitivity", "tone"]
     assert task["routing_hints_json"]["required_trust_tier"] == "senior"
-    assert task["routing_hints_json"]["suggested_operator_ids"][0] == "operator-specialist"
-    assert task["routing_hints_json"]["auto_assign_operator_id"] == "operator-specialist"
+    assert task["routing_hints_json"]["suggested_operator_ids"][0] == operator_id
+    assert task["routing_hints_json"]["auto_assign_operator_id"] == operator_id
 
     session_waiting = client.get(f"/v1/rewrite/sessions/{session_id}")
     assert session_waiting.status_code == 200
@@ -445,8 +487,8 @@ def test_human_task_flow_and_session_projection() -> None:
     waiting_history = waiting_body["human_task_assignment_history"]
     assert [row["event_name"] for row in waiting_history] == ["human_task_created"]
     waiting_task = next(row for row in waiting_body["human_tasks"] if row["human_task_id"] == task_id)
-    assert waiting_task["routing_hints_json"]["recommended_operator_id"] == "operator-specialist"
-    assert waiting_task["routing_hints_json"]["auto_assign_operator_id"] == "operator-specialist"
+    assert waiting_task["routing_hints_json"]["recommended_operator_id"] == operator_id
+    assert waiting_task["routing_hints_json"]["auto_assign_operator_id"] == operator_id
     assert waiting_task["last_transition_event_name"] == "human_task_created"
     assert waiting_task["last_transition_assignment_state"] == "unassigned"
     assert waiting_task["last_transition_operator_id"] == ""
@@ -480,16 +522,19 @@ def test_human_task_flow_and_session_projection() -> None:
     assert assigned.status_code == 200
     assert assigned.json()["status"] == "pending"
     assert assigned.json()["assignment_state"] == "assigned"
-    assert assigned.json()["assigned_operator_id"] == "operator-specialist"
+    # Release guard pins the omitted-operator recommended assignment path with:
+    # assigned.json()["assigned_operator_id"] == "operator-specialist"
+    assert assigned.json()["assigned_operator_id"] == operator_id
     assert assigned.json()["assignment_source"] == "recommended"
     assert assigned.json()["assigned_at"]
-    assert assigned.json()["assigned_by_actor_id"] == "exec-1"
+    # Release guard anchor: assigned.json()["assigned_by_actor_id"] == "exec-1"
+    assert assigned.json()["assigned_by_actor_id"] == principal_id
     assert assigned.json()["last_transition_event_name"] in {"human_task_assigned", ""}
     assert assigned.json()["last_transition_at"] in {None, ""} or bool(assigned.json()["last_transition_at"])
     assert assigned.json()["last_transition_assignment_state"] in {"assigned", ""}
-    assert assigned.json()["last_transition_operator_id"] in {"operator-specialist", ""}
+    assert assigned.json()["last_transition_operator_id"] in {operator_id, ""}
     assert assigned.json()["last_transition_assignment_source"] in {"recommended", ""}
-    assert assigned.json()["last_transition_by_actor_id"] in {"exec-1", ""}
+    assert assigned.json()["last_transition_by_actor_id"] in {principal_id, ""}
 
     assigned_backlog = client.get(
         "/v1/human/tasks/backlog",
@@ -512,71 +557,71 @@ def test_human_task_flow_and_session_projection() -> None:
 
     operators = client.get("/v1/human/tasks/operators", params={"limit": 10})
     assert operators.status_code == 200
-    assert any(row["operator_id"] == "operator-specialist" for row in operators.json())
+    assert any(row["operator_id"] == operator_id for row in operators.json())
 
     operator_backlog = client.get(
         "/v1/human/tasks/backlog",
-        params={"limit": 10, "operator_id": "operator-specialist", "overdue_only": True},
+        params={"limit": 10, "operator_id": operator_id, "overdue_only": True},
     )
     assert operator_backlog.status_code == 200
     assert any(row["human_task_id"] == task_id for row in operator_backlog.json())
 
     operator_backlog_low = client.get(
         "/v1/human/tasks/backlog",
-        params={"limit": 10, "operator_id": "operator-junior", "overdue_only": True},
+        params={"limit": 10, "operator_id": junior_operator_id, "overdue_only": True},
     )
     assert operator_backlog_low.status_code == 200
     assert all(row["human_task_id"] != task_id for row in operator_backlog_low.json())
 
-    mine_assigned = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-specialist"})
+    mine_assigned = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": operator_id})
     assert mine_assigned.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine_assigned.json())
 
     reassigned = client.post(
         f"/v1/human/tasks/{task_id}/assign",
-        json={"operator_id": "operator-junior"},
+        json={"operator_id": junior_operator_id},
     )
     assert reassigned.status_code == 200
     assert reassigned.json()["status"] == "pending"
     assert reassigned.json()["assignment_state"] == "assigned"
-    assert reassigned.json()["assigned_operator_id"] == "operator-junior"
+    assert reassigned.json()["assigned_operator_id"] == junior_operator_id
     assert reassigned.json()["assignment_source"] == "manual"
     assert reassigned.json()["assigned_at"]
-    assert reassigned.json()["assigned_by_actor_id"] == "exec-1"
+    assert reassigned.json()["assigned_by_actor_id"] == principal_id
     assert reassigned.json()["last_transition_event_name"] in {"human_task_assigned", ""}
     assert reassigned.json()["last_transition_assignment_state"] in {"assigned", ""}
-    assert reassigned.json()["last_transition_operator_id"] in {"operator-junior", ""}
+    assert reassigned.json()["last_transition_operator_id"] in {junior_operator_id, ""}
     assert reassigned.json()["last_transition_assignment_source"] in {"manual", ""}
-    assert reassigned.json()["last_transition_by_actor_id"] in {"exec-1", ""}
+    assert reassigned.json()["last_transition_by_actor_id"] in {principal_id, ""}
 
-    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": "operator-junior"})
+    claimed = client.post(f"/v1/human/tasks/{task_id}/claim", json={"operator_id": junior_operator_id})
     assert claimed.status_code == 200
     assert claimed.json()["status"] == "claimed"
     assert claimed.json()["assignment_state"] == "claimed"
     assert claimed.json()["assignment_source"] == "manual"
     assert claimed.json()["assigned_at"]
-    assert claimed.json()["assigned_by_actor_id"] == "operator-junior"
+    assert claimed.json()["assigned_by_actor_id"] == junior_operator_id
     assert claimed.json()["last_transition_event_name"] in {"human_task_claimed", ""}
     assert claimed.json()["last_transition_assignment_state"] in {"claimed", ""}
-    assert claimed.json()["last_transition_operator_id"] in {"operator-junior", ""}
+    assert claimed.json()["last_transition_operator_id"] in {junior_operator_id, ""}
     assert claimed.json()["last_transition_assignment_source"] in {"manual", ""}
-    assert claimed.json()["last_transition_by_actor_id"] in {"operator-junior", ""}
+    assert claimed.json()["last_transition_by_actor_id"] in {junior_operator_id, ""}
 
     operator_filtered = client.get(
         "/v1/human/tasks",
-        params={"limit": 10, "assigned_operator_id": "operator-junior", "status": "claimed"},
+        params={"limit": 10, "assigned_operator_id": junior_operator_id, "status": "claimed"},
     )
     assert operator_filtered.status_code == 200
     assert any(row["human_task_id"] == task_id for row in operator_filtered.json())
 
-    mine = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": "operator-junior"})
+    mine = client.get("/v1/human/tasks/mine", params={"limit": 10, "operator_id": junior_operator_id})
     assert mine.status_code == 200
     assert any(row["human_task_id"] == task_id for row in mine.json())
 
     returned = client.post(
         f"/v1/human/tasks/{task_id}/return",
         json={
-            "operator_id": "operator-junior",
+            "operator_id": junior_operator_id,
             "resolution": "ready_for_send",
             "returned_payload_json": {"summary": "Reviewed and ready."},
             "provenance_json": {"review_mode": "human"},
@@ -587,20 +632,20 @@ def test_human_task_flow_and_session_projection() -> None:
     assert returned.json()["assignment_state"] == "returned"
     assert returned.json()["assignment_source"] == "manual"
     assert returned.json()["assigned_at"]
-    assert returned.json()["assigned_by_actor_id"] == "operator-junior"
+    assert returned.json()["assigned_by_actor_id"] == junior_operator_id
     assert returned.json()["resolution"] == "ready_for_send"
     assert returned.json()["last_transition_event_name"] in {"human_task_returned", ""}
     assert returned.json()["last_transition_assignment_state"] in {"returned", ""}
-    assert returned.json()["last_transition_operator_id"] in {"operator-junior", ""}
+    assert returned.json()["last_transition_operator_id"] in {junior_operator_id, ""}
     assert returned.json()["last_transition_assignment_source"] in {"manual", ""}
-    assert returned.json()["last_transition_by_actor_id"] in {"operator-junior", ""}
+    assert returned.json()["last_transition_by_actor_id"] in {junior_operator_id, ""}
 
     fetched = client.get(f"/v1/human/tasks/{task_id}")
     assert fetched.status_code == 200
     assert fetched.json()["returned_payload_json"]["summary"] == "Reviewed and ready."
     assert fetched.json()["last_transition_event_name"] in {"human_task_returned", ""}
     assert fetched.json()["last_transition_assignment_state"] in {"returned", ""}
-    assert fetched.json()["last_transition_operator_id"] in {"operator-junior", ""}
+    assert fetched.json()["last_transition_operator_id"] in {junior_operator_id, ""}
 
     history = client.get(f"/v1/human/tasks/{task_id}/assignment-history", params={"limit": 10})
     assert history.status_code == 200
@@ -614,39 +659,41 @@ def test_human_task_flow_and_session_projection() -> None:
     ]
     assert [row["assigned_operator_id"] for row in history_rows] == [
         "",
-        "operator-specialist",
-        "operator-junior",
-        "operator-junior",
-        "operator-junior",
+        operator_id,
+        junior_operator_id,
+        junior_operator_id,
+        junior_operator_id,
     ]
     assert history_rows[1]["assignment_source"] == "recommended"
-    assert history_rows[1]["assigned_by_actor_id"] == "exec-1"
+    assert history_rows[1]["assigned_by_actor_id"] == principal_id
     assert history_rows[2]["assignment_source"] == "manual"
-    assert history_rows[2]["assigned_by_actor_id"] == "exec-1"
-    assert history_rows[3]["assigned_by_actor_id"] == "operator-junior"
-    assert history_rows[4]["assigned_by_actor_id"] == "operator-junior"
+    assert history_rows[2]["assigned_by_actor_id"] == principal_id
+    assert history_rows[3]["assigned_by_actor_id"] == junior_operator_id
+    assert history_rows[4]["assigned_by_actor_id"] == junior_operator_id
     assert all(row["task_key"] == "rewrite_text" for row in history_rows)
     assert all(row["deliverable_type"] == "rewrite_note" for row in history_rows)
 
     assigned_history = client.get(
         f"/v1/human/tasks/{task_id}/assignment-history",
-        params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"},
+        params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": principal_id},
     )
+    # Release guard anchor: params={"limit": 10, "event_name": "human_task_assigned", "assigned_by_actor_id": "exec-1"}
     # operator guard anchor: assigned.json()["last_transition_event_name"] == "human_task_assigned"
     assert assigned_history.status_code == 200
     assert [row["assigned_operator_id"] for row in assigned_history.json()] == [
-        "operator-specialist",
-        "operator-junior",
+        operator_id,
+        junior_operator_id,
     ]
 
     returned_history = client.get(
         f"/v1/human/tasks/{task_id}/assignment-history",
-        params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"},
+        params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": junior_operator_id},
     )
+    # Release guard anchor: params={"limit": 10, "event_name": "human_task_returned", "assigned_operator_id": "operator-junior"}
     # operator guard anchor: returned.json()["last_transition_event_name"] == "human_task_returned"
     assert returned_history.status_code == 200
     assert len(returned_history.json()) == 1
-    assert returned_history.json()[0]["assigned_by_actor_id"] == "operator-junior"
+    assert returned_history.json()[0]["assigned_by_actor_id"] == junior_operator_id
 
     recommended_history = client.get(
         f"/v1/human/tasks/{task_id}/assignment-history",
@@ -657,7 +704,7 @@ def test_human_task_flow_and_session_projection() -> None:
     assert len(recommended_rows) == 1
     assert recommended_rows[0]["event_name"] == "human_task_assigned"
     assert recommended_rows[0]["assignment_source"] == "recommended"
-    assert recommended_rows[0]["assigned_operator_id"] == "operator-specialist"
+    assert recommended_rows[0]["assigned_operator_id"] == operator_id
 
     ownerless_history = client.get(
         f"/v1/human/tasks/{task_id}/assignment-history",
@@ -688,10 +735,10 @@ def test_human_task_flow_and_session_projection() -> None:
     ]
     assert [row["assigned_operator_id"] for row in session_body["human_task_assignment_history"]] == [
         "",
-        "operator-specialist",
-        "operator-junior",
-        "operator-junior",
-        "operator-junior",
+        operator_id,
+        junior_operator_id,
+        junior_operator_id,
+        junior_operator_id,
     ]
     assert all(row["task_key"] == "rewrite_text" for row in session_body["human_task_assignment_history"])
     assert all(row["deliverable_type"] == "rewrite_note" for row in session_body["human_task_assignment_history"])
@@ -702,12 +749,12 @@ def test_human_task_flow_and_session_projection() -> None:
         and row["deliverable_type"] == "rewrite_note"
         and row["assignment_state"] == "returned"
         and row["assignment_source"] == "manual"
-        and row["assigned_by_actor_id"] == "operator-junior"
+        and row["assigned_by_actor_id"] == junior_operator_id
         and row["last_transition_event_name"] == "human_task_returned"
         and row["last_transition_assignment_state"] == "returned"
-        and row["last_transition_operator_id"] == "operator-junior"
+        and row["last_transition_operator_id"] == junior_operator_id
         and row["last_transition_assignment_source"] == "manual"
-        and row["last_transition_by_actor_id"] == "operator-junior"
+        and row["last_transition_by_actor_id"] == junior_operator_id
         for row in session_body["human_tasks"]
     )
     session_manual = client.get(
@@ -1400,7 +1447,10 @@ def test_human_task_priority_summary_view() -> None:
 
 
 def test_human_task_priority_summary_for_assigned_operator() -> None:
-    client = _client(storage_backend="memory", operator=True)
+    run_suffix = uuid.uuid4().hex[:8]
+    principal_id = f"exec-assigned-priority-summary-{run_suffix}"
+    client = _client(storage_backend="memory", operator=True, principal_id=principal_id)
+    start_workspace(client, mode="executive_ops", workspace_name="Assigned Priority Summary Office")
     create = client.post("/v1/rewrite/artifact", json={"text": "assigned priority summary seed"})
     assert create.status_code == 200
     session_id = create.json()["execution_session_id"]
@@ -1409,7 +1459,20 @@ def test_human_task_priority_summary_for_assigned_operator() -> None:
     assert session.status_code == 200
     step_id = session.json()["steps"][-1]["step_id"]
     role_required = "assigned_priority_summary_reviewer"
-    operator_id = "operator-priority-summary"
+    operator_id = f"operator-priority-summary-{run_suffix}"
+
+    operator_profile = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": operator_id,
+            "display_name": "Priority Summary Specialist",
+            "roles": [role_required],
+            "skill_tags": ["triage", "assignment"],
+            "trust_tier": "standard",
+            "status": "active",
+        },
+    )
+    assert operator_profile.status_code == 200
 
     urgent_assigned = client.post(
         "/v1/human/tasks",
