@@ -420,6 +420,14 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Next action" in decision_page.text
     assert "Recent decision history" in decision_page.text
     assert "Related threads" in decision_page.text
+    assert "Update decision state" in decision_page.text
+    deadline_ref = f"deadline:{seeded['deadline_window_id']}"
+    assert f"/app/deadlines/{deadline_ref}" in client.get("/app/briefing").text
+    deadline_page = client.get(f"/app/deadlines/{deadline_ref}")
+    assert deadline_page.status_code == 200
+    assert "Board memo delivery window" in deadline_page.text
+    assert "Deadline window" in deadline_page.text
+    assert "Update deadline state" in deadline_page.text
 
     threads = client.get("/app/api/threads")
     assert threads.status_code == 200
@@ -586,6 +594,105 @@ def test_commitment_detail_form_can_schedule_commitment() -> None:
     assert refreshed.json()["status"] == "scheduled"
     assert refreshed.json()["resolution_code"] == "board_review_booked"
     assert refreshed.json()["due_at"] == "2026-03-29T08:00:00+00:00"
+
+
+def test_decision_detail_form_can_resolve_and_reopen_decision() -> None:
+    principal_id = "exec-browser-decision-detail-form"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    decision_ref = f"decision:{seeded['decision_window_id']}"
+    detail_path = f"/app/decisions/{decision_ref}"
+    detail_page = client.get(detail_path)
+    assert detail_page.status_code == 200
+    assert "Update decision state" in detail_page.text
+    assert "Decision deadline" in detail_page.text
+
+    resolved = client.post(
+        f"/app/actions/queue/{decision_ref}/resolve",
+        data={
+            "action": "resolve",
+            "reason": "Principal confirmed the operator owner.",
+            "due_at": "2026-03-25T11:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert resolved.status_code == 303
+    assert resolved.headers["location"] == detail_path
+
+    detail_after_resolve = client.get(detail_path)
+    assert detail_after_resolve.status_code == 200
+    assert "Principal confirmed the operator owner." in detail_after_resolve.text
+    assert "Decided" in detail_after_resolve.text
+
+    reopened = client.post(
+        f"/app/actions/queue/{decision_ref}/resolve",
+        data={
+            "action": "reopen",
+            "reason": "Board requested another operator pass.",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert reopened.status_code == 303
+    assert reopened.headers["location"] == detail_path
+
+    detail_after_reopen = client.get(detail_path)
+    assert detail_after_reopen.status_code == 200
+    assert "Open" in detail_after_reopen.text
+    assert "No explicit resolution note yet." in detail_after_reopen.text
+    assert "Board requested another operator pass." in detail_after_reopen.text
+
+
+def test_deadline_detail_form_can_resolve_and_reopen_deadline() -> None:
+    principal_id = "exec-browser-deadline-detail-form"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    deadline_ref = f"deadline:{seeded['deadline_window_id']}"
+    detail_path = f"/app/deadlines/{deadline_ref}"
+    detail_page = client.get(detail_path)
+    assert detail_page.status_code == 200
+    assert "Update deadline state" in detail_page.text
+    assert "Window end" in detail_page.text
+
+    resolved = client.post(
+        f"/app/actions/queue/{deadline_ref}/resolve",
+        data={
+            "action": "resolve",
+            "reason": "Delivery window was covered in the queue.",
+            "due_at": "2026-03-25T15:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert resolved.status_code == 303
+    assert resolved.headers["location"] == detail_path
+
+    detail_after_resolve = client.get(detail_path)
+    assert detail_after_resolve.status_code == 200
+    assert "Elapsed" in detail_after_resolve.text
+    assert "Delivery window was covered in the queue." in detail_after_resolve.text
+
+    reopened = client.post(
+        f"/app/actions/queue/{deadline_ref}/resolve",
+        data={
+            "action": "reopen",
+            "reason": "Board requested a later delivery window.",
+            "due_at": "2026-03-26T15:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert reopened.status_code == 303
+    assert reopened.headers["location"] == detail_path
+
+    detail_after_reopen = client.get(detail_path)
+    assert detail_after_reopen.status_code == 200
+    assert "Open" in detail_after_reopen.text
+    assert "2026-03-26" in detail_after_reopen.text
+    assert "Board requested a later delivery window." in detail_after_reopen.text
 
 
 def test_morning_memo_issue_surfaces_reason_and_fix_target() -> None:

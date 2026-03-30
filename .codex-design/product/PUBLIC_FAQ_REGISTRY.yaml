@@ -7,7 +7,7 @@ sections:
     entries:
       - question: Can I actually use this now?
         required: true
-        answer: Yes, with honest caveats. There are usable public pages and a real preview installer shelf, but several areas are still explicitly marked preview. Read that as real but still moving, not imaginary.
+        answer: Yes, with honest caveats. There are usable public pages and a real preview download shelf, including the currently published package, but several areas are still explicitly marked preview. Read that as real but still moving, not imaginary.
       - question: Is it offline-safe?
         required: true
         answer: That is one of the main promises. Local-first and offline-ready behavior are part of the product story, and the public docs treat surviving bad connectivity as a real requirement.
@@ -19,7 +19,7 @@ sections:
         answer: Available today means there is a real public page or build you can touch right now. Preview in progress means the shape is visible and usable, but the support, release, or compatibility story is still moving.
       - question: What should I show a skeptical GM or player first?
         required: true
-        answer: Start with WHAT_CHUMMER6_IS.md for the product pitch, then NOW/current-status.md for the honest caveats, then PARTS/core.md if the real argument is about trust in the math.
+        answer: Start with [What Chummer6 Is](WHAT_CHUMMER6_IS.md) for the product promise, then [Status](STATUS.md) for the honest preview picture, then [Core](PARTS/core.md) if the real argument is about trust in the math.
   - id: participation_and_preview
     title: Participation and preview
     entries:
@@ -38,7 +38,7 @@ sections:
       - question: Why are some things preview-only?
         required: true
         answer: Because some surfaces are real enough to try while their support, release, or compatibility story is still catching up. Preview means shape can move, not that the product is pretending.
-      - question: Will guided-preview lanes open wider later?
+      - question: Will guided-preview access open wider later?
         required: true
         answer: The long-run intent is broader access, not a permanent paywall. Some early access windows may begin as guided previews while approvals, compatibility work, editorial effort, or support cost remain unusually expensive.
       - question: Can I participate privately?

@@ -122,6 +122,17 @@ class DecisionItem:
 
 
 @dataclass(frozen=True)
+class DeadlineItem:
+    id: str
+    title: str
+    summary: str
+    priority: str
+    start_at: str | None
+    end_at: str | None
+    status: str
+
+
+@dataclass(frozen=True)
 class ThreadItem:
     id: str
     title: str

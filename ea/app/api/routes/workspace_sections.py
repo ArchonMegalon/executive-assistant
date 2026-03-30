@@ -299,22 +299,33 @@ def _queue_rows(values: tuple[DecisionQueueItem, ...]) -> list[dict[str, str]]:
         action_href = ""
         action_label = ""
         action_value = ""
+        href = ""
         if value.id.startswith("approval:"):
             action_href = f"/app/actions/drafts/{value.id}/approve"
             action_label = "Approve"
         elif value.id.startswith(("commitment:", "follow_up:")):
+            href = f"/app/commitment-items/{value.id}"
             action_href = f"/app/actions/queue/{value.id}/resolve"
             action_label = "Close"
             action_value = "close"
-        elif value.id.startswith(("decision:", "deadline:")):
+        elif value.id.startswith("decision:"):
+            href = f"/app/decisions/{value.id}"
             action_href = f"/app/actions/queue/{value.id}/resolve"
             action_label = "Resolve"
             action_value = "resolve"
+        elif value.id.startswith("deadline:"):
+            href = f"/app/deadlines/{value.id}"
+            action_href = f"/app/actions/queue/{value.id}/resolve"
+            action_label = "Resolve"
+            action_value = "resolve"
+        elif value.id.startswith("human_task:"):
+            href = f"/app/handoffs/{value.id}"
         rows.append(
             _row(
                 value.title,
                 f"{value.summary}{due}".strip(),
                 value.priority.capitalize(),
+                href=href,
                 action_href=action_href,
                 action_label=action_label,
                 action_value=action_value,

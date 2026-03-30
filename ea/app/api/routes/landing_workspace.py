@@ -1195,15 +1195,16 @@ def app_search(
         {"label": "People", "value": str(kind_counts.get("person") or 0)},
         {"label": "Decisions", "value": str(kind_counts.get("decision") or 0)},
         {"label": "Commitments", "value": str(kind_counts.get("commitment") or 0)},
+        {"label": "Deadlines", "value": str(kind_counts.get("deadline") or 0)},
     ] if normalized_query else []
     cards = [
         {
             "eyebrow": "Workspace search",
             "title": f"Results for “{normalized_query}”" if normalized_query else "Search the workspace",
             "body": (
-                f"{len(items)} results across people, threads, commitments, decisions, evidence, and rules."
+                f"{len(items)} results across people, threads, commitments, decisions, deadlines, evidence, and rules."
                 if normalized_query
-                else "Search across people, threads, commitments, decisions, evidence, rules, and handoffs from one browser surface."
+                else "Search across people, threads, commitments, decisions, deadlines, evidence, rules, and handoffs from one browser surface."
             ),
             "items": primary_items if normalized_query else [
                 {
@@ -1234,7 +1235,7 @@ def app_search(
                 if normalized_query
                 else [
                     {"title": "People", "detail": "Search names, roles, themes, or relationship signals.", "tag": "Kind"},
-                    {"title": "Decisions and commitments", "detail": "Search a board item, follow-up, due obligation, or review object directly.", "tag": "Kind"},
+                    {"title": "Decisions, deadlines, and commitments", "detail": "Search a board item, follow-up, due obligation, or review object directly.", "tag": "Kind"},
                     {"title": "Evidence and rules", "detail": "Search the explanation layer when you need to answer why something happened.", "tag": "Kind"},
                 ]
             ),
