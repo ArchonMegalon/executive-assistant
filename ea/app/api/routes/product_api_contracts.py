@@ -240,6 +240,27 @@ class OfficeEventOut(BaseModel):
     payload: dict[str, object] = Field(default_factory=dict)
 
 
+class GroundingActionOut(BaseModel):
+    label: str
+    href: str = ""
+    method: str = "get"
+
+
+class GroundingSourceOut(BaseModel):
+    label: str
+    path: str = ""
+    as_of: str = ""
+
+
+class GroundingPackOut(BaseModel):
+    id: str
+    title: str
+    summary: str
+    bullets: list[str] = Field(default_factory=list)
+    actions: list[GroundingActionOut] = Field(default_factory=list)
+    sources: list[GroundingSourceOut] = Field(default_factory=list)
+
+
 class WorkspaceDiagnosticsOut(BaseModel):
     workspace: dict[str, object]
     selected_channels: list[str]
@@ -307,6 +328,7 @@ class WorkspaceTrustOut(BaseModel):
     evidence_count: int = 0
     rule_count: int = 0
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
+    public_help_grounding: GroundingPackOut | None = None
 
 
 class WorkspaceSupportBundleOut(BaseModel):
@@ -328,6 +350,7 @@ class WorkspaceSupportBundleOut(BaseModel):
     assignment_suggestions: list[dict[str, object]]
     pending_delivery: list[dict[str, object]]
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
+    support_assistant_grounding: GroundingPackOut | None = None
 
 
 class OperatorCenterLaneOut(BaseModel):
@@ -380,6 +403,7 @@ class OperatorCenterOut(BaseModel):
     next_actions: list[OperatorCenterActionOut] = Field(default_factory=list)
     recent_runtime: list[dict[str, object]] = Field(default_factory=list)
     snapshot: dict[str, int] = Field(default_factory=dict)
+    operator_memo_grounding: GroundingPackOut | None = None
 
 
 class WorkspaceInvitationOut(BaseModel):

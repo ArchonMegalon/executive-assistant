@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+import yaml
+
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.product.extractors import extract_commitment_candidates
@@ -88,6 +90,7 @@ _EA_DELIVERY_TEXT_MARKERS = (
 )
 _PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
 _PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
+_DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
 
 
 def _now_iso() -> str:
@@ -306,6 +309,83 @@ def _load_json_dict(path: Path) -> dict[str, object] | None:
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _load_yaml_dict(path: Path) -> dict[str, object] | None:
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError, UnicodeDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _design_product_root() -> Path:
+    raw = str(os.getenv("CHUMMER6_DESIGN_PRODUCT_ROOT") or "").strip()
+    if raw:
+        return Path(raw)
+    local_root = _repo_root() / ".codex-design/product"
+    if local_root.exists():
+        return local_root
+    return _DEFAULT_DESIGN_PRODUCT_ROOT
+
+
+def _design_source_path(key: str, fallback: str) -> Path:
+    root = _design_product_root()
+    manifest = _load_yaml_dict(root / "PUBLIC_GUIDE_EXPORT_MANIFEST.yaml") or {}
+    sources = dict(manifest.get("sources") or {}) if isinstance(manifest.get("sources"), dict) else {}
+    raw = str(sources.get(key) or "").strip()
+    if raw.startswith("products/chummer/"):
+        raw = raw[len("products/chummer/") :]
+    relative = raw or fallback
+    candidate = root / relative
+    if candidate.exists():
+        return candidate
+    local_root = (_repo_root() / ".codex-design/product").resolve()
+    try:
+        root_resolved = root.resolve()
+    except Exception:
+        root_resolved = root
+    if root_resolved == local_root and _DEFAULT_DESIGN_PRODUCT_ROOT.exists():
+        fallback_candidate = _DEFAULT_DESIGN_PRODUCT_ROOT / relative
+        if fallback_candidate.exists():
+            return fallback_candidate
+    return candidate
+
+
+def _design_string_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(entry).strip() for entry in value if str(entry).strip()]
+    normalized = str(value or "").strip()
+    return [normalized] if normalized else []
+
+
+def _grounding_actions(rows: object) -> list[dict[str, str]]:
+    actions: list[dict[str, str]] = []
+    if not isinstance(rows, list):
+        return actions
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        href = str(row.get("href") or "").strip()
+        if not label or not href:
+            continue
+        actions.append(
+            {
+                "label": label,
+                "href": href,
+                "method": str(row.get("method") or "get").strip().lower() or "get",
+            }
+        )
+    return actions
+
+
+def _grounding_source(*, label: str, path: Path | str, as_of: str = "") -> dict[str, str]:
+    normalized_path = str(path or "").strip()
+    payload = {"label": str(label or "").strip(), "path": normalized_path}
+    if as_of:
+        payload["as_of"] = str(as_of).strip()
+    return payload
 
 
 def _artifact_age_seconds(value: str | None) -> int | None:
@@ -849,6 +929,334 @@ class ProductService:
                 "pulse_generated_at": pulse_generated_at,
                 "journey_gates_generated_at": journey_generated_at,
             },
+        }
+
+    def _public_help_grounding_pack(self, *, product_control: dict[str, object] | None = None) -> dict[str, object]:
+        trust_path = _design_source_path("public_trust_content", "PUBLIC_TRUST_CONTENT.yaml")
+        release_path = _design_source_path("public_release_experience", "PUBLIC_RELEASE_EXPERIENCE.yaml")
+        trust_payload = _load_yaml_dict(trust_path) or {}
+        release_payload = _load_yaml_dict(release_path) or {}
+        help_page = next(
+            (
+                dict(value)
+                for value in list(trust_payload.get("trust_pages") or [])
+                if isinstance(value, dict) and str(value.get("id") or "").strip() == "help"
+            ),
+            {},
+        )
+        launch_readiness = str(dict(product_control or {}).get("launch_readiness") or "").strip()
+        summary_parts = [
+            str(help_page.get("intro") or "").strip(),
+            str(release_payload.get("release_notes_summary") or "").strip(),
+        ]
+        bullets = _design_string_list(help_page.get("summary_points"))[:3]
+        update_posture = compact_text(str(release_payload.get("update_posture_summary") or "").strip(), fallback="", limit=180)
+        if update_posture:
+            bullets.append(update_posture)
+        if launch_readiness:
+            bullets.append(f"Current launch posture: {launch_readiness}")
+        actions = _grounding_actions(help_page.get("actions"))
+        install_help_label = str(release_payload.get("install_help_label") or "").strip()
+        install_help_href = str(release_payload.get("install_help_href") or "").strip()
+        if install_help_label and install_help_href and all(str(item.get("href") or "").strip() != install_help_href for item in actions):
+            actions.append({"label": install_help_label, "href": install_help_href, "method": "get"})
+        return {
+            "id": "public_help",
+            "title": str(help_page.get("heading") or "Get help without guessing").strip() or "Get help without guessing",
+            "summary": compact_text(
+                " ".join(part for part in summary_parts if part),
+                fallback="Use the first-party help path before deeper technical material.",
+                limit=220,
+            ),
+            "bullets": bullets[:5],
+            "actions": actions[:4],
+            "sources": [
+                _grounding_source(
+                    label="PUBLIC_TRUST_CONTENT.yaml",
+                    path=trust_path,
+                    as_of=str(help_page.get("updated_date") or trust_payload.get("version") or "").strip(),
+                ),
+                _grounding_source(
+                    label="PUBLIC_RELEASE_EXPERIENCE.yaml",
+                    path=release_path,
+                    as_of=str(release_payload.get("version") or "").strip(),
+                ),
+            ],
+        }
+
+    def _support_assistant_grounding_pack(self, *, diagnostics: dict[str, object]) -> dict[str, object]:
+        trust_path = _design_source_path("public_trust_content", "PUBLIC_TRUST_CONTENT.yaml")
+        scorecard_path = _design_source_path("product_health_scorecard", "PRODUCT_HEALTH_SCORECARD.yaml")
+        trust_payload = _load_yaml_dict(trust_path) or {}
+        scorecard_payload = _load_yaml_dict(scorecard_path) or {}
+        contact_page = next(
+            (
+                dict(value)
+                for value in list(trust_payload.get("trust_pages") or [])
+                if isinstance(value, dict) and str(value.get("id") or "").strip() == "contact"
+            ),
+            {},
+        )
+        support_scorecard = next(
+            (
+                dict(value)
+                for value in list(scorecard_payload.get("scorecards") or [])
+                if isinstance(value, dict) and str(value.get("id") or "").strip() == "support_and_feedback_closure"
+            ),
+            {},
+        )
+        support_verification = dict(diagnostics.get("support_verification") or {})
+        product_control = dict(diagnostics.get("product_control") or {})
+        readiness = dict(diagnostics.get("readiness") or {})
+        providers = dict(diagnostics.get("providers") or {})
+        queue_health = dict(diagnostics.get("queue_health") or {})
+        metric_lines: list[str] = []
+        for metric in list(support_scorecard.get("metrics") or [])[:2]:
+            if not isinstance(metric, dict):
+                continue
+            name = str(metric.get("name") or "").strip()
+            target = str(metric.get("target") or "").strip()
+            if name and target:
+                metric_lines.append(f"{name} target {target}.")
+        bullets: list[str] = []
+        recommended_action = compact_text(
+            str(support_verification.get("recommended_action") or "").strip(),
+            fallback="",
+            limit=180,
+        )
+        if recommended_action:
+            bullets.append(recommended_action)
+        if str(support_verification.get("state") or "").strip() in {"waiting", "blocked"}:
+            bullets.append(
+                compact_text(
+                    " ".join(
+                        part
+                        for part in (
+                            str(support_verification.get("channel_receipt_detail") or "").strip(),
+                            str(support_verification.get("install_receipt_detail") or "").strip(),
+                            str(support_verification.get("confirmation_detail") or "").strip(),
+                        )
+                        if part
+                    ),
+                    fallback="Support verification is active.",
+                    limit=180,
+                )
+            )
+        if metric_lines:
+            bullets.extend(metric_lines)
+        provider_detail = compact_text(str(providers.get("risk_detail") or "").strip(), fallback="", limit=160)
+        if provider_detail:
+            bullets.append(f"Provider posture: {provider_detail}")
+        elif int(queue_health.get("delivery_errors") or 0):
+            bullets.append(f"Delivery backlog: {int(queue_health.get('delivery_errors') or 0)} active queue delivery errors.")
+        readiness_detail = compact_text(str(readiness.get("detail") or "").strip(), fallback="", limit=160)
+        if readiness_detail:
+            bullets.append(f"Workspace readiness: {readiness_detail}")
+        actions: list[dict[str, str]] = []
+        request_api_href = str(support_verification.get("request_api_href") or "").strip()
+        request_action_label = str(support_verification.get("request_action_label") or "Request confirmation").strip()
+        request_api_method = str(support_verification.get("request_api_method") or "post").strip().lower() or "post"
+        if request_api_href and request_action_label:
+            actions.append({"label": request_action_label, "href": request_api_href, "method": request_api_method})
+        actions.append({"label": "Open support diagnostics", "href": "/app/api/support", "method": "get"})
+        access_url = str(support_verification.get("access_url") or "").strip()
+        if access_url:
+            actions.append({"label": "Open workspace link", "href": access_url, "method": "get"})
+        for action in _grounding_actions(contact_page.get("actions")):
+            if len(actions) >= 4:
+                break
+            if all(str(item.get("href") or "").strip() != str(action.get("href") or "").strip() for item in actions):
+                actions.append(action)
+        control_sources = dict(product_control.get("sources") or {})
+        sources = [
+            _grounding_source(
+                label="PUBLIC_TRUST_CONTENT.yaml",
+                path=trust_path,
+                as_of=str(contact_page.get("updated_date") or trust_payload.get("version") or "").strip(),
+            ),
+            _grounding_source(
+                label="PRODUCT_HEALTH_SCORECARD.yaml",
+                path=scorecard_path,
+                as_of=str(scorecard_payload.get("last_reviewed") or "").strip(),
+            ),
+        ]
+        pulse_path = str(control_sources.get("pulse_path") or "").strip()
+        if pulse_path:
+            sources.append(
+                _grounding_source(
+                    label="WEEKLY_PRODUCT_PULSE.generated.json",
+                    path=pulse_path,
+                    as_of=str(control_sources.get("pulse_generated_at") or "").strip(),
+                )
+            )
+        return {
+            "id": "support_assistant",
+            "title": "Support closure grounding",
+            "summary": compact_text(
+                " ".join(
+                    part
+                    for part in (
+                        str(support_verification.get("summary") or "").strip(),
+                        str(contact_page.get("intro") or "").strip(),
+                        str(support_scorecard.get("question") or "").strip(),
+                    )
+                    if part
+                ),
+                fallback="Support guidance should stay grounded in mirrored trust and release signals.",
+                limit=220,
+            ),
+            "bullets": bullets[:5],
+            "actions": actions[:4],
+            "sources": sources[:4],
+        }
+
+    def _operator_memo_grounding_pack(
+        self,
+        *,
+        diagnostics: dict[str, object],
+        lanes: list[dict[str, object]] | None = None,
+        next_actions: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        scorecard_path = _design_source_path("product_health_scorecard", "PRODUCT_HEALTH_SCORECARD.yaml")
+        journey_gates_path = _design_source_path("golden_journey_release_gates", "GOLDEN_JOURNEY_RELEASE_GATES.yaml")
+        scorecard_payload = _load_yaml_dict(scorecard_path) or {}
+        journey_gates_payload = _load_yaml_dict(journey_gates_path) or {}
+        cadence = dict(scorecard_payload.get("cadence") or {})
+        product_control = dict(diagnostics.get("product_control") or {})
+        route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
+        journey_health = dict(product_control.get("journey_gate_health") or {})
+        lane_rows = [dict(value) for value in list(lanes or []) if isinstance(value, dict)]
+        severity = {"critical": 2, "watch": 1, "clear": 0}
+        active_lane = next(
+            (
+                row
+                for row in sorted(
+                    lane_rows,
+                    key=lambda row: (
+                        severity.get(str(row.get("state") or "").strip(), 0),
+                        int(row.get("count") or 0),
+                    ),
+                    reverse=True,
+                )
+                if severity.get(str(row.get("state") or "").strip(), 0) > 0
+            ),
+            {},
+        )
+        bullets: list[str] = []
+        review = str(cadence.get("review") or "").strip()
+        owner = str(cadence.get("snapshot_owner") or "").strip()
+        if review or owner:
+            bullets.append(f"Review cadence: {review or 'weekly'} by {owner or 'product_governor'}.")
+        recommended_action = compact_text(
+            str(journey_health.get("recommended_action") or journey_health.get("reason") or "").strip(),
+            fallback="",
+            limit=180,
+        )
+        if recommended_action:
+            bullets.append(f"Journey gates: {recommended_action}")
+        launch_readiness = str(product_control.get("launch_readiness") or "").strip()
+        if launch_readiness:
+            bullets.append(f"Launch readiness: {launch_readiness}")
+        route_detail = " · ".join(
+            part
+            for part in (
+                f"default {str(route_stewardship.get('default_status') or '').strip()}" if str(route_stewardship.get("default_status") or "").strip() else "",
+                f"canary {str(route_stewardship.get('canary_status') or '').strip()}" if str(route_stewardship.get("canary_status") or "").strip() else "",
+                f"next {str(route_stewardship.get('next_decision') or '').strip()}" if str(route_stewardship.get("next_decision") or "").strip() else "",
+                f"review due {str(route_stewardship.get('review_due') or '').strip()}" if str(route_stewardship.get("review_due") or "").strip() else "",
+            )
+            if part
+        )
+        if route_detail:
+            bullets.append(f"Provider-route stewardship: {route_detail}")
+        if active_lane:
+            bullets.append(
+                compact_text(
+                    f"Current lane pressure: {str(active_lane.get('label') or '').strip()}. {str(active_lane.get('detail') or '').strip()}",
+                    fallback="",
+                    limit=180,
+                )
+            )
+        elif next_actions:
+            first_action = dict(next_actions[0] or {})
+            bullets.append(
+                compact_text(
+                    f"Next operator move: {str(first_action.get('label') or '').strip()}. {str(first_action.get('detail') or '').strip()}",
+                    fallback="",
+                    limit=180,
+                )
+            )
+        actions: list[dict[str, str]] = []
+        for item in list(next_actions or [])[:3]:
+            row = dict(item or {})
+            label = str(row.get("action_label") or row.get("label") or "").strip()
+            href = str(row.get("action_href") or row.get("href") or "").strip()
+            if not label or not href:
+                continue
+            actions.append(
+                {
+                    "label": label,
+                    "href": href,
+                    "method": str(row.get("action_method") or "get").strip().lower() or "get",
+                }
+            )
+        if not actions and active_lane and str(active_lane.get("href") or "").strip():
+            actions.append(
+                {
+                    "label": f"Open {str(active_lane.get('label') or 'operator lane').strip()}",
+                    "href": str(active_lane.get("href") or "").strip(),
+                    "method": "get",
+                }
+            )
+        control_sources = dict(product_control.get("sources") or {})
+        sources = [
+            _grounding_source(
+                label="PRODUCT_HEALTH_SCORECARD.yaml",
+                path=scorecard_path,
+                as_of=str(scorecard_payload.get("last_reviewed") or "").strip(),
+            ),
+            _grounding_source(
+                label="GOLDEN_JOURNEY_RELEASE_GATES.yaml",
+                path=journey_gates_path,
+                as_of=str(journey_gates_payload.get("last_reviewed") or "").strip(),
+            ),
+        ]
+        pulse_path = str(control_sources.get("pulse_path") or "").strip()
+        if pulse_path:
+            sources.append(
+                _grounding_source(
+                    label="WEEKLY_PRODUCT_PULSE.generated.json",
+                    path=pulse_path,
+                    as_of=str(control_sources.get("pulse_generated_at") or "").strip(),
+                )
+            )
+        generated_journey_path = str(control_sources.get("journey_gates_path") or "").strip()
+        if generated_journey_path:
+            sources.append(
+                _grounding_source(
+                    label="JOURNEY_GATES.generated.json",
+                    path=generated_journey_path,
+                    as_of=str(control_sources.get("journey_gates_generated_at") or "").strip(),
+                )
+            )
+        return {
+            "id": "operator_memo",
+            "title": "Operator memo grounding",
+            "summary": compact_text(
+                " ".join(
+                    part
+                    for part in (
+                        str(product_control.get("summary") or "").strip(),
+                        str(scorecard_payload.get("purpose") or "").strip(),
+                    )
+                    if part
+                ),
+                fallback="Operator memos should stay grounded in weekly product control and journey gate evidence.",
+                limit=220,
+            ),
+            "bullets": [item for item in bullets[:5] if str(item or "").strip()],
+            "actions": actions[:4],
+            "sources": sources[:4],
         }
 
     def _gmail_signal_labels(
@@ -2734,6 +3142,9 @@ class ProductService:
             "evidence_count": len(evidence_items),
             "rule_count": len(rules),
             "recent_events": recent_events[:8],
+            "public_help_grounding": self._public_help_grounding_pack(
+                product_control=dict(diagnostics.get("product_control") or {}),
+            ),
         }
 
     def search_workspace(
@@ -6206,6 +6617,7 @@ class ProductService:
                     "href": "/app/briefing",
                 }
             )
+        trimmed_next_actions = next_actions[:6]
         return {
             "generated_at": _now_iso(),
             "workspace": dict(diagnostics.get("workspace") or {}),
@@ -6218,7 +6630,7 @@ class ProductService:
             "sync": sync,
             "usage": usage,
             "lanes": lanes,
-            "next_actions": next_actions[:6],
+            "next_actions": trimmed_next_actions,
             "recent_runtime": recent_events,
             "snapshot": {
                 "assigned_handoffs": len([row for row in snapshot.handoffs if str(row.owner or "").strip() == str(operator_id or "").strip()]) if str(operator_id or "").strip() else 0,
@@ -6230,6 +6642,11 @@ class ProductService:
                 "open_decisions": len(snapshot.decisions),
                 "people_in_play": len(snapshot.people),
             },
+            "operator_memo_grounding": self._operator_memo_grounding_pack(
+                diagnostics=diagnostics,
+                lanes=lanes,
+                next_actions=trimmed_next_actions,
+            ),
         }
 
     def workspace_support_bundle(self, *, principal_id: str) -> dict[str, object]:
@@ -6301,6 +6718,7 @@ class ProductService:
                 for row in pending_delivery
             ],
             "recent_events": list(self.list_office_events(principal_id=principal_id, limit=20)),
+            "support_assistant_grounding": self._support_assistant_grounding_pack(diagnostics=diagnostics),
         }
 
     def _handoff_browser_actions(
