@@ -152,6 +152,11 @@ def _stale_commitments(values: tuple[CommitmentItem, ...]) -> tuple[CommitmentIt
     return tuple(rows)
 
 
+def _commitments_by_status(values: tuple[CommitmentItem, ...], *statuses: str) -> tuple[CommitmentItem, ...]:
+    wanted = {str(value).strip().lower() for value in statuses if str(value).strip()}
+    return tuple(value for value in _sorted_open_commitments(values) if str(value.status or "").strip().lower() in wanted)
+
+
 def _sorted_people(values: tuple[PersonProfile, ...]) -> tuple[PersonProfile, ...]:
     rows = list(values)
     rows.sort(
@@ -358,9 +363,11 @@ def _decision_rows(values: tuple[DecisionItem, ...], *, return_to: str) -> list[
 def _commitment_rows(values: tuple[CommitmentItem, ...], *, return_to: str = "/app/inbox") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
+        status_label = str(value.status or "open").strip().replace("_", " ").title()
         detail = " · ".join(
             part
             for part in (
+                status_label if status_label.lower() not in {"open", "completed", "dropped"} else "",
                 value.counterparty,
                 f"Due {value.due_at[:10]}" if value.due_at else "",
                 value.proof_refs[0].note if value.proof_refs else "",
@@ -803,6 +810,7 @@ def workspace_section_payload(
     open_commitments = _sorted_open_commitments(snapshot.commitments)
     due_now_commitments = _commitments_due_now(snapshot.commitments)
     stale_commitments = _stale_commitments(snapshot.commitments)
+    waiting_commitments = _commitments_by_status(snapshot.commitments, "waiting_on_external", "scheduled")
     sorted_people = _sorted_people(snapshot.people)
     open_decisions = tuple(value for value in snapshot.decisions if status_open(value.status))
     principal_queue = tuple(value for value in snapshot.queue_items if value.requires_principal)
@@ -950,10 +958,13 @@ def workspace_section_payload(
                 },
                 {
                     "eyebrow": "Waiting on others",
-                    "title": "What is waiting on a human handoff",
-                    "body": "Handoffs are backed by real human tasks instead of suggestion copy.",
-                    "items": _handoff_rows(snapshot.handoffs[:8], operator_id=operator_key, return_to="/app/follow-ups")
-                    or [_row("No open handoffs", "Nothing is currently waiting on operator or human follow-up.", "Clear")],
+                    "title": "What is blocked outside the office loop",
+                    "body": "Use explicit waiting and scheduled states instead of leaving external dependencies hidden inside open promises.",
+                    "items": (
+                        _commitment_rows(waiting_commitments[:8], return_to="/app/follow-ups")
+                        + _handoff_rows(snapshot.handoffs[:8], operator_id=operator_key, return_to="/app/follow-ups")
+                    )[:8]
+                    or [_row("No external waits", "Nothing is currently waiting on another party or operator handoff.", "Clear")],
                 },
                 {
                     "eyebrow": "Unresolved promises",

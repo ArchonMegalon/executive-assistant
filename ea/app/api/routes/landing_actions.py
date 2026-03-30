@@ -80,6 +80,8 @@ async def app_resolve_queue_item(
         action=action,
         actor=actor,
         reason=reason,
+        reason_code=_form_value(body, "reason_code", ""),
+        due_at=_form_value(body, "due_at", "") or None,
     )
     if updated is None:
         raise HTTPException(status_code=404, detail="queue_item_not_found")

@@ -15,7 +15,7 @@ def _to_iso(value: Any) -> str:
 
 def _normalize_status(value: str) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized in {"open", "in_progress", "completed", "cancelled"}:
+    if normalized in {"open", "in_progress", "completed", "cancelled", "waiting_on_external", "scheduled"}:
         return normalized
     return "open"
 

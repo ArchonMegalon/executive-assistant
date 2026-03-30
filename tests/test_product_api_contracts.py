@@ -1684,6 +1684,34 @@ def test_commitment_defer_and_follow_up_reopen_preserve_reason_codes() -> None:
     assert dropped.json()["status"] == "dropped"
     assert dropped.json()["resolution_code"] == "cancelled_event"
 
+    waiting = client.post(
+        f"/app/api/commitments/follow_up:{seeded['follow_up_id']}/resolve",
+        json={
+            "action": "wait",
+            "reason": "Investor needs to confirm availability",
+            "reason_code": "waiting_on_external",
+            "due_at": "2026-03-28T09:30:00+00:00",
+        },
+    )
+    assert waiting.status_code == 200
+    assert waiting.json()["status"] == "waiting_on_external"
+    assert waiting.json()["resolution_code"] == "waiting_on_external"
+    assert waiting.json()["due_at"] == "2026-03-28T09:30:00+00:00"
+
+    scheduled = client.post(
+        f"/app/api/commitments/commitment:{seeded['commitment_id']}/resolve",
+        json={
+            "action": "schedule",
+            "reason": "Board review is booked for Friday morning",
+            "reason_code": "board_review_booked",
+            "due_at": "2026-03-29T08:00:00+00:00",
+        },
+    )
+    assert scheduled.status_code == 200
+    assert scheduled.json()["status"] == "scheduled"
+    assert scheduled.json()["resolution_code"] == "board_review_booked"
+    assert scheduled.json()["due_at"] == "2026-03-29T08:00:00+00:00"
+
     reopened = client.post(
         f"/app/api/commitments/follow_up:{seeded['follow_up_id']}/resolve",
         json={"action": "reopen", "reason": "Investor asked to reschedule"},

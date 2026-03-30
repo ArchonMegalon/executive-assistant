@@ -781,6 +781,7 @@ def _render_console_object_detail(
     object_sidebar_copy: str,
     object_sidebar_rows: list[dict[str, str]],
     object_sections: list[dict[str, object]],
+    object_sidebar_form: dict[str, object] | None = None,
 ) -> HTMLResponse:
     return _render_public_template(
         request,
@@ -806,6 +807,7 @@ def _render_console_object_detail(
             "object_sidebar_copy": object_sidebar_copy,
             "object_sidebar_rows": object_sidebar_rows,
             "object_sections": object_sections,
+            "object_sidebar_form": object_sidebar_form or {},
         },
     )
 

@@ -302,6 +302,37 @@ def test_follow_up_drop_in_real_browser(page: Page, product_browser_server: dict
     assert "Confirm investor meeting time" not in page.content()
 
 
+def test_commitment_detail_lifecycle_form_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
+    base_url = str(product_browser_server["base_url"])
+    seeded = dict(product_browser_server["seeded"])
+    commitment_ref = f"commitment:{seeded['commitment_id']}"
+    detail_path = f"{base_url}/app/commitment-items/{commitment_ref}"
+
+    response = page.goto(detail_path, wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Update commitment state" in page.content()
+
+    page.locator("select[name='action']").select_option("schedule")
+    page.locator("input[name='reason_code']").fill("board_review_booked")
+    page.locator("input[name='due_at']").fill("2026-03-29T08:00:00+00:00")
+    page.locator("textarea[name='reason']").fill("Board review is booked for Friday morning.")
+    with page.expect_response(
+        lambda value: f"/app/actions/queue/{commitment_ref}/resolve" in value.url and value.request.method == "POST"
+    ) as update_response:
+        page.get_by_role("button", name="Update commitment").click()
+    assert update_response.value.status == 303
+    page.wait_for_load_state("networkidle")
+    assert "Resolution code" in page.content()
+    assert "board_review_booked" in page.content()
+    assert "Scheduled" in page.content()
+
+    response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "What is blocked outside the office loop" in page.content()
+    assert "Send board materials" in page.content()
+    assert "Scheduled" in page.content()
+
+
 def test_admin_audit_surface_renders_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
 
