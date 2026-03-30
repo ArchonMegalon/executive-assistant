@@ -345,6 +345,79 @@ def test_commitment_detail_lifecycle_form_in_real_browser(page: Page, product_br
     assert "Scheduled" in page.content()
 
 
+def test_decision_detail_form_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
+    base_url = str(product_browser_server["base_url"])
+    seeded = dict(product_browser_server["seeded"])
+    decision_ref = f"decision:{seeded['decision_window_id']}"
+    detail_path = f"{base_url}/app/decisions/{decision_ref}"
+
+    response = page.goto(detail_path, wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Update decision state" in page.content()
+
+    page.locator("select[name='action']").select_option("resolve")
+    page.locator("textarea[name='reason']").fill("Principal confirmed the operator owner.")
+    with page.expect_response(
+        lambda value: f"/app/actions/queue/{decision_ref}/resolve" in value.url and value.request.method == "POST"
+    ) as resolve_response:
+        page.get_by_role("button", name="Update decision").click()
+    assert resolve_response.value.status == 303
+    page.wait_for_url(detail_path)
+    page.wait_for_load_state("networkidle")
+    assert "Principal confirmed the operator owner." in page.content()
+    assert "Decided" in page.content()
+
+    page.locator("select[name='action']").select_option("reopen")
+    page.locator("textarea[name='reason']").fill("Board requested another operator pass.")
+    with page.expect_response(
+        lambda value: f"/app/actions/queue/{decision_ref}/resolve" in value.url and value.request.method == "POST"
+    ) as reopen_response:
+        page.get_by_role("button", name="Update decision").click()
+    assert reopen_response.value.status == 303
+    page.wait_for_url(detail_path)
+    page.wait_for_load_state("networkidle")
+    assert "Open" in page.content()
+    assert "No explicit resolution note yet." in page.content()
+    assert "Board requested another operator pass." in page.content()
+
+
+def test_deadline_detail_form_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
+    base_url = str(product_browser_server["base_url"])
+    seeded = dict(product_browser_server["seeded"])
+    deadline_ref = f"deadline:{seeded['deadline_window_id']}"
+    detail_path = f"{base_url}/app/deadlines/{deadline_ref}"
+
+    response = page.goto(detail_path, wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "Update deadline state" in page.content()
+
+    page.locator("select[name='action']").select_option("resolve")
+    page.locator("textarea[name='reason']").fill("Delivery window was covered in the queue.")
+    with page.expect_response(
+        lambda value: f"/app/actions/queue/{deadline_ref}/resolve" in value.url and value.request.method == "POST"
+    ) as resolve_response:
+        page.get_by_role("button", name="Update deadline").click()
+    assert resolve_response.value.status == 303
+    page.wait_for_url(detail_path)
+    page.wait_for_load_state("networkidle")
+    assert "Elapsed" in page.content()
+    assert "Delivery window was covered in the queue." in page.content()
+
+    page.locator("select[name='action']").select_option("reopen")
+    page.locator("input[name='due_at']").fill("2026-03-26T15:00:00+00:00")
+    page.locator("textarea[name='reason']").fill("Board requested a later delivery window.")
+    with page.expect_response(
+        lambda value: f"/app/actions/queue/{deadline_ref}/resolve" in value.url and value.request.method == "POST"
+    ) as reopen_response:
+        page.get_by_role("button", name="Update deadline").click()
+    assert reopen_response.value.status == 303
+    page.wait_for_url(detail_path)
+    page.wait_for_load_state("networkidle")
+    assert "Open" in page.content()
+    assert "2026-03-26" in page.content()
+    assert "Board requested a later delivery window." in page.content()
+
+
 def test_search_results_open_object_detail_and_preserve_search_context_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
     seeded = dict(product_browser_server["seeded"])

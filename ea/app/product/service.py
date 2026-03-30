@@ -19,6 +19,7 @@ from app.product.models import (
     BriefItem,
     CommitmentCandidate,
     CommitmentItem,
+    DeadlineItem,
     DecisionItem,
     DecisionQueueItem,
     DraftCandidate,
@@ -2856,6 +2857,23 @@ class ProductService:
                 action_value="resolve" if decision.status == "open" else "",
             )
 
+        for deadline in self.list_deadlines(principal_id=principal_id, limit=max(limit * 2, 25), include_closed=True):
+            actionable_open = status_open(deadline.status)
+            add_result(
+                id=deadline.id,
+                kind="deadline",
+                title=deadline.title,
+                summary=f"{deadline.status} · {deadline.priority} · {(deadline.end_at or deadline.start_at or '')[:10]}",
+                href=f"/app/deadlines/{urllib.parse.quote(deadline.id, safe='')}",
+                secondary_label=deadline.status,
+                related_object_refs=(deadline.id,),
+                extra=(deadline.summary, deadline.priority, deadline.start_at, deadline.end_at),
+                action_href=f"/app/actions/queue/{urllib.parse.quote(deadline.id, safe='')}/resolve",
+                action_label="Resolve" if actionable_open else "Reopen",
+                action_method="post",
+                action_value="resolve" if actionable_open else "reopen",
+            )
+
         for handoff in self.list_handoffs(principal_id=principal_id, limit=max(limit * 2, 25), operator_id=operator_id, status=None):
             action_plan = handoff_action_plan(handoff, operator_id=operator_id)
             action_kind = str(action_plan.get("kind") or "assign").strip()
@@ -4516,6 +4534,43 @@ class ProductService:
 
     def get_decision_history(self, *, principal_id: str, decision_ref: str, limit: int = 20) -> tuple[HistoryEntry, ...]:
         source_id = decision_ref.split(":", 1)[1] if ":" in decision_ref else decision_ref
+        return self._history_entries(principal_id=principal_id, source_ids=(source_id,), limit=limit)
+
+    def _deadline_item_from_window(self, row: DeadlineWindow) -> DeadlineItem:
+        return DeadlineItem(
+            id=f"deadline:{row.window_id}",
+            title=row.title,
+            summary=compact_text(row.notes, fallback="Deadline window is active."),
+            priority=row.priority,
+            start_at=row.start_at,
+            end_at=row.end_at,
+            status=row.status,
+        )
+
+    def list_deadlines(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 20,
+        include_closed: bool = False,
+    ) -> tuple[DeadlineItem, ...]:
+        rows = [
+            self._deadline_item_from_window(row)
+            for row in self._container.memory_runtime.list_deadline_windows(principal_id=principal_id, limit=limit, status=None)
+            if include_closed or status_open(row.status)
+        ]
+        rows.sort(key=lambda row: (priority_weight(row.priority), due_bonus(row.end_at or row.start_at), row.title.lower()), reverse=True)
+        return tuple(rows[:limit])
+
+    def get_deadline(self, *, principal_id: str, deadline_ref: str) -> DeadlineItem | None:
+        normalized = deadline_ref.split(":", 1)[1] if deadline_ref.startswith("deadline:") else deadline_ref
+        found = self._container.memory_runtime.get_deadline_window(normalized, principal_id=principal_id)
+        if found is None:
+            return None
+        return self._deadline_item_from_window(found)
+
+    def get_deadline_history(self, *, principal_id: str, deadline_ref: str, limit: int = 20) -> tuple[HistoryEntry, ...]:
+        source_id = deadline_ref.split(":", 1)[1] if ":" in deadline_ref else deadline_ref
         return self._history_entries(principal_id=principal_id, source_ids=(source_id,), limit=limit)
 
     def resolve_decision(

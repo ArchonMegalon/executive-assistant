@@ -287,6 +287,14 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "?focus=" not in commitment_result["href"]
     assert commitment_result["action_label"] in {"Close", "Reopen", "Review"}
     assert commitment_result["action_href"].startswith("/app/actions/queue/")
+    deadline_search = client.get("/app/api/search", params={"query": "delivery window", "limit": 10})
+    assert deadline_search.status_code == 200
+    deadline_body = deadline_search.json()
+    assert any(item["kind"] == "deadline" and item["title"] == "Board memo delivery window" for item in deadline_body["items"])
+    deadline_result = next(item for item in deadline_body["items"] if item["kind"] == "deadline")
+    assert deadline_result["href"].startswith("/app/deadlines/")
+    assert deadline_result["action_label"] in {"Resolve", "Reopen"}
+    assert deadline_result["action_href"].startswith("/app/actions/queue/")
 
     webhook_test = client.post(f"/app/api/webhooks/{webhook_id}/test")
     assert webhook_test.status_code == 200

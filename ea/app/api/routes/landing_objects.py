@@ -298,6 +298,156 @@ def decision_detail(
                 ] or [_object_detail_row("No decision history yet", "No decision events were recorded yet.", "History")],
             },
         ],
+        object_sidebar_form={
+            "action": f"/app/actions/queue/{decision_ref}/resolve",
+            "method": "post",
+            "eyebrow": "Decision lifecycle",
+            "title": "Update decision state",
+            "copy": "Resolve the choice, escalate it to the principal, or reopen it without leaving the decision detail surface.",
+            "submit_label": "Update decision",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": f"/app/decisions/{decision_ref}"},
+                {
+                    "type": "select",
+                    "name": "action",
+                    "label": "Action",
+                    "options": [
+                        {"value": "resolve", "label": "Resolve", "selected": str(decision.status or "").strip().lower() != "decided"},
+                        {"value": "escalate", "label": "Escalate to principal"},
+                        {"value": "reopen", "label": "Reopen", "selected": str(decision.status or "").strip().lower() == "decided"},
+                    ],
+                },
+                {
+                    "type": "text",
+                    "name": "due_at",
+                    "label": "Decision deadline",
+                    "value": decision.due_at or "",
+                    "placeholder": "YYYY-MM-DDTHH:MM:SS+00:00",
+                },
+                {
+                    "type": "textarea",
+                    "name": "reason",
+                    "label": "Reason",
+                    "value": decision.resolution_reason or "",
+                    "placeholder": "Why this decision was resolved, escalated, or reopened.",
+                },
+            ],
+        },
+    )
+
+
+@router.get("/app/deadlines/{deadline_ref:path}", response_class=HTMLResponse)
+def deadline_detail(
+    deadline_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    product = build_product_service(container)
+    deadline = product.get_deadline(principal_id=context.principal_id, deadline_ref=deadline_ref)
+    if deadline is None:
+        raise HTTPException(status_code=404, detail="deadline_not_found")
+    history = product.get_deadline_history(principal_id=context.principal_id, deadline_ref=deadline_ref, limit=8)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="deadline_opened",
+        surface=f"deadline:{deadline_ref}",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "Executive Workspace"),
+        page_title=f"Executive Assistant {deadline.title}",
+        current_nav="queue",
+        console_title=deadline.title,
+        console_summary="Deadline window timing, status, and recent queue movement.",
+        object_kind="Deadline window",
+        object_title=deadline.title,
+        object_summary=deadline.summary or "Deadline window is active in the office loop.",
+        object_meta=[
+            {"label": "Priority", "value": str(deadline.priority or "normal").title()},
+            {"label": "Start", "value": str(deadline.start_at or "")[:10] or "No start time"},
+            {"label": "End", "value": str(deadline.end_at or "")[:10] or "No end time"},
+            {"label": "Status", "value": str(deadline.status or "open").replace("_", " ").title()},
+        ],
+        object_sidebar_title="Deadline pressure",
+        object_sidebar_copy="Deadline windows should stay explorable and resolvable instead of hiding as generic queue pressure.",
+        object_sidebar_rows=[
+            _object_detail_row("Current note", deadline.summary or "No deadline note recorded.", "Note"),
+            _object_detail_row("Priority", str(deadline.priority or "normal").title(), "Priority"),
+            _object_detail_row("Window start", str(deadline.start_at or "")[:10] or "No start time recorded.", "Start"),
+            _object_detail_row("Window end", str(deadline.end_at or "")[:10] or "No end time recorded.", "End"),
+            _object_detail_row("Status", str(deadline.status or "open").replace("_", " ").title(), "Status"),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Window",
+                "title": "Current deadline posture",
+                "items": [
+                    _object_detail_row(deadline.title, deadline.summary or "Deadline window is active in the office loop.", str(deadline.priority or "normal").title()),
+                    _object_detail_row("Start", str(deadline.start_at or "")[:19] or "No start time recorded.", "Start"),
+                    _object_detail_row("End", str(deadline.end_at or "")[:19] or "No end time recorded.", "End"),
+                    _object_detail_row("Status", str(deadline.status or "open").replace("_", " ").title(), "Status"),
+                ],
+            },
+            {
+                "eyebrow": "History",
+                "title": "Recent deadline history",
+                "items": [
+                    _object_detail_row(
+                        str(item.event_type or "history").replace("_", " ").title(),
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.actor or "").strip(),
+                                str(item.detail or "").strip(),
+                            )
+                            if part
+                        )
+                        or "Deadline event recorded.",
+                        str(item.created_at or "")[:10] or "History",
+                    )
+                    for item in history
+                ] or [_object_detail_row("No deadline history yet", "No deadline events were recorded yet.", "History")],
+            },
+        ],
+        object_sidebar_form={
+            "action": f"/app/actions/queue/{deadline_ref}/resolve",
+            "method": "post",
+            "eyebrow": "Deadline lifecycle",
+            "title": "Update deadline state",
+            "copy": "Resolve the current window or reopen it with a new end time without leaving the deadline detail surface.",
+            "submit_label": "Update deadline",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": f"/app/deadlines/{deadline_ref}"},
+                {
+                    "type": "select",
+                    "name": "action",
+                    "label": "Action",
+                    "options": [
+                        {"value": "resolve", "label": "Resolve", "selected": str(deadline.status or "").strip().lower() != "elapsed"},
+                        {"value": "reopen", "label": "Reopen", "selected": str(deadline.status or "").strip().lower() == "elapsed"},
+                    ],
+                },
+                {
+                    "type": "text",
+                    "name": "due_at",
+                    "label": "Window end",
+                    "value": deadline.end_at or "",
+                    "placeholder": "YYYY-MM-DDTHH:MM:SS+00:00",
+                },
+                {
+                    "type": "textarea",
+                    "name": "reason",
+                    "label": "Reason",
+                    "value": deadline.summary or "",
+                    "placeholder": "Why this deadline window was resolved or reopened.",
+                },
+            ],
+        },
     )
 
 

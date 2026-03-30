@@ -70,7 +70,7 @@ def test_load_faq_and_help_canon_track_public_question_sets() -> None:
     assert "participation_and_preview" in faq
     questions = {entry["question"] for entry in faq["participation_and_preview"]["entries"]}
     assert "What is guided contribution?" in questions
-    assert "Will guided-preview lanes open wider later?" in questions
+    assert "Will guided-preview access open wider later?" in questions
     assert "the cheap baseline remains the default path" in help_copy["privacy_and_review_safety"]
 
 
