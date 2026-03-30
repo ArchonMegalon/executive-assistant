@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-TERMINAL_STATUSES = {"done", "closed", "completed", "resolved", "cancelled", "canceled", "dropped", "rejected"}
+TERMINAL_STATUSES = {"done", "closed", "completed", "resolved", "cancelled", "canceled", "dropped", "rejected", "decided", "elapsed", "expired"}
 PRIORITY_WEIGHTS = {
     "critical": 100,
     "urgent": 90,

@@ -40,6 +40,15 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert seeded["session_id"] in decision_detail.json()["linked_thread_ids"]
     assert decision_detail.json()["impact_summary"]
     assert decision_detail.json()["sla_status"] in {"due_now", "due_soon", "on_track", "unscheduled", "resolved"}
+    deadlines = client.get("/app/api/deadlines")
+    assert deadlines.status_code == 200
+    deadlines_body = deadlines.json()
+    assert deadlines_body["total"] >= 1
+    assert any(item["id"] == f"deadline:{seeded['deadline_window_id']}" for item in deadlines_body["items"])
+    deadline_detail = client.get(f"/app/api/deadlines/deadline:{seeded['deadline_window_id']}")
+    assert deadline_detail.status_code == 200
+    assert deadline_detail.json()["title"] == "Board memo delivery window"
+    assert deadline_detail.json()["status"] == "open"
 
     commitments = client.get("/app/api/commitments")
     assert commitments.status_code == 200
@@ -1532,12 +1541,49 @@ def test_product_commitment_detail_and_queue_resolution() -> None:
     assert any(row["event_type"] == "decision_resolved" for row in decision_history.json())
     assert any(row["event_type"] == "decision_reopened" for row in decision_history.json())
 
+    decision_resolved_again = client.post(
+        f"/app/api/decisions/decision:{seeded['decision_window_id']}/resolve",
+        json={"action": "resolve", "reason": "Principal finalized the owner"},
+    )
+    assert decision_resolved_again.status_code == 200
+    open_decisions = client.get("/app/api/decisions")
+    assert open_decisions.status_code == 200
+    assert all(item["id"] != f"decision:{seeded['decision_window_id']}" for item in open_decisions.json()["items"])
+    decisions_with_closed = client.get("/app/api/decisions", params={"include_closed": True})
+    assert decisions_with_closed.status_code == 200
+    assert any(item["id"] == f"decision:{seeded['decision_window_id']}" and item["status"] == "decided" for item in decisions_with_closed.json()["items"])
+    decision_search = client.get("/app/api/search", params={"query": "memo owner", "limit": 10})
+    assert decision_search.status_code == 200
+    reopened_decision = next(item for item in decision_search.json()["items"] if item["kind"] == "decision")
+    assert reopened_decision["action_label"] == "Reopen"
+    assert reopened_decision["action_value"] == "reopen"
+
+    deadline_ref = f"deadline:{seeded['deadline_window_id']}"
     deadline_closed = client.post(
-        f"/app/api/queue/deadline:{seeded['deadline_window_id']}/resolve",
+        f"/app/api/deadlines/{deadline_ref}/resolve",
         json={"action": "close", "reason": "Window covered in the queue"},
     )
     assert deadline_closed.status_code == 200
-    assert deadline_closed.json()["resolution_state"] == "elapsed"
+    assert deadline_closed.json()["status"] == "elapsed"
+    deadline_detail = client.get(f"/app/api/deadlines/{deadline_ref}")
+    assert deadline_detail.status_code == 200
+    assert deadline_detail.json()["status"] == "elapsed"
+    open_deadlines = client.get("/app/api/deadlines")
+    assert open_deadlines.status_code == 200
+    assert all(item["id"] != deadline_ref for item in open_deadlines.json()["items"])
+    deadlines_with_closed = client.get("/app/api/deadlines", params={"include_closed": True})
+    assert deadlines_with_closed.status_code == 200
+    assert any(item["id"] == deadline_ref and item["status"] == "elapsed" for item in deadlines_with_closed.json()["items"])
+    deadline_history = client.get(f"/app/api/deadlines/{deadline_ref}/history")
+    assert deadline_history.status_code == 200
+    assert any(row["event_type"] == "queue_resolved" for row in deadline_history.json())
+    deadline_reopened = client.post(
+        f"/app/api/deadlines/{deadline_ref}/resolve",
+        json={"action": "reopen", "reason": "Window reopened for the next board cycle", "due_at": "2026-03-26T15:00:00+00:00"},
+    )
+    assert deadline_reopened.status_code == 200
+    assert deadline_reopened.json()["status"] == "open"
+    assert deadline_reopened.json()["end_at"] == "2026-03-26T15:00:00+00:00"
 
     follow_up_dropped = client.post(
         f"/app/api/queue/follow_up:{seeded['follow_up_id']}/resolve",

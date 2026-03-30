@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
+from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DeadlineItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
 
 
 class EvidenceRefOut(BaseModel):
@@ -66,6 +66,16 @@ class DecisionItemOut(BaseModel):
     impact_summary: str = ""
     sla_status: str = ""
     resolution_reason: str = ""
+
+
+class DeadlineOut(BaseModel):
+    id: str
+    title: str
+    summary: str
+    priority: str
+    start_at: str | None = None
+    end_at: str | None = None
+    status: str
 
 
 class CommitmentOut(BaseModel):
@@ -443,6 +453,12 @@ class DecisionResponse(BaseModel):
     total: int
 
 
+class DeadlineResponse(BaseModel):
+    generated_at: str
+    items: list[DeadlineOut]
+    total: int
+
+
 class ThreadResponse(BaseModel):
     generated_at: str
     items: list[ThreadItemOut]
@@ -810,6 +826,18 @@ def decision_out(value: DecisionItem) -> DecisionItemOut:
         impact_summary=value.impact_summary,
         sla_status=value.sla_status,
         resolution_reason=value.resolution_reason,
+    )
+
+
+def deadline_out(value: DeadlineItem) -> DeadlineOut:
+    return DeadlineOut(
+        id=value.id,
+        title=value.title,
+        summary=value.summary,
+        priority=value.priority,
+        start_at=value.start_at,
+        end_at=value.end_at,
+        status=value.status,
     )
 
 
