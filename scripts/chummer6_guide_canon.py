@@ -9,21 +9,32 @@ import yaml
 
 
 DEFAULT_DESIGN_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+LOCAL_DESIGN_ROOT = Path(__file__).resolve().parents[1] / ".codex-design" / "product"
 TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$")
 
 
 def design_root() -> Path:
     raw = str(os.environ.get("CHUMMER6_DESIGN_PRODUCT_ROOT") or "").strip()
-    return Path(raw) if raw else DEFAULT_DESIGN_ROOT
+    if raw:
+        return Path(raw)
+    if LOCAL_DESIGN_ROOT.exists():
+        return LOCAL_DESIGN_ROOT
+    return DEFAULT_DESIGN_ROOT
 
 
 def design_repo_root() -> Path:
     root = design_root()
     try:
-        return root.parents[1]
+        repo_root = root.parents[1]
     except Exception:
-        return root
+        repo_root = root
+    if root == LOCAL_DESIGN_ROOT and not (repo_root / "products" / "chummer").exists() and DEFAULT_DESIGN_ROOT.exists():
+        try:
+            return DEFAULT_DESIGN_ROOT.parents[1]
+        except Exception:
+            return DEFAULT_DESIGN_ROOT
+    return repo_root
 
 
 def _read_text(path: Path) -> str:
@@ -113,7 +124,16 @@ def _source_path(key: str, fallback: str) -> Path:
     raw = str((sources.get(key) if isinstance(sources, dict) else "") or "").strip()
     if raw.startswith("products/chummer/"):
         raw = raw[len("products/chummer/") :]
-    return design_root() / (raw or fallback)
+    root = design_root()
+    relative = raw or fallback
+    candidate = root / relative
+    if candidate.exists():
+        return candidate
+    if root == LOCAL_DESIGN_ROOT:
+        fallback_candidate = DEFAULT_DESIGN_ROOT / relative
+        if fallback_candidate.exists():
+            return fallback_candidate
+    return candidate
 
 
 def load_public_feature_registry() -> dict[str, object]:
@@ -122,6 +142,14 @@ def load_public_feature_registry() -> dict[str, object]:
 
 def load_public_guide_policy_text() -> str:
     return _read_text(_source_path("public_guide_policy", "PUBLIC_GUIDE_POLICY.md"))
+
+
+def load_release_experience_canon() -> dict[str, object]:
+    return _read_yaml(_source_path("public_release_experience", "PUBLIC_RELEASE_EXPERIENCE.yaml"))
+
+
+def load_trust_content_canon() -> dict[str, object]:
+    return _read_yaml(_source_path("public_trust_content", "PUBLIC_TRUST_CONTENT.yaml"))
 
 
 def _string_list(value: object) -> list[str]:

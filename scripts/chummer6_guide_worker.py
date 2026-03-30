@@ -29,6 +29,8 @@ from chummer6_guide_canon import (
     load_part_canon,
     load_page_registry,
     load_public_feature_registry,
+    load_release_experience_canon,
+    load_trust_content_canon,
 )
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
 
@@ -961,6 +963,8 @@ PARTS = load_part_canon()
 HORIZONS = load_horizon_canon()
 FAQ = load_faq_canon()
 HELP = load_help_canon()
+RELEASE = load_release_experience_canon()
+TRUST = load_trust_content_canon()
 PAGE_REGISTRY = load_page_registry()
 MEDIA_BRIEFS = load_media_briefs()
 PUBLIC_FEATURE_REGISTRY = load_public_feature_registry()
@@ -1611,7 +1615,7 @@ def page_supporting_context(page_id: str) -> list[str]:
 
 
 def faq_page_source() -> str:
-    questions: list[str] = []
+    faq_questions: list[str] = []
     for section in FAQ.values():
         if not isinstance(section, dict):
             continue
@@ -1620,8 +1624,23 @@ def faq_page_source() -> str:
                 continue
             question = " ".join(str(entry.get("question") or "").split()).strip()
             if question:
-                questions.append(question)
-    joined = "; ".join(questions[:6]).strip()
+                faq_questions.append(question)
+    trust_data = TRUST if isinstance(TRUST, dict) else {}
+    trust_questions: list[str] = []
+    for page in trust_data.get("faq_pages") or []:
+        if not isinstance(page, dict):
+            continue
+        for section in page.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            for entry in section.get("entries") or []:
+                if not isinstance(entry, dict):
+                    continue
+                question = " ".join(str(entry.get("question") or "").split()).strip()
+                if question:
+                    trust_questions.append(question)
+    deduped_questions = list(dict.fromkeys(trust_questions + faq_questions))
+    joined = "; ".join(deduped_questions[:6]).strip()
     if joined:
         joined = f" Common questions include: {joined}."
     return (
@@ -1632,10 +1651,27 @@ def faq_page_source() -> str:
 
 def help_page_source() -> str:
     help_data = HELP if isinstance(HELP, dict) else {}
+    release_data = RELEASE if isinstance(RELEASE, dict) else {}
+    trust_data = TRUST if isinstance(TRUST, dict) else {}
     feedback_lane = " ".join(str(help_data.get("public_feedback_lane") or "").split()).strip()
     ctas = [str(entry).strip() for entry in help_data.get("primary_ctas") or [] if str(entry).strip()]
+    release_summary = " ".join(str(release_data.get("release_notes_summary") or "").split()).strip()
+    update_summary = " ".join(str(release_data.get("update_posture_summary") or "").split()).strip()
+    help_intro = ""
+    help_actions: list[str] = []
+    for page in trust_data.get("trust_pages") or []:
+        if not isinstance(page, dict) or str(page.get("id") or "").strip() != "help":
+            continue
+        help_intro = " ".join(str(page.get("intro") or "").split()).strip()
+        help_actions = [
+            str(entry.get("label") or "").strip()
+            for entry in page.get("actions") or []
+            if isinstance(entry, dict) and str(entry.get("label") or "").strip()
+        ]
+        break
     cta_text = "; ".join(ctas[:3]).strip()
-    joined_bits = [bit for bit in (feedback_lane, cta_text) if bit]
+    trust_action_text = "; ".join(help_actions[:3]).strip()
+    joined_bits = [bit for bit in (feedback_lane, cta_text, release_summary, update_summary, help_intro, trust_action_text) if bit]
     tail = f" Current public actions: {'; '.join(joined_bits)}." if joined_bits else ""
     return (
         "Explain how a normal human can help right now without sounding like operator onboarding. "

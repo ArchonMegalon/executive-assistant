@@ -3,10 +3,10 @@ surface: chummer.run
 version: 1
 guest_readable_channels:
   - stable
-release_notes_summary: The current preview centers one obvious installer, a visible proof trail, cleaner account handoff, and account-aware install linking without changing the signed artifact.
+release_notes_summary: The current preview centers one clear public download, a visible proof trail, and support guidance that matches the shelf you can actually use today.
 desktop_flagship_head: Chummer.Avalonia
 desktop_fallback_head: Chummer.Blazor.Desktop
-desktop_cut_summary: The current desktop wave treats Avalonia as the flagship native preview head, keeps Blazor Desktop as the bounded compatibility fallback, and distinguishes recommended installer posture from portable fallback posture.
+desktop_cut_summary: The current desktop wave treats Avalonia as the flagship native preview head, keeps Blazor Desktop as the bounded compatibility fallback, and distinguishes promoted installers from manual packages when they differ.
 supported_locale_targets:
   - en-US
   - de-DE
@@ -18,7 +18,7 @@ known_issues_label: Known issues and install help
 known_issues_href: /help#install-update
 install_help_label: Need install help?
 install_help_href: /help#install-update
-update_posture_summary: The release page is the source of truth for the current preview channel, the recommended installer, and whether you should expect a straightforward update or a manual handoff.
+update_posture_summary: The release page is the source of truth for the current preview channel, the public download currently available for each platform, and whether setup is straightforward or still manual.
 default_public_channel_label: Preview channel
 unpublished_build_label: Current preview build
 build_label_prefix: Build
@@ -32,25 +32,25 @@ public_channel_labels:
   - id: local
     label: Preview channel
 guest_gate_heading: Preview access
-guest_gate_summary: Create a Chummer account first so the installer handoff, claim code, and recovery path stay attached to the same preview copy from first launch.
+guest_gate_summary: Create a Chummer account first when the current preview requires a linked download handoff, recovery path, or support history from the first launch.
 guest_gate_primary_label: Create account to get preview
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Keep this install linked from the first launch
-signed_in_dispatch_summary: Start the same published installer download, copy the short-lived claim code, and let Chummer attach this installed copy back to your account when it opens.
+signed_in_dispatch_summary: Start the same published download from the signed-in handoff page, keep any shown claim code or recovery note nearby, and let Chummer attach this copy back to your account when it opens.
 signed_in_dispatch_steps:
   - Start the installer from this signed-in handoff page.
   - Copy the short-lived claim code before you leave the browser.
   - Launch Chummer and use the first-launch handoff to link this copy back to your account.
   - Reopen Devices and access later if you need the same claim path again.
 install_steps:
-  - Download the recommended installer for your platform.
-  - Run the installer and launch Chummer.
-  - Create an account when you want download receipts, install handoff, recovery, and support history to stay attached.
+  - Download the current published package for your platform.
+  - Finish setup for that package, then launch Chummer.
+  - Create an account when you want download receipts, recovery, and support history to stay attached.
   - Use Devices and access later if you need to reconnect a downloaded copy back to the same account.
 account_required_install_steps:
   - Create your Chummer account first.
-  - Start the recommended installer from the signed-in handoff page.
-  - Run the installer and launch Chummer.
+  - Start the published download from the signed-in handoff page.
+  - Finish setup for that package and launch Chummer.
   - Keep the claim code or first-launch handoff attached so this copy lands in Devices and access automatically.
 windows_requirements:
   - 64-bit Windows 10 or newer.
@@ -59,7 +59,7 @@ windows_requirements:
   - Portable `.exe` handoff is a bounded fallback, not the primary public CTA.
 linux_requirements:
   - 64-bit Linux with the currently published preview package support.
-  - Use the recommended package when available; use manual packages only for advanced or support-directed installs.
+  - Use the current public package when available; use manual packages only for advanced or support-directed setup.
   - Linux preview is secondary to Windows and should not promise more than the currently published package lane can support.
 macos_requirements:
   - macOS is a real build lane, but it is not on the public preview shelf until a signed and notarized `.dmg` is promoted.
