@@ -142,6 +142,61 @@ def test_human_task_priority_summary_for_matching_operator_profile() -> None:
     assert scheduler_body["counts_json"]["normal"] == 1
 
 
+def test_human_task_priority_summary_static_operator_id_filter_shape() -> None:
+    client = _client(storage_backend="memory", operator=True, principal_id="exec-priority-summary-static")
+    start_workspace(client, mode="executive_ops", workspace_name="Priority Summary Operator Filter Office")
+    create = client.post("/v1/rewrite/artifact", json={"text": "operator-id filter baseline"})
+    assert create.status_code == 200
+    session_id = create.json()["execution_session_id"]
+
+    session = client.get(f"/v1/rewrite/sessions/{session_id}")
+    assert session.status_code == 200
+    step_id = session.json()["steps"][-1]["step_id"]
+
+    operator_profile = client.post(
+        "/v1/human/tasks/operators",
+        json={
+            "operator_id": "operator-specialist-summary",
+            "display_name": "Senior Comms Reviewer",
+            "roles": ["communications_reviewer"],
+            "skill_tags": ["tone", "accuracy", "stakeholder_sensitivity"],
+            "trust_tier": "senior",
+            "status": "active",
+        },
+    )
+    assert operator_profile.status_code == 200
+
+    task = client.post(
+        "/v1/human/tasks",
+        json={
+            "session_id": session_id,
+            "step_id": step_id,
+            "task_type": "communications_review",
+            "role_required": "communications_reviewer",
+            "brief": "operator-id filtered specialist task.",
+            "authority_required": "send_on_behalf_review",
+            "quality_rubric_json": {"checks": ["tone", "accuracy", "stakeholder_sensitivity"]},
+            "priority": "urgent",
+            "resume_session_on_return": False,
+        },
+    )
+    assert task.status_code == 200
+
+    summary = client.get(
+        "/v1/human/tasks/priority-summary",
+        params={
+            "status": "pending",
+            "assignment_state": "unassigned",
+            "operator_id": "operator-specialist-summary",
+        },
+    )
+    assert summary.status_code == 200
+    body = summary.json()
+    assert body["operator_id"] == "operator-specialist-summary"
+    assert body["total"] == 1
+    assert body["highest_priority"] == "urgent"
+
+
 def test_human_task_priority_summary_for_assignment_source() -> None:
     run_suffix = uuid.uuid4().hex[:8]
     principal_id = f"exec-assignment-summary-{run_suffix}"

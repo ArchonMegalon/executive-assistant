@@ -13,6 +13,10 @@ sys.path.insert(0, str(EA_ROOT / "ea"))
 from app.services.ltd_inventory_markdown import refresh_inventory_markdown
 
 
+def update_discovery_tracking_table(markdown_text: str, inventory_output_json: dict[str, object]) -> str:
+    return refresh_inventory_markdown(markdown_text, inventory_output_json)
+
+
 def _load_json(path: str) -> dict[str, object]:
     if path == "-":
         payload = sys.stdin.read()
@@ -48,7 +52,7 @@ def main() -> int:
     inventory_output_json = _load_json(args.input)
     markdown_path = Path(args.markdown)
     existing = markdown_path.read_text(encoding="utf-8")
-    updated = refresh_inventory_markdown(existing, inventory_output_json)
+    updated = update_discovery_tracking_table(existing, inventory_output_json)
     if args.write:
         markdown_path.write_text(updated, encoding="utf-8")
         return 0
