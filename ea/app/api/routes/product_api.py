@@ -21,6 +21,7 @@ from app.api.routes.product_api_contracts import (
     EvidenceItemOut,
     EvidenceResponse,
     HandoffAssignIn,
+    HandoffAssignmentHistoryOut,
     HandoffCompleteIn,
     HandoffNoteOut,
     HistoryEntryOut,
@@ -59,6 +60,7 @@ from app.api.routes.product_api_contracts import (
     decision_out,
     draft_out,
     evidence_item_out,
+    handoff_assignment_history_out,
     handoff_out,
     history_out,
     now_iso,
@@ -624,6 +626,26 @@ def list_handoffs(
             status=status,
         )
     ]
+
+
+@router.get("/handoffs/{handoff_ref:path}/history", response_model=list[HandoffAssignmentHistoryOut])
+def get_handoff_history(
+    handoff_ref: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> list[HandoffAssignmentHistoryOut]:
+    service = build_product_service(container)
+    found = service.get_handoff(principal_id=context.principal_id, handoff_ref=handoff_ref)
+    if found is None:
+        raise HTTPException(status_code=404, detail="handoff_not_found")
+    human_task_id = handoff_ref.split(":", 1)[1] if handoff_ref.startswith("human_task:") else handoff_ref
+    rows = container.orchestrator.list_human_task_assignment_history(
+        human_task_id,
+        principal_id=context.principal_id,
+        limit=limit,
+    )
+    return [handoff_assignment_history_out(row) for row in rows]
 
 
 @router.get("/handoffs/{handoff_ref:path}", response_model=HandoffNoteOut)

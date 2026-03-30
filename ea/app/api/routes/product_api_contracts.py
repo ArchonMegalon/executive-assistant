@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from app.domain.models import ExecutionEvent
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DeadlineItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
 
 
@@ -158,6 +159,19 @@ class HandoffNoteOut(BaseModel):
     subject: str = ""
     delivery_reason: str = ""
     evidence_refs: list[EvidenceRefOut]
+
+
+class HandoffAssignmentHistoryOut(BaseModel):
+    event_id: str
+    human_task_id: str
+    event_name: str
+    assignment_state: str
+    assigned_operator_id: str
+    assignment_source: str
+    assigned_at: str | None = None
+    assigned_by_actor_id: str
+    resolution: str
+    created_at: str
 
 
 class HistoryEntryOut(BaseModel):
@@ -930,6 +944,22 @@ def handoff_out(value: HandoffNote) -> HandoffNoteOut:
         subject=value.subject,
         delivery_reason=value.delivery_reason,
         evidence_refs=evidence_out(value.evidence_refs),
+    )
+
+
+def handoff_assignment_history_out(event: ExecutionEvent) -> HandoffAssignmentHistoryOut:
+    payload = dict(event.payload or {})
+    return HandoffAssignmentHistoryOut(
+        event_id=event.event_id,
+        human_task_id=str(payload.get("human_task_id") or ""),
+        event_name=event.name,
+        assignment_state=str(payload.get("assignment_state") or ""),
+        assigned_operator_id=str(payload.get("assigned_operator_id") or payload.get("operator_id") or ""),
+        assignment_source=str(payload.get("assignment_source") or ""),
+        assigned_at=str(payload.get("assigned_at") or "") or None,
+        assigned_by_actor_id=str(payload.get("assigned_by_actor_id") or ""),
+        resolution=str(payload.get("resolution") or ""),
+        created_at=event.created_at,
     )
 
 
