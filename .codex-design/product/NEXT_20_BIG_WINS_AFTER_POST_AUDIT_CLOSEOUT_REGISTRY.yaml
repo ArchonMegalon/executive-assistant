@@ -251,7 +251,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-mobile
-    status: not_started
+    status: in_progress
     exit_criteria:
       - One artifact truth can be browsed as personal, campaign, and published views without record duplication.
       - Shelf posture stays explainable by audience, ownership, and publication state instead of ad hoc filtering.
