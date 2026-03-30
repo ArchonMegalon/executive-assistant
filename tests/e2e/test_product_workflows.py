@@ -253,6 +253,15 @@ def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_brow
     page.wait_for_load_state("networkidle")
     assert "Send board materials" not in page.content()
 
+    response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+    assert response is not None and response.ok
+    assert "What just moved through the loop" in page.content()
+    assert "Send board materials" in page.content()
+    assert "Reopen" in page.content()
+
+    response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
+    assert response is not None and response.ok
+
     page.locator("#extract_source_text").fill("Please send the revised board packet to Sofia tomorrow morning.")
     page.locator("#extract_counterparty").fill("Sofia N.")
     with page.expect_response(lambda value: "/app/actions/commitments/extract" in value.url and value.request.method == "POST") as extract_response:
@@ -299,7 +308,9 @@ def test_follow_up_drop_in_real_browser(page: Page, product_browser_server: dict
     assert drop_response.value.status == 303
     page.wait_for_url(f"{base_url}/app/follow-ups")
     page.wait_for_load_state("networkidle")
-    assert "Confirm investor meeting time" not in page.content()
+    assert "What just moved through the loop" in page.content()
+    assert "Confirm investor meeting time" in page.content()
+    assert "Reopen" in page.content()
 
 
 def test_commitment_detail_lifecycle_form_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:

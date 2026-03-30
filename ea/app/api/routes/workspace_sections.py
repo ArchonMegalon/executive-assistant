@@ -364,17 +364,18 @@ def _commitment_rows(values: tuple[CommitmentItem, ...], *, return_to: str = "/a
     rows: list[dict[str, str]] = []
     for value in values:
         status_label = str(value.status or "open").strip().replace("_", " ").title()
+        normalized_status = str(value.status or "").strip().lower()
         detail = " · ".join(
             part
             for part in (
-                status_label if status_label.lower() not in {"open", "completed", "dropped"} else "",
+                status_label if status_label.lower() not in {"open", "completed"} else "",
                 value.counterparty,
                 f"Due {value.due_at[:10]}" if value.due_at else "",
                 value.proof_refs[0].note if value.proof_refs else "",
             )
             if part
         )
-        is_completed = str(value.status or "").strip().lower() == "completed"
+        is_resolved = normalized_status in {"completed", "dropped"}
         rows.append(
             _row(
                 value.statement,
@@ -382,17 +383,17 @@ def _commitment_rows(values: tuple[CommitmentItem, ...], *, return_to: str = "/a
                 value.risk_level.capitalize(),
                 href=f"/app/commitment-items/{value.id}",
                 action_href=f"/app/actions/queue/{value.id}/resolve",
-                action_label="Reopen" if is_completed else "Close",
-                action_value="reopen" if is_completed else "close",
+                action_label="Reopen" if is_resolved else "Close",
+                action_value="reopen" if is_resolved else "close",
                 return_to=return_to,
                 secondary_action_href=f"/app/actions/queue/{value.id}/resolve",
-                secondary_action_label="" if is_completed else "Defer",
-                secondary_action_value="" if is_completed else "defer",
+                secondary_action_label="" if is_resolved else "Defer",
+                secondary_action_value="" if is_resolved else "defer",
                 secondary_action_method="post",
                 secondary_return_to=return_to,
-                tertiary_action_href="" if is_completed else f"/app/actions/queue/{value.id}/resolve",
-                tertiary_action_label="" if is_completed else "Drop",
-                tertiary_action_value="" if is_completed else "drop",
+                tertiary_action_href="" if is_resolved else f"/app/actions/queue/{value.id}/resolve",
+                tertiary_action_label="" if is_resolved else "Drop",
+                tertiary_action_value="" if is_resolved else "drop",
                 tertiary_action_method="post",
                 tertiary_return_to=return_to,
             )
@@ -983,8 +984,11 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Recently closed",
                     "title": "What just moved through the loop",
-                    "body": "Recently completed handoffs stay visible long enough to confirm the loop actually closed.",
-                    "items": _handoff_rows(snapshot.completed_handoffs[:6], actionable=False, return_to="/app/follow-ups")
+                    "body": "Recently completed commitments and handoffs stay visible long enough to confirm the loop actually closed.",
+                    "items": (
+                        _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/app/follow-ups")
+                        + _handoff_rows(snapshot.completed_handoffs[:6], actionable=False, return_to="/app/follow-ups")
+                    )[:6]
                     or [_row("Nothing recently closed", "Completed handoffs will appear here once the loop closes.", "Clear")],
                 },
                 {
@@ -1166,8 +1170,11 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Recently completed",
                     "title": "What just moved through the operator lane",
-                    "body": "Returned handoffs should stay visible long enough to confirm the office loop actually closed.",
-                    "items": _handoff_rows(snapshot.completed_handoffs[:6], actionable=False),
+                    "body": "Returned handoffs and recently closed commitments should stay visible long enough to confirm the office loop actually closed.",
+                    "items": (
+                        _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/app/activity")
+                        + _handoff_rows(snapshot.completed_handoffs[:6], actionable=False)
+                    )[:6],
                 },
                 {
                     "eyebrow": "Commitment pressure",

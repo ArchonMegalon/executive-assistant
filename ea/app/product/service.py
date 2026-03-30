@@ -2031,15 +2031,24 @@ class ProductService:
             "risk_detail": risk_detail,
         }
 
-    def list_commitments(self, *, principal_id: str, limit: int = 50) -> tuple[CommitmentItem, ...]:
+    def _all_commitment_items(self, *, principal_id: str, limit: int) -> list[CommitmentItem]:
         stakeholders = self._stakeholder_lookup(principal_id)
         rows: list[CommitmentItem] = []
         for commitment in self._container.memory_runtime.list_commitments(principal_id=principal_id, limit=limit, status=None):
             rows.append(self._commitment_item_from_commitment(commitment))
         for follow_up in self._container.memory_runtime.list_follow_ups(principal_id=principal_id, limit=limit, status=None):
             rows.append(self._commitment_item_from_follow_up(follow_up, stakeholders))
+        return rows
+
+    def list_commitments(self, *, principal_id: str, limit: int = 50) -> tuple[CommitmentItem, ...]:
+        rows = self._all_commitment_items(principal_id=principal_id, limit=limit)
         rows = [row for row in rows if status_open(row.status)]
         rows.sort(key=lambda row: (priority_weight(row.risk_level), due_bonus(row.due_at), row.statement.lower()), reverse=True)
+        return tuple(rows[:limit])
+
+    def list_recently_closed_commitments(self, *, principal_id: str, limit: int = 20) -> tuple[CommitmentItem, ...]:
+        rows = [row for row in self._all_commitment_items(principal_id=principal_id, limit=max(limit * 3, 24)) if not status_open(row.status)]
+        rows.sort(key=lambda row: (str(row.last_activity_at or ""), row.statement.lower()), reverse=True)
         return tuple(rows[:limit])
 
     def get_commitment(self, *, principal_id: str, commitment_ref: str) -> CommitmentItem | None:
@@ -5220,6 +5229,7 @@ class ProductService:
         brief_items = self.list_brief_items(principal_id=principal_id, limit=8, operator_id=operator_id)
         queue_items = self.list_queue(principal_id=principal_id, limit=10, operator_id=operator_id)
         commitments = self.list_commitments(principal_id=principal_id, limit=10)
+        recently_closed_commitments = self.list_recently_closed_commitments(principal_id=principal_id, limit=6)
         commitment_candidates = self.list_reviewable_commitment_candidates(principal_id=principal_id, limit=8)
         drafts = self.list_drafts(principal_id=principal_id, limit=8)
         decisions = self.list_decisions(principal_id=principal_id, limit=8)
@@ -5239,6 +5249,7 @@ class ProductService:
             brief_items=brief_items,
             queue_items=queue_items,
             commitments=commitments,
+            recently_closed_commitments=recently_closed_commitments,
             commitment_candidates=commitment_candidates,
             drafts=drafts,
             decisions=decisions,
@@ -5252,6 +5263,7 @@ class ProductService:
                 "brief_items": len(brief_items),
                 "queue_items": len(queue_items),
                 "commitments": len(commitments),
+                "recently_closed_commitments": len(recently_closed_commitments),
                 "commitment_candidates": len(commitment_candidates),
                 "drafts": len(drafts),
                 "decisions": len(decisions),
