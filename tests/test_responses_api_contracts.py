@@ -950,12 +950,74 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
     assert groundwork.json()["metadata"]["codex_merge_policy"] == "auto"
     assert review_light.json()["metadata"]["codex_merge_policy"] == "auto_if_low_risk"
     assert audit.json()["metadata"]["codex_merge_policy"] == "require_review"
+    assert core.json()["metadata"]["codex_work_class"] == "hard_coder"
+    assert easy.json()["metadata"]["codex_work_class"] == "easy"
+    assert groundwork.json()["metadata"]["codex_work_class"] == "groundwork"
+    assert audit.json()["metadata"]["codex_work_class"] == "audit_jury"
+    assert "Hard coder lane" in core.json()["metadata"]["codex_expectation_summary"]
+    assert "Easy lane" in easy.json()["metadata"]["codex_expectation_summary"]
+    assert "Groundwork lane" in groundwork.json()["metadata"]["codex_expectation_summary"]
+    assert "Audit/jury lane" in audit.json()["metadata"]["codex_expectation_summary"]
+    assert core.json()["metadata"]["codex_review_cadence"]["review"] == "weekly"
+    assert core.json()["metadata"]["codex_review_cadence"]["snapshot_owner"] == "product_governor"
+    assert easy.json()["metadata"]["codex_support_help_boundary"]["owner"] == "chummer6-hub"
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert repair.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
     assert groundwork.json()["metadata"]["provider_account_name"] == "EA_GEMINI_VORTEX_API_KEY"
     assert review_light.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
+
+
+def test_codex_profile_endpoints_resolve_profile_model_with_current_principal_and_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-dynamic-profile")
+    from app.api.routes import responses
+
+    seen: list[tuple[str, bool, str]] = []
+
+    def fake_codex_profile(profile: str, *, container=None, principal_id: str = "") -> dict[str, object]:
+        seen.append((profile, container is not None, principal_id))
+        return {
+            "profile": profile,
+            "lane": "hard",
+            "model": "ea-coder-hard-custom",
+            "provider_hint_order": ["onemin"],
+            "review_required": True,
+            "needs_review": True,
+            "risk_labels": ["high_impact"],
+            "merge_policy": "require_review",
+            "work_class": "hard_coder",
+            "expectation_summary": "Hard coder lane for substantive implementation.",
+            "review_posture": "Require review.",
+            "best_for": "Blocking repo work.",
+            "review_cadence": {"review": "weekly", "snapshot_owner": "product_governor", "publication": "internal_canon_first"},
+            "support_help_boundary": {"owner": "chummer6-hub"},
+        }
+
+    def fake_generate(
+        *,
+        requested_model: str,
+        **_: object,
+    ) -> UpstreamResult:
+        assert requested_model == "ea-coder-hard-custom"
+        return UpstreamResult(
+            text="dynamic",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=2,
+            tokens_out=1,
+            provider_account_name="ONEMIN_AI_API_KEY",
+        )
+
+    monkeypatch.setattr(responses, "_codex_profile", fake_codex_profile)
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response = client.post("/v1/codex/core", json={"input": "lane-check"})
+    assert response.status_code == 200
+    assert response.json()["model"] == "ea-coder-hard-custom"
+    assert seen == [("core", True, "codex-dynamic-profile"), ("core", True, "codex-dynamic-profile")]
 
 
 def test_responses_upstream_defaults_to_easy_fast_lane(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1358,12 +1420,23 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     response = client.get("/v1/codex/profiles")
     assert response.status_code == 200
     body = response.json()
+    assert body["governance"]["summary"]
+    assert body["governance"]["review_cadence"]["review"] == "weekly"
+    assert body["governance"]["review_cadence"]["snapshot_owner"] == "product_governor"
+    assert body["governance"]["support_help_boundary"]["owner"] == "chummer6-hub"
+    assert any(item["label"] == "PRODUCT_HEALTH_SCORECARD.yaml" for item in body["governance"]["sources"])
     assert body["profiles"][0]["lane"] == "hard"
     assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
+    assert body["profiles"][0]["work_class"] == "hard_coder"
+    assert "Hard coder lane" in body["profiles"][0]["expectation_summary"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
     assert easy_profile["provider_hint_order"] == ["gemini_vortex"]
     assert easy_profile["backend"] == "gemini_vortex"
     assert easy_profile["health_provider_key"] == "gemini_vortex"
+    assert easy_profile["work_class"] == "easy"
+    assert "Easy lane" in easy_profile["expectation_summary"]
+    assert easy_profile["review_cadence"]["review"] == "weekly"
+    assert easy_profile["support_help_boundary"]["owner"] == "chummer6-hub"
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
     assert repair_profile["provider_hint_order"] == ["gemini_vortex"]
@@ -1379,6 +1452,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_profile["provider_slot_pool"]["last_used_hub_group_id"] == ""
     assert groundwork_profile["provider_slot_pool"]["last_used_sponsor_session_id"] == ""
     assert groundwork_profile["provider_slot_pool"]["last_used_lane_role"] == ""
+    assert groundwork_profile["work_class"] == "groundwork"
+    assert "Groundwork lane" in groundwork_profile["expectation_summary"]
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
     assert review_light_profile["provider_hint_order"] == ["browseract"]
@@ -1611,6 +1686,8 @@ def test_codex_status_endpoint_reports_savings_text(monkeypatch: pytest.MonkeyPa
     response = client.get("/v1/codex/status?window=1h")
     assert response.status_code == 200
     body = response.json()
+    assert body["governance"]["review_cadence"]["review"] == "weekly"
+    assert body["governance"]["support_help_boundary"]["owner"] == "chummer6-hub"
     avoided = body["avoided_credits"]["selected_window"]
     assert avoided["easy_lane"]["avoided_credits"] == 0
     assert avoided["jury_lane"]["avoided_credits"] == 0

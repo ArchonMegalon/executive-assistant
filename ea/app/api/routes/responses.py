@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -443,6 +444,7 @@ _MEMORY_RESPONSE_REPOSITORY = _MemoryResponseRecordRepository()
 _POSTGRES_RESPONSE_REPOSITORIES: dict[str, _PostgresResponseRecordRepository] = {}
 _STREAM_RESPONSE_OVERRIDE_LOCK = threading.Lock()
 _STREAM_RESPONSE_OVERRIDES: dict[str, tuple[float, str, dict[str, object]]] = {}
+_DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
 
 _CODEx_PROFILES = tuple(
     {
@@ -457,6 +459,178 @@ _CODEx_PROFILES = tuple(
     }
     for profile in list_brain_profiles()
 )
+
+
+def _repo_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".codex-design").exists():
+            return parent
+    return current.parents[4]
+
+
+def _design_product_root() -> Path:
+    raw = str(os.getenv("CHUMMER6_DESIGN_PRODUCT_ROOT") or "").strip()
+    if raw:
+        return Path(raw)
+    local_root = _repo_root() / ".codex-design/product"
+    if local_root.exists():
+        return local_root
+    return _DEFAULT_DESIGN_PRODUCT_ROOT
+
+
+def _design_product_path(filename: str) -> Path:
+    root = _design_product_root()
+    candidate = root / filename
+    if candidate.exists():
+        return candidate
+    local_root = (_repo_root() / ".codex-design/product").resolve()
+    try:
+        resolved_root = root.resolve()
+    except Exception:
+        resolved_root = root
+    if resolved_root == local_root and _DEFAULT_DESIGN_PRODUCT_ROOT.exists():
+        fallback = _DEFAULT_DESIGN_PRODUCT_ROOT / filename
+        if fallback.exists():
+            return fallback
+    return candidate
+
+
+def _load_design_yaml_dict(filename: str) -> dict[str, object]:
+    path = _design_product_path(filename)
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _scorecard_entry(scorecard_id: str) -> dict[str, object]:
+    payload = _load_design_yaml_dict("PRODUCT_HEALTH_SCORECARD.yaml")
+    for row in list(payload.get("scorecards") or []):
+        entry = dict(row or {}) if isinstance(row, dict) else {}
+        if str(entry.get("id") or "").strip() == scorecard_id:
+            return entry
+    return {}
+
+
+def _codex_review_cadence() -> dict[str, str]:
+    payload = _load_design_yaml_dict("PRODUCT_HEALTH_SCORECARD.yaml")
+    cadence = dict(payload.get("cadence") or {}) if isinstance(payload.get("cadence"), dict) else {}
+    return {
+        "review": str(cadence.get("review") or "weekly").strip() or "weekly",
+        "snapshot_owner": str(cadence.get("snapshot_owner") or "product_governor").strip() or "product_governor",
+        "publication": str(cadence.get("publication") or "internal_canon_first").strip() or "internal_canon_first",
+    }
+
+
+def _codex_support_help_boundary() -> dict[str, str]:
+    entry = _scorecard_entry("support_and_feedback_closure")
+    metrics = [dict(item or {}) for item in list(entry.get("metrics") or []) if isinstance(item, dict)]
+    first_metric = metrics[0] if metrics else {}
+    question = str(entry.get("question") or "").strip()
+    target = str(first_metric.get("target") or "").strip()
+    return {
+        "summary": "Support and help outputs stay grounded and downstream of Hub case truth; EA prepares governed packets without becoming a second canon.",
+        "owner": str(entry.get("owner") or "chummer6-hub").strip() or "chummer6-hub",
+        "question": question or "Are user-reported problems being closed honestly?",
+        "target": target or "<=72h first grounded or human response",
+        "boundary": "Keep help, support, and operator outputs connected back to canonical Hub, Design, and Fleet truth surfaces.",
+    }
+
+
+def _codex_governance_sources() -> list[dict[str, str]]:
+    return [
+        {
+            "label": "CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md",
+            "path": ".codex-design/product/CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md",
+            "focus": "EA required changes: formalize review cadence, separate lane expectations, and keep outputs tied to canon.",
+        },
+        {
+            "label": "PRODUCT_HEALTH_SCORECARD.yaml",
+            "path": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
+            "focus": "Formal weekly review cadence and support-closure operating question.",
+        },
+        {
+            "label": "PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md",
+            "path": ".codex-design/product/PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md",
+            "focus": "EA remains a governed packet/synthesis layer downstream of canon.",
+        },
+    ]
+
+
+def _codex_governance_payload() -> dict[str, object]:
+    return {
+        "summary": "EA should stay a governed synthesis and runtime substrate downstream of canon instead of turning into hidden policy.",
+        "review_cadence": _codex_review_cadence(),
+        "support_help_boundary": _codex_support_help_boundary(),
+        "sources": _codex_governance_sources(),
+    }
+
+
+def _codex_profile_expectation(profile_name: str) -> dict[str, str]:
+    normalized = str(profile_name or "").strip().lower()
+    expectations = {
+        "core": {
+            "work_class": "hard_coder",
+            "expectation_summary": "Hard coder lane for substantive implementation, debugging, and repo-changing work that can materially affect the product.",
+            "review_posture": "Require review before merge or release-facing adoption.",
+            "best_for": "Blocking bugs, feature work, refactors, and code paths that need the strongest model lane.",
+        },
+        "easy": {
+            "work_class": "easy",
+            "expectation_summary": "Easy lane for cheap status answers, lightweight drafting, and low-impact assist work that should stay fast and inexpensive.",
+            "review_posture": "No formal review by default; escalate if the task turns into product truth or meaningful code change.",
+            "best_for": "Quick operator questions, low-risk prose, and lightweight synthesis.",
+        },
+        "repair": {
+            "work_class": "repair",
+            "expectation_summary": "Repair lane for bounded follow-up patches after a concrete failure, regression, or verifier finding.",
+            "review_posture": "Auto only for low-risk bounded fixes; escalate when the patch expands beyond the original failure.",
+            "best_for": "Small safe repairs, cleanup diffs, and well-scoped regression fixes.",
+        },
+        "groundwork": {
+            "work_class": "groundwork",
+            "expectation_summary": "Groundwork lane for non-urgent analysis, planning, design shaping, and synthesis that should inform action without quietly becoming policy.",
+            "review_posture": "Use as preparation and framing; convert to a reviewed implementation or audit lane before high-impact changes.",
+            "best_for": "Research briefs, design synthesis, option narrowing, and preparation packets.",
+        },
+        "review_light": {
+            "work_class": "review_light",
+            "expectation_summary": "Review-light lane for fast diff checks and posthoc verification when a full jury pass would be too heavy.",
+            "review_posture": "Use for light review only; escalate to audit/jury when release, trust, or multi-surface risk is present.",
+            "best_for": "Focused patch review, bounded verifier follow-up, and quick quality checks.",
+        },
+        "audit": {
+            "work_class": "audit_jury",
+            "expectation_summary": "Audit/jury lane for publish-facing, cross-surface, or high-risk review where the operator needs a more adversarial multi-view check.",
+            "review_posture": "Treat findings as review-required and operator-visible before relying on the result for release or policy decisions.",
+            "best_for": "Release review, trust-sensitive changes, broad audits, and high-risk multi-file decisions.",
+        },
+        "survival": {
+            "work_class": "survival_fallback",
+            "expectation_summary": "Survival lane is the fallback path when preferred routes are blocked, exhausted, or too degraded to trust for normal flow.",
+            "review_posture": "Prefer temporary use with explicit follow-up back on the normal lanes once the stack recovers.",
+            "best_for": "Business-continuity execution when the primary route is unavailable.",
+        },
+        "core_batch": {
+            "work_class": "hard_coder_batch",
+            "expectation_summary": "Core batch lane is the hard-coder batch path for larger repo work that still carries review-required posture.",
+            "review_posture": "Require review before merge or release-facing adoption.",
+            "best_for": "Longer-running implementation slices that still belong to the hard coder family.",
+        },
+    }
+    return dict(expectations.get(normalized) or {})
+
+
+def _enrich_codex_profile(profile: dict[str, object]) -> dict[str, object]:
+    return {
+        **profile,
+        **_codex_profile_expectation(str(profile.get("profile") or "")),
+        "review_cadence": _codex_review_cadence(),
+        "support_help_boundary": _codex_support_help_boundary(),
+        "governance_sources": _codex_governance_sources(),
+    }
 
 
 def _set_stream_response_override(
@@ -1288,7 +1462,8 @@ def _codex_profiles(
     rows = []
     for profile in router.list_profile_decisions(principal_id=principal_id or None):
         rows.append(
-            {
+            _enrich_codex_profile(
+                {
                 "profile": profile.profile,
                 "lane": profile.lane,
                 "model": profile.public_model,
@@ -1299,16 +1474,20 @@ def _codex_profiles(
                 "needs_review": bool(profile.needs_review),
                 "risk_labels": list(profile.risk_labels),
                 "merge_policy": str(profile.merge_policy or "auto"),
-            }
+                }
+            )
         )
-    return tuple(rows or _CODEx_PROFILES)
+    if rows:
+        return tuple(rows)
+    return tuple(_enrich_codex_profile(dict(item)) for item in _CODEx_PROFILES)
 
 
 def _codex_profile(profile: str, *, container: object | None = None, principal_id: str = "") -> dict[str, object]:
     for item in _codex_profiles(container=container, principal_id=principal_id):
         if item["profile"] == profile:
             return dict(item)
-    return {
+    return _enrich_codex_profile(
+        {
         "profile": profile,
         "lane": "default",
         "model": DEFAULT_PUBLIC_MODEL,
@@ -1317,7 +1496,8 @@ def _codex_profile(profile: str, *, container: object | None = None, principal_i
         "health_provider_key": "",
         "review_required": False,
         "needs_review": False,
-    }
+        }
+    )
 
 
 def _attach_provider_slot_state(
@@ -1447,8 +1627,14 @@ def _redacted_provider_health(provider_health: dict[str, object], *, include_sen
     return payload
 
 
-def _normalize_payload_for_profile(payload: dict[str, object], *, profile: str) -> dict[str, object]:
-    profile_config = _codex_profile(profile)
+def _normalize_payload_for_profile(
+    payload: dict[str, object],
+    *,
+    profile: str,
+    container: object | None = None,
+    principal_id: str = "",
+) -> dict[str, object]:
+    profile_config = _codex_profile(profile, container=container, principal_id=principal_id)
     normalized = dict(payload)
     normalized["model"] = str(profile_config["model"])
     return normalized
@@ -2326,6 +2512,16 @@ def _run_survival_response(
                 "codex_provider_hint_order": list(profile_config.get("provider_hint_order", []))
                 if isinstance(profile_config, dict)
                 else None,
+                "codex_work_class": profile_config.get("work_class") if isinstance(profile_config, dict) else None,
+                "codex_expectation_summary": profile_config.get("expectation_summary") if isinstance(profile_config, dict) else None,
+                "codex_review_posture": profile_config.get("review_posture") if isinstance(profile_config, dict) else None,
+                "codex_best_for": profile_config.get("best_for") if isinstance(profile_config, dict) else None,
+                "codex_review_cadence": dict(profile_config.get("review_cadence") or {})
+                if isinstance(profile_config, dict)
+                else {},
+                "codex_support_help_boundary": dict(profile_config.get("support_help_boundary") or {})
+                if isinstance(profile_config, dict)
+                else {},
             }
         )
 
@@ -2825,6 +3021,16 @@ def _run_response(
                 "codex_provider_hint_order": list(profile_config.get("provider_hint_order", []))
                 if isinstance(profile_config, dict)
                 else None,
+                "codex_work_class": profile_config.get("work_class") if isinstance(profile_config, dict) else None,
+                "codex_expectation_summary": profile_config.get("expectation_summary") if isinstance(profile_config, dict) else None,
+                "codex_review_posture": profile_config.get("review_posture") if isinstance(profile_config, dict) else None,
+                "codex_best_for": profile_config.get("best_for") if isinstance(profile_config, dict) else None,
+                "codex_review_cadence": dict(profile_config.get("review_cadence") or {})
+                if isinstance(profile_config, dict)
+                else {},
+                "codex_support_help_boundary": dict(profile_config.get("support_help_boundary") or {})
+                if isinstance(profile_config, dict)
+                else {},
             }
         )
     response_metadata.update(
@@ -3704,7 +3910,12 @@ def create_codex_core(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="core")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="core",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="core")
 
 
@@ -3741,7 +3952,12 @@ def create_codex_easy(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="easy")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="easy",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="easy")
 
 
@@ -3778,7 +3994,12 @@ def create_codex_repair(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="repair")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="repair",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="repair")
 
 
@@ -3815,7 +4036,12 @@ def create_codex_groundwork(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="groundwork")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="groundwork",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="groundwork")
 
 
@@ -3852,7 +4078,12 @@ def create_codex_review_light(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="review_light")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="review_light",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="review_light")
 
 
@@ -3881,7 +4112,12 @@ def create_codex_survival(
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="survival")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="survival",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="survival")
 
 
@@ -3918,7 +4154,12 @@ def create_codex_audit(
     context: RequestContext = Depends(get_request_context),
     container: AppContainer = Depends(get_container),
 ) -> Response:
-    normalized = _normalize_payload_for_profile(payload, profile="audit")
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="audit",
+        container=container,
+        principal_id=context.principal_id,
+    )
     return _run_response(normalized, context=context, container=container, codex_profile="audit")
 
 
@@ -3937,6 +4178,7 @@ def list_codex_profiles(
     return JSONResponse(
         {
             "principal": principal_identity_summary(context.principal_id),
+            "governance": _codex_governance_payload(),
             "profiles": _attach_provider_slot_state(
                 profiles,
                 provider_health=safe_provider_health,
@@ -3965,6 +4207,7 @@ def get_codex_status(
     else:
         report = dict(codex_status_report(window=window, principal_id=context.principal_id))
         report["fleet_burn"] = {}
+    report["governance"] = _codex_governance_payload()
     return JSONResponse(report)
 
 
