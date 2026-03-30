@@ -272,6 +272,49 @@ def _human_task_row(value: object, *, operator_id: str, return_to: str) -> dict[
         quaternary_return_to=return_to if quaternary_href else "",
     )
 
+
+def _commitment_rows(values: object, *, return_to: str = "/admin/office") -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for value in values if isinstance(values, (list, tuple)) else []:
+        commitment_id = str(getattr(value, "id", "") or "").strip()
+        normalized_status = str(getattr(value, "status", "") or "").strip().lower()
+        detail = " · ".join(
+            part
+            for part in (
+                _humanize(normalized_status).title() if normalized_status not in {"open", "completed"} else "",
+                str(getattr(value, "counterparty", "") or "").strip(),
+                f"due {str(getattr(value, 'due_at', '') or '')[:10]}" if getattr(value, "due_at", None) else "",
+                str(getattr(value, "resolution_reason", "") or "").strip(),
+            )
+            if str(part or "").strip()
+        ) or "Commitment is still open."
+        is_resolved = normalized_status in {"completed", "dropped"}
+        rows.append(
+            _row(
+                str(getattr(value, "statement", "") or "Commitment"),
+                detail,
+                _humanize(str(getattr(value, "risk_level", "") or "commitment")).title(),
+                href=f"/app/commitment-items/{commitment_id}" if commitment_id else "",
+                action_href=f"/app/actions/queue/{commitment_id}/resolve" if commitment_id else "",
+                action_label="Reopen" if is_resolved else "Close",
+                action_value="reopen" if is_resolved else "close",
+                action_method="post" if commitment_id else "",
+                return_to=return_to if commitment_id else "",
+                secondary_action_href="" if is_resolved or not commitment_id else f"/app/actions/queue/{commitment_id}/resolve",
+                secondary_action_label="" if is_resolved else "Defer",
+                secondary_action_value="" if is_resolved else "defer",
+                secondary_action_method="" if is_resolved else "post",
+                secondary_return_to=return_to if not is_resolved and commitment_id else "",
+                tertiary_action_href="" if is_resolved or not commitment_id else f"/app/actions/queue/{commitment_id}/resolve",
+                tertiary_action_label="" if is_resolved else "Drop",
+                tertiary_action_value="" if is_resolved else "drop",
+                tertiary_action_method="" if is_resolved else "post",
+                tertiary_return_to=return_to if not is_resolved and commitment_id else "",
+            )
+        )
+    return rows
+
+
 def build_admin_section_payload(section: str, *, container: AppContainer, principal_id: str, operator_id: str = "") -> dict[str, object]:
     readiness_ok, readiness_label = container.readiness.check()
     readiness_state = "ready" if readiness_ok else "attention"
@@ -810,8 +853,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 {
                     "eyebrow": "Recently completed",
                     "title": "What just moved through the operator lane",
-                    "items": _handoff_rows(office_snapshot_state.completed_handoffs[:6], actionable=False)
-                    or [_row("No recently completed handoffs", "Completed operator work will appear here after it returns cleanly.", "History")],
+                    "items": (
+                        _commitment_rows(office_snapshot_state.recently_closed_commitments[:6], return_to="/admin/office")
+                        + _handoff_rows(office_snapshot_state.completed_handoffs[:6], actionable=False)
+                    )[:6]
+                    or [_row("No recently completed work", "Completed commitments and operator work will appear here after they return cleanly.", "History")],
                 },
                 {
                     "eyebrow": "Current load",

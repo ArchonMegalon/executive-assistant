@@ -704,6 +704,12 @@ def operator_browser_server() -> Iterator[dict[str, object]]:
 def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operator_browser_server: dict[str, object]) -> None:
     base_url = str(operator_browser_server["base_url"])
     seeded = dict(operator_browser_server["seeded"])
+    client = operator_browser_server["client"]
+    closed = client.post(
+        f"/app/api/queue/commitment:{seeded['commitment_id']}/resolve",
+        json={"action": "close", "reason": "Board packet sent from the operator lane."},
+    )
+    assert closed.status_code == 200
     context = browser.new_context(
         extra_http_headers={
             "Authorization": f"Bearer {seeded['auth_token']}",
@@ -719,6 +725,9 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
         assert "What the office control surface is carrying right now" in page.content()
         assert "What can be claimed next" in page.content()
         assert "Prepare board follow-up handoff" in page.content()
+        assert "What just moved through the operator lane" in page.content()
+        assert "Send board materials" in page.content()
+        assert "Reopen" in page.content()
 
         response = page.goto(f"{base_url}/admin/community", wait_until="networkidle")
         assert response is not None and response.ok
