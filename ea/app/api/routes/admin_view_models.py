@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.api.routes.responses import _codex_governance_payload, _codex_profiles
 from app.container import AppContainer
 from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
 from app.product.service import build_product_service
@@ -336,6 +337,12 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     registry = container.provider_registry.registry_read_model(principal_id=principal_id)
     providers = list(registry.get("providers") or [])
     lanes = list(registry.get("lanes") or [])
+    codex_profiles = [
+        dict(item)
+        for item in _codex_profiles(container=container, principal_id=principal_id)
+        if str(item.get("profile") or "") != "core_batch"
+    ]
+    codex_governance = _codex_governance_payload()
 
     provider_rows = [
         _row(
@@ -370,6 +377,54 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             _humanize(str(lane.get("primary_state") or "unknown")).title(),
         )
         for lane in lanes[:8]
+    ]
+    codex_profile_rows = [
+        _row(
+            _humanize(str(profile.get("work_class") or profile.get("profile") or "codex")).title(),
+            " · ".join(
+                part
+                for part in (
+                    str(profile.get("expectation_summary") or "").strip(),
+                    str(profile.get("review_posture") or "").strip(),
+                    str(profile.get("best_for") or "").strip(),
+                )
+                if part
+            )
+            or "Codex lane expectation is defined in canon.",
+            _humanize(str(profile.get("lane") or profile.get("profile") or "codex")).title(),
+        )
+        for profile in codex_profiles[:7]
+    ]
+    cadence = dict(codex_governance.get("review_cadence") or {})
+    support_help_boundary = dict(codex_governance.get("support_help_boundary") or {})
+    governance_rows = [
+        _row(
+            "Review cadence",
+            " · ".join(
+                part
+                for part in (
+                    _humanize(str(cadence.get("review") or "weekly")).title(),
+                    str(cadence.get("snapshot_owner") or "product_governor").replace("_", " "),
+                    str(cadence.get("publication") or "internal_canon_first").replace("_", " "),
+                )
+                if part
+            )
+            or "Weekly product-governor review is expected.",
+            "Cadence",
+        ),
+        _row(
+            "Support/help boundary",
+            " · ".join(
+                part
+                for part in (
+                    str(support_help_boundary.get("summary") or "").strip(),
+                    str(support_help_boundary.get("boundary") or "").strip(),
+                )
+                if part
+            )
+            or "Support and help stay grounded and downstream of canon.",
+            "Boundary",
+        ),
     ]
     approval_rows = [
         _row(
@@ -886,10 +941,15 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         },
         "providers": {
             "title": "Providers",
-            "summary": "Provider health, capacity, and routing lanes from the live registry view.",
+            "summary": "Provider health, capacity, routing lanes, and codex governance from the live runtime and canon-backed control loop.",
             "cards": [
                 {"eyebrow": "Bindings", "title": "Configured providers", "items": provider_rows or [_row("No provider bindings", "No providers are currently bound for this principal.", "Empty")]},
                 {"eyebrow": "Routing", "title": "Lane routing state", "items": lane_rows or [_row("No active lanes", "No provider lanes are currently active.", "Empty")]},
+                {
+                    "eyebrow": "Codex governance",
+                    "title": "What each codex lane is expected to do",
+                    "items": codex_profile_rows or [_row("No codex lane guidance", "Codex governance guidance is not available yet.", "Empty")],
+                },
                 {
                     "eyebrow": "Readiness",
                     "title": "Deployment posture",
@@ -899,6 +959,11 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                         _row("Fallback lanes", str(diagnostics_provider.get("lanes_with_fallback") or 0), "Support"),
                         _row("Failover-ready lanes", str(diagnostics_provider.get("failover_ready_lanes") or 0), "Support"),
                     ],
+                },
+                {
+                    "eyebrow": "Governance",
+                    "title": "What keeps codex from turning into hidden policy",
+                    "items": governance_rows,
                 },
             ],
         },

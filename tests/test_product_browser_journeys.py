@@ -808,6 +808,27 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     assert redirected.headers["location"] == "/admin/office"
 
 
+def test_operator_admin_providers_page_surfaces_codex_governance() -> None:
+    principal_id = "exec-browser-admin-providers"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    start_workspace(client, mode="executive_ops", workspace_name="Provider Governance Office")
+    seed_product_state(client, principal_id=principal_id)
+
+    providers = client.get("/admin/providers")
+    assert providers.status_code == 200
+    assert "Providers" in providers.text
+    assert "Lane routing state" in providers.text
+    assert "What each codex lane is expected to do" in providers.text
+    assert "Hard coder lane" in providers.text
+    assert "Easy lane" in providers.text
+    assert "Groundwork lane" in providers.text
+    assert "Audit/jury lane" in providers.text
+    assert "What keeps codex from turning into hidden policy" in providers.text
+    assert "Review cadence" in providers.text
+    assert "Support/help boundary" in providers.text
+    assert "Support and help outputs stay grounded" in providers.text
+
+
 def test_support_page_explains_current_memo_issue_and_fix_detail() -> None:
     principal_id = "exec-browser-support-memo-issue"
     client = build_product_client(principal_id=principal_id)
