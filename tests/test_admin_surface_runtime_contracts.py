@@ -7,6 +7,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from tests.product_test_helpers import build_product_client, seed_product_state, start_workspace
+
 
 def _operator_client(*, principal_id: str = "exec-admin-surface") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -195,3 +197,31 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     diagnostics_api = client.get("/app/api/diagnostics")
     assert diagnostics_api.status_code == 200
     assert int(diagnostics_api.json()["analytics"]["counts"].get("support_bundle_opened") or 0) >= 1
+
+
+def test_admin_loopback_surface_defaults_to_first_operator_for_handoff_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-admin-loopback"
+    monkeypatch.setenv("EA_ALLOW_LOOPBACK_NO_AUTH", "1")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", principal_id)
+
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="executive_ops")
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    operators = client.get("/admin/operators")
+    assert operators.status_code == 200
+    assert "Prepare board follow-up handoff" in operators.text
+    assert "Claim" in operators.text
+
+    claimed = client.post(
+        f"/app/actions/handoffs/human_task:{seeded['human_task_id']}/assign",
+        data={"return_to": "/admin/operators"},
+        follow_redirects=False,
+    )
+    assert claimed.status_code == 303
+    assert claimed.headers["location"] == "/admin/operators"
+
+    operators_after_claim = client.get("/admin/operators")
+    assert operators_after_claim.status_code == 200
+    assert "Prepare board follow-up handoff" in operators_after_claim.text
+    assert "Complete" in operators_after_claim.text

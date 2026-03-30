@@ -420,6 +420,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert support_page.status_code == 200
     assert "Support and diagnostics" in support_page.text
     assert "Operational reliability" in support_page.text
+    assert "Open bundle" in support_page.text
 
     outcomes_page = client.get("/app/settings/outcomes")
     assert outcomes_page.status_code == 200
