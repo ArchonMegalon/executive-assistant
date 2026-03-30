@@ -2,7 +2,7 @@
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
   "generated_at": "2026-03-29T08:36:12Z",
-  "as_of": "2026-03-29",
+  "as_of": "2026-03-30",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -17,7 +17,7 @@
   },
   "governor_decisions": [
     {
-      "decision_id": "2026-03-29-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+      "decision_id": "2026-03-30-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
       "action": "closeout_and_continue",
       "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 5 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
       "cited_signals": [
@@ -73,7 +73,7 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-29-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+        "decision_id": "2026-03-30-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
         "action": "closeout_and_continue",
         "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 5 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
         "cited_signals": [
@@ -97,7 +97,7 @@
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
       "canary_status": "Canary review required before widening defaults",
-      "review_due": "2026-04-12",
+      "review_due": "2026-04-13",
       "next_decision": "Hold default promotion until blocked journey proof and trust fallout are cleared."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
