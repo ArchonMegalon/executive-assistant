@@ -277,6 +277,11 @@ def settings_support_detail(
     queue_health = dict(bundle.get("queue_health") or {})
     commercial = dict(bundle.get("commercial") or {})
     readiness = dict(bundle.get("readiness") or {})
+    product_control = dict(bundle.get("product_control") or {})
+    journey_gate = dict(product_control.get("journey_gate_health") or {})
+    journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
+    route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
+    journey_highlights = [dict(value) for value in list(product_control.get("journey_highlights") or [])]
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -304,6 +309,9 @@ def settings_support_detail(
             _object_detail_row("Provider risk", str(providers.get("risk_state") or "unknown"), "Provider"),
             _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row("Last memo issue", str(memo_loop.get("last_issue_reason") or "No current memo blocker"), "Memo"),
+            _object_detail_row("Journey gate", str(journey_gate.get("state") or "missing").replace("_", " "), "Product"),
+            _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
+            _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
             _object_detail_row(
                 "Blocked actions",
                 ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
@@ -319,6 +327,60 @@ def settings_support_detail(
             ),
         ],
         object_sections=[
+            {
+                "eyebrow": "Product control",
+                "title": "Weekly pulse and journey-gate truth",
+                "items": [
+                    _object_detail_row("Active wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave"),
+                    _object_detail_row("Wave status", str(product_control.get("active_wave_status") or "unknown").replace("_", " "), "Wave"),
+                    _object_detail_row("Pulse summary", str(product_control.get("summary") or "No weekly pulse summary."), "Pulse"),
+                    _object_detail_row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " "), "Gate"),
+                    _object_detail_row("Journey action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate"),
+                    _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch-readiness note mirrored."), "Launch"),
+                    _object_detail_row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route"),
+                    _object_detail_row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route"),
+                    _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
+                    _object_detail_row("Next checkpoint", str(product_control.get("next_checkpoint_question") or "No checkpoint question mirrored."), "Checkpoint"),
+                    _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No published journey-gate freshness."), "Proof"),
+                ],
+            },
+            {
+                "eyebrow": "Journey proof",
+                "title": "What the published release gate is saying",
+                "items": [
+                    _object_detail_row(
+                        str(item.get("title") or "Journey"),
+                        " · ".join(
+                            part
+                            for part in (
+                                str(item.get("state") or "unknown").replace("_", " "),
+                                str(item.get("recommended_action") or "").strip(),
+                                (
+                                    f"{int(item.get('support_closure_waiting_count') or 0)} support closures waiting"
+                                    if int(item.get("support_closure_waiting_count") or 0)
+                                    else ""
+                                ),
+                                (
+                                    f"{int(item.get('support_needs_human_response_count') or 0)} human responses needed"
+                                    if int(item.get("support_needs_human_response_count") or 0)
+                                    else ""
+                                ),
+                            )
+                            if str(part or "").strip()
+                        )
+                        or "Published journey-gate evidence is available.",
+                        str(item.get("state") or "gate").replace("_", " ").title(),
+                    )
+                    for item in journey_highlights
+                ]
+                or [
+                    _object_detail_row(
+                        "No journey highlights",
+                        str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published journey-gate highlights."),
+                        "Gate",
+                    )
+                ],
+            },
             {
                 "eyebrow": "Approvals",
                 "title": "Pending review and recent decisions",
