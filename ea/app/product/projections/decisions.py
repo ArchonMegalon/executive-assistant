@@ -1,20 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from app.domain.models import DecisionWindow
 from app.product.models import DecisionItem, EvidenceRef
-from app.product.projections.common import compact_text
+from app.product.projections.common import compact_text, parse_when
 
 
-def _decision_sla_status(status: str, due_at: str | None) -> str:
+def _decision_sla_status(status: str, due_at: str | None, *, now: datetime | None = None) -> str:
     normalized_status = str(status or "").strip().lower()
     if normalized_status in {"decided", "closed", "completed"}:
         return "resolved"
-    normalized_due = str(due_at or "").strip()
-    if not normalized_due:
+    due_when = parse_when(due_at)
+    if due_when is None:
         return "unscheduled"
-    if normalized_due <= "2026-03-25T23:59:59+00:00":
+    current = now or datetime.now(timezone.utc)
+    if due_when <= current:
         return "due_now"
-    if normalized_due <= "2026-03-27T00:00:00+00:00":
+    if due_when <= current + timedelta(days=2):
         return "due_soon"
     return "on_track"
 
