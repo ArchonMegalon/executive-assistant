@@ -543,6 +543,43 @@ def operator_browser_server() -> Iterator[dict[str, object]]:
 
     principal_id = "fixture-operator-browser"
     client, seeded = seed_executive_operator_fixture(principal_id=principal_id)
+    pending_invite = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "operator-browser-community@example.com",
+            "role": "operator",
+            "display_name": "Browser Community Operator",
+            "note": "Backup organizer lane for launch week.",
+            "expires_in_days": 7,
+        },
+    )
+    assert pending_invite.status_code == 200
+    accepted_invite = client.post(
+        "/app/api/invitations",
+        json={
+            "email": "principal-browser-community@example.com",
+            "role": "principal",
+            "display_name": "Browser Principal Community",
+            "note": "Join the release-support loop.",
+            "expires_in_days": 7,
+        },
+    )
+    assert accepted_invite.status_code == 200
+    accepted = client.post(
+        "/app/api/invitations/accept",
+        json={"token": accepted_invite.json()["invite_token"], "display_name": "Browser Principal Community"},
+    )
+    assert accepted.status_code == 200
+    active_access = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "browser-community-access@example.com",
+            "role": "principal",
+            "display_name": "Browser Community Access",
+            "expires_in_hours": 24,
+        },
+    )
+    assert active_access.status_code == 200
     seeded_with_auth = {
         **seeded,
         "principal_id": principal_id,
@@ -570,6 +607,14 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
         assert "What the office control surface is carrying right now" in page.content()
         assert "What can be claimed next" in page.content()
         assert "Prepare board follow-up handoff" in page.content()
+
+        response = page.goto(f"{base_url}/admin/community", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert "Organizer / Community" in page.content()
+        assert "What participation and release currently look like" in page.content()
+        assert "operator-browser-community@example.com" in page.content()
+        assert "browser-community-access@example.com" in page.content()
+        _assert_visual_baseline(page, "admin-community-page.png")
 
         response = page.goto(f"{base_url}/admin/audit-trail", wait_until="networkidle")
         assert response is not None and response.ok
