@@ -123,7 +123,15 @@ def test_browser_journey_updates_after_approval_and_commitment_closure() -> None
 
     followups = client.get("/app/follow-ups")
     assert followups.status_code == 200
+    assert "What just moved through the loop" in followups.text
+    assert "Send board materials" in followups.text
+    assert "Reopen" in followups.text
     assert "Prepare board follow-up handoff" in followups.text
+
+    activity_after_close = client.get("/app/activity")
+    assert activity_after_close.status_code == 200
+    assert "What just moved through the operator lane" in activity_after_close.text
+    assert "Send board materials" in activity_after_close.text
 
 
 def test_browser_action_routes_match_rendered_forms() -> None:

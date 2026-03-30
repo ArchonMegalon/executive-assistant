@@ -227,6 +227,7 @@ class ProductSnapshot:
     brief_items: tuple[BriefItem, ...] = field(default_factory=tuple)
     queue_items: tuple[DecisionQueueItem, ...] = field(default_factory=tuple)
     commitments: tuple[CommitmentItem, ...] = field(default_factory=tuple)
+    recently_closed_commitments: tuple[CommitmentItem, ...] = field(default_factory=tuple)
     commitment_candidates: tuple[CommitmentCandidate, ...] = field(default_factory=tuple)
     drafts: tuple[DraftCandidate, ...] = field(default_factory=tuple)
     decisions: tuple[DecisionItem, ...] = field(default_factory=tuple)
