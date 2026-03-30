@@ -64,11 +64,15 @@ print_product_control_summary() {
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 root = Path.cwd()
+sys.path.insert(0, str(root / "ea"))
 pulse_path = root / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
 default_journey_path = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+
+from app.product.service import _public_guide_freshness_projection
 
 
 def load_json(path: Path) -> dict[str, object] | None:
@@ -86,6 +90,7 @@ journey = load_json(journey_path) if journey_path.exists() else None
 journey_summary = dict((journey or {}).get("summary") or {})
 pulse_gate = dict((pulse or {}).get("journey_gate_health") or {})
 route = dict(signals.get("provider_route_stewardship") or {})
+public_guide = _public_guide_freshness_projection()
 
 journey_state = str(pulse_gate.get("state") or journey_summary.get("overall_state") or "missing").strip() or "missing"
 journey_action = str(journey_summary.get("recommended_action") or pulse_gate.get("reason") or "No published journey action.").strip()
@@ -100,6 +105,10 @@ print(f"journey_generated_at={str((journey or {}).get('generated_at') or 'missin
 print(f"journey_gate_state={journey_state}")
 print(f"journey_gate_action={journey_action}")
 print(f"route_review_due={str(route.get('review_due') or 'not published').strip() or 'not published'}")
+print(f"public_guide_path={str(public_guide.get('path') or 'missing').strip() or 'missing'}")
+print(f"public_guide_generated_at={str(public_guide.get('generated_at') or 'missing').strip() or 'missing'}")
+print(f"public_guide_freshness={str(public_guide.get('state') or 'missing').strip() or 'missing'}")
+print(f"public_guide_detail={str(public_guide.get('detail') or 'No public-guide freshness is mirrored.').strip() or 'No public-guide freshness is mirrored.'}")
 PY
 }
 

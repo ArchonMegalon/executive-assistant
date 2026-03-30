@@ -493,6 +493,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Support closure grounding" in support_page.text
     assert "Weekly pulse and journey-gate truth" in support_page.text
     assert "What the published release gate is saying" in support_page.text
+    assert "Support fallout" in support_page.text
+    assert "Public guide freshness" in support_page.text
     assert "Open bundle" in support_page.text
 
     outcomes_page = client.get("/app/settings/outcomes")
@@ -502,6 +504,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "How the daily loop is performing" in outcomes_page.text
     assert "How the recurring memo loop is proving itself" in outcomes_page.text
     assert "What the office-loop release gate would say right now" in outcomes_page.text
+    assert "Support fallout" in outcomes_page.text
+    assert "Public guide freshness" in outcomes_page.text
     assert "Blocked send follow-ups" in outcomes_page.text
     assert "Send follow-ups closed" in outcomes_page.text
 

@@ -131,6 +131,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "journey_gate_health" in diagnostics_body["product_control"]
     assert "provider_route_stewardship" in diagnostics_body["product_control"]
     assert "launch_readiness" in diagnostics_body["product_control"]
+    assert "support_fallout" in diagnostics_body["product_control"]
+    assert "public_guide_freshness" in diagnostics_body["product_control"]
     assert "state" in diagnostics_body["support_verification"]
 
     plan = client.get("/app/api/plan")
@@ -196,6 +198,8 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "google_token_status" in support_body["analytics"]["sync"]
     assert support_body["product_control"]["summary"]
     assert "journey_highlights" in support_body["product_control"]
+    assert "support_fallout" in support_body["product_control"]
+    assert "public_guide_freshness" in support_body["product_control"]
     assert "state" in support_body["support_verification"]
     assert support_body["support_assistant_grounding"]["id"] == "support_assistant"
     assert support_body["support_assistant_grounding"]["bullets"]
@@ -2106,6 +2110,8 @@ def test_product_diagnostics_include_value_events() -> None:
     assert isinstance(body["human_tasks"], list)
     assert body["product_control"]["summary"]
     assert "journey_gate_freshness" in body["product_control"]
+    assert "support_fallout" in body["product_control"]
+    assert "public_guide_freshness" in body["product_control"]
 
 
 def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> None:
@@ -2441,6 +2447,7 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert body["operator_memo_grounding"]["id"] == "operator_memo"
     assert body["operator_memo_grounding"]["actions"]
     assert any(item["label"] == "GOLDEN_JOURNEY_RELEASE_GATES.yaml" for item in body["operator_memo_grounding"]["sources"])
+    assert any(item["label"] == "manifest.generated.json" for item in body["operator_memo_grounding"]["sources"])
     assert "snapshot" in body
     assert body["snapshot"]["clearable_queue_items"] >= 1
     assert body["snapshot"]["exception_count"] >= 0

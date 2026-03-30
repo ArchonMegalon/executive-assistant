@@ -290,6 +290,8 @@ def settings_support_detail(
     support_grounding = dict(bundle.get("support_assistant_grounding") or {})
     journey_gate = dict(product_control.get("journey_gate_health") or {})
     journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
+    support_fallout = dict(product_control.get("support_fallout") or {})
+    public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     journey_highlights = [dict(value) for value in list(product_control.get("journey_highlights") or [])]
     return _render_console_object_detail(
@@ -320,7 +322,9 @@ def settings_support_detail(
             _object_detail_row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
             _object_detail_row("Last memo issue", str(memo_loop.get("last_issue_reason") or "No current memo blocker"), "Memo"),
             _object_detail_row("Journey gate", str(journey_gate.get("state") or "missing").replace("_", " "), "Product"),
+            _object_detail_row("Support fallout", str(support_fallout.get("detail") or "No support fallout is mirrored."), "Support"),
             _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
+            _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness is mirrored."), "Guide"),
             _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
             _object_detail_row(
                 "Fix verification",
@@ -424,12 +428,14 @@ def settings_support_detail(
                     _object_detail_row("Pulse summary", str(product_control.get("summary") or "No weekly pulse summary."), "Pulse"),
                     _object_detail_row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " "), "Gate"),
                     _object_detail_row("Journey action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate"),
+                    _object_detail_row("Support fallout", str(support_fallout.get("detail") or "No support fallout is mirrored."), "Support"),
                     _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch-readiness note mirrored."), "Launch"),
                     _object_detail_row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route"),
                     _object_detail_row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route"),
                     _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
                     _object_detail_row("Next checkpoint", str(product_control.get("next_checkpoint_question") or "No checkpoint question mirrored."), "Checkpoint"),
                     _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No published journey-gate freshness."), "Proof"),
+                    _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness is mirrored."), "Guide"),
                 ],
             },
             {
@@ -592,9 +598,16 @@ def settings_outcomes_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     outcomes = product.workspace_outcomes(principal_id=context.principal_id)
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
     counts = {str(key): int(value or 0) for key, value in dict(outcomes.get("counts") or {}).items()}
     memo_loop = dict(outcomes.get("memo_loop") or {})
     office_loop_proof = dict(outcomes.get("office_loop_proof") or {})
+    product_control = dict(diagnostics.get("product_control") or {})
+    journey_gate = dict(product_control.get("journey_gate_health") or {})
+    journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
+    support_fallout = dict(product_control.get("support_fallout") or {})
+    public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
+    route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
     proof_checks = [dict(value) for value in list(office_loop_proof.get("checks") or [])]
     return _render_console_object_detail(
         request=request,
@@ -717,6 +730,13 @@ def settings_outcomes_detail(
                         "Gate",
                     ),
                     _object_detail_row("Summary", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
+                    _object_detail_row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave"),
+                    _object_detail_row("Journey gate", str(journey_gate.get("state") or "missing").replace("_", " "), "Gate"),
+                    _object_detail_row("Support fallout", str(support_fallout.get("detail") or "No support fallout is mirrored."), "Support"),
+                    _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch"),
+                    _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
+                    _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof"),
+                    _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide"),
                     *[
                         _object_detail_row(
                             str(row.get("label") or "Check"),
