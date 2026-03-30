@@ -533,6 +533,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     analytics_counts = dict(diagnostics_analytics.get("counts") or {})
     diagnostics_channels = list(diagnostics.get("selected_channels") or [])
     diagnostics_journey_gate = dict(diagnostics_product_control.get("journey_gate_health") or {})
+    diagnostics_public_guide = dict(diagnostics_product_control.get("public_guide_freshness") or {})
+    diagnostics_support_fallout = dict(diagnostics_product_control.get("support_fallout") or {})
     diagnostics_route_stewardship = dict(diagnostics_product_control.get("provider_route_stewardship") or {})
     workspace_rows = [
         _row("Workspace", str(diagnostics_workspace.get("name") or "Executive Workspace"), "Workspace"),
@@ -594,8 +596,10 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             str(diagnostics_journey_gate.get("recommended_action") or diagnostics_journey_gate.get("reason") or "No published action."),
             "Product",
         ),
+        _row("Support fallout", str(diagnostics_support_fallout.get("detail") or "No support fallout mirrored."), "Support"),
         _row("Launch readiness", str(diagnostics_product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
         _row("Route review due", str(diagnostics_route_stewardship.get("review_due") or "No route review due published."), "Route"),
+        _row("Public guide freshness", str(diagnostics_public_guide.get("detail") or "No public-guide freshness mirrored."), "Guide"),
         _row("Fix verification", str(diagnostics_support_verification.get("state") or "not_requested").replace("_", " "), "Support"),
         _row("Channel receipt", str(diagnostics_support_verification.get("channel_receipt_state") or "not_requested").replace("_", " "), "Support"),
         _row("Install receipt", str(diagnostics_support_verification.get("install_receipt_state") or "not_requested").replace("_", " "), "Support"),
@@ -838,9 +842,21 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             href="/app/settings/support",
         ),
         _row(
+            "Support fallout",
+            str(diagnostics_support_fallout.get("detail") or "No support fallout is mirrored yet."),
+            _humanize(str(diagnostics_support_fallout.get("state") or "clear")).title(),
+            href="/app/settings/support",
+        ),
+        _row(
             "Launch readiness",
             str(diagnostics_product_control.get("launch_readiness") or "No launch-readiness note is mirrored yet."),
             "Release",
+            href="/app/settings/outcomes",
+        ),
+        _row(
+            "Public guide freshness",
+            str(diagnostics_public_guide.get("detail") or "No public-guide freshness is mirrored yet."),
+            _humanize(str(diagnostics_public_guide.get("state") or "missing")).title(),
             href="/app/settings/outcomes",
         ),
     ]
@@ -866,9 +882,21 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             href="/app/settings/support",
         ),
         _row(
+            "Support fallout",
+            str(diagnostics_support_fallout.get("detail") or "No support fallout is mirrored yet."),
+            _humanize(str(diagnostics_support_fallout.get("state") or "clear")).title(),
+            href="/app/settings/support",
+        ),
+        _row(
             "Route review due",
             str(diagnostics_route_stewardship.get("review_due") or "No route review due published."),
             "Route",
+            href="/app/settings/outcomes",
+        ),
+        _row(
+            "Public guide freshness",
+            str(diagnostics_public_guide.get("detail") or "No public-guide freshness is mirrored yet."),
+            _humanize(str(diagnostics_public_guide.get("state") or "missing")).title(),
             href="/app/settings/outcomes",
         ),
     ]

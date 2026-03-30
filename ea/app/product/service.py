@@ -303,6 +303,13 @@ def _default_journey_gates_path() -> Path:
     )
 
 
+def _default_public_guide_manifest_path() -> Path:
+    return _resolve_repo_path(
+        str(os.getenv("EA_PUBLIC_GUIDE_MANIFEST_PATH") or "").strip(),
+        default=Path("/docker/chummercomplete/Chummer6/manifest.generated.json"),
+    )
+
+
 def _load_json_dict(path: Path) -> dict[str, object] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -352,6 +359,23 @@ def _design_source_path(key: str, fallback: str) -> Path:
     return candidate
 
 
+def _design_manifest_path(filename: str) -> Path:
+    root = _design_product_root()
+    candidate = root / filename
+    if candidate.exists():
+        return candidate
+    local_root = (_repo_root() / ".codex-design/product").resolve()
+    try:
+        root_resolved = root.resolve()
+    except Exception:
+        root_resolved = root
+    if root_resolved == local_root and _DEFAULT_DESIGN_PRODUCT_ROOT.exists():
+        fallback_candidate = _DEFAULT_DESIGN_PRODUCT_ROOT / filename
+        if fallback_candidate.exists():
+            return fallback_candidate
+    return candidate
+
+
 def _design_string_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(entry).strip() for entry in value if str(entry).strip()]
@@ -395,6 +419,13 @@ def _artifact_age_seconds(value: str | None) -> int | None:
     return max(int((_utcnow() - parsed).total_seconds()), 0)
 
 
+def _path_mtime_iso(path: Path) -> str:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    except OSError:
+        return ""
+
+
 def _freshness_state_from_age(age_seconds: int | None) -> str:
     if age_seconds is None:
         return "watch"
@@ -436,6 +467,97 @@ def _journey_freshness_summary(payload: dict[str, object]) -> tuple[str, str]:
     return worst_state, "; ".join(detail_parts[:3])
 
 
+def _public_guide_freshness_projection() -> dict[str, object]:
+    severity = {"fresh": 0, "watch": 1, "stale": 2, "missing": 3}
+
+    manifest_path = _default_public_guide_manifest_path()
+    manifest_payload = _load_json_dict(manifest_path)
+    if manifest_payload is not None:
+        guide_root = manifest_path.parent
+        required_files = ("README.md", "STATUS.md", "DOWNLOAD.md", "HELP.md", "FAQ.md", "CONTACT.md")
+        required_dirs = ("PARTS", "HORIZONS", "TRUST", "assets")
+        missing_items = [
+            *[name for name in required_files if not (guide_root / name).is_file()],
+            *[name for name in required_dirs if not (guide_root / name).is_dir()],
+        ]
+        generated_at = _path_mtime_iso(manifest_path)
+        age_seconds = _artifact_age_seconds(generated_at)
+        state = _freshness_state_from_age(age_seconds)
+        manifest_status = str(manifest_payload.get("status") or "").strip().lower()
+        if manifest_status and manifest_status != "ok":
+            state = "watch" if severity.get(state, 1) < severity["watch"] else state
+        if missing_items:
+            state = "missing"
+            missing_label = ", ".join(missing_items[:4])
+            if len(missing_items) > 4:
+                missing_label = f"{missing_label}, and {len(missing_items) - 4} more"
+            detail = f"Public guide repo is incomplete on this host: missing {missing_label}."
+        else:
+            page_count = int(manifest_payload.get("page_count") or 0)
+            active_wave = dict(manifest_payload.get("active_wave") or {})
+            wave_title = str(active_wave.get("title") or "").strip()
+            wave_status = str(active_wave.get("status") or "").strip().replace("_", " ")
+            detail_parts = [
+                f"Public guide mirror updated at {generated_at}." if generated_at else "Public guide mirror is available on this host.",
+                f"{page_count} pages mirrored." if page_count else "",
+                f"Wave {wave_title} is {wave_status}." if wave_title and wave_status else "",
+                f"Manifest status: {manifest_status}." if manifest_status and manifest_status != "ok" else "",
+            ]
+            detail = " ".join(part for part in detail_parts if part)
+        return {
+            "origin": "downstream_public_guide",
+            "state": state,
+            "detail": compact_text(detail, fallback="Public-guide freshness is not available.", limit=220),
+            "generated_at": generated_at,
+            "path": str(manifest_path),
+            "status": manifest_status or "ok",
+        }
+
+    export_manifest_path = _design_manifest_path("PUBLIC_GUIDE_EXPORT_MANIFEST.yaml")
+    export_payload = _load_yaml_dict(export_manifest_path) or {}
+    sources = dict(export_payload.get("sources") or {}) if isinstance(export_payload.get("sources"), dict) else {}
+    mirrored_count = 0
+    missing_sources: list[str] = []
+    for key, raw_value in sources.items():
+        normalized = str(raw_value or "").strip()
+        fallback = normalized.removeprefix("products/chummer/") or normalized
+        source_path = _design_source_path(str(key), fallback)
+        if source_path.exists():
+            mirrored_count += 1
+        else:
+            missing_sources.append(str(key))
+
+    generated_at = _path_mtime_iso(export_manifest_path)
+    age_seconds = _artifact_age_seconds(generated_at)
+    state = _freshness_state_from_age(age_seconds)
+    if severity.get(state, 1) < severity["watch"]:
+        state = "watch"
+    if not sources or mirrored_count == 0:
+        state = "missing"
+
+    missing_label = ", ".join(missing_sources[:3])
+    if len(missing_sources) > 3:
+        missing_label = f"{missing_label}, and {len(missing_sources) - 3} more"
+    detail_parts = [
+        "Downstream public guide manifest is not available on this host; using mirrored design export sources.",
+        f"{mirrored_count}/{len(sources)} mapped public-guide sources are mirrored." if sources else "",
+        f"Export manifest updated at {generated_at}." if generated_at else "",
+        f"Missing source mappings: {missing_label}." if missing_label else "",
+    ]
+    return {
+        "origin": "design_mirror_fallback",
+        "state": state,
+        "detail": compact_text(
+            " ".join(part for part in detail_parts if part),
+            fallback="Public-guide freshness is not available.",
+            limit=220,
+        ),
+        "generated_at": generated_at,
+        "path": str(export_manifest_path),
+        "status": "fallback",
+    }
+
+
 def _journey_highlights(payload: dict[str, object]) -> list[dict[str, object]]:
     candidates: list[dict[str, object]] = []
     for value in list(payload.get("journeys") or []):
@@ -471,6 +593,70 @@ def _journey_highlights(payload: dict[str, object]) -> list[dict[str, object]]:
     )
     non_ready = [row for row in candidates if str(row.get("state") or "").strip().lower() not in {"ready", "clear"}]
     return non_ready[:3] if non_ready else candidates[:2]
+
+
+def _support_fallout_projection(
+    *,
+    queue_health: dict[str, object],
+    support_verification: dict[str, object],
+    journey_highlights: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    highlight_rows = [dict(value) for value in list(journey_highlights or []) if isinstance(value, dict)]
+    support_closures_waiting = sum(int(row.get("support_closure_waiting_count") or 0) for row in highlight_rows)
+    support_human_responses = sum(int(row.get("support_needs_human_response_count") or 0) for row in highlight_rows)
+    delivery_errors = int(queue_health.get("delivery_errors") or 0)
+    retrying_delivery = int(queue_health.get("retrying_delivery") or 0)
+    sla_breaches = int(queue_health.get("sla_breaches") or 0)
+    verification_state = str(support_verification.get("state") or "not_requested").strip().lower() or "not_requested"
+    verification_summary = compact_text(str(support_verification.get("summary") or "").strip(), fallback="", limit=180)
+    verification_action = compact_text(str(support_verification.get("recommended_action") or "").strip(), fallback="", limit=180)
+
+    if verification_state == "blocked" or delivery_errors or sla_breaches:
+        state = "critical"
+    elif (
+        support_closures_waiting
+        or support_human_responses
+        or retrying_delivery
+        or verification_state in {"sent", "opened", "waiting"}
+    ):
+        state = "watch"
+    else:
+        state = "clear"
+
+    detail_parts = []
+    if support_closures_waiting:
+        detail_parts.append(f"{support_closures_waiting} support closures waiting")
+    if support_human_responses:
+        detail_parts.append(f"{support_human_responses} human responses needed")
+    if delivery_errors:
+        detail_parts.append(f"{delivery_errors} delivery errors in the queue")
+    if retrying_delivery:
+        detail_parts.append(f"{retrying_delivery} retrying deliveries")
+    if verification_summary and verification_state in {"blocked", "sent", "opened", "waiting"}:
+        detail_parts.append(verification_summary)
+
+    detail = (
+        " ".join(detail_parts)
+        if detail_parts
+        else "No active support fallout is blocking the release or public-guide posture."
+    )
+
+    recommended_action = verification_action
+    if not recommended_action and state != "clear":
+        recommended_action = (
+            "Close support fallout before advancing the release and public-guide posture."
+            if support_closures_waiting or support_human_responses
+            else "Stabilize delivery and support confirmation before advancing the release and public-guide posture."
+        )
+
+    return {
+        "state": state,
+        "detail": compact_text(detail, fallback="Support fallout posture is not available.", limit=220),
+        "recommended_action": compact_text(recommended_action, fallback="No support fallout action is recommended.", limit=220),
+        "support_closures_waiting": support_closures_waiting,
+        "support_human_responses": support_human_responses,
+        "verification_state": verification_state,
+    }
 
 
 def _operator_id_from_email(value: str) -> str:
@@ -876,6 +1062,7 @@ class ProductService:
         )
         route_stewardship = dict(supporting_signals.get("provider_route_stewardship") or {})
         launch_readiness = str(supporting_signals.get("launch_readiness") or "").strip()
+        public_guide_freshness = _public_guide_freshness_projection()
         summary = str((pulse_payload or {}).get("summary") or "").strip()
         if not summary:
             summary = str(journey_summary.get("recommended_action") or "").strip() or "Product-control pulse is not available."
@@ -917,6 +1104,7 @@ class ProductService:
                 "detail": compact_text(journey_freshness_detail, fallback="Journey-gate freshness is not available.", limit=220),
                 "generated_at": journey_generated_at,
             },
+            "public_guide_freshness": public_guide_freshness,
             "pulse_freshness": {
                 "state": pulse_freshness_state,
                 "generated_at": pulse_generated_at,
@@ -928,6 +1116,8 @@ class ProductService:
                 "journey_gates_path": str(journey_path),
                 "pulse_generated_at": pulse_generated_at,
                 "journey_gates_generated_at": journey_generated_at,
+                "public_guide_path": str(public_guide_freshness.get("path") or "").strip(),
+                "public_guide_generated_at": str(public_guide_freshness.get("generated_at") or "").strip(),
             },
         }
 
@@ -1125,6 +1315,8 @@ class ProductService:
         product_control = dict(diagnostics.get("product_control") or {})
         route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
         journey_health = dict(product_control.get("journey_gate_health") or {})
+        public_guide_freshness = dict(product_control.get("public_guide_freshness") or {})
+        support_fallout = dict(product_control.get("support_fallout") or {})
         lane_rows = [dict(value) for value in list(lanes or []) if isinstance(value, dict)]
         severity = {"critical": 2, "watch": 1, "clear": 0}
         active_lane = next(
@@ -1169,6 +1361,16 @@ class ProductService:
         )
         if route_detail:
             bullets.append(f"Provider-route stewardship: {route_detail}")
+        support_fallout_action = compact_text(
+            str(support_fallout.get("recommended_action") or support_fallout.get("detail") or "").strip(),
+            fallback="",
+            limit=180,
+        )
+        if support_fallout_action and str(support_fallout.get("state") or "clear").strip().lower() != "clear":
+            bullets.append(f"Support fallout: {support_fallout_action}")
+        guide_detail = compact_text(str(public_guide_freshness.get("detail") or "").strip(), fallback="", limit=180)
+        if guide_detail:
+            bullets.append(f"Public guide: {guide_detail}")
         if active_lane:
             bullets.append(
                 compact_text(
@@ -1239,6 +1441,15 @@ class ProductService:
                     as_of=str(control_sources.get("journey_gates_generated_at") or "").strip(),
                 )
             )
+        public_guide_path = str(control_sources.get("public_guide_path") or "").strip()
+        if public_guide_path:
+            sources.append(
+                _grounding_source(
+                    label="manifest.generated.json",
+                    path=public_guide_path,
+                    as_of=str(control_sources.get("public_guide_generated_at") or "").strip(),
+                )
+            )
         return {
             "id": "operator_memo",
             "title": "Operator memo grounding",
@@ -1256,7 +1467,7 @@ class ProductService:
             ),
             "bullets": [item for item in bullets[:5] if str(item or "").strip()],
             "actions": actions[:4],
-            "sources": sources[:4],
+            "sources": sources[:5],
         }
 
     def _gmail_signal_labels(
@@ -6106,6 +6317,11 @@ class ProductService:
         support_verification = self._support_fix_verification_projection(
             principal_id=principal_id,
             event_rows=tuple(event_rows),
+        )
+        product_control["support_fallout"] = _support_fallout_projection(
+            queue_health=queue_health,
+            support_verification=support_verification,
+            journey_highlights=[dict(value) for value in list(product_control.get("journey_highlights") or []) if isinstance(value, dict)],
         )
         return {
             "workspace": {

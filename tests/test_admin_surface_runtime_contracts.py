@@ -226,6 +226,8 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "community-access@example.com" in community.text
     assert "Release and support" in community.text
     assert "Launch readiness" in community.text
+    assert "Support fallout" in community.text
+    assert "Public guide freshness" in community.text
     assert "Support verification" in community.text
 
     diagnostics = client.get("/admin/api")
@@ -249,6 +251,8 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Active product wave" in diagnostics.text
     assert "Journey gate health" in diagnostics.text
     assert "Launch readiness" in diagnostics.text
+    assert "Support fallout" in diagnostics.text
+    assert "Public guide freshness" in diagnostics.text
     assert "Fix verification" in diagnostics.text
     assert "Channel receipt" in diagnostics.text
     assert "Blocked send follow-ups" in diagnostics.text

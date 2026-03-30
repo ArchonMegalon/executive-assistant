@@ -338,6 +338,7 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "-- codex governance --" in result.stdout
     assert "hard coder:" in result.stdout
     assert "support/help:" in result.stdout
+    assert "guide freshness:" in result.stdout
 
 
 def test_support_bundle_writes_grounding_summary() -> None:
@@ -376,6 +377,7 @@ def test_support_bundle_writes_grounding_summary() -> None:
     assert "codex_review_cadence=" in text
     assert "codex_core_expectation=" in text
     assert "codex_support_help_boundary=" in text
+    assert "public_guide_freshness=" in text
 
 
 def test_support_bundle_pgdata_attribution_release_baseline_is_pinned() -> None:
