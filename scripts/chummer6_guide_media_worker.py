@@ -50,7 +50,13 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chummer6_guide_canon import load_horizon_canon, load_media_briefs, load_page_registry, load_part_canon
+from chummer6_guide_canon import (
+    asset_image_curation,
+    load_horizon_canon,
+    load_media_briefs,
+    load_page_registry,
+    load_part_canon,
+)
 from chummer6_magixai_api import (
     MAGIXAI_IMAGE_ENDPOINT,
     magixai_api_base_urls,
@@ -1535,6 +1541,69 @@ def provider_should_skip_for_health(*, provider: str, target: str) -> str:
 def canonical_asset_path(target: str) -> Path:
     cleaned = str(target or "").strip().lstrip("/")
     return CHUMMER6_REPO_ROOT / cleaned
+
+
+def force_render_curated_assets() -> bool:
+    return _boolish(env_value("CHUMMER6_FORCE_RENDER_CURATED"), default=False)
+
+
+def curated_asset_entry_for_target(target: str) -> dict[str, object]:
+    entry = asset_image_curation(target)
+    return dict(entry) if isinstance(entry, dict) else {}
+
+
+def curated_asset_source_path_for_target(target: str) -> Path | None:
+    entry = curated_asset_entry_for_target(target)
+    raw = str(entry.get("source_path") or "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def use_curated_asset_directly(target: str) -> bool:
+    if force_render_curated_assets():
+        return False
+    entry = curated_asset_entry_for_target(target)
+    return bool(entry.get("curation_locked"))
+
+
+def materialize_curated_asset_output(*, target: str, output_path: Path) -> dict[str, object] | None:
+    if not use_curated_asset_directly(target):
+        return None
+    source_path = curated_asset_source_path_for_target(target)
+    if source_path is None:
+        return None
+    if not source_path.exists():
+        raise RuntimeError(f"curated_asset_missing:{target}:{source_path}")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not _same_resolved_path(source_path, output_path):
+        shutil.copy2(source_path, output_path)
+    width, height = image_dimensions(output_path)
+    if width < 640 or height < 360:
+        raise RuntimeError(f"curated_asset_too_small:{target}:{width}x{height}")
+    aspect_ratio = float(width) / max(float(height), 1.0)
+    if abs(aspect_ratio - (16.0 / 9.0)) > 0.18:
+        raise RuntimeError(f"curated_asset_bad_aspect:{target}:{width}x{height}")
+    notes: list[str] = ["curation:manual_review_locked"]
+    score = 0.0
+    gate_failures: list[str] = []
+    attempts = [
+        "curation:editorial_cover",
+        f"curation:source:{source_path}",
+        f"curation:dimensions:{width}x{height}",
+    ]
+    attempts.extend(notes)
+    attempts.append("visual_audit:skipped_for_editorial_cover")
+    return {
+        "provider": "editorial_cover",
+        "status": "curated",
+        "score": score,
+        "notes": notes,
+        "gate_failures": gate_failures,
+        "attempts": attempts,
+        "output_path": str(output_path),
+        "source_path": str(source_path),
+    }
 
 
 def _same_resolved_path(left: Path, right: Path) -> bool:
@@ -9215,6 +9284,55 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
         out_path = output_dir / target
         out_path.parent.mkdir(parents=True, exist_ok=True)
         canonical_path = canonical_asset_path(target)
+        curated_result = materialize_curated_asset_output(target=target, output_path=out_path)
+        if curated_result is not None:
+            prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+            accepted_rows.append(
+                {
+                    "target": target,
+                    "composition": composition,
+                    "cast_signature": infer_cast_signature(contract),
+                    "subject": str(contract.get("subject") or "").strip(),
+                    "mood": str(contract.get("mood") or "").strip(),
+                    "easter_egg_kind": str(contract.get("easter_egg_kind") or "").strip(),
+                    "provider": "editorial_cover",
+                    "prompt_hash": prompt_hash,
+                    "style_epoch": dict(spec.get("style_epoch") or {}) if isinstance(spec.get("style_epoch"), dict) else {},
+                }
+            )
+            record_challenger_attempt(
+                ledger=challenger_ledger,
+                target=target,
+                output_path=Path(str(curated_result["output_path"])),
+                score=float(curated_result["score"]),
+                notes=list(curated_result["notes"]),
+                gate_failures=list(curated_result["gate_failures"]),
+                provider="editorial_cover",
+                status=str(curated_result["status"]),
+                beat_champion=True,
+            )
+            record_champion_result(
+                ledger=challenger_ledger,
+                target=target,
+                output_path=Path(str(curated_result["output_path"])),
+                score=float(curated_result["score"]),
+                notes=list(curated_result["notes"]),
+                gate_failures=list(curated_result["gate_failures"]),
+                provider="editorial_cover",
+                status=str(curated_result["status"]),
+                source="editorial_cover",
+            )
+            egg_payload = easter_egg_payload(contract)
+            return {
+                "target": target,
+                "output": str(out_path),
+                "provider": "editorial_cover",
+                "status": str(curated_result["status"]),
+                "attempts": list(curated_result["attempts"]),
+                "prompt": prompt,
+                "scene_audit": list(spec.get("scene_audit") or []) + list(curated_result["notes"]),
+                "easter_egg": egg_payload,
+            }
         reference_image: Path | None = None
         champion_path = Path(str(champion_entry.get("output_path") or "")).expanduser() if champion_entry else None
         allow_flagship_reference = (

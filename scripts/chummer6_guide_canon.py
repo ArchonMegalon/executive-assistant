@@ -18,6 +18,14 @@ def design_root() -> Path:
     return Path(raw) if raw else DEFAULT_DESIGN_ROOT
 
 
+def design_repo_root() -> Path:
+    root = design_root()
+    try:
+        return root.parents[1]
+    except Exception:
+        return root
+
+
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
@@ -89,6 +97,10 @@ def load_page_registry() -> dict[str, object]:
 
 def load_media_briefs() -> dict[str, object]:
     return _read_yaml(_source_path("public_media_briefs", "PUBLIC_MEDIA_BRIEFS.yaml"))
+
+
+def load_image_curation() -> dict[str, object]:
+    return _read_yaml(_source_path("public_guide_image_curation", "PUBLIC_GUIDE_IMAGE_CURATION.yaml"))
 
 
 def load_export_manifest() -> dict[str, object]:
@@ -177,6 +189,39 @@ def page_visual_profile(page_type: str) -> dict[str, object]:
     return merged
 
 
+def _resolve_repo_relative_source(raw_value: object) -> Path:
+    raw = str(raw_value or "").strip()
+    if raw.startswith("raw:"):
+        raw = raw[4:].strip()
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    if raw.startswith("products/chummer/"):
+        return design_repo_root() / raw
+    return design_root() / raw
+
+
+def asset_image_curation(target_path: str) -> dict[str, object]:
+    normalized = str(target_path or "").replace("\\", "/").strip()
+    if normalized == "README.md":
+        normalized = "assets/hero/chummer6-hero.png"
+    manifest = load_image_curation()
+    assets = manifest.get("assets") if isinstance(manifest.get("assets"), dict) else {}
+    row = dict(assets.get(normalized) or {}) if isinstance(assets, dict) else {}
+    source_override = str(row.get("source_override") or "").strip()
+    resolved = _resolve_repo_relative_source(source_override) if source_override else Path()
+    review_status = str(row.get("review_status") or "").strip().lower()
+    embed_policy = str(row.get("embed_policy") or "").strip().lower()
+    return {
+        "target": normalized,
+        "review_status": review_status,
+        "embed_policy": embed_policy,
+        "source_override": source_override,
+        "source_path": str(resolved) if source_override else "",
+        "curation_locked": bool(source_override and review_status == "editorial_cover" and embed_policy == "manual"),
+    }
+
+
 def asset_visual_profile(target_path: str) -> dict[str, object]:
     briefs = load_media_briefs()
     page_type, section_id, fallback_profile = _critical_asset_target(target_path)
@@ -239,6 +284,13 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
                 merged["critical_style_anchor"] = str(critical_style.get("style_anchor") or "").strip()
             if str(critical_style.get("negative_prompt") or "").strip():
                 merged["critical_negative_prompt"] = str(critical_style.get("negative_prompt") or "").strip()
+    curation = asset_image_curation(target_path)
+    if curation:
+        merged["curation_review_status"] = str(curation.get("review_status") or "").strip()
+        merged["curation_embed_policy"] = str(curation.get("embed_policy") or "").strip()
+        merged["curation_source_override"] = str(curation.get("source_override") or "").strip()
+        merged["curation_source_path"] = str(curation.get("source_path") or "").strip()
+        merged["curation_locked"] = bool(curation.get("curation_locked"))
     return merged
 
 

@@ -38,6 +38,38 @@ def test_provider_order_filters_fallback_render_aliases(monkeypatch: pytest.Monk
     assert media.provider_order() == ["magixai", "media_factory", "onemin"]
 
 
+def test_curated_asset_lock_defaults_to_editorial_cover_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_FORCE_RENDER_CURATED", raising=False)
+
+    assert media.use_curated_asset_directly("assets/parts/ui.png") is True
+    source = media.curated_asset_source_path_for_target("assets/parts/ui.png")
+    assert source is not None and source.exists()
+
+
+def test_curated_asset_lock_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_FORCE_RENDER_CURATED", "1")
+
+    assert media.use_curated_asset_directly("assets/parts/ui.png") is False
+
+
+def test_materialize_curated_asset_output_copies_editorial_cover(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_FORCE_RENDER_CURATED", raising=False)
+
+    result = media.materialize_curated_asset_output(
+        target="assets/horizons/runsite.png",
+        output_path=tmp_path / "runsite.png",
+    )
+
+    assert result is not None
+    assert result["provider"] == "editorial_cover"
+    assert result["status"] == "curated"
+    assert (tmp_path / "runsite.png").exists()
+    assert any(str(note).startswith("curation:editorial_cover") for note in result["attempts"])
+
+
 def test_provider_order_preserves_explicit_runtime_priority(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.setenv("CHUMMER6_IMAGE_PROVIDER_ORDER", "onemin,magixai,browseract_prompting_systems")
