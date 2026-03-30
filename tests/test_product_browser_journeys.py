@@ -661,7 +661,12 @@ def test_manual_memo_issue_surfaces_reason_and_fix_target_even_when_schedule_dis
 def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     principal_id = "exec-browser-admin-office"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
-    seed_product_state(client, principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    closed = client.post(
+        f"/app/api/queue/commitment:{seeded['commitment_id']}/resolve",
+        json={"action": "close", "reason": "Board packet sent from the operator lane."},
+    )
+    assert closed.status_code == 200
 
     office = client.get("/admin/office")
     assert office.status_code == 200
@@ -673,6 +678,9 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     assert "Access, delivery, and Google posture" in office.text
     assert "Prepare board follow-up handoff" in office.text
     assert "Google sync freshness" in office.text
+    assert "What just moved through the operator lane" in office.text
+    assert "Send board materials" in office.text
+    assert "Reopen" in office.text
 
     redirected = client.get("/app/activity", follow_redirects=False)
     assert redirected.status_code == 303
