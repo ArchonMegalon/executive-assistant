@@ -8,6 +8,7 @@ from app.api.routes.product_api_contracts import (
     OperatorCenterLaneOut,
     OperatorCenterOut,
     WorkspaceDiagnosticsOut,
+    WorkspaceMorningMemoSettingsIn,
     WorkspaceOutcomesOut,
     WorkspacePlanDetailOut,
     WorkspaceSupportBundleOut,
@@ -18,6 +19,50 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+@router.post("/settings/morning-memo", response_model=WorkspaceDiagnosticsOut)
+def update_workspace_morning_memo_settings(
+    body: WorkspaceMorningMemoSettingsIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceDiagnosticsOut:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    workspace = dict(status.get("workspace") or {})
+    container.onboarding.start_workspace(
+        principal_id=context.principal_id,
+        workspace_name=str(body.workspace_name or workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace",
+        workspace_mode=str(workspace.get("mode") or "personal"),
+        region=str(workspace.get("region") or ""),
+        language=str(body.language or workspace.get("language") or "en").strip() or "en",
+        timezone=str(body.timezone or workspace.get("timezone") or "Europe/Vienna").strip() or "Europe/Vienna",
+        selected_channels=tuple(str(value) for value in (status.get("selected_channels") or []) if str(value).strip()),
+    )
+    refreshed = container.onboarding.status(principal_id=context.principal_id)
+    privacy = dict(refreshed.get("privacy") or {})
+    morning_memo = dict(dict(refreshed.get("delivery_preferences") or {}).get("morning_memo") or {})
+    container.onboarding.finalize(
+        principal_id=context.principal_id,
+        retention_mode=str(privacy.get("retention_mode") or "full_bodies"),
+        metadata_only_channels=tuple(str(value) for value in (privacy.get("metadata_only_channels") or []) if str(value).strip()),
+        allow_drafts=bool(privacy.get("allow_drafts")),
+        allow_action_suggestions=bool(privacy.get("allow_action_suggestions", True)),
+        allow_auto_briefs=body.enabled,
+        auto_brief_cadence=str(body.cadence or morning_memo.get("cadence") or "daily_morning").strip() or "daily_morning",
+        auto_brief_delivery_time_local=str(body.delivery_time_local or morning_memo.get("delivery_time_local") or "08:00").strip() or "08:00",
+        auto_brief_quiet_hours_start=str(body.quiet_hours_start or morning_memo.get("quiet_hours_start") or "20:00").strip() or "20:00",
+        auto_brief_quiet_hours_end=str(body.quiet_hours_end or morning_memo.get("quiet_hours_end") or "07:00").strip() or "07:00",
+        auto_brief_recipient_email=str(body.recipient_email or morning_memo.get("recipient_email") or "").strip(),
+        auto_brief_delivery_channel=str(morning_memo.get("delivery_channel") or "email"),
+    )
+    service = build_product_service(container)
+    service.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="settings_updated",
+        surface="settings_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return WorkspaceDiagnosticsOut(**service.workspace_diagnostics(principal_id=context.principal_id))
 
 
 @router.get("/diagnostics", response_model=WorkspaceDiagnosticsOut)
