@@ -391,9 +391,10 @@ def test_founder_fixture_in_real_browser(browser: Browser, founder_browser_serve
     try:
         base_url = str(founder_browser_server["base_url"])
 
-        response = page.goto(f"{base_url}/app/settings", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/settings/plan", wait_until="networkidle")
         assert response is not None and response.ok
         assert "Rules" in page.content()
+        assert "Workspace plan" in page.content()
         assert "Pilot" in page.content()
         assert "trial" in page.content()
         assert "guided" in page.content()
@@ -407,9 +408,10 @@ def test_team_fixture_in_real_browser(browser: Browser, team_browser_server: dic
     try:
         base_url = str(team_browser_server["base_url"])
 
-        response = page.goto(f"{base_url}/app/settings", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/settings/plan", wait_until="networkidle")
         assert response is not None and response.ok
         assert "Rules" in page.content()
+        assert "Workspace plan" in page.content()
         assert "Core" in page.content()
         assert "telegram" in page.content().lower()
 
@@ -494,7 +496,7 @@ def test_people_correction_and_support_bundle_in_real_browser(page: Page, produc
     assert response is not None and response.ok
     assert "memory_corrected" in page.content()
 
-    response = page.goto(f"{base_url}/app/settings", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/settings/support", wait_until="networkidle")
     assert response is not None and response.ok
     with page.expect_response(lambda value: value.url.endswith("/app/api/diagnostics/export") and value.request.method == "GET") as export_response:
         page.get_by_role("link", name="Open bundle").click()
@@ -519,7 +521,7 @@ def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: 
     page.wait_for_url(f"{base_url}/app/inbox")
     page.wait_for_load_state("networkidle")
 
-    page.get_by_role("link", name="send the revised board packet to sofia tomorrow morning", exact=False).click()
+    page.locator("a[href*='/app/commitments/candidates/']").first.click()
     page.wait_for_load_state("networkidle")
     assert "/app/commitments/candidates/" in page.url
 

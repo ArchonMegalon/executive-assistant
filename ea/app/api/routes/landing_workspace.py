@@ -309,7 +309,14 @@ def settings_support_detail(
                 ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
                 "Support",
             ),
-            _object_detail_row("Export bundle", "Open the support-ready workspace bundle from Settings or Diagnostics export.", "Bundle"),
+            _object_detail_row(
+                "Export bundle",
+                "Open the support-ready workspace bundle from Settings or Diagnostics export.",
+                "Bundle",
+                action_href="/app/api/diagnostics/export",
+                action_label="Open bundle",
+                action_method="get",
+            ),
         ],
         object_sections=[
             {

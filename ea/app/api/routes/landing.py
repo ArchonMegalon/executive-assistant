@@ -975,11 +975,14 @@ def admin_shell(
     allowed = {row["key"] for group in ADMIN_NAV_GROUPS for row in group["items"]}
     if section not in allowed:
         raise HTTPException(status_code=404, detail="admin_section_not_found")
+    operator_id = str(context.operator_id or "").strip()
+    if not operator_id and context.auth_source == "loopback_no_auth":
+        operator_id = _default_operator_id_for_browser(container, principal_id=context.principal_id)
     payload = _build_admin_section_payload(
         section,
         container=container,
         principal_id=context.principal_id,
-        operator_id=str(context.operator_id or "").strip(),
+        operator_id=operator_id,
     )
     return _render_public_template(
         request,
