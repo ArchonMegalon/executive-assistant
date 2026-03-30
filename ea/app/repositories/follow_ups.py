@@ -38,7 +38,7 @@ class FollowUpRepository(Protocol):
 
 def _normalize_status(value: str) -> str:
     raw = str(value or "").strip().lower()
-    if raw in {"open", "completed", "cancelled"}:
+    if raw in {"open", "completed", "cancelled", "waiting_on_external", "scheduled"}:
         return raw
     return "open"
 

@@ -32,7 +32,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
     followups = client.get("/app/follow-ups")
     assert followups.status_code == 200
-    assert "Handoffs" in followups.text
+    assert "What is blocked outside the office loop" in followups.text
     assert "Prepare board follow-up handoff" in followups.text
     assert "Confirm investor meeting time" in followups.text
     assert seeded["human_task_id"] in client.get("/app/api/handoffs").text
@@ -161,6 +161,25 @@ def test_browser_action_routes_match_rendered_forms() -> None:
     assert deferred_followups.status_code == 200
     assert "Confirm investor meeting time" in deferred_followups.text
     assert "Defer" in deferred_followups.text
+
+    waiting = client.post(
+        f"/app/actions/queue/follow_up:{reseeded_commitment['follow_up_id']}/resolve",
+        data={
+            "action": "wait",
+            "reason_code": "waiting_on_external",
+            "reason": "Investor needs to confirm availability.",
+            "due_at": "2026-03-28T09:30:00+00:00",
+            "return_to": "/app/follow-ups",
+        },
+        follow_redirects=False,
+    )
+    assert waiting.status_code == 303
+    assert waiting.headers["location"] == "/app/follow-ups"
+    waiting_detail = client.get(f"/app/api/commitments/follow_up:{reseeded_commitment['follow_up_id']}")
+    assert waiting_detail.status_code == 200
+    assert waiting_detail.json()["status"] == "waiting_on_external"
+    assert waiting_detail.json()["resolution_code"] == "waiting_on_external"
+    assert waiting_detail.json()["due_at"] == "2026-03-28T09:30:00+00:00"
 
     dropped = client.post(
         f"/app/actions/queue/follow_up:{seeded['follow_up_id']}/resolve",
@@ -394,6 +413,9 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert commitment_page.status_code == 200
     assert "Commitment ledger" in commitment_page.text
     assert "Recent ledger activity" in commitment_page.text
+    assert "Update commitment state" in commitment_page.text
+    assert "Reason code" in commitment_page.text
+    assert "Due at" in commitment_page.text
 
     handoffs = client.get("/app/api/handoffs")
     assert handoffs.status_code == 200
@@ -502,6 +524,46 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     operator_digest = client.get("/app/channel-loop/operator")
     assert operator_digest.status_code == 200
     assert "Operator handoff digest" in operator_digest.text
+
+
+def test_commitment_detail_form_can_schedule_commitment() -> None:
+    principal_id = "exec-browser-commitment-detail-form"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+
+    commitment_ref = f"commitment:{seeded['commitment_id']}"
+    detail_path = f"/app/commitment-items/{commitment_ref}"
+    detail_page = client.get(detail_path)
+    assert detail_page.status_code == 200
+    assert "Update commitment state" in detail_page.text
+    assert "Reason code" in detail_page.text
+    assert "Due at" in detail_page.text
+
+    updated = client.post(
+        f"/app/actions/queue/{commitment_ref}/resolve",
+        data={
+            "action": "schedule",
+            "reason_code": "board_review_booked",
+            "reason": "Board review is booked for Friday morning.",
+            "due_at": "2026-03-29T08:00:00+00:00",
+            "return_to": detail_path,
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    assert updated.headers["location"] == detail_path
+
+    detail_after_update = client.get(detail_path)
+    assert detail_after_update.status_code == 200
+    assert "Resolution code" in detail_after_update.text
+    assert "board_review_booked" in detail_after_update.text
+    assert "Scheduled" in detail_after_update.text
+
+    refreshed = client.get(f"/app/api/commitments/{commitment_ref}")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["status"] == "scheduled"
+    assert refreshed.json()["resolution_code"] == "board_review_booked"
+    assert refreshed.json()["due_at"] == "2026-03-29T08:00:00+00:00"
 
 
 def test_morning_memo_issue_surfaces_reason_and_fix_target() -> None:

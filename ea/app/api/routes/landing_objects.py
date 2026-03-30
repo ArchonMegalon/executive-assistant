@@ -133,6 +133,8 @@ def commitment_detail(
             _object_detail_row("Source", str(commitment.source_type or "manual").replace("_", " ").title(), "Source"),
             _object_detail_row("Source ref", commitment.source_ref or "No source ref attached.", "Reference"),
             _object_detail_row("Last activity", str(commitment.last_activity_at or "")[:10] or "Unknown", "Activity"),
+            _object_detail_row("Resolution code", commitment.resolution_code or "No resolution code recorded.", "Code"),
+            _object_detail_row("Resolution reason", commitment.resolution_reason or "No resolution reason recorded.", "Reason"),
         ],
         object_sections=[
             {
@@ -153,6 +155,51 @@ def commitment_detail(
                 ] or [_object_detail_row("No history yet", "No commitment history rows were recorded.", "History")],
             },
         ],
+        object_sidebar_form={
+            "action": f"/app/actions/queue/{commitment_ref}/resolve",
+            "method": "post",
+            "eyebrow": "Lifecycle",
+            "title": "Update commitment state",
+            "copy": "Use explicit lifecycle states when the promise is waiting on another party, already scheduled, or needs a dated defer instead of a vague open loop.",
+            "submit_label": "Update commitment",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": f"/app/commitment-items/{commitment_ref}"},
+                {
+                    "type": "select",
+                    "name": "action",
+                    "label": "Action",
+                    "options": [
+                        {"value": "close", "label": "Close", "selected": str(commitment.status or "").strip().lower() == "completed"},
+                        {"value": "defer", "label": "Defer"},
+                        {"value": "wait", "label": "Waiting on external", "selected": str(commitment.status or "").strip().lower() == "waiting_on_external"},
+                        {"value": "schedule", "label": "Scheduled", "selected": str(commitment.status or "").strip().lower() == "scheduled"},
+                        {"value": "drop", "label": "Drop"},
+                        {"value": "reopen", "label": "Reopen", "selected": str(commitment.status or "").strip().lower() == "open"},
+                    ],
+                },
+                {
+                    "type": "text",
+                    "name": "reason_code",
+                    "label": "Reason code",
+                    "value": commitment.resolution_code or "",
+                    "placeholder": "scheduled, waiting_on_external, deferred",
+                },
+                {
+                    "type": "text",
+                    "name": "due_at",
+                    "label": "Due at",
+                    "value": commitment.due_at or "",
+                    "placeholder": "YYYY-MM-DDTHH:MM:SS+00:00",
+                },
+                {
+                    "type": "textarea",
+                    "name": "reason",
+                    "label": "Reason",
+                    "value": commitment.resolution_reason or "",
+                    "placeholder": "Why the commitment moved into this lifecycle state.",
+                },
+            ],
+        },
     )
 
 

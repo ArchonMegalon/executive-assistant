@@ -3921,6 +3921,14 @@ class ProductService:
                 next_status = "open"
                 event_type = "commitment_deferred"
                 code = code or "deferred"
+            elif normalized in {"wait", "waiting", "waiting_on_external", "await_external"}:
+                next_status = "waiting_on_external"
+                event_type = "commitment_waiting_on_external"
+                code = code or "waiting_on_external"
+            elif normalized in {"schedule", "scheduled", "reschedule"}:
+                next_status = "scheduled"
+                event_type = "commitment_scheduled"
+                code = code or "scheduled"
             elif normalized in {"reopen"}:
                 next_status = "open"
                 event_type = "commitment_reopened"
@@ -3968,6 +3976,14 @@ class ProductService:
                 next_status = "open"
                 event_type = "commitment_deferred"
                 code = code or "deferred"
+            elif normalized in {"wait", "waiting", "waiting_on_external", "await_external"}:
+                next_status = "waiting_on_external"
+                event_type = "commitment_waiting_on_external"
+                code = code or "waiting_on_external"
+            elif normalized in {"schedule", "scheduled", "reschedule"}:
+                next_status = "scheduled"
+                event_type = "commitment_scheduled"
+                code = code or "scheduled"
             elif normalized in {"reopen"}:
                 next_status = "open"
                 event_type = "commitment_reopened"
@@ -4681,10 +4697,16 @@ class ProductService:
 
     def _brief_item_from_commitment(self, row: CommitmentItem, *, workspace_id: str) -> BriefItem:
         why_now_parts = [
+            row.status.replace("_", " ").title() if str(row.status or "").strip().lower() not in {"open", "completed", "dropped"} else "",
             row.risk_level.replace("_", " ").title(),
             f"Due {row.due_at[:10]}" if row.due_at else "",
             row.counterparty,
         ]
+        recommended_action = "close commitment"
+        if str(row.status or "").strip().lower() == "waiting_on_external":
+            recommended_action = "check external dependency"
+        elif str(row.status or "").strip().lower() == "scheduled":
+            recommended_action = "confirm scheduled follow-up"
         return BriefItem(
             id=f"brief:{row.id}",
             workspace_id=workspace_id,
@@ -4696,7 +4718,7 @@ class ProductService:
             evidence_refs=row.proof_refs,
             related_people=(row.counterparty,) if row.counterparty else (),
             related_commitment_ids=(row.id,),
-            recommended_action="close commitment",
+            recommended_action=recommended_action,
             status=row.status,
             confidence=row.confidence,
             object_ref=row.id,
