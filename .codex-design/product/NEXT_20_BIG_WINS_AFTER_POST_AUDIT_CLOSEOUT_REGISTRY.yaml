@@ -206,7 +206,7 @@ milestones:
       - chummer6-mobile
       - chummer6-media-factory
       - chummer6-hub-registry
-    status: in_progress
+    status: complete
     exit_criteria:
       - Runs can emit durable replay and recap packages that survive publication, return, and audit.
       - Replay and recap artifacts carry provenance that survives formatting, review, and shelf projection.
@@ -221,7 +221,7 @@ milestones:
       - chummer6-hub
       - chummer6-hub-registry
       - chummer6-design
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Creator outputs are discoverable, comparable, and provenance-ranked without collapsing into popularity fog.
       - Moderation, lineage, and trust-ranking posture are explicit and governable end to end.

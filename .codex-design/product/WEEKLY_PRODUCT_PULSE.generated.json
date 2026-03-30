@@ -1,8 +1,8 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-29T08:36:12Z",
-  "as_of": "2026-03-30",
+  "generated_at": "2026-03-30T22:32:09Z",
+  "as_of": "2026-03-31",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -17,12 +17,12 @@
   },
   "governor_decisions": [
     {
-      "decision_id": "2026-03-30-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+      "decision_id": "2026-03-31-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
       "action": "closeout_and_continue",
-      "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 5 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
+      "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 6 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
       "cited_signals": [
         "overall_progress_percent=100",
-        "history_snapshot_count=5",
+        "history_snapshot_count=6",
         "oldest_blocker_days=0",
         "phase_label=Public-fit polish",
         "longest_pole=Core Engine"
@@ -73,12 +73,12 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-30-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+        "decision_id": "2026-03-31-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
         "action": "closeout_and_continue",
-        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 5 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
+        "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 6 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
         "cited_signals": [
           "overall_progress_percent=100",
-          "history_snapshot_count=5",
+          "history_snapshot_count=6",
           "oldest_blocker_days=0",
           "phase_label=Public-fit polish",
           "longest_pole=Core Engine"
@@ -91,7 +91,7 @@
     "current_recommended_wave": "Next 20 Big Wins After Post-Audit Closeout",
     "overall_progress_percent": 100,
     "phase_label": "Public-fit polish",
-    "history_snapshot_count": 5,
+    "history_snapshot_count": 6,
     "longest_pole": "Core Engine",
     "launch_readiness": "Hold launch expansion pending fresh local release proof on the public edge.",
     "provider_route_stewardship": {
@@ -119,17 +119,17 @@
       "local_release_proof_status": "unknown",
       "proven_journey_count": 0,
       "proven_route_count": 0,
-      "history_snapshot_count": 5,
-      "summary": "Current local edge proof is unknown. Journey-proof evidence is still accumulating. 5 weekly snapshots are measured so far, so adoption history is still early."
+      "history_snapshot_count": 6,
+      "summary": "Current local edge proof is unknown. Journey-proof evidence is still accumulating. 6 weekly snapshots are on record for the current public trust posture."
     },
     "progress_trend": {
       "state": "steady",
       "direction": "flat",
       "delta_percent": 0,
-      "from_as_of": "2026-03-28",
-      "to_as_of": "2026-03-29",
-      "summary": "Flat trend 0% from 2026-03-28 to 2026-03-29. Trend window: 2026-03-23 100% -> 2026-03-25 73% -> 2026-03-27 73% -> 2026-03-28 100% -> 2026-03-29 100%.",
-      "sample_count": 5,
+      "from_as_of": "2026-03-29",
+      "to_as_of": "2026-03-31",
+      "summary": "Flat trend 0% from 2026-03-29 to 2026-03-31. Trend window: 2026-03-23 100% -> 2026-03-25 73% -> 2026-03-27 73% -> 2026-03-28 100% -> 2026-03-29 100% -> 2026-03-31 100%.",
+      "sample_count": 6,
       "samples": [
         {
           "as_of": "2026-03-23",
@@ -149,6 +149,10 @@
         },
         {
           "as_of": "2026-03-29",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-03-31",
           "overall_progress_percent": 100
         }
       ]
