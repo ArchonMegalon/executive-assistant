@@ -490,6 +490,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Support and diagnostics" in support_page.text
     assert "Operational reliability" in support_page.text
     assert "Fix verification" in support_page.text
+    assert "Support closure grounding" in support_page.text
     assert "Weekly pulse and journey-gate truth" in support_page.text
     assert "What the published release gate is saying" in support_page.text
     assert "Open bundle" in support_page.text
@@ -507,6 +508,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200
     assert "Workspace trust" in trust_page.text
+    assert "Get help without guessing" in trust_page.text
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
     assert plan_page.status_code == 200

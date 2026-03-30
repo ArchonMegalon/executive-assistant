@@ -287,6 +287,7 @@ def settings_support_detail(
     readiness = dict(bundle.get("readiness") or {})
     product_control = dict(bundle.get("product_control") or {})
     support_verification = dict(bundle.get("support_verification") or {})
+    support_grounding = dict(bundle.get("support_assistant_grounding") or {})
     journey_gate = dict(product_control.get("journey_gate_health") or {})
     journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
@@ -376,6 +377,43 @@ def settings_support_detail(
                         tertiary_return_to="/app/settings/support" if str(support_verification.get("access_url") or "").strip() else "",
                     ),
                 ],
+            },
+            {
+                "eyebrow": "Grounded packet",
+                "title": str(support_grounding.get("title") or "Grounded support packet"),
+                "items": (
+                    [
+                        _object_detail_row(
+                            "Summary",
+                            str(support_grounding.get("summary") or "Support posture should stay connected to mirrored trust and scorecard truth."),
+                            "Grounding",
+                        )
+                    ]
+                    + [
+                        _object_detail_row(f"Point {index}", str(item), "Grounding")
+                        for index, item in enumerate(list(support_grounding.get("bullets") or [])[:3], start=1)
+                    ]
+                    + [
+                        _object_detail_row(
+                            str(action.get("label") or "Action"),
+                            str(action.get("href") or ""),
+                            "Action",
+                            href=str(action.get("href") or ""),
+                            action_href=str(action.get("href") or ""),
+                            action_label=str(action.get("label") or ""),
+                            action_method=str(action.get("method") or "get"),
+                        )
+                        for action in list(support_grounding.get("actions") or [])[:2]
+                    ]
+                    + [
+                        _object_detail_row(
+                            str(source.get("label") or "Source"),
+                            str(source.get("path") or ""),
+                            str(source.get("as_of") or "Source"),
+                        )
+                        for source in list(support_grounding.get("sources") or [])[:2]
+                    ]
+                ),
             },
             {
                 "eyebrow": "Product control",
@@ -843,6 +881,7 @@ def settings_trust_detail(
     readiness = dict(trust.get("readiness") or {})
     provider_posture = dict(trust.get("provider_posture") or {})
     reliability = dict(trust.get("reliability") or {})
+    public_help_grounding = dict(trust.get("public_help_grounding") or {})
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
     return _render_console_object_detail(
         request=request,
@@ -894,6 +933,43 @@ def settings_trust_detail(
                     _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
                     _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
                 ],
+            },
+            {
+                "eyebrow": "Grounded help",
+                "title": str(public_help_grounding.get("title") or "Grounded help packet"),
+                "items": (
+                    [
+                        _object_detail_row(
+                            "Summary",
+                            str(public_help_grounding.get("summary") or "Help posture should compile from mirrored trust and release canon."),
+                            "Grounding",
+                        )
+                    ]
+                    + [
+                        _object_detail_row(f"Point {index}", str(item), "Grounding")
+                        for index, item in enumerate(list(public_help_grounding.get("bullets") or [])[:3], start=1)
+                    ]
+                    + [
+                        _object_detail_row(
+                            str(action.get("label") or "Action"),
+                            str(action.get("href") or ""),
+                            "Action",
+                            href=str(action.get("href") or ""),
+                            action_href=str(action.get("href") or ""),
+                            action_label=str(action.get("label") or ""),
+                            action_method=str(action.get("method") or "get"),
+                        )
+                        for action in list(public_help_grounding.get("actions") or [])[:2]
+                    ]
+                    + [
+                        _object_detail_row(
+                            str(source.get("label") or "Source"),
+                            str(source.get("path") or ""),
+                            str(source.get("as_of") or "Source"),
+                        )
+                        for source in list(public_help_grounding.get("sources") or [])[:2]
+                    ]
+                ),
             },
             {
                 "eyebrow": "Recent product events",

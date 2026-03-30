@@ -175,6 +175,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "workspace_summary" in trust_body
     assert "provider_posture" in trust_body
     assert "reliability" in trust_body
+    assert trust_body["public_help_grounding"]["id"] == "public_help"
+    assert trust_body["public_help_grounding"]["actions"]
+    assert any(item["label"] == "PUBLIC_TRUST_CONTENT.yaml" for item in trust_body["public_help_grounding"]["sources"])
 
     support = client.get("/app/api/support")
     assert support.status_code == 200
@@ -194,6 +197,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert support_body["product_control"]["summary"]
     assert "journey_highlights" in support_body["product_control"]
     assert "state" in support_body["support_verification"]
+    assert support_body["support_assistant_grounding"]["id"] == "support_assistant"
+    assert support_body["support_assistant_grounding"]["bullets"]
+    assert any(item["label"] == "PRODUCT_HEALTH_SCORECARD.yaml" for item in support_body["support_assistant_grounding"]["sources"])
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200
@@ -2429,6 +2435,9 @@ def test_operator_center_surfaces_delivery_sync_and_claim_lanes(monkeypatch) -> 
     assert body["sync"]["pending_commitment_candidates"] == 0
     assert body["sync"]["covered_signal_candidates"] >= 1
     assert any(item["label"] for item in body["next_actions"])
+    assert body["operator_memo_grounding"]["id"] == "operator_memo"
+    assert body["operator_memo_grounding"]["actions"]
+    assert any(item["label"] == "GOLDEN_JOURNEY_RELEASE_GATES.yaml" for item in body["operator_memo_grounding"]["sources"])
     assert "snapshot" in body
     assert body["snapshot"]["clearable_queue_items"] >= 1
     assert body["snapshot"]["exception_count"] >= 0

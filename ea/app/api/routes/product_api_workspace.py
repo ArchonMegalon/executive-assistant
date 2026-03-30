@@ -99,6 +99,7 @@ def get_operator_center(
         next_actions=[OperatorCenterActionOut(**dict(value)) for value in list(payload.get("next_actions") or [])],
         recent_runtime=[dict(value) for value in list(payload.get("recent_runtime") or [])],
         snapshot={str(key): int(value or 0) for key, value in dict(payload.get("snapshot") or {}).items()},
+        operator_memo_grounding=dict(payload.get("operator_memo_grounding") or {}) or None,
     )
 
 
