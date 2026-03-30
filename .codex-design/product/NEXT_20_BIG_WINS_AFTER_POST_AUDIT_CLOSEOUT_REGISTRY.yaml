@@ -17,7 +17,7 @@ waves:
       - 5
   - id: W2
     name: Widen the Build and Explain moat
-    status: in_progress
+    status: complete
     milestone_ids:
       - 6
       - 7
@@ -162,7 +162,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Sandbox, campaign-approved, and published rule-environment states are real product flows with lineage and rollback.
       - Promotion, rollback, and lineage posture are visible in both canon and runtime flows.
@@ -191,7 +191,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-hub-registry
-    status: not_started
+    status: in_progress
     exit_criteria:
       - Import and export behaves as a real ecosystem seam with receipts and compatibility notes.
       - Portable dossier and campaign exchange no longer reads like a backup-only sidecar.
