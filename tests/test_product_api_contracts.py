@@ -2119,15 +2119,9 @@ def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> N
     )
     assert updated.status_code == 303
 
-    requested = client.post(
-        "/app/actions/support/fix-verification/request",
-        data={"return_to": "/app/settings/support"},
-        follow_redirects=False,
-    )
-    assert requested.status_code == 303
-    assert requested.headers["location"].startswith("/app/settings/support")
-
-    support_body = client.get("/app/api/support").json()
+    requested = client.post("/app/api/support/fix-verification/request")
+    assert requested.status_code == 200
+    support_body = requested.json()
     verification = dict(support_body["support_verification"])
     assert verification["state"] == "waiting"
     assert verification["recipient_email"] == "tibor@example.com"
@@ -2136,6 +2130,8 @@ def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> N
     assert verification["access_url"].startswith("/workspace-access/")
     assert verification["channel_receipt_state"] == "waiting"
     assert verification["install_receipt_state"] == "waiting"
+    assert verification["request_api_href"] == "/app/api/support/fix-verification/request"
+    assert verification["request_api_method"] == "post"
 
     memo_plain = client.get("/app/api/channel-loop/memo/plain")
     assert memo_plain.status_code == 200
