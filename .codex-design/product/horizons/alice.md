@@ -1,10 +1,10 @@
 # ALICE
 
-## Table pain
+## The problem
 
 Players often discover bad builds, illegal interactions, or weak upgrade paths only after the run has already gone sideways.
 
-## Bounded product move
+## What it would do
 
 Chummer would compare builds, catch trouble before play, and explain tradeoffs without making up rules or legality.
 
@@ -18,12 +18,12 @@ Chummer would compare builds, catch trouble before play, and explain tradeoffs w
 
 Research and assistive drafting tools may support operator-facing explanations, but analysis outcomes stay grounded in engine-owned semantics.
 
-## Foundations
+## What has to be true first
 
 * explain views that show their work
 * deterministic runtime data
 * strong comparison flows
 
-## Why still a horizon
+## Why it is not ready yet
 
 The product still needs reliable comparison and explanation surfaces before it should hand out higher-level build advice.

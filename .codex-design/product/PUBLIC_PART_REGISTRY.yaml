@@ -4,9 +4,9 @@ purpose: Public-safe summaries for Chummer6 part pages.
 parts:
   - id: design
     title: Design
-    public_tagline: The long-range product map and truth filter.
+    public_tagline: The long-range product map and decision filter.
     you_touch_this_when: You want to understand why a feature exists, what is real today, or where to go deeper after the friendly tour.
-    why_you_care: It keeps the public story, the landing page, the guide, and the future lanes tied to one shared plan instead of a pile of clever guesses.
+    why_you_care: It keeps the public story, the landing page, the guide, and the future ideas tied to one shared plan instead of a pile of clever guesses.
     what_you_notice:
       - clearer labels about what is real now, what is preview, and what is still future-facing
       - a stable product story before you dive into repo or implementation detail
@@ -29,8 +29,8 @@ parts:
       - a cleaner boundary between rules truth and everything that only decorates it
     public_noteworthy_limits:
       - this is not the hosted service layer
-      - this is not the table-facing shell by itself
-    current_truth: Core is already the rules-truth spine, and the current work is about keeping it strict enough that future explain, play, and simulation layers can trust it.
+      - this is not the table-side experience by itself
+    current_truth: Core already anchors the rules truth, and the current work is about keeping it strict enough that future explain, play, and simulation layers can trust it.
     go_deeper_links:
       - ../WHAT_CHUMMER6_IS.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -44,23 +44,23 @@ parts:
       - clearer build inspectors and comparison flows
       - a stronger distinction between deep prep and live table use
     public_noteworthy_limits:
-      - this is not the player-first live shell
+      - this is not the player-first table view
       - some workbench polish is still catching up to the cleaner split
-    current_truth: UI is the prep-heavy head, and the current cleanup work is about keeping that power without quietly reclaiming play-first or hosted jobs.
+    current_truth: UI already carries the heavy prep view, and the current cleanup work is about keeping that power without quietly swallowing play-first or hosted work.
     go_deeper_links:
       - ../START_HERE.md
       - ../WHERE_TO_GO_DEEPER.md
   - id: mobile
     title: Mobile
-    public_tagline: The session shell you feel at the table.
+    public_tagline: The table-side companion you feel during play.
     you_touch_this_when: You care about actual play, reconnecting across devices, or surviving a bad signal without losing the session.
     why_you_care: This is the jump from prep software to software that can stay useful while a real session is happening.
     what_you_notice:
       - stronger local-first and offline-ready behavior
       - session continuity instead of fragile single-device assumptions
-      - a table-facing shell that is separate from the heavy workbench view
+      - a table-facing companion that is separate from the heavy workbench view
     public_noteworthy_limits:
-      - this is still the next major seam to finish cleanly
+      - this is still the next major boundary to finish cleanly
       - the session stack is still deepening around cache, replay, and recovery polish
     current_truth: Mobile is where the live-session promise becomes real, and the current work is about event logs, cache, replay, and sync rather than cosmetic flash.
     go_deeper_links:
@@ -72,13 +72,13 @@ parts:
     you_touch_this_when: You sign in, sync across devices, follow what is coming next, or use participation and recognition features.
     why_you_care: It keeps accounts, shared coordination, and community features from turning into manual glue work.
     what_you_notice:
-      - sign-in and account surfaces
+      - sign-in and account pages
       - public landing, home, and participation entry points
       - shared coordination, release status, and recognition views that make sense without a backend tour
     public_noteworthy_limits:
       - it is not where the rules math becomes true
-      - some deeper admin and support plumbing still sits behind the customer-facing layer
-    current_truth: Hub already powers identity, landing and home views, participation, and community features, but it is still simplifying the line between customer-facing coordination and deeper admin workflows.
+      - some deeper admin and support work still sits behind the customer-facing layer
+    current_truth: Hub already powers identity, landing and home views, participation, and community features, but it is still simplifying the handoff between customer-facing coordination and deeper admin work.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -92,25 +92,25 @@ parts:
       - fewer one-off UI reinventions in each surface
       - stronger accessibility and a reusable component system
     public_noteworthy_limits:
-      - it is a shared package layer, not a product head by itself
+      - it is a shared package layer, not a standalone product
       - it only counts when the other heads visibly get smaller because it exists
-    current_truth: UI Kit is real enough to matter, and the next proof point is whether the rest of the product can consume it instead of rebuilding visual seams locally.
+    current_truth: UI Kit is real enough to matter, and the next proof point is whether the rest of the product can consume it instead of rebuilding visual boundaries one page at a time.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md
   - id: hub-registry
     title: Hub Registry
     public_tagline: The release shelf, install record, and compatibility record.
-    you_touch_this_when: You care about what exists, what can be installed, what is published, or whether an artifact can be trusted and reused.
-    why_you_care: Without this, artifacts turn into a warehouse full of unlabeled boxes and compatibility folklore.
+    you_touch_this_when: You care about what exists, what can be installed, what is published, or whether a release file can be trusted and reused.
+    why_you_care: Without this, release files turn into a warehouse full of unlabeled boxes and compatibility folklore.
     what_you_notice:
       - cleaner release metadata and publication status
-      - a more believable path from preview outputs to shareable or installable artifacts
+      - a more believable path from preview outputs to shareable or installable files
       - compatibility and moderation signals that can stay on the record
     public_noteworthy_limits:
       - this is not the media studio
       - this is not the rules engine
-    current_truth: Hub Registry is the growing record layer for published releases and compatibility truth, and it becomes more visible as the public release story gets richer.
+    current_truth: Hub Registry is the growing record for published releases and compatibility, and it becomes more visible as the public release story gets richer.
     go_deeper_links:
       - ../NOW/public-surfaces.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -122,11 +122,11 @@ parts:
     what_you_notice:
       - cleaner asset generation and preview flows
       - a stronger line between content rendering and product meaning
-      - a path toward richer teaser and artifact media without turning every repo into a render farm
+      - a path toward richer teaser and release media without forcing every product area to become its own studio
     public_noteworthy_limits:
       - this is not the decision-maker for what a session means
       - it should stay focused on media production even when the outputs get more ambitious
-    current_truth: Media Factory is the dedicated home for media jobs and asset lifecycle, and the current work is about making richer outputs possible without blurring where the material came from or who owns it.
+    current_truth: Media Factory is where polished media gets produced and curated, and the current work is about making richer outputs possible without blurring where the material came from or who owns it.
     go_deeper_links:
       - ../NOW/public-surfaces.md
       - ../WHERE_TO_GO_DEEPER.md

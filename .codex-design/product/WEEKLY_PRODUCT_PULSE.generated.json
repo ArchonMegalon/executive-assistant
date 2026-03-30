@@ -6,7 +6,7 @@
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is ready; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine.",
+  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is ready; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
   "active_wave": "Next 20 Big Wins After Post-Audit Closeout",
   "active_wave_status": "in_progress",
   "journey_gate_health": {
@@ -93,16 +93,65 @@
     "phase_label": "Public-fit polish",
     "history_snapshot_count": 5,
     "longest_pole": "Core Engine",
-    "launch_readiness": "Wave remains active. Keep launch expansion behind governed canaries until support fallout stays stable.",
+    "launch_readiness": "Hold launch expansion pending fresh local release proof on the public edge.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
-      "canary_status": "Canary green on all active lanes",
+      "canary_status": "Canary watch on 1 active lane(s)",
       "review_due": "2026-04-13",
-      "next_decision": "Promote once support fallout remains stable."
+      "next_decision": "Hold broad promotion until route canaries return to green."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",
-    "scorecard_metric_count": 16
+    "scorecard_metric_count": 16,
+    "closure_health": {
+      "state": "clear",
+      "open_case_count": 0,
+      "waiting_closure_count": 0,
+      "pending_human_response_count": 0,
+      "reported_case_count": 1,
+      "materialized_packet_count": 0,
+      "design_impact_count": 0,
+      "summary": "0 waiting closure / 0 pending human response. 0 open support packets across 1 reported cases."
+    },
+    "adoption_health": {
+      "state": "early",
+      "local_release_proof_status": "unknown",
+      "proven_journey_count": 0,
+      "proven_route_count": 0,
+      "history_snapshot_count": 5,
+      "summary": "Current local edge proof is unknown. Journey-proof evidence is still accumulating. 5 weekly snapshots are measured so far, so adoption history is still early."
+    },
+    "progress_trend": {
+      "state": "steady",
+      "direction": "flat",
+      "delta_percent": 0,
+      "from_as_of": "2026-03-28",
+      "to_as_of": "2026-03-29",
+      "summary": "Flat trend 0% from 2026-03-28 to 2026-03-29. Trend window: 2026-03-23 100% -> 2026-03-25 73% -> 2026-03-27 73% -> 2026-03-28 100% -> 2026-03-29 100%.",
+      "sample_count": 5,
+      "samples": [
+        {
+          "as_of": "2026-03-23",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-03-25",
+          "overall_progress_percent": 73
+        },
+        {
+          "as_of": "2026-03-27",
+          "overall_progress_percent": 73
+        },
+        {
+          "as_of": "2026-03-28",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-03-29",
+          "overall_progress_percent": 100
+        }
+      ]
+    }
   }
 }
