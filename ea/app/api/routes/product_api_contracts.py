@@ -228,6 +228,7 @@ class WorkspaceDiagnosticsOut(BaseModel):
     providers: dict[str, object]
     queue_health: dict[str, object]
     product_control: dict[str, object] = Field(default_factory=dict)
+    support_verification: dict[str, object] = Field(default_factory=dict)
     usage: dict[str, int]
     analytics: dict[str, object]
 
@@ -293,6 +294,7 @@ class WorkspaceSupportBundleOut(BaseModel):
     commercial: dict[str, object]
     readiness: dict[str, object]
     product_control: dict[str, object] = Field(default_factory=dict)
+    support_verification: dict[str, object] = Field(default_factory=dict)
     usage: dict[str, object]
     analytics: dict[str, object]
     approvals: dict[str, object]
@@ -591,6 +593,7 @@ class ChannelDigestDeliveryOut(BaseModel):
     delivery_token: str = ""
     delivery_url: str = ""
     open_url: str = ""
+    access_session_id: str = ""
     access_token: str = ""
     access_url: str = ""
     default_target: str = "/app/today"

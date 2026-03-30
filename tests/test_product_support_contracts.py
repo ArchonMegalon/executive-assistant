@@ -42,6 +42,7 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert "retrying_delivery" in payload["queue_health"]
     assert payload["product_control"]["summary"]
     assert payload["product_control"]["journey_gate_health"]["state"]
+    assert "state" in payload["support_verification"]
     assert "churn_risk" in payload["analytics"]
     assert "success_summary" in payload["analytics"]
 
@@ -82,6 +83,7 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     assert isinstance(body["human_tasks"], list)
     assert body["product_control"]["summary"]
     assert "journey_gate_freshness" in body["product_control"]
+    assert "state" in body["support_verification"]
     assert "success_summary" in body["analytics"]
     assert isinstance(body["recent_events"], list)
     assert any(item["event_type"] == "office_signal_calendar_note" for item in body["recent_events"])

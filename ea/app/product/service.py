@@ -483,6 +483,276 @@ class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
 
+    def _support_fix_verification_contact(
+        self,
+        *,
+        principal_id: str,
+    ) -> dict[str, str]:
+        status = self._container.onboarding.status(principal_id=principal_id)
+        workspace = dict(status.get("workspace") or {})
+        delivery_preferences = dict(status.get("delivery_preferences") or {})
+        morning_memo = dict(delivery_preferences.get("morning_memo") or {})
+        google_accounts = google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id)
+        primary_google_account = google_accounts[0] if google_accounts else None
+        recipient_email = str(
+            morning_memo.get("resolved_recipient_email")
+            or getattr(primary_google_account, "google_email", "")
+            or ""
+        ).strip().lower()
+        display_name = str(workspace.get("name") or recipient_email or "Executive Workspace").strip()
+        return {
+            "recipient_email": recipient_email,
+            "display_name": display_name,
+            "role": "principal",
+            "operator_id": "",
+        }
+
+    def _support_fix_verification_projection(
+        self,
+        *,
+        principal_id: str,
+        event_rows: tuple[object, ...] | None = None,
+    ) -> dict[str, object]:
+        rows = list(event_rows or ())
+        if not rows:
+            rows = [
+                row
+                for row in self._container.channel_runtime.list_recent_observations(limit=400, principal_id=principal_id)
+                if str(row.channel or "").strip().lower() == "product"
+            ]
+        rows.sort(key=lambda row: (str(getattr(row, "created_at", "") or ""), str(getattr(row, "observation_id", "") or "")))
+        contact = self._support_fix_verification_contact(principal_id=principal_id)
+        recipient_email = str(contact.get("recipient_email") or "").strip().lower()
+        request_row = next((row for row in reversed(rows) if str(getattr(row, "event_type", "") or "").strip() == "support_fix_verification_requested"), None)
+        request_payload = dict(getattr(request_row, "payload", {}) or {}) if request_row is not None else {}
+        request_id = str(request_payload.get("request_id") or getattr(request_row, "source_id", "") or "").strip()
+        requested_at = str(getattr(request_row, "created_at", "") or request_payload.get("requested_at") or "").strip()
+        if request_payload.get("recipient_email"):
+            recipient_email = str(request_payload.get("recipient_email") or "").strip().lower()
+        delivery_id = str(request_payload.get("delivery_id") or "").strip()
+        access_session_id = str(request_payload.get("access_session_id") or "").strip()
+        delivery_url = str(request_payload.get("delivery_url") or "").strip()
+        access_url = str(request_payload.get("access_url") or "").strip()
+        delivery_channel = str(request_payload.get("delivery_channel") or "").strip().lower()
+        confirmed_row = next(
+            (
+                row
+                for row in reversed(rows)
+                if str(getattr(row, "event_type", "") or "").strip() == "support_fix_verification_confirmed"
+                and str(dict(getattr(row, "payload", {}) or {}).get("request_id") or getattr(row, "source_id", "") or "").strip() == request_id
+            ),
+            None,
+        )
+        confirmed_at = str(getattr(confirmed_row, "created_at", "") or "").strip()
+        delivery_opened = next(
+            (
+                row
+                for row in reversed(rows)
+                if str(getattr(row, "event_type", "") or "").strip() == "channel_digest_delivery_opened"
+                and str(dict(getattr(row, "payload", {}) or {}).get("delivery_id") or getattr(row, "source_id", "") or "").strip() == delivery_id
+            ),
+            None,
+        )
+        delivery_sent = next(
+            (
+                row
+                for row in reversed(rows)
+                if str(getattr(row, "event_type", "") or "").strip() == "channel_digest_delivery_email_sent"
+                and str(dict(getattr(row, "payload", {}) or {}).get("delivery_id") or getattr(row, "source_id", "") or "").strip() == delivery_id
+            ),
+            None,
+        )
+        delivery_failed = next(
+            (
+                row
+                for row in reversed(rows)
+                if str(getattr(row, "event_type", "") or "").strip() == "channel_digest_delivery_email_failed"
+                and str(dict(getattr(row, "payload", {}) or {}).get("delivery_id") or getattr(row, "source_id", "") or "").strip() == delivery_id
+            ),
+            None,
+        )
+        access_opened = next(
+            (
+                row
+                for row in reversed(rows)
+                if str(getattr(row, "event_type", "") or "").strip() == "workspace_access_session_opened"
+                and str(dict(getattr(row, "payload", {}) or {}).get("session_id") or getattr(row, "source_id", "") or "").strip() == access_session_id
+            ),
+            None,
+        )
+        channel_receipt_state = "not_requested"
+        channel_receipt_detail = "No support verification link has been issued yet."
+        if request_id:
+            if delivery_opened is not None:
+                channel_receipt_state = "received"
+                channel_receipt_detail = "Recipient opened the support verification digest."
+            elif delivery_failed is not None:
+                failed_payload = dict(getattr(delivery_failed, "payload", {}) or {})
+                channel_receipt_state = "failed"
+                channel_receipt_detail = compact_text(
+                    str(failed_payload.get("error") or "Support verification delivery failed.").strip(),
+                    fallback="Support verification delivery failed.",
+                    limit=180,
+                )
+            elif delivery_sent is not None or delivery_id:
+                channel_receipt_state = "waiting"
+                channel_receipt_detail = (
+                    "Support verification email was sent and is waiting to be opened."
+                    if delivery_channel == "email" and delivery_sent is not None
+                    else "Support verification link was issued and is waiting to be opened."
+                )
+        install_receipt_state = "not_requested"
+        install_receipt_detail = "No workspace install receipt has been requested yet."
+        if request_id:
+            if access_opened is not None:
+                install_receipt_state = "opened"
+                install_receipt_detail = "Recipient opened the workspace link attached to the verification request."
+            elif access_session_id:
+                install_receipt_state = "waiting"
+                install_receipt_detail = "Workspace access link was issued and is waiting to be opened."
+        confirmation_state = "not_requested"
+        confirmation_detail = "No explicit confirmation has been requested yet."
+        if request_id:
+            if confirmed_at:
+                confirmation_state = "confirmed"
+                confirmation_detail = "Recipient explicitly confirmed the fix from the support verification link."
+            else:
+                confirmation_state = "waiting"
+                confirmation_detail = "Waiting for the recipient to confirm the fix."
+        state = "not_requested"
+        summary = "No support verification request is active."
+        if request_id and confirmed_at:
+            state = "confirmed"
+            summary = "Support verification is confirmed on the current channel."
+        elif request_id and channel_receipt_state == "failed":
+            state = "blocked"
+            summary = "Support verification is blocked because the current channel delivery failed."
+        elif request_id:
+            state = "waiting"
+            summary = "Support verification is waiting on receipt or explicit confirmation."
+        elif not recipient_email:
+            summary = "Support verification needs a recipient email before it can be requested."
+        request_action_label = "Request confirmation" if recipient_email else "Recipient missing"
+        if request_id and confirmation_state != "confirmed":
+            request_action_label = "Reissue confirmation"
+        recommended_action = (
+            "Send a fresh support verification link and wait for channel receipt."
+            if recipient_email and not request_id
+            else "Set a memo recipient or connect Google before asking for support confirmation."
+            if not recipient_email
+            else "Open the current verification link or ask the recipient to confirm the fix."
+            if state == "waiting"
+            else "Use the support page to recover delivery before asking for confirmation again."
+            if state == "blocked"
+            else "Confirmation is already recorded."
+        )
+        confirm_action_href = (
+            self.channel_action_href(
+                principal_id=principal_id,
+                object_kind="support_verification",
+                object_ref=request_id,
+                action="confirm",
+                return_to="/app/channel-loop/memo",
+                reason="Confirmed from support verification link.",
+            )
+            if request_id and confirmation_state != "confirmed"
+            else ""
+        )
+        return {
+            "state": state,
+            "summary": summary,
+            "recipient_email": recipient_email,
+            "request_id": request_id,
+            "requested_at": requested_at,
+            "confirmed_at": confirmed_at,
+            "delivery_channel": delivery_channel or ("email" if email_delivery_enabled() else "link_only"),
+            "delivery_id": delivery_id,
+            "delivery_url": delivery_url,
+            "access_session_id": access_session_id,
+            "access_url": access_url,
+            "channel_receipt_state": channel_receipt_state,
+            "channel_receipt_detail": channel_receipt_detail,
+            "install_receipt_state": install_receipt_state,
+            "install_receipt_detail": install_receipt_detail,
+            "confirmation_state": confirmation_state,
+            "confirmation_detail": confirmation_detail,
+            "can_request": bool(recipient_email),
+            "request_action_href": "/app/actions/support/fix-verification/request" if recipient_email else "",
+            "request_action_method": "post",
+            "request_action_label": request_action_label if recipient_email else "",
+            "recommended_action": recommended_action,
+            "confirm_action_href": confirm_action_href,
+            "display_name": str(contact.get("display_name") or "").strip(),
+        }
+
+    def request_support_fix_verification(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        base_url: str = "",
+    ) -> dict[str, object]:
+        contact = self._support_fix_verification_contact(principal_id=principal_id)
+        recipient_email = str(contact.get("recipient_email") or "").strip().lower()
+        if not recipient_email:
+            raise ValueError("support_fix_verification_recipient_missing")
+        delivery = self.issue_channel_digest_delivery(
+            principal_id=principal_id,
+            digest_key="memo",
+            recipient_email=recipient_email,
+            role=str(contact.get("role") or "principal").strip() or "principal",
+            display_name=str(contact.get("display_name") or "").strip(),
+            operator_id=str(contact.get("operator_id") or "").strip(),
+            delivery_channel="email" if email_delivery_enabled() else "link_only",
+            base_url=base_url,
+        )
+        if delivery is None:
+            raise RuntimeError("support_fix_verification_delivery_not_available")
+        request_id = f"support_verify_{uuid4().hex[:10]}"
+        payload = {
+            "request_id": request_id,
+            "recipient_email": recipient_email,
+            "delivery_channel": str(delivery.get("delivery_channel") or "").strip(),
+            "delivery_id": str(delivery.get("delivery_id") or "").strip(),
+            "delivery_url": str(delivery.get("delivery_url") or "").strip(),
+            "access_session_id": str(delivery.get("access_session_id") or "").strip(),
+            "access_url": str(delivery.get("access_url") or "").strip(),
+            "requested_at": _now_iso(),
+            "requested_by": str(actor or "").strip() or "support",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="support_fix_verification_requested",
+            payload=payload,
+            source_id=request_id,
+            dedupe_key=f"{principal_id}|{request_id}",
+        )
+        return payload
+
+    def confirm_support_fix_verification(
+        self,
+        *,
+        principal_id: str,
+        request_id: str,
+        actor: str,
+    ) -> dict[str, object] | None:
+        normalized_request_id = str(request_id or "").strip()
+        if not normalized_request_id:
+            return None
+        payload = {
+            "request_id": normalized_request_id,
+            "confirmed_at": _now_iso(),
+            "confirmed_by": str(actor or "").strip() or "support",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="support_fix_verification_confirmed",
+            payload=payload,
+            source_id=normalized_request_id,
+            dedupe_key=f"{principal_id}|{normalized_request_id}|confirmed",
+        )
+        return payload
+
     def _product_control_projection(self) -> dict[str, object]:
         pulse_path = _weekly_product_pulse_path()
         pulse_payload = _load_json_dict(pulse_path)
@@ -5303,6 +5573,10 @@ class ProductService:
             else "clear"
         )
         product_control = self._product_control_projection()
+        support_verification = self._support_fix_verification_projection(
+            principal_id=principal_id,
+            event_rows=tuple(event_rows),
+        )
         return {
             "workspace": {
                 "name": str(workspace.get("name") or "Executive Workspace"),
@@ -5365,6 +5639,7 @@ class ProductService:
                 ],
             },
             "product_control": product_control,
+            "support_verification": support_verification,
             "usage": usage_stats,
             "analytics": {
                 "counts": analytics_counts,
@@ -5855,6 +6130,7 @@ class ProductService:
             "commercial": diagnostics["commercial"],
             "readiness": diagnostics["readiness"],
             "product_control": diagnostics["product_control"],
+            "support_verification": diagnostics["support_verification"],
             "usage": diagnostics["usage"],
             "analytics": diagnostics["analytics"],
             "approvals": {
@@ -6355,6 +6631,7 @@ class ProductService:
             "delivery_token": delivery_token,
             "delivery_url": delivery_url,
             "open_url": f"/app/channel-loop/{normalized_digest}",
+            "access_session_id": str(access_session.get("session_id") or "").strip(),
             "access_token": str(access_session.get("access_token") or "").strip(),
             "access_url": str(access_session.get("access_url") or "").strip(),
             "default_target": str(access_session.get("default_target") or "/app/today"),
@@ -6419,6 +6696,7 @@ class ProductService:
                 "delivery_channel": str(payload.get("delivery_channel") or ""),
                 "delivery_url": delivery_url,
                 "open_url": str(payload.get("open_url") or ""),
+                "access_session_id": str(payload.get("access_session_id") or ""),
                 "expires_at": str(payload.get("expires_at") or ""),
                 "email_delivery_status": str(payload.get("email_delivery_status") or ""),
                 "email_message_id": str(payload.get("email_message_id") or ""),
@@ -6506,6 +6784,7 @@ class ProductService:
             for item in snapshot.commitments
             if _is_past_due(item.due_at) or item.risk_level in {"high", "critical", "due_now"}
         ]
+        support_verification = self._support_fix_verification_projection(principal_id=principal_id)
         resolved_memo_loop = dict(memo_loop or {})
         memo_blocker_item = _memo_issue_channel_item(memo_loop=resolved_memo_loop)
         open_decisions = [item for item in snapshot.decisions if item.status != "decided"]
@@ -6525,6 +6804,28 @@ class ProductService:
         if not visible_handoffs:
             visible_handoffs = list(snapshot.handoffs[:2])
         memo_items: list[dict[str, str]] = []
+        if str(support_verification.get("request_id") or "").strip() and str(support_verification.get("confirmation_state") or "").strip() != "confirmed":
+            memo_items.append(
+                {
+                    "title": "Confirm the fix reached you",
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            str(support_verification.get("channel_receipt_detail") or "").strip(),
+                            str(support_verification.get("install_receipt_detail") or "").strip(),
+                        )
+                        if str(part or "").strip()
+                    ),
+                    "tag": "Support",
+                    "href": "/app/settings/support",
+                    "action_href": str(support_verification.get("confirm_action_href") or "").strip(),
+                    "action_label": "Confirm",
+                    "action_method": "get",
+                    "secondary_action_href": str(support_verification.get("access_url") or "").strip(),
+                    "secondary_action_label": "Open workspace" if str(support_verification.get("access_url") or "").strip() else "",
+                    "secondary_action_method": "get",
+                }
+            )
         if memo_blocker_item is not None:
             memo_items.append(dict(memo_blocker_item))
         for item in snapshot.brief_items[:2]:
@@ -6941,6 +7242,14 @@ class ProductService:
                     actor=resolved_actor,
                     resolution=action,
                 )
+        elif object_kind in {"support_verification", "support_fix_verification"}:
+            if action != "confirm":
+                return None
+            result = self.confirm_support_fix_verification(
+                principal_id=principal_id,
+                request_id=object_ref,
+                actor=resolved_actor,
+            )
         if result is None:
             return None
         self._record_product_event(

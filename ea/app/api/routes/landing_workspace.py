@@ -278,6 +278,7 @@ def settings_support_detail(
     commercial = dict(bundle.get("commercial") or {})
     readiness = dict(bundle.get("readiness") or {})
     product_control = dict(bundle.get("product_control") or {})
+    support_verification = dict(bundle.get("support_verification") or {})
     journey_gate = dict(product_control.get("journey_gate_health") or {})
     journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
     route_stewardship = dict(product_control.get("provider_route_stewardship") or {})
@@ -313,6 +314,15 @@ def settings_support_detail(
             _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Product"),
             _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
             _object_detail_row(
+                "Fix verification",
+                str(support_verification.get("state") or "not_requested").replace("_", " "),
+                "Support",
+                action_href=str(support_verification.get("request_action_href") or ""),
+                action_label=str(support_verification.get("request_action_label") or ""),
+                action_method=str(support_verification.get("request_action_method") or ""),
+                return_to="/app/settings/support" if str(support_verification.get("request_action_href") or "").strip() else "",
+            ),
+            _object_detail_row(
                 "Blocked actions",
                 ", ".join(str(value).replace("_", " ") for value in (commercial.get("blocked_actions") or [])[:6]) or "No blocked actions",
                 "Support",
@@ -327,6 +337,38 @@ def settings_support_detail(
             ),
         ],
         object_sections=[
+            {
+                "eyebrow": "Fix verification",
+                "title": "Did the fix reach the channel and workspace link",
+                "items": [
+                    _object_detail_row(
+                        "Verification summary",
+                        str(support_verification.get("summary") or "No support verification request is active."),
+                        "Support",
+                    ),
+                    _object_detail_row("Recipient", str(support_verification.get("recipient_email") or "Recipient missing"), "Recipient"),
+                    _object_detail_row("Channel receipt", str(support_verification.get("channel_receipt_detail") or "No channel receipt recorded yet."), "Channel"),
+                    _object_detail_row("Install receipt", str(support_verification.get("install_receipt_detail") or "No workspace receipt recorded yet."), "Install"),
+                    _object_detail_row("Confirmation", str(support_verification.get("confirmation_detail") or "No explicit confirmation recorded yet."), "Confirmation"),
+                    _object_detail_row(
+                        "Next action",
+                        str(support_verification.get("recommended_action") or "No support verification action is recommended."),
+                        "Action",
+                        action_href=str(support_verification.get("request_action_href") or ""),
+                        action_label=str(support_verification.get("request_action_label") or ""),
+                        action_method=str(support_verification.get("request_action_method") or ""),
+                        return_to="/app/settings/support" if str(support_verification.get("request_action_href") or "").strip() else "",
+                        secondary_action_href=str(support_verification.get("delivery_url") or ""),
+                        secondary_action_label="Open delivery link" if str(support_verification.get("delivery_url") or "").strip() else "",
+                        secondary_action_method="get" if str(support_verification.get("delivery_url") or "").strip() else "",
+                        secondary_return_to="/app/settings/support" if str(support_verification.get("delivery_url") or "").strip() else "",
+                        tertiary_action_href=str(support_verification.get("access_url") or ""),
+                        tertiary_action_label="Open workspace link" if str(support_verification.get("access_url") or "").strip() else "",
+                        tertiary_action_method="get" if str(support_verification.get("access_url") or "").strip() else "",
+                        tertiary_return_to="/app/settings/support" if str(support_verification.get("access_url") or "").strip() else "",
+                    ),
+                ],
+            },
             {
                 "eyebrow": "Product control",
                 "title": "Weekly pulse and journey-gate truth",

@@ -122,6 +122,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "journey_gate_health" in diagnostics_body["product_control"]
     assert "provider_route_stewardship" in diagnostics_body["product_control"]
     assert "launch_readiness" in diagnostics_body["product_control"]
+    assert "state" in diagnostics_body["support_verification"]
 
     plan = client.get("/app/api/plan")
     assert plan.status_code == 200
@@ -183,6 +184,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "google_token_status" in support_body["analytics"]["sync"]
     assert support_body["product_control"]["summary"]
     assert "journey_highlights" in support_body["product_control"]
+    assert "state" in support_body["support_verification"]
 
     channel_loop = client.get("/app/api/channel-loop")
     assert channel_loop.status_code == 200
@@ -1928,6 +1930,75 @@ def test_product_diagnostics_include_value_events() -> None:
     assert isinstance(body["human_tasks"], list)
     assert body["product_control"]["summary"]
     assert "journey_gate_freshness" in body["product_control"]
+
+
+def test_support_fix_verification_tracks_request_receipt_and_confirmation() -> None:
+    principal_id = "exec-support-fix-verification"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Support Verification Office")
+
+    updated = client.post(
+        "/app/actions/settings/morning-memo",
+        data={
+            "return_to": "/app/settings",
+            "enabled": "true",
+            "cadence": "daily_morning",
+            "recipient_email": "tibor@example.com",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+
+    requested = client.post(
+        "/app/actions/support/fix-verification/request",
+        data={"return_to": "/app/settings/support"},
+        follow_redirects=False,
+    )
+    assert requested.status_code == 303
+    assert requested.headers["location"].startswith("/app/settings/support")
+
+    support_body = client.get("/app/api/support").json()
+    verification = dict(support_body["support_verification"])
+    assert verification["state"] == "waiting"
+    assert verification["recipient_email"] == "tibor@example.com"
+    assert verification["request_id"]
+    assert verification["delivery_url"].startswith("/channel-loop/deliveries/")
+    assert verification["access_url"].startswith("/workspace-access/")
+    assert verification["channel_receipt_state"] == "waiting"
+    assert verification["install_receipt_state"] == "waiting"
+
+    memo_plain = client.get("/app/api/channel-loop/memo/plain")
+    assert memo_plain.status_code == 200
+    assert "Confirm the fix reached you" in memo_plain.text
+    assert "/app/channel-actions/" in memo_plain.text
+
+    opened_delivery = client.get(verification["delivery_url"], follow_redirects=False)
+    assert opened_delivery.status_code == 303
+
+    after_delivery = dict(client.get("/app/api/support").json()["support_verification"])
+    assert after_delivery["channel_receipt_state"] == "received"
+
+    opened_access = client.get(verification["access_url"], follow_redirects=False)
+    assert opened_access.status_code == 303
+
+    after_access = dict(client.get("/app/api/support").json()["support_verification"])
+    assert after_access["install_receipt_state"] == "opened"
+
+    channel_loop = client.get("/app/api/channel-loop")
+    assert channel_loop.status_code == 200
+    memo_digest = next(item for item in channel_loop.json()["digests"] if item["key"] == "memo")
+    support_item = next(item for item in memo_digest["items"] if item["title"] == "Confirm the fix reached you")
+
+    confirmed = client.get(str(support_item["action_href"]), follow_redirects=False)
+    assert confirmed.status_code == 303
+    assert confirmed.headers["location"] == "/app/channel-loop/memo"
+
+    final = dict(client.get("/app/api/support").json()["support_verification"])
+    assert final["state"] == "confirmed"
+    assert final["confirmation_state"] == "confirmed"
 
 
 def test_workspace_outcomes_expose_last_memo_issue_and_fix_target() -> None:

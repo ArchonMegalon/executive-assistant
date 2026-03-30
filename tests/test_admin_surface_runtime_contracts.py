@@ -189,6 +189,8 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Active product wave" in diagnostics.text
     assert "Journey gate health" in diagnostics.text
     assert "Launch readiness" in diagnostics.text
+    assert "Fix verification" in diagnostics.text
+    assert "Channel receipt" in diagnostics.text
     assert "Blocked send follow-ups" in diagnostics.text
     assert "Send follow-ups closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text
