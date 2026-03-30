@@ -312,6 +312,29 @@ def get_thread(
     return thread_out(found)
 
 
+@router.post("/threads/{thread_ref:path}/resume-delivery", response_model=HandoffNoteOut)
+def resume_thread_delivery(
+    thread_ref: str,
+    body: HandoffAssignIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> HandoffNoteOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or body.operator_id or "product").strip()
+    try:
+        reopened = service.resume_thread_delivery_followup(
+            principal_id=context.principal_id,
+            thread_ref=thread_ref,
+            actor=actor,
+            operator_id=body.operator_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if reopened is None:
+        raise HTTPException(status_code=404, detail="thread_not_found")
+    return handoff_out(reopened)
+
+
 @router.get("/commitments", response_model=list[CommitmentOut])
 def list_commitments(
     limit: int = Query(default=50, ge=1, le=200),
