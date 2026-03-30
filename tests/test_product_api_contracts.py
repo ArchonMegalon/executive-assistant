@@ -1879,6 +1879,24 @@ def test_product_handoffs_can_be_assigned_and_completed_by_operator() -> None:
     assert completed.status_code == 200
     assert completed.json()["status"] == "returned"
 
+    history = client.get(f"/app/api/handoffs/{handoff_ref}/history")
+    assert history.status_code == 200
+    history_rows = history.json()
+    assert [row["event_name"] for row in history_rows] == [
+        "human_task_created",
+        "human_task_assigned",
+        "human_task_returned",
+    ]
+    assert [row["assigned_operator_id"] for row in history_rows] == [
+        "",
+        seeded["operator_id"],
+        seeded["operator_id"],
+    ]
+    assert history_rows[1]["assignment_source"] == "manual"
+    assert history_rows[1]["assigned_by_actor_id"] == seeded["operator_id"]
+    assert history_rows[2]["assigned_by_actor_id"] == seeded["operator_id"]
+    assert history_rows[2]["resolution"] == "completed"
+
     returned = client.get("/app/api/handoffs", params={"status": "returned"})
     assert returned.status_code == 200
     assert any(row["id"] == handoff_ref and row["status"] == "returned" for row in returned.json())
