@@ -31,6 +31,7 @@ AUDIT_PUBLIC_MODEL_ALIAS = "ea-audit"
 GEMINI_VORTEX_PUBLIC_MODEL = "ea-gemini-flash"
 REPAIR_GEMINI_PUBLIC_MODEL = "ea-repair-gemini"
 HARD_BATCH_PUBLIC_MODEL = "ea-coder-hard-batch"
+HARD_RESCUE_PUBLIC_MODEL = "ea-coder-hard-rescue"
 
 
 BRAIN_PROFILES: tuple[BrainProfile, ...] = (
@@ -58,6 +59,19 @@ BRAIN_PROFILES: tuple[BrainProfile, ...] = (
         review_required=True,
         needs_review=True,
         risk_labels=("high_impact", "code_change", "batch"),
+        merge_policy="require_review",
+    ),
+    BrainProfile(
+        profile="core_rescue",
+        lane="hard",
+        public_model=HARD_RESCUE_PUBLIC_MODEL,
+        provider_hint_order=("onemin",),
+        default_capability_key="code_generate",
+        backend_key="onemin",
+        health_provider_key="onemin",
+        review_required=True,
+        needs_review=True,
+        risk_labels=("high_impact", "code_change", "batch", "rescue"),
         merge_policy="require_review",
     ),
     BrainProfile(

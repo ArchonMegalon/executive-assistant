@@ -28,6 +28,7 @@ from app.services.brain_catalog import (
     FAST_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL,
     HARD_BATCH_PUBLIC_MODEL,
+    HARD_RESCUE_PUBLIC_MODEL,
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     get_brain_profile,
@@ -71,6 +72,7 @@ _PROMPT_ROUTE_HARD_MODELS = frozenset(
         None,
         {
             str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
+            str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(),
             str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
             "ea-coder-hard",
             "ea-audit-jury",
@@ -226,10 +228,21 @@ def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: 
         str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
         "ea-coder-hard",
         str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
+        str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(),
         "ea-audit-jury",
         "ea-coder-survival",
     }
-    timeout_seconds = hard_parsed if normalized_profile in hard_profiles or normalized_model in hard_models else parsed
+    rescue_timeout_raw = str(
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_CORE_RESCUE_SECONDS") or max(hard_parsed, 900.0)
+    ).strip()
+    try:
+        rescue_parsed = float(rescue_timeout_raw)
+    except Exception:
+        rescue_parsed = max(hard_parsed, 900.0)
+    if normalized_profile == "core_rescue" or normalized_model == str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower():
+        timeout_seconds = rescue_parsed
+    else:
+        timeout_seconds = hard_parsed if normalized_profile in hard_profiles or normalized_model in hard_models else parsed
     return max(timeout_seconds, STREAM_HEARTBEAT_SECONDS + 1.0)
 
 
@@ -258,6 +271,7 @@ class _StoredResponse:
     input_items: list[dict[str, object]]
     history_items: list[dict[str, object]]
     principal_id: str
+    background_job: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -281,6 +295,7 @@ class _ResponseRecordRepository(abc.ABC):
         input_items: list[dict[str, object]],
         history_items: list[dict[str, object]],
         principal_id: str,
+        background_job: dict[str, object] | None = None,
     ) -> None:
         """Store a response record for the requested principal."""
 
@@ -307,6 +322,7 @@ class _MemoryResponseRecordRepository(_ResponseRecordRepository):
         input_items: list[dict[str, object]],
         history_items: list[dict[str, object]],
         principal_id: str,
+        background_job: dict[str, object] | None = None,
     ) -> None:
         with self._lock:
             self._records[response_id] = _StoredResponse(
@@ -314,6 +330,7 @@ class _MemoryResponseRecordRepository(_ResponseRecordRepository):
                 input_items=[dict(item) for item in input_items],
                 history_items=[dict(item) for item in history_items],
                 principal_id=principal_id,
+                background_job=dict(background_job) if isinstance(background_job, dict) else None,
             )
 
     def load(
@@ -361,9 +378,16 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
                         response_json JSONB NOT NULL,
                         input_items_json JSONB NOT NULL,
                         history_items_json JSONB NOT NULL,
+                        background_job_json JSONB NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
+                    """
+                )
+                cur.execute(
+                    """
+                    ALTER TABLE response_records
+                    ADD COLUMN IF NOT EXISTS background_job_json JSONB NULL
                     """
                 )
                 cur.execute(
@@ -381,6 +405,7 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
         input_items: list[dict[str, object]],
         history_items: list[dict[str, object]],
         principal_id: str,
+        background_job: dict[str, object] | None = None,
     ) -> None:
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -391,13 +416,15 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
                         principal_id,
                         response_json,
                         input_items_json,
-                        history_items_json
-                    ) VALUES (%s, %s, %s, %s, %s)
+                        history_items_json,
+                        background_job_json
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (response_id) DO UPDATE SET
                         principal_id = EXCLUDED.principal_id,
                         response_json = EXCLUDED.response_json,
                         input_items_json = EXCLUDED.input_items_json,
                         history_items_json = EXCLUDED.history_items_json,
+                        background_job_json = EXCLUDED.background_job_json,
                         updated_at = NOW()
                     """,
                     (
@@ -406,6 +433,7 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
                         self._json_value(response_obj),
                         self._json_value(input_items),
                         self._json_value(history_items),
+                        self._json_value(background_job) if background_job is not None else None,
                     ),
                 )
 
@@ -419,7 +447,7 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT principal_id, response_json, input_items_json, history_items_json
+                    SELECT principal_id, response_json, input_items_json, history_items_json, background_job_json
                     FROM response_records
                     WHERE response_id = %s
                     """,
@@ -428,7 +456,7 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
                 row = cur.fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="response_not_found")
-        stored_principal_id, response_json, input_items_json, history_items_json = row
+        stored_principal_id, response_json, input_items_json, history_items_json, background_job_json = row
         if str(stored_principal_id or "") != principal_id:
             raise HTTPException(status_code=403, detail="principal_scope_mismatch")
         return _StoredResponse(
@@ -436,6 +464,7 @@ class _PostgresResponseRecordRepository(_ResponseRecordRepository):
             input_items=[dict(item) for item in list(input_items_json or []) if isinstance(item, dict)],
             history_items=[dict(item) for item in list(history_items_json or []) if isinstance(item, dict)],
             principal_id=str(stored_principal_id or ""),
+            background_job=dict(background_job_json or {}) if isinstance(background_job_json, dict) else None,
         )
 
 
@@ -444,6 +473,10 @@ _MEMORY_RESPONSE_REPOSITORY = _MemoryResponseRecordRepository()
 _POSTGRES_RESPONSE_REPOSITORIES: dict[str, _PostgresResponseRecordRepository] = {}
 _STREAM_RESPONSE_OVERRIDE_LOCK = threading.Lock()
 _STREAM_RESPONSE_OVERRIDES: dict[str, tuple[float, str, dict[str, object]]] = {}
+_BACKGROUND_RESPONSE_LOCK = threading.Lock()
+_BACKGROUND_RESPONSE_WORKERS: dict[str, threading.Thread] = {}
+_BACKGROUND_RESPONSE_STARTING: set[str] = set()
+_BACKGROUND_RESPONSE_TRANSITION_LOCK = threading.Lock()
 _DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
 
 _CODEx_PROFILES = tuple(
@@ -618,6 +651,12 @@ def _codex_profile_expectation(profile_name: str) -> dict[str, str]:
             "expectation_summary": "Core batch lane is the hard-coder batch path for larger repo work that still carries review-required posture.",
             "review_posture": "Require review before merge or release-facing adoption.",
             "best_for": "Longer-running implementation slices that still belong to the hard coder family.",
+        },
+        "core_rescue": {
+            "work_class": "hard_coder_rescue",
+            "expectation_summary": "Core rescue lane is the longer-running hard-coder recovery path for slices that outgrow the normal hard lane budget.",
+            "review_posture": "Require review before merge or release-facing adoption.",
+            "best_for": "Large rescue passes, timeout-prone implementation slices, and hard recovery work that still needs a strong coder lane.",
         },
     }
     return dict(expectations.get(normalized) or {})
@@ -817,6 +856,17 @@ def _capture_responses_debug(*, name: str, payload: object) -> None:
         return
 
 
+def _test_reset_responses_runtime_state() -> None:
+    with _STREAM_RESPONSE_OVERRIDE_LOCK:
+        _STREAM_RESPONSE_OVERRIDES.clear()
+    with _BACKGROUND_RESPONSE_LOCK:
+        _BACKGROUND_RESPONSE_WORKERS.clear()
+        _BACKGROUND_RESPONSE_STARTING.clear()
+    if isinstance(_MEMORY_RESPONSE_REPOSITORY, _MemoryResponseRecordRepository):
+        with _MEMORY_RESPONSE_REPOSITORY._lock:
+            _MEMORY_RESPONSE_REPOSITORY._records.clear()
+
+
 def _now_unix() -> int:
     return int(time.time())
 
@@ -1001,11 +1051,18 @@ def _resolve_prompt_route(
 ) -> _PromptRouteDecision:
     original_profile = str(codex_profile or "").strip() or None
     original_model = str(model or DEFAULT_PUBLIC_MODEL).strip() or DEFAULT_PUBLIC_MODEL
+    normalized_original_profile = str(original_profile or "").strip().lower()
+    normalized_original_model = str(original_model or "").strip().lower()
     effective_profile = original_profile
     effective_model = original_model
     applied = False
     reason = "session_route"
-    if _is_hard_prompt_route_context(model=original_model, codex_profile=codex_profile):
+    if (
+        normalized_original_profile == "core_batch"
+        or normalized_original_model == str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower()
+    ):
+        reason = "explicit_core_batch_profile"
+    elif _is_hard_prompt_route_context(model=original_model, codex_profile=codex_profile):
         demote, demote_reason = _looks_like_lightweight_ops_query(prompt)
         if demote:
             effective_profile = "easy"
@@ -1015,18 +1072,12 @@ def _resolve_prompt_route(
         else:
             reason = demote_reason
     else:
-        normalized_profile = str(original_profile or "").strip().lower()
-        normalized_model = str(original_model or "").strip().lower()
         lightweight_ops, lightweight_reason = _looks_like_lightweight_ops_query(prompt)
         if not lightweight_ops:
             coding_task, coding_reason = _looks_like_coding_task(prompt)
             if coding_task and (
-                not normalized_profile
-                or normalized_profile in {"default", "easy"}
-                or normalized_model in {
-                    str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
-                    str(FAST_PUBLIC_MODEL or "").strip().lower(),
-                }
+                not normalized_original_profile
+                or normalized_original_profile in {"default", "easy"}
             ):
                 effective_profile = "core"
                 effective_model = "ea-coder-hard"
@@ -1665,6 +1716,17 @@ def _requested_max_output_tokens(payload: _ResponsesCreateRequest) -> int | None
     return value
 
 
+def _requested_max_output_tokens_from_response(response_obj: dict[str, object]) -> int | None:
+    raw = response_obj.get("max_output_tokens")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
 def _browseract_binding_id(*, container: object | None, principal_id: str) -> str:
     if container is None or not principal_id:
         return ""
@@ -1684,6 +1746,42 @@ def _browseract_binding_id(*, container: object | None, principal_id: str) -> st
             continue
         return str(getattr(binding, "binding_id", "") or "").strip()
     return ""
+
+
+def _build_chatplayground_audit_callback(
+    *,
+    container: object | None,
+    principal_id: str,
+) -> Callable[..., Any] | None:
+    if container is None:
+        return None
+    browseract_binding_id = _browseract_binding_id(container=container, principal_id=principal_id)
+
+    def _chatplayground_audit_callback(**kwargs: Any) -> Any:
+        prompt = str(kwargs.get("prompt") or "").strip()
+        if not prompt:
+            raise RuntimeError("chatplayground_audit_prompt_required")
+        tool_execution = getattr(container, "tool_execution", None)
+        if tool_execution is None:
+            raise RuntimeError("chatplayground_tool_execution_unavailable")
+        invocation = ToolInvocationRequest(
+            session_id=f"codex-audit:{uuid.uuid4().hex}",
+            step_id=f"codex-audit-step:{uuid.uuid4().hex}",
+            tool_name="browseract.chatplayground_audit",
+            action_kind="chatplayground_audit",
+            payload_json={
+                **dict(kwargs),
+                "binding_id": str(kwargs.get("binding_id") or browseract_binding_id or "").strip(),
+            },
+            context_json={"principal_id": principal_id},
+        )
+        try:
+            result = tool_execution.execute_invocation(invocation)
+        except ToolExecutionError as exc:
+            raise RuntimeError(str(exc)) from exc
+        return result.output_json
+
+    return _chatplayground_audit_callback
 
 
 def _response_object(
@@ -1804,6 +1902,7 @@ def _store_response(
     history_items: list[dict[str, object]],
     principal_id: str,
     container: object | None = None,
+    background_job: dict[str, object] | None = None,
 ) -> None:
     _response_record_repository(container).store(
         response_id=response_id,
@@ -1811,6 +1910,7 @@ def _store_response(
         input_items=input_items,
         history_items=history_items,
         principal_id=principal_id,
+        background_job=background_job,
     )
 
 
@@ -1824,6 +1924,414 @@ def _load_response(
         response_id=response_id,
         principal_id=principal_id,
     )
+
+
+def _cleanup_background_response_workers() -> None:
+    with _BACKGROUND_RESPONSE_LOCK:
+        stale_ids = [response_id for response_id, worker in _BACKGROUND_RESPONSE_WORKERS.items() if not worker.is_alive()]
+        for response_id in stale_ids:
+            _BACKGROUND_RESPONSE_WORKERS.pop(response_id, None)
+            _BACKGROUND_RESPONSE_STARTING.discard(response_id)
+
+
+def _background_response_has_live_worker(response_id: str) -> bool:
+    _cleanup_background_response_workers()
+    with _BACKGROUND_RESPONSE_LOCK:
+        if response_id in _BACKGROUND_RESPONSE_STARTING:
+            return True
+        worker = _BACKGROUND_RESPONSE_WORKERS.get(response_id)
+        return bool(worker and worker.is_alive())
+
+
+def _claim_background_response_worker_slot(response_id: str) -> bool:
+    _cleanup_background_response_workers()
+    with _BACKGROUND_RESPONSE_LOCK:
+        if response_id in _BACKGROUND_RESPONSE_STARTING:
+            return False
+        worker = _BACKGROUND_RESPONSE_WORKERS.get(response_id)
+        if worker and worker.is_alive():
+            return False
+        _BACKGROUND_RESPONSE_STARTING.add(response_id)
+        return True
+
+
+def _register_background_response_worker(response_id: str, worker: threading.Thread) -> None:
+    with _BACKGROUND_RESPONSE_LOCK:
+        _BACKGROUND_RESPONSE_STARTING.discard(response_id)
+        _BACKGROUND_RESPONSE_WORKERS[response_id] = worker
+
+
+def _release_background_response_worker_slot(response_id: str, *, worker: threading.Thread | None = None) -> None:
+    with _BACKGROUND_RESPONSE_LOCK:
+        _BACKGROUND_RESPONSE_STARTING.discard(response_id)
+        existing = _BACKGROUND_RESPONSE_WORKERS.get(response_id)
+        if existing is None:
+            return
+        if worker is None or existing is worker or not existing.is_alive():
+            _BACKGROUND_RESPONSE_WORKERS.pop(response_id, None)
+
+
+def _background_timeout_seconds_for_response(response_obj: dict[str, object]) -> float:
+    metadata = dict(response_obj.get("metadata") or {}) if isinstance(response_obj.get("metadata"), dict) else {}
+    raw = metadata.get("background_timeout_seconds")
+    try:
+        return max(float(raw), 0.0)
+    except Exception:
+        return 0.0
+
+
+def _background_response_deadline_unix(response_obj: dict[str, object]) -> float:
+    timeout_seconds = _background_timeout_seconds_for_response(response_obj)
+    created_at = int(response_obj.get("created_at") or 0)
+    if timeout_seconds <= 0 or created_at <= 0:
+        return 0.0
+    return float(created_at) + timeout_seconds
+
+
+def _background_response_has_expired(response_obj: dict[str, object], *, now_unix: float | None = None) -> bool:
+    deadline_unix = _background_response_deadline_unix(response_obj)
+    if deadline_unix <= 0:
+        return False
+    current = float(now_unix if now_unix is not None else time.time())
+    return current >= deadline_unix
+
+
+def _background_replay_payload(
+    *,
+    prompt: str,
+    messages: list[dict[str, str]],
+    supported_tools: list[dict[str, object]],
+    effective_codex_profile: str | None,
+    chatplayground_audit_callback_enabled: bool,
+    chatplayground_audit_callback_only: bool,
+) -> dict[str, object]:
+    return {
+        "prompt": str(prompt or ""),
+        "messages": [dict(item) for item in messages],
+        "supported_tools": [dict(item) for item in supported_tools],
+        "effective_codex_profile": str(effective_codex_profile or "").strip(),
+        "chatplayground_audit_callback_enabled": bool(chatplayground_audit_callback_enabled),
+        "chatplayground_audit_callback_only": bool(chatplayground_audit_callback_only),
+    }
+
+
+def _background_failed_response(
+    *,
+    stored: _StoredResponse,
+    failure_message: str,
+) -> dict[str, object]:
+    response_obj = dict(stored.response)
+    return _build_failed_response(
+        response_id=str(response_obj.get("id") or ""),
+        created_at=int(response_obj.get("created_at") or _now_unix()),
+        model=str(response_obj.get("model") or DEFAULT_PUBLIC_MODEL),
+        requested_max_output_tokens=_requested_max_output_tokens_from_response(response_obj),
+        metadata=dict(response_obj.get("metadata") or {}) if isinstance(response_obj.get("metadata"), dict) else {},
+        instructions=response_obj.get("instructions") if isinstance(response_obj.get("instructions"), str) else None,
+        input_items=[dict(item) for item in stored.input_items],
+        failure_message=failure_message,
+        visible_text=f"Error: {failure_message}",
+    )
+
+
+def _background_timeout_failure_message(response_obj: dict[str, object]) -> str:
+    timeout_seconds = int(round(_background_timeout_seconds_for_response(response_obj))) or 0
+    return f"background_timeout:{timeout_seconds}s" if timeout_seconds > 0 else "background_timeout"
+
+
+def _store_background_terminal_response(
+    *,
+    response_id: str,
+    principal_id: str,
+    container: object | None,
+    response_obj: dict[str, object],
+    input_items: list[dict[str, object]],
+    history_items: list[dict[str, object]],
+    background_job: dict[str, object] | None,
+) -> dict[str, object]:
+    with _BACKGROUND_RESPONSE_TRANSITION_LOCK:
+        stored = _load_response(response_id=response_id, principal_id=principal_id, container=container)
+        current_response = dict(stored.response)
+        current_status = str(current_response.get("status") or "").strip().lower()
+        if current_status != "in_progress":
+            return current_response
+        if _background_response_has_expired(current_response):
+            failed_obj = _background_failed_response(
+                stored=stored,
+                failure_message=_background_timeout_failure_message(current_response),
+            )
+            _store_response(
+                response_id=response_id,
+                response_obj=failed_obj,
+                input_items=stored.input_items,
+                history_items=stored.history_items,
+                principal_id=principal_id,
+                container=container,
+                background_job=background_job,
+            )
+            return failed_obj
+        _store_response(
+            response_id=response_id,
+            response_obj=response_obj,
+            input_items=input_items,
+            history_items=history_items,
+            principal_id=principal_id,
+            container=container,
+            background_job=background_job,
+        )
+        return response_obj
+
+
+def _spawn_background_codex_worker(
+    *,
+    response_id: str,
+    created_at: int,
+    model: str,
+    response_metadata: dict[str, object],
+    instructions: str | None,
+    input_items: list[dict[str, object]],
+    reasoning: Any | None,
+    max_output_tokens: int | None,
+    history_items: list[dict[str, object]],
+    prompt: str,
+    messages: list[dict[str, str]],
+    supported_tools: list[dict[str, object]],
+    chatplayground_audit_callback: Callable[..., Any] | None,
+    chatplayground_audit_callback_only: bool,
+    chatplayground_audit_principal_id: str,
+    principal_id: str,
+    container: object | None,
+    background_job: dict[str, object] | None,
+) -> bool:
+    if not _claim_background_response_worker_slot(response_id):
+        return False
+
+    def _worker() -> None:
+        request_deadline_monotonic = time.monotonic() + _background_timeout_seconds_for_response(
+            {"created_at": created_at, "metadata": response_metadata}
+        )
+        try:
+            tool_decision: _ToolShimDecision | None = None
+            if supported_tools:
+                decision = _tool_shim_decision(
+                    model=model,
+                    max_output_tokens=max_output_tokens,
+                    instructions=instructions,
+                    tools=supported_tools,
+                    history_items=history_items,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
+                )
+                if not isinstance(decision, _ToolShimDecision) or not isinstance(decision.upstream_result, UpstreamResult):
+                    raise RuntimeError("invalid_upstream_result")
+                tool_decision = decision
+                result = decision.upstream_result
+            else:
+                result = _generate_upstream_text(
+                    prompt=prompt,
+                    messages=messages,
+                    requested_model=model,
+                    max_output_tokens=max_output_tokens,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
+                )
+            completed_obj, history_items_to_store = _build_completed_response_from_upstream(
+                response_id=response_id,
+                created_at=created_at,
+                model=model,
+                requested_max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
+                instructions=instructions,
+                input_items=input_items,
+                reasoning=reasoning,
+                base_history_items=history_items,
+                result=result,
+                tool_decision=tool_decision,
+            )
+            final_obj = _store_background_terminal_response(
+                response_id=response_id,
+                response_obj=completed_obj,
+                input_items=input_items,
+                history_items=history_items_to_store,
+                principal_id=principal_id,
+                container=container,
+                background_job=background_job,
+            )
+            if str(final_obj.get("status") or "").strip().lower() == "completed":
+                _capture_responses_debug(
+                    name="response",
+                    payload={
+                        "principal_id": principal_id,
+                        "codex_profile": str(response_metadata.get("codex_effective_profile") or response_metadata.get("codex_profile") or ""),
+                        "response": final_obj,
+                    },
+                )
+        except Exception as exc:
+            failure_message = str(exc)[:500]
+            failed_obj = _build_failed_response(
+                response_id=response_id,
+                created_at=created_at,
+                model=model,
+                requested_max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
+                instructions=instructions,
+                input_items=input_items,
+                failure_message=failure_message,
+                visible_text=f"Error: {failure_message}",
+            )
+            final_obj = _store_background_terminal_response(
+                response_id=response_id,
+                response_obj=failed_obj,
+                input_items=input_items,
+                history_items=history_items,
+                principal_id=principal_id,
+                container=container,
+                background_job=background_job,
+            )
+            if str(final_obj.get("status") or "").strip().lower() == "failed":
+                _capture_responses_debug(
+                    name="response_background_failed",
+                    payload={
+                        "principal_id": principal_id,
+                        "codex_profile": str(response_metadata.get("codex_effective_profile") or response_metadata.get("codex_profile") or ""),
+                        "response_id": response_id,
+                        "failure_message": _response_failure_message(final_obj) or failure_message,
+                    },
+                )
+        finally:
+            _release_background_response_worker_slot(response_id)
+
+    worker = threading.Thread(target=_worker, daemon=True)
+    try:
+        _register_background_response_worker(response_id, worker)
+        worker.start()
+    except Exception:
+        _release_background_response_worker_slot(response_id)
+        raise
+    return True
+
+
+def _ensure_background_response_progress(
+    *,
+    stored: _StoredResponse,
+    principal_id: str,
+    container: object | None,
+) -> _StoredResponse:
+    with _BACKGROUND_RESPONSE_TRANSITION_LOCK:
+        response_obj = dict(stored.response)
+        status = str(response_obj.get("status") or "").strip().lower()
+        metadata = dict(response_obj.get("metadata") or {}) if isinstance(response_obj.get("metadata"), dict) else {}
+        if status != "in_progress" or not bool(metadata.get("background_response")):
+            return stored
+        response_id = str(response_obj.get("id") or "")
+        if _background_response_has_expired(response_obj):
+            failed_obj = _background_failed_response(
+                stored=stored,
+                failure_message=_background_timeout_failure_message(response_obj),
+            )
+            _store_response(
+                response_id=response_id,
+                response_obj=failed_obj,
+                input_items=stored.input_items,
+                history_items=stored.history_items,
+                principal_id=principal_id,
+                container=container,
+                background_job=stored.background_job,
+            )
+            return _StoredResponse(
+                response=failed_obj,
+                input_items=[dict(item) for item in stored.input_items],
+                history_items=[dict(item) for item in stored.history_items],
+                principal_id=stored.principal_id,
+                background_job=dict(stored.background_job) if isinstance(stored.background_job, dict) else None,
+            )
+        if _background_response_has_live_worker(response_id):
+            return stored
+        replay = dict(stored.background_job or {}) if isinstance(stored.background_job, dict) else {}
+        if not replay:
+            failed_obj = _background_failed_response(stored=stored, failure_message="background_response_replay_unavailable")
+            _store_response(
+                response_id=response_id,
+                response_obj=failed_obj,
+                input_items=stored.input_items,
+                history_items=stored.history_items,
+                principal_id=principal_id,
+                container=container,
+                background_job=stored.background_job,
+            )
+            return _StoredResponse(
+                response=failed_obj,
+                input_items=[dict(item) for item in stored.input_items],
+                history_items=[dict(item) for item in stored.history_items],
+                principal_id=stored.principal_id,
+                background_job=dict(stored.background_job) if isinstance(stored.background_job, dict) else None,
+            )
+
+        response_metadata = metadata
+        response_metadata["background_resume_count"] = int(response_metadata.get("background_resume_count") or 0) + 1
+        response_metadata["background_last_resumed_at"] = _now_unix()
+        refreshed_in_progress = {
+            **response_obj,
+            "metadata": response_metadata,
+        }
+        _store_response(
+            response_id=response_id,
+            response_obj=refreshed_in_progress,
+            input_items=stored.input_items,
+            history_items=stored.history_items,
+            principal_id=principal_id,
+            container=container,
+            background_job=replay,
+        )
+        callback_enabled = bool(replay.get("chatplayground_audit_callback_enabled")) or bool(
+            replay.get("chatplayground_audit_callback_only")
+        )
+        replay_callback = (
+            _build_chatplayground_audit_callback(container=container, principal_id=principal_id)
+            if callback_enabled
+            else None
+        )
+        _spawn_background_codex_worker(
+            response_id=response_id,
+            created_at=int(response_obj.get("created_at") or _now_unix()),
+            model=str(response_obj.get("model") or DEFAULT_PUBLIC_MODEL),
+            response_metadata=response_metadata,
+            instructions=response_obj.get("instructions") if isinstance(response_obj.get("instructions"), str) else None,
+            input_items=[dict(item) for item in stored.input_items],
+            reasoning=response_obj.get("reasoning"),
+            max_output_tokens=_requested_max_output_tokens_from_response(response_obj),
+            history_items=[dict(item) for item in stored.history_items],
+            prompt=str(replay.get("prompt") or ""),
+            messages=[dict(item) for item in list(replay.get("messages") or []) if isinstance(item, dict)],
+            supported_tools=[dict(item) for item in list(replay.get("supported_tools") or []) if isinstance(item, dict)],
+            chatplayground_audit_callback=replay_callback,
+            chatplayground_audit_callback_only=bool(replay.get("chatplayground_audit_callback_only")),
+            chatplayground_audit_principal_id=principal_id,
+            principal_id=principal_id,
+            container=container,
+            background_job=replay,
+        )
+        return _StoredResponse(
+            response=refreshed_in_progress,
+            input_items=[dict(item) for item in stored.input_items],
+            history_items=[dict(item) for item in stored.history_items],
+            principal_id=stored.principal_id,
+            background_job=replay,
+        )
+
+
+def _load_response_for_runtime(
+    *,
+    response_id: str,
+    principal_id: str,
+    container: object | None = None,
+) -> _StoredResponse:
+    stored = _load_response(response_id=response_id, principal_id=principal_id, container=container)
+    return _ensure_background_response_progress(stored=stored, principal_id=principal_id, container=container)
 
 
 def _generate_upstream_text(
@@ -1915,11 +2423,20 @@ def _history_items_for_request(
 ) -> list[dict[str, object]]:
     history: list[dict[str, object]] = []
     if previous_response_id:
-        stored = _load_response(
+        stored = _load_response_for_runtime(
             response_id=previous_response_id,
             principal_id=principal_id,
             container=container,
         )
+        previous_status = str(stored.response.get("status") or "").strip().lower()
+        if previous_status == "in_progress":
+            raise HTTPException(status_code=409, detail="previous_response_in_progress")
+        if previous_status == "failed":
+            failure_message = _response_failure_message(dict(stored.response))
+            detail = "previous_response_failed"
+            if failure_message:
+                detail = f"{detail}:{failure_message}"
+            raise HTTPException(status_code=409, detail=detail)
         history.extend(dict(item) for item in stored.history_items)
     history.extend(dict(item) for item in parsed_input.input_items)
     return history
@@ -2448,7 +2965,10 @@ def _failed_stream_events(
 def _is_background_codex_profile(*, model: str = "", codex_profile: str | None = None) -> bool:
     normalized_model = str(model or "").strip().lower()
     normalized_profile = str(codex_profile or "").strip().lower()
-    return normalized_profile == "core_batch" or normalized_model == str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower()
+    return normalized_profile in {"core_batch", "core_rescue"} or normalized_model in {
+        str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
+        str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(),
+    }
 
 
 def _responses_background_timeout_seconds(*, model: str = "", codex_profile: str | None = None) -> float:
@@ -2463,7 +2983,21 @@ def _responses_background_timeout_seconds(*, model: str = "", codex_profile: str
         hard_batch_parsed = float(hard_batch_raw)
     except Exception:
         hard_batch_parsed = parsed
-    timeout_seconds = hard_batch_parsed if _is_background_codex_profile(model=model, codex_profile=codex_profile) else parsed
+    rescue_raw = str(
+        os.environ.get("EA_RESPONSES_BACKGROUND_TIMEOUT_CORE_RESCUE_SECONDS") or max(hard_batch_parsed, 21600.0)
+    ).strip()
+    try:
+        rescue_parsed = float(rescue_raw)
+    except Exception:
+        rescue_parsed = max(hard_batch_parsed, 21600.0)
+    normalized_model = str(model or "").strip().lower()
+    normalized_profile = str(codex_profile or "").strip().lower()
+    if normalized_profile == "core_rescue" or normalized_model == str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower():
+        timeout_seconds = rescue_parsed
+    elif _is_background_codex_profile(model=model, codex_profile=codex_profile):
+        timeout_seconds = hard_batch_parsed
+    else:
+        timeout_seconds = parsed
     return max(timeout_seconds, base_timeout)
 
 
@@ -2615,9 +3149,18 @@ def _run_background_codex_response(
     prompt_route_trace_line: str,
     effective_codex_profile: str | None,
 ) -> Response:
+    store_forced = request.store is False
     background_timeout_seconds = _responses_background_timeout_seconds(
         model=model,
         codex_profile=effective_codex_profile,
+    )
+    background_job = _background_replay_payload(
+        prompt=parsed_input.prompt,
+        messages=messages,
+        supported_tools=supported_tools,
+        effective_codex_profile=effective_codex_profile,
+        chatplayground_audit_callback_enabled=chatplayground_audit_callback is not None,
+        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
     )
     response_metadata = {
         **metadata,
@@ -2625,7 +3168,8 @@ def _run_background_codex_response(
         "background_poll_url": f"/v1/responses/{response_id}",
         "background_timeout_seconds": background_timeout_seconds,
     }
-    if request.store is False:
+    if store_forced:
+        response_metadata["background_requested_store"] = False
         response_metadata["background_store_forced"] = True
 
     in_progress_obj = _response_object(
@@ -2650,100 +3194,28 @@ def _run_background_codex_response(
         history_items=history_items,
         principal_id=context.principal_id,
         container=container,
+        background_job=background_job,
     )
-
-    def _worker() -> None:
-        request_deadline_monotonic = time.monotonic() + background_timeout_seconds
-        try:
-            tool_decision: _ToolShimDecision | None = None
-            if supported_tools:
-                decision = _tool_shim_decision(
-                    model=model,
-                    max_output_tokens=max_output_tokens,
-                    instructions=instructions,
-                    tools=supported_tools,
-                    history_items=history_items,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
-                if not isinstance(decision, _ToolShimDecision) or not isinstance(decision.upstream_result, UpstreamResult):
-                    raise RuntimeError("invalid_upstream_result")
-                tool_decision = decision
-                result = decision.upstream_result
-            else:
-                result = _generate_upstream_text(
-                    prompt=parsed_input.prompt,
-                    messages=messages,
-                    requested_model=model,
-                    max_output_tokens=max_output_tokens,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
-            completed_obj, history_items_to_store = _build_completed_response_from_upstream(
-                response_id=response_id,
-                created_at=created_at,
-                model=model,
-                requested_max_output_tokens=max_output_tokens,
-                metadata=response_metadata,
-                instructions=instructions,
-                input_items=input_items,
-                reasoning=reasoning,
-                base_history_items=history_items,
-                result=result,
-                tool_decision=tool_decision,
-            )
-            _store_response(
-                response_id=response_id,
-                response_obj=completed_obj,
-                input_items=input_items,
-                history_items=history_items_to_store,
-                principal_id=context.principal_id,
-                container=container,
-            )
-            _capture_responses_debug(
-                name="response",
-                payload={
-                    "principal_id": context.principal_id,
-                    "codex_profile": effective_codex_profile,
-                    "response": completed_obj,
-                },
-            )
-        except Exception as exc:
-            failure_message = str(exc)[:500]
-            failed_obj = _build_failed_response(
-                response_id=response_id,
-                created_at=created_at,
-                model=model,
-                requested_max_output_tokens=max_output_tokens,
-                metadata=response_metadata,
-                instructions=instructions,
-                input_items=input_items,
-                failure_message=failure_message,
-                visible_text=f"Error: {failure_message}",
-            )
-            _store_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=input_items,
-                history_items=history_items,
-                principal_id=context.principal_id,
-                container=container,
-            )
-            _capture_responses_debug(
-                name="response_background_failed",
-                payload={
-                    "principal_id": context.principal_id,
-                    "codex_profile": effective_codex_profile,
-                    "response_id": response_id,
-                    "failure_message": failure_message,
-                },
-            )
-
-    threading.Thread(target=_worker, daemon=True).start()
+    _spawn_background_codex_worker(
+        response_id=response_id,
+        created_at=created_at,
+        model=model,
+        response_metadata=response_metadata,
+        instructions=instructions,
+        input_items=input_items,
+        reasoning=reasoning,
+        max_output_tokens=max_output_tokens,
+        history_items=history_items,
+        prompt=parsed_input.prompt,
+        messages=messages,
+        supported_tools=supported_tools,
+        chatplayground_audit_callback=chatplayground_audit_callback,
+        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        principal_id=context.principal_id,
+        container=container,
+        background_job=background_job,
+    )
 
     if not request.stream:
         return JSONResponse(in_progress_obj, status_code=202)
@@ -2790,7 +3262,7 @@ def _run_background_codex_response(
         )
 
         while True:
-            stored = _load_response(
+            stored = _load_response_for_runtime(
                 response_id=response_id,
                 principal_id=context.principal_id,
                 container=container,
@@ -2973,18 +3445,10 @@ def _survival_max_output_tokens() -> int:
 
 
 def _survival_rejected_fields(payload: _ResponsesCreateRequest) -> list[str]:
-    refuse_tools = str(os.environ.get("EA_SURVIVAL_REFUSE_CLIENT_TOOLS") or "1").strip().lower() not in {"0", "false", "no", "off"}
-    rejected: list[str] = []
-    tools = getattr(payload, "tools", None)
-    if refuse_tools and tools:
-        rejected.append("tools")
-    tool_choice = getattr(payload, "tool_choice", None)
-    if refuse_tools and tool_choice is not None:
-        rejected.append("tool_choice")
-    parallel_tool_calls = getattr(payload, "parallel_tool_calls", None)
-    if refuse_tools and parallel_tool_calls is not None:
-        rejected.append("parallel_tool_calls")
-    return rejected
+    # Codex clients send tool-shim fields by default on exec sessions. The
+    # survival lane does not execute client tools, but it should ignore these
+    # compatibility fields instead of rejecting the whole fallback attempt.
+    return []
 
 
 def _run_survival_response(
@@ -3002,8 +3466,6 @@ def _run_survival_response(
 ) -> Response:
     if str(os.environ.get("EA_SURVIVAL_ENABLED") or "1").strip().lower() in {"0", "false", "no", "off"}:
         raise HTTPException(status_code=503, detail="survival_lane_disabled")
-    if request.stream:
-        raise HTTPException(status_code=400, detail="survival_stream_not_supported_yet")
     rejected_fields = _survival_rejected_fields(request)
     if rejected_fields:
         raise HTTPException(status_code=400, detail=f"survival_unsupported_fields:{','.join(rejected_fields)}")
@@ -3458,35 +3920,10 @@ def _run_response(
     chatplayground_profile_or_model = audit_profile_or_model or is_review_light_profile or is_review_light_model
     chatplayground_audit_callback = None
     if chatplayground_profile_or_model:
-        browseract_binding_id = _browseract_binding_id(container=container, principal_id=context.principal_id)
-
-        def _chatplayground_audit_callback(**kwargs: Any) -> Any:
-            prompt = str(kwargs.get("prompt") or "").strip()
-            if not prompt:
-                raise RuntimeError("chatplayground_audit_prompt_required")
-            tool_execution = getattr(container, "tool_execution", None)
-            if tool_execution is None:
-                raise RuntimeError("chatplayground_tool_execution_unavailable")
-            invocation = ToolInvocationRequest(
-                session_id=f"codex-audit:{uuid.uuid4().hex}",
-                step_id=f"codex-audit-step:{uuid.uuid4().hex}",
-                tool_name="browseract.chatplayground_audit",
-                action_kind="chatplayground_audit",
-                payload_json={
-                    **dict(kwargs),
-                    "binding_id": str(kwargs.get("binding_id") or browseract_binding_id or "").strip(),
-                },
-                context_json={"principal_id": context.principal_id},
-            )
-            try:
-                result = tool_execution.execute_invocation(invocation)
-            except ToolExecutionError as exc:
-                raise RuntimeError(str(exc)) from exc
-            return result.output_json
-
-        chatplayground_audit_callback = _chatplayground_audit_callback
-        if container is None:
-            chatplayground_audit_callback = None
+        chatplayground_audit_callback = _build_chatplayground_audit_callback(
+            container=container,
+            principal_id=context.principal_id,
+        )
 
     max_output_tokens = _requested_max_output_tokens(request)
     metadata = _metadata(request)
@@ -4346,7 +4783,7 @@ def get_response(
     )
     if override is not None:
         return JSONResponse(override)
-    stored = _load_response(
+    stored = _load_response_for_runtime(
         response_id=response_id,
         principal_id=context.principal_id,
         container=container,
@@ -4414,7 +4851,7 @@ def create_response(
         header_profile = "audit"
     if header_profile == "review-light":
         header_profile = "review_light"
-    if header_profile not in {"core", "core_batch", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
+    if header_profile not in {"core", "core_batch", "core_rescue", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
         header_profile = ""
     return _run_response(payload, context=context, container=container, codex_profile=header_profile or None)
 
@@ -4493,6 +4930,48 @@ def create_codex_core_batch(
         principal_id=context.principal_id,
     )
     return _run_response(normalized, context=context, container=container, codex_profile="core_batch")
+
+
+@codex_router.post(
+    "/core-rescue",
+    response_model=_ResponseObject,
+    responses={
+        200: {
+            "description": "Returns JSON when stream=false, SSE when stream=true.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                    }
+                }
+            },
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_core_rescue(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
+) -> Response:
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="core_rescue",
+        container=container,
+        principal_id=context.principal_id,
+    )
+    return _run_response(normalized, context=context, container=container, codex_profile="core_rescue")
 
 
 @codex_router.post(

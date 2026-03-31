@@ -3,7 +3,7 @@ surface: chummer.run
 version: 2
 mode: raster_campaign_only
 style_anchor: |
-  premium software-campaign still, grounded Shadowrun-inspired cyberpunk fantasy, editorial realism, original composition, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to gear, tools, or anatomy, visible grime, fatigue, cheap-med aftermath, vermin pressure, bruising, and hard-used spaces, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, realistic skin and materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
+  premium software-campaign still, grounded Shadowrun-inspired cyberpunk fantasy, editorial realism, original composition, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to gear, tools, or anatomy, visible grime, fatigue, cheap-med aftermath, vermin pressure, bruising, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, realistic skin and materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
 negative_prompt: |
   readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, entertainment poster pose, action-movie gun pose, anime, comic art, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
 output_rules:
@@ -24,10 +24,11 @@ output_rules:
     - 35mm_cinematic
     - 50mm_cinematic
   palette:
-    - navy
-    - graphite
-    - electric_blue
-    - warm_amber_proof_lighting
+    - scene_led_vivid_saturated_color
+    - sodium_or_fluorescent_hardship_lighting
+    - selective_interface_glow
+    - no_mandatory_green_dark_wash
+    - not_clean_white_flatness
 semantic_anchors:
   - dossier_papers_or_briefing_packet
   - six_sided_dice
@@ -167,7 +168,7 @@ assets:
     long_side_px: 2560
     negative_space: right_40
     prompt: |
-      A sleek blue-glass access environment for signing into a high-trust assistant: one composed person entering a dimly lit operations lobby or sitting down at a secure desk, with translucent identity panels and subtle credential-light effects in the background. The scene should feel premium, private, and aspirational. Strong empty space on the right for a sign-in panel. No readable UI. No sci-fi gimmicks.
+      A vivid, lived-in credential-signin scene in the Sixth World where two metahuman runners check identity at a rain-specked access terminal beside stacked evidence crates, medical burn-in kits, and stacked dossier folders. Foreground: visible cyberlimb prosthetic hardware and a wired-to-brain commlink worn on one shoulder, a blood-stiffening medic wrap on the clinic cot, a spent stim vial, and a paper-paperweight with a Blood Orchid parabotany print. Midground: a troll streetdoc and ork courier arguing over route and trust while a decker checks route markers through diegetic AR. Background: a scratched Renraku/Saeder-Krupp panel with corporate branding fragments, a barred utility walkway with bug-tower skyline pressure over the horizon, hanging hellhound and barghest photographs, and glowing astral totem wards near the glass. Show recognizable shadowrun grime: rat traces at the floor edge, nicotine stains, bruised faces, and worn gear edges. Dense, layered product-specific realism, harsh city stakes with bright saturated lighting, no readable text.
   - id: future_blue_boulevard
     filename_base: future-blue-boulevard
     runtime_targets:

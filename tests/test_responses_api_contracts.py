@@ -38,10 +38,13 @@ def _reset_responses_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
         ):
             monkeypatch.delenv(key, raising=False)
     from app.services import responses_upstream as upstream
+    from app.api.routes import responses
 
     upstream._test_reset_onemin_states()
     upstream._test_reset_fleet_jury_cache()
+    responses._test_reset_responses_runtime_state()
     yield
+    responses._test_reset_responses_runtime_state()
     upstream._test_reset_onemin_states()
     upstream._test_reset_fleet_jury_cache()
 
@@ -1072,6 +1075,20 @@ def test_prompt_router_promotes_default_public_model_coding_task_to_core() -> No
     assert decision.reason == "coding_task_requires_core"
 
 
+def test_prompt_router_keeps_explicit_repair_profile_on_coding_task() -> None:
+    from app.api.routes import responses
+
+    decision = responses._resolve_prompt_route(
+        prompt="fix the routing bug in /docker/EA/ea/app/api/routes/responses.py",
+        model="ea-coder-fast",
+        codex_profile="repair",
+    )
+
+    assert decision.applied is False
+    assert decision.effective_profile == "repair"
+    assert decision.effective_model == "ea-coder-fast"
+
+
 def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream
 
@@ -1146,15 +1163,88 @@ def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch:
     assert items.json()["data"] == [{"type": "input_text", "text": "keep going"}]
 
 
-def test_codex_survival_rejects_streaming() -> None:
+def test_codex_survival_stream_returns_completed_sse(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-survival-stream")
-    response = client.post("/v1/codex/survival", json={"input": "keep going", "stream": True})
-    assert response.status_code == 400
-    assert "survival_stream_not_supported_yet" in response.text
+    from app.api.routes import responses
+    from app.services.survival_lane import SurvivalAttempt, SurvivalResult
+
+    def fake_execute(
+        self,
+        *,
+        instructions: str | None,
+        history_items: list[dict[str, object]],
+        current_input: str,
+        desired_format: str | None = None,
+        prompt_cache_key: str | None = None,
+        previous_response_id: str | None = None,
+    ) -> SurvivalResult:
+        assert current_input == "keep going"
+        assert desired_format == "plain_text"
+        return SurvivalResult(
+            text="survival stream output",
+            provider_key="gemini_vortex",
+            provider_backend="gemini_vortex_cli",
+            model="gemini-2.5-flash",
+            latency_ms=12,
+            attempts=(
+                SurvivalAttempt(
+                    backend="gemini_vortex",
+                    started_at=time.time(),
+                    completed_at=time.time(),
+                    status="completed",
+                    detail="ok",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(responses.SurvivalLaneService, "execute", fake_execute)
+    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    with client.stream("POST", "/v1/codex/survival", json={"input": "keep going", "stream": True}) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: response.created" in body
+    assert "event: response.in_progress" in body
+    assert "event: response.completed" in body
+    assert "survival stream output" in body
 
 
-def test_codex_survival_rejects_client_tools() -> None:
+def test_codex_survival_ignores_client_tools_for_codex_compat(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-survival-tools")
+    from app.api.routes import responses
+    from app.services.survival_lane import SurvivalAttempt, SurvivalResult
+
+    def fake_execute(
+        self,
+        *,
+        instructions: str | None,
+        history_items: list[dict[str, object]],
+        current_input: str,
+        desired_format: str | None = None,
+        prompt_cache_key: str | None = None,
+        previous_response_id: str | None = None,
+    ) -> SurvivalResult:
+        assert current_input == "keep going"
+        return SurvivalResult(
+            text="survival tools ok",
+            provider_key="gemini_vortex",
+            provider_backend="gemini_vortex_cli",
+            model="gemini-2.5-flash",
+            latency_ms=12,
+            attempts=(
+                SurvivalAttempt(
+                    backend="gemini_vortex",
+                    started_at=time.time(),
+                    completed_at=time.time(),
+                    status="completed",
+                    detail="ok",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(responses.SurvivalLaneService, "execute", fake_execute)
+
     response = client.post(
         "/v1/codex/survival",
         json={
@@ -1167,10 +1257,14 @@ def test_codex_survival_rejects_client_tools() -> None:
                     "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
                 }
             ],
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
         },
     )
-    assert response.status_code == 400
-    assert "unsupported_fields:tools" in response.text
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "in_progress"
+    assert body["metadata"]["codex_profile"] == "survival"
 
 
 def test_core_batch_header_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1230,6 +1324,52 @@ def test_core_batch_header_returns_in_progress_then_completed(monkeypatch: pytes
     assert completed_body["metadata"]["background_response"] is True
 
 
+def test_core_batch_route_preserves_explicit_batch_profile_for_ops_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-preserved")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "what is the current desktop status?"
+        assert requested_model == "ea-coder-hard-batch"
+        time.sleep(0.02)
+        return UpstreamResult(
+            text="still batch",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=8,
+            tokens_out=5,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post("/v1/codex/core-batch", json={"input": "what is the current desktop status?"})
+    assert created.status_code == 202
+    created_body = created.json()
+    assert created_body["metadata"]["codex_effective_profile"] == "core_batch"
+    assert created_body["metadata"]["codex_prompt_route_reason"] == "explicit_core_batch_profile"
+
+    response_id = created_body["id"]
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "still batch"
+
+
 def test_codex_core_batch_endpoint_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-core-batch-route")
     from app.api.routes import responses
@@ -1275,6 +1415,182 @@ def test_codex_core_batch_endpoint_returns_in_progress_then_completed(monkeypatc
     assert completed_body["output_text"] == "route ok"
 
 
+def test_codex_repair_endpoint_keeps_explicit_repair_lane_for_coding_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-repair-coding")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "fix the routing bug in /docker/EA/ea/app/api/routes/responses.py"
+        assert requested_model == "ea-coder-fast"
+        return UpstreamResult(
+            text="repair stayed repair",
+            provider_key="magixai",
+            model="inception/mercury-coder",
+            tokens_in=5,
+            tokens_out=7,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response = client.post(
+        "/v1/codex/repair",
+        json={"input": "fix the routing bug in /docker/EA/ea/app/api/routes/responses.py"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output_text"] == "repair stayed repair"
+    assert body["metadata"]["codex_profile"] == "repair"
+    assert body["metadata"]["codex_effective_profile"] == "repair"
+    assert body["metadata"]["codex_prompt_route_applied"] is False
+
+
+def test_core_batch_get_response_resumes_in_progress_job_after_worker_loss(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-resume")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "resume the hard batch"
+        assert requested_model == "ea-coder-hard-batch"
+        return UpstreamResult(
+            text="resumed cleanly",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=9,
+            tokens_out=11,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response_id = "resp_resumehardbatch000001"
+    created_at = responses._now_unix()
+    input_items = [{"type": "input_text", "text": "resume the hard batch"}]
+    history_items = [{"type": "input_text", "text": "resume the hard batch"}]
+    metadata = {
+        "principal_id": "codex-core-batch-resume",
+        "codex_profile": "core_batch",
+        "codex_effective_profile": "core_batch",
+        "background_response": True,
+        "background_poll_url": f"/v1/responses/{response_id}",
+        "background_timeout_seconds": 60,
+    }
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=created_at,
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata=metadata,
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-core-batch-resume",
+        background_job=responses._background_replay_payload(
+            prompt="resume the hard batch",
+            messages=[{"role": "user", "content": "resume the hard batch"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=False,
+            chatplayground_audit_callback_only=False,
+        ),
+    )
+
+    first_fetch = client.get(f"/v1/responses/{response_id}")
+    assert first_fetch.status_code == 200
+    assert first_fetch.json()["status"] in {"in_progress", "completed"}
+
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "resumed cleanly"
+    assert completed_body["metadata"]["background_response"] is True
+
+
+def test_core_batch_get_response_fails_expired_in_progress_job() -> None:
+    client = _client(principal_id="codex-core-batch-expired")
+    from app.api.routes import responses
+
+    response_id = "resp_expiredhardbatch0001"
+    input_items = [{"type": "input_text", "text": "expired batch"}]
+    history_items = [{"type": "input_text", "text": "expired batch"}]
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=responses._now_unix() - 10,
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata={
+            "principal_id": "codex-core-batch-expired",
+            "codex_profile": "core_batch",
+            "codex_effective_profile": "core_batch",
+            "background_response": True,
+            "background_poll_url": f"/v1/responses/{response_id}",
+            "background_timeout_seconds": 1,
+        },
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-core-batch-expired",
+        background_job=responses._background_replay_payload(
+            prompt="expired batch",
+            messages=[{"role": "user", "content": "expired batch"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=False,
+            chatplayground_audit_callback_only=False,
+        ),
+    )
+
+    fetched = client.get(f"/v1/responses/{response_id}")
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["status"] == "failed"
+    assert body["error"]["message"] == "background_timeout:1s"
+
+
 def test_core_batch_stream_emits_heartbeats_until_completion(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-core-batch-stream")
     from app.api.routes import responses
@@ -1314,6 +1630,472 @@ def test_core_batch_stream_emits_heartbeats_until_completion(monkeypatch: pytest
     assert '"heartbeat":true' in body
     assert "event: response.completed" in body
     assert "stream batch done" in body
+
+
+def test_core_batch_late_completion_stays_failed_after_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-timeout-final")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        time.sleep(0.05)
+        return UpstreamResult(
+            text="too late",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=4,
+            tokens_out=4,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response_id = "resp_resumehardbatchtimeout"
+    input_items = [{"type": "input_text", "text": "timeout should fail"}]
+    history_items = [{"type": "input_text", "text": "timeout should fail"}]
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=responses._now_unix(),
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata={
+            "principal_id": "codex-core-batch-timeout-final",
+            "codex_profile": "core_batch",
+            "codex_effective_profile": "core_batch",
+            "background_response": True,
+            "background_poll_url": f"/v1/responses/{response_id}",
+            "background_timeout_seconds": 0.01,
+        },
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-core-batch-timeout-final",
+        background_job=responses._background_replay_payload(
+            prompt="timeout should fail",
+            messages=[{"role": "user", "content": "timeout should fail"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=False,
+            chatplayground_audit_callback_only=False,
+        ),
+    )
+
+    starter = client.get(f"/v1/responses/{response_id}")
+    assert starter.status_code == 200
+
+    time.sleep(0.08)
+    first = client.get(f"/v1/responses/{response_id}")
+    assert first.status_code == 200
+    assert first.json()["status"] == "failed"
+    assert first.json()["error"]["message"] == "background_timeout"
+
+    time.sleep(0.03)
+    second = client.get(f"/v1/responses/{response_id}")
+    assert second.status_code == 200
+    assert second.json()["status"] == "failed"
+    assert second.json()["error"]["message"] == "background_timeout"
+
+
+def test_core_batch_resume_spawns_only_one_worker_for_concurrent_polls(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import responses
+    import threading
+
+    clients = [_client(principal_id="codex-core-batch-race"), _client(principal_id="codex-core-batch-race")]
+    calls: list[str] = []
+    calls_lock = threading.Lock()
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        with calls_lock:
+            calls.append(prompt)
+        time.sleep(0.05)
+        return UpstreamResult(
+            text="single worker",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=3,
+            tokens_out=3,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response_id = "resp_resumehardbatchrace01"
+    input_items = [{"type": "input_text", "text": "race resume"}]
+    history_items = [{"type": "input_text", "text": "race resume"}]
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=responses._now_unix(),
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata={
+            "principal_id": "codex-core-batch-race",
+            "codex_profile": "core_batch",
+            "codex_effective_profile": "core_batch",
+            "background_response": True,
+            "background_poll_url": f"/v1/responses/{response_id}",
+            "background_timeout_seconds": 60,
+        },
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-core-batch-race",
+        background_job=responses._background_replay_payload(
+            prompt="race resume",
+            messages=[{"role": "user", "content": "race resume"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=False,
+            chatplayground_audit_callback_only=False,
+        ),
+    )
+
+    start = threading.Barrier(3)
+    results: list[int] = []
+
+    def fetch(client: TestClient) -> None:
+        start.wait()
+        response = client.get(f"/v1/responses/{response_id}")
+        results.append(response.status_code)
+
+    threads = [threading.Thread(target=fetch, args=(client,)) for client in clients]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join()
+
+    assert results == [200, 200]
+
+    completed_body: dict[str, object] | None = None
+    for _ in range(60):
+        fetched = clients[0].get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "single worker"
+    assert calls == ["race resume"]
+
+
+def test_core_batch_resume_rebuilds_audit_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-replay-callback")
+    from app.api.routes import responses
+
+    sentinel = object()
+
+    def fake_build_chatplayground_audit_callback(*, container: object | None, principal_id: str):
+        assert principal_id == "codex-core-batch-replay-callback"
+        return sentinel
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        chatplayground_audit_callback=None,
+        chatplayground_audit_callback_only: bool = False,
+        **_: object,
+    ) -> UpstreamResult:
+        assert chatplayground_audit_callback is sentinel
+        assert chatplayground_audit_callback_only is True
+        return UpstreamResult(
+            text="callback rebuilt",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=2,
+            tokens_out=2,
+        )
+
+    monkeypatch.setattr(responses, "_build_chatplayground_audit_callback", fake_build_chatplayground_audit_callback)
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response_id = "resp_resumehardbatchaudit01"
+    input_items = [{"type": "input_text", "text": "rebuild callback"}]
+    history_items = [{"type": "input_text", "text": "rebuild callback"}]
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=responses._now_unix(),
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata={
+            "principal_id": "codex-core-batch-replay-callback",
+            "codex_profile": "core_batch",
+            "codex_effective_profile": "core_batch",
+            "background_response": True,
+            "background_poll_url": f"/v1/responses/{response_id}",
+            "background_timeout_seconds": 60,
+        },
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-core-batch-replay-callback",
+        background_job=responses._background_replay_payload(
+            prompt="rebuild callback",
+            messages=[{"role": "user", "content": "rebuild callback"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=True,
+            chatplayground_audit_callback_only=True,
+        ),
+    )
+
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "callback rebuilt"
+
+
+def test_core_batch_forces_internal_store_when_client_disables_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-store")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "keep it ephemeral"
+        assert requested_model == "ea-coder-hard-batch"
+        return UpstreamResult(
+            text="forced storage ok",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=4,
+            tokens_out=6,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post(
+        "/v1/codex/core-batch",
+        json={"input": "keep it ephemeral", "store": False},
+    )
+    assert created.status_code == 202
+    body = created.json()
+    assert body["metadata"]["background_store_forced"] is True
+    assert body["metadata"]["background_requested_store"] is False
+
+    response_id = body["id"]
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "forced storage ok"
+
+
+def test_core_rescue_route_uses_rescue_model_and_longer_background_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-core-rescue")
+    from app.api.routes import responses
+
+    monkeypatch.setenv("EA_RESPONSES_BACKGROUND_TIMEOUT_CORE_RESCUE_SECONDS", "14400")
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "finish the long-running desktop slice"
+        assert requested_model == "ea-coder-hard-rescue"
+        return UpstreamResult(
+            text="rescue lane complete",
+            provider_key="onemin",
+            model="gpt-4o",
+            tokens_in=9,
+            tokens_out=11,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post(
+        "/v1/responses",
+        headers={"X-EA-Codex-Profile": "core_rescue"},
+        json={"input": "finish the long-running desktop slice", "store": False},
+    )
+    assert created.status_code == 202
+    body = created.json()
+    assert body["model"] == "ea-coder-hard-rescue"
+    assert body["metadata"]["codex_profile"] == "core_rescue"
+    assert body["metadata"]["background_store_forced"] is True
+    assert body["metadata"]["background_timeout_seconds"] == 14400.0
+
+
+
+def test_previous_response_id_rejects_in_progress_background_response() -> None:
+    client = _client(principal_id="codex-previous-response-progress")
+    from app.api.routes import responses
+
+    response_id = "resp_previousresponseprogress"
+    input_items = [{"type": "input_text", "text": "background still running"}]
+    history_items = [{"type": "input_text", "text": "background still running"}]
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=responses._now_unix(),
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata={
+            "principal_id": "codex-previous-response-progress",
+            "codex_profile": "core_batch",
+            "codex_effective_profile": "core_batch",
+            "background_response": True,
+            "background_poll_url": f"/v1/responses/{response_id}",
+            "background_timeout_seconds": 60,
+        },
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-previous-response-progress",
+        background_job=responses._background_replay_payload(
+            prompt="background still running",
+            messages=[{"role": "user", "content": "background still running"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=False,
+            chatplayground_audit_callback_only=False,
+        ),
+    )
+
+    response = client.post(
+        "/v1/responses",
+        json={"model": "ea-coder-fast", "input": "follow up too early", "previous_response_id": response_id},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "previous_response_in_progress"
+
+
+def test_previous_response_id_rejects_failed_background_response() -> None:
+    client = _client(principal_id="codex-previous-response-failed")
+    from app.api.routes import responses
+
+    response_id = "resp_previousresponsefailed00"
+    input_items = [{"type": "input_text", "text": "background already failed"}]
+    history_items = [{"type": "input_text", "text": "background already failed"}]
+    response_obj = responses._response_object(
+        response_id=response_id,
+        model="ea-coder-hard-batch",
+        created_at=responses._now_unix() - 10,
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=None,
+        metadata={
+            "principal_id": "codex-previous-response-failed",
+            "codex_profile": "core_batch",
+            "codex_effective_profile": "core_batch",
+            "background_response": True,
+            "background_poll_url": f"/v1/responses/{response_id}",
+            "background_timeout_seconds": 1,
+        },
+        instructions=None,
+        input_items=input_items,
+        reasoning=None,
+    )
+    responses._store_response(
+        response_id=response_id,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id="codex-previous-response-failed",
+        background_job=responses._background_replay_payload(
+            prompt="background already failed",
+            messages=[{"role": "user", "content": "background already failed"}],
+            supported_tools=[],
+            effective_codex_profile="core_batch",
+            chatplayground_audit_callback_enabled=False,
+            chatplayground_audit_callback_only=False,
+        ),
+    )
+
+    response = client.post(
+        "/v1/responses",
+        json={"model": "ea-coder-fast", "input": "follow up after failure", "previous_response_id": response_id},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "previous_response_failed:background_timeout:1s"
 
 
 def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.MonkeyPatch) -> None:

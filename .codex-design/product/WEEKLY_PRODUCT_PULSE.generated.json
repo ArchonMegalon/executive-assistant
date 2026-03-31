@@ -1,19 +1,19 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-31T01:19:26Z",
+  "generated_at": "2026-03-31T14:34:09Z",
   "as_of": "2026-03-31",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is ready; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
+  "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is warning; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
   "active_wave": "Next 20 Big Wins After Post-Audit Closeout",
   "active_wave_status": "complete",
   "journey_gate_health": {
-    "state": "ready",
-    "reason": "Journey proof is steady on current published evidence.",
+    "state": "warning",
+    "reason": "Close the remaining target-stage warnings before claiming the campaign OS is boringly proven.",
     "blocked_count": 0,
-    "warning_count": 0
+    "warning_count": 5
   },
   "governor_decisions": [
     {
@@ -37,10 +37,10 @@
       "front_door_wave_closed": true
     },
     "journey_gate_health": {
-      "state": "ready",
-      "reason": "Journey proof is steady on current published evidence.",
+      "state": "warning",
+      "reason": "Close the remaining target-stage warnings before claiming the campaign OS is boringly proven.",
       "blocked_count": 0,
-      "warning_count": 0
+      "warning_count": 5
     },
     "top_support_or_feedback_clusters": [
       {
@@ -96,9 +96,9 @@
     "launch_readiness": "Hold launch expansion pending fresh local release proof on the public edge.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
-      "canary_status": "Canary watch on 1 active lane(s)",
-      "review_due": "2026-04-13",
-      "next_decision": "Hold broad promotion until route canaries return to green."
+      "canary_status": "Canary green on all active lanes",
+      "review_due": "2026-04-14",
+      "next_decision": "Hold broad promotion until fresh local release proof passes on the public edge."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",

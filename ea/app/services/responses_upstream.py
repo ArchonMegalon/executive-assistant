@@ -38,6 +38,7 @@ from app.services.brain_catalog import (
     GROUNDWORK_PUBLIC_MODEL,
     GROUNDWORK_PUBLIC_MODEL_ALIAS,
     HARD_BATCH_PUBLIC_MODEL,
+    HARD_RESCUE_PUBLIC_MODEL,
     MAGICX_PUBLIC_MODEL,
     ONEMIN_PUBLIC_MODEL,
     REPAIR_GEMINI_PUBLIC_MODEL,
@@ -2351,6 +2352,14 @@ def _onemin_hard_models() -> tuple[str, ...]:
     return defaults
 
 
+def _onemin_rescue_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_ONEMIN_RESCUE_MODELS"))
+    defaults = ("gpt-4o", "gpt-4.1", "deepseek-chat")
+    if configured:
+        return _merge_unique(configured, defaults)
+    return defaults
+
+
 def _onemin_review_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_REVIEW_MODELS"))
     defaults = ("deepseek-chat", "gpt-4.1-nano", "gpt-4.1")
@@ -3010,7 +3019,7 @@ def _effective_request_lane(*, requested_model: str, max_output_tokens: int | No
         return _LANE_REVIEW_LIGHT
     if normalized in {"ea-review", "ea-critic"}:
         return _LANE_REVIEW
-    if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
+    if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL, HARD_RESCUE_PUBLIC_MODEL}:
         return _LANE_HARD
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         return _LANE_AUDIT
@@ -3073,6 +3082,8 @@ def _provider_model_order_for_lane(
         return _onemin_review_models()
     if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
         return _onemin_hard_models()
+    if normalized == HARD_RESCUE_PUBLIC_MODEL:
+        return _onemin_rescue_models()
     if lane == _LANE_HARD:
         return _onemin_hard_models()
     if lane == _LANE_REVIEW:
@@ -3295,6 +3306,7 @@ def list_response_models() -> list[dict[str, object]]:
         SURVIVAL_PUBLIC_MODEL,
         "ea-coder-hard",
         HARD_BATCH_PUBLIC_MODEL,
+        HARD_RESCUE_PUBLIC_MODEL,
         "ea-review",
         "ea-critic",
         FAST_PUBLIC_MODEL,
@@ -3860,6 +3872,13 @@ def _provider_candidates(
             (configs["onemin"], model_name)
             for model_name in _provider_model_order_for_lane("onemin", lane, requested)
             or _onemin_hard_models()
+        ]
+
+    if normalized == HARD_RESCUE_PUBLIC_MODEL:
+        return [
+            (configs["onemin"], model_name)
+            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+            or _onemin_rescue_models()
         ]
 
     if normalized in {FAST_PUBLIC_MODEL, "ea-overflow"}:

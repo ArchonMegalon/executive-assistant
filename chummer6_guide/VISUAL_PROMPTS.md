@@ -94,6 +94,7 @@ The next full pass should deliberately switch to a different style epoch instead
 - Keep the world grounded: table play, desks, alleys, labs, archives, shops, transit, cheap neon, expensive mistakes.
 - Show metahumans like metahumans and cyberware like cyberware. Do not settle for clean humans in stylish jackets when tusks, pointed ears, dermal texture, chrome seams, trode bands, or datajacks should be visible.
 - Show the cost of the world too: dirt, vermin, stained wraps, rust, mold, exhausted faces, cheap clinic residue, crash posture, and hungry corners should appear when the scene can carry them.
+- Despair must come from scene logic, not from a one-note grade: overcrowding, triage, debt, sickness, eviction, withdrawal, hunger, fear, failed infrastructure, exploitative work, and social aftermath are stronger than simply making the frame green and dim.
 - If vice or addiction shows up, keep it as believable fallout like spent inhalers, burned spoons, stim patches, nosebleed tissues, or shakes in the hands, not glamorous party styling.
 - If gore shows up, keep it grounded and product-scene useful: old blood, meat-glue residue, bruising, trauma cleanup, rough sutures, and clinic grime are welcome; splatter spectacle is not.
 - Prefer props that explain the feature before the third paragraph does.
@@ -171,6 +172,7 @@ Include one clear focal action, one readable prop cluster, and one secondary sto
 Include one or two background lore crumbs from the Sixth World, such as cropped megacorp consumer gear, critter photos, parabotany plates, corp scrip, or a totemic astral trace.
 If the frame supports it, include one recognizable location cue from the lore rather than a generic unnamed sprawl.
 Include one believable hardship clue from the Sixth World, such as stained gauze, rat traps, mold bloom, vermin warnings, spent stimulants, ash, crash posture, or clinic waste.
+Let the palette follow the place and circumstance: vivid sodium orange, acid ad color, dirty daylight, nicotine yellow, sick clinic white, market red, mold green, rain-blue, bruise purple, or corp-glow cyan are all valid when earned by the scene. Prefer saturated, high-chroma color over washed-out whiteness. Do not use one dark green-teal wash as a shortcut for hardship.
 Make at least one body in the frame read as clearly metahuman or visibly augmented when the scene supports people.
 Include one small recurring Chummer troll motif in-world, visible but secondary, inside the safe crop area.
 The troll motif must feel diegetic: a pin, patch, sticker, stamp, tattoo, ad, screen mascot, or background figure in the classic Chummer stance.
