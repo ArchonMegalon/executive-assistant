@@ -201,6 +201,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Configured providers" in providers.text
     assert "browseract" in providers.text.lower()
     assert "Runtime readiness" in providers.text
+    assert "Core batch lane" in providers.text
 
     audit = client.get("/admin/audit-trail")
     assert audit.status_code == 200

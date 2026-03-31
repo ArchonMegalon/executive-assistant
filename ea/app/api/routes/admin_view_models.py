@@ -340,7 +340,6 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     codex_profiles = [
         dict(item)
         for item in _codex_profiles(container=container, principal_id=principal_id)
-        if str(item.get("profile") or "") != "core_batch"
     ]
     codex_governance = _codex_governance_payload()
 
@@ -393,7 +392,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             or "Codex lane expectation is defined in canon.",
             _humanize(str(profile.get("lane") or profile.get("profile") or "codex")).title(),
         )
-        for profile in codex_profiles[:7]
+        for profile in codex_profiles[:8]
     ]
     cadence = dict(codex_governance.get("review_cadence") or {})
     support_help_boundary = dict(codex_governance.get("support_help_boundary") or {})

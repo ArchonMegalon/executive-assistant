@@ -824,6 +824,7 @@ def test_operator_admin_providers_page_surfaces_codex_governance() -> None:
     assert "Lane routing state" in providers.text
     assert "What each codex lane is expected to do" in providers.text
     assert "Hard coder lane" in providers.text
+    assert "Core batch lane" in providers.text
     assert "Easy lane" in providers.text
     assert "Groundwork lane" in providers.text
     assert "Audit/jury lane" in providers.text
