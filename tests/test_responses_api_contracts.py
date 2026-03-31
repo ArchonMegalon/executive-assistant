@@ -1173,6 +1173,149 @@ def test_codex_survival_rejects_client_tools() -> None:
     assert "unsupported_fields:tools" in response.text
 
 
+def test_core_batch_header_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "finish the desktop lane"
+        assert messages == [{"role": "user", "content": "finish the desktop lane"}]
+        assert requested_model == "ea-coder-hard-batch"
+        assert max_output_tokens is None
+        time.sleep(0.02)
+        return UpstreamResult(
+            text="batch complete",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=13,
+            tokens_out=21,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post(
+        "/v1/responses",
+        headers={"X-EA-Codex-Profile": "core_batch"},
+        json={"input": "finish the desktop lane"},
+    )
+    assert created.status_code == 202
+    created_body = created.json()
+    assert created_body["status"] == "in_progress"
+    assert created_body["model"] == "ea-coder-hard-batch"
+    assert created_body["metadata"]["codex_profile"] == "core_batch"
+    assert created_body["metadata"]["background_response"] is True
+    assert created_body["metadata"]["background_poll_url"] == f"/v1/responses/{created_body['id']}"
+
+    response_id = created_body["id"]
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "batch complete"
+    assert completed_body["metadata"]["upstream_provider"] == "onemin"
+    assert completed_body["metadata"]["background_response"] is True
+
+
+def test_codex_core_batch_endpoint_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-route")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "repair the release proof"
+        assert requested_model == "ea-coder-hard-batch"
+        return UpstreamResult(
+            text="route ok",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=5,
+            tokens_out=8,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post("/v1/codex/core-batch", json={"input": "repair the release proof"})
+    assert created.status_code == 202
+    body = created.json()
+    assert body["status"] == "in_progress"
+    assert body["metadata"]["codex_profile"] == "core_batch"
+
+    response_id = body["id"]
+    completed_body: dict[str, object] | None = None
+    for _ in range(50):
+        fetched = client.get(f"/v1/responses/{response_id}")
+        assert fetched.status_code == 200
+        candidate = fetched.json()
+        if candidate["status"] == "completed":
+            completed_body = candidate
+            break
+        time.sleep(0.01)
+
+    assert completed_body is not None
+    assert completed_body["output_text"] == "route ok"
+
+
+def test_core_batch_stream_emits_heartbeats_until_completion(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-batch-stream")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "stream the batch lane"
+        assert requested_model == "ea-coder-hard-batch"
+        time.sleep(0.03)
+        return UpstreamResult(
+            text="stream batch done",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=7,
+            tokens_out=9,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        headers={"X-EA-Codex-Profile": "core_batch"},
+        json={"input": "stream the batch lane", "stream": True},
+    ) as resp:
+        assert resp.status_code == 200
+        body = "".join(resp.iter_text())
+
+    assert "event: response.created" in body
+    assert '"heartbeat":true' in body
+    assert "event: response.completed" in body
+    assert "stream batch done" in body
+
+
 def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-audit-fallback")
     from app.api.routes import responses

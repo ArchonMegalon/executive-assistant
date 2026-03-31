@@ -2445,6 +2445,524 @@ def _failed_stream_events(
     return events
 
 
+def _is_background_codex_profile(*, model: str = "", codex_profile: str | None = None) -> bool:
+    normalized_model = str(model or "").strip().lower()
+    normalized_profile = str(codex_profile or "").strip().lower()
+    return normalized_profile == "core_batch" or normalized_model == str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower()
+
+
+def _responses_background_timeout_seconds(*, model: str = "", codex_profile: str | None = None) -> float:
+    base_timeout = _responses_upstream_idle_timeout_seconds(model=model, codex_profile=str(codex_profile or ""))
+    raw = str(os.environ.get("EA_RESPONSES_BACKGROUND_TIMEOUT_SECONDS") or "7200").strip()
+    try:
+        parsed = float(raw)
+    except Exception:
+        parsed = 7200.0
+    hard_batch_raw = str(os.environ.get("EA_RESPONSES_BACKGROUND_TIMEOUT_HARD_BATCH_SECONDS") or parsed).strip()
+    try:
+        hard_batch_parsed = float(hard_batch_raw)
+    except Exception:
+        hard_batch_parsed = parsed
+    timeout_seconds = hard_batch_parsed if _is_background_codex_profile(model=model, codex_profile=codex_profile) else parsed
+    return max(timeout_seconds, base_timeout)
+
+
+def _primary_output_item(response_obj: dict[str, object]) -> dict[str, object]:
+    output = response_obj.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if isinstance(item, dict):
+                return dict(item)
+    return {}
+
+
+def _response_output_text_value(response_obj: dict[str, object]) -> str:
+    direct = str(response_obj.get("output_text") or "").strip()
+    if direct:
+        return direct
+    primary_item = _primary_output_item(response_obj)
+    content = primary_item.get("content")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            text = str(part.get("text") or "").strip()
+            if text:
+                parts.append(text)
+        return "\n".join(parts).strip()
+    return ""
+
+
+def _response_failure_message(response_obj: dict[str, object]) -> str:
+    error = response_obj.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        if message:
+            return message
+    incomplete_details = response_obj.get("incomplete_details")
+    if isinstance(incomplete_details, dict):
+        reason = str(incomplete_details.get("reason") or "").strip()
+        if reason:
+            return reason
+    output_text = _response_output_text_value(response_obj)
+    if output_text.startswith("Error: "):
+        return output_text[len("Error: ") :].strip()
+    return output_text
+
+
+def _build_completed_response_from_upstream(
+    *,
+    response_id: str,
+    created_at: int,
+    model: str,
+    requested_max_output_tokens: int | None,
+    metadata: dict[str, object],
+    instructions: str | None,
+    input_items: list[dict[str, object]],
+    reasoning: Any | None,
+    base_history_items: list[dict[str, object]],
+    result: UpstreamResult,
+    tool_decision: _ToolShimDecision | None = None,
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    final_metadata = {
+        **metadata,
+        "upstream_provider": result.provider_key,
+        "upstream_model": result.model,
+        "provider_backend": result.provider_backend,
+        "provider_account_name": result.provider_account_name,
+        "provider_key_slot": result.provider_key_slot,
+        "upstream_fallback_reason": result.fallback_reason,
+    }
+    history_items_to_store = list(base_history_items)
+    if tool_decision and tool_decision.kind == "function_call":
+        call_id = "call_" + uuid.uuid4().hex[:24]
+        arguments_json = _json_compact(tool_decision.arguments or {})
+        final_item = _function_call_item(
+            item_id="fc_" + uuid.uuid4().hex[:24],
+            call_id=call_id,
+            name=tool_decision.tool_name,
+            arguments=arguments_json,
+            status="completed",
+        )
+        history_items_to_store.append(final_item)
+        return (
+            _response_object(
+                response_id=response_id,
+                model=model,
+                created_at=created_at,
+                status="completed",
+                output=[final_item],
+                output_text="",
+                tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out,
+                max_output_tokens=requested_max_output_tokens,
+                metadata=final_metadata,
+                instructions=instructions,
+                input_items=input_items,
+                reasoning=reasoning,
+            ),
+            history_items_to_store,
+        )
+
+    text = tool_decision.text if tool_decision else result.text
+    final_item = _message_item(
+        item_id="msg_" + uuid.uuid4().hex[:24],
+        text=text,
+        status="completed",
+    )
+    history_items_to_store.append(final_item)
+    return (
+        _response_object(
+            response_id=response_id,
+            model=model,
+            created_at=created_at,
+            status="completed",
+            output=[final_item],
+            output_text=text,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            max_output_tokens=requested_max_output_tokens,
+            metadata=final_metadata,
+            instructions=instructions,
+            input_items=input_items,
+            reasoning=reasoning,
+        ),
+        history_items_to_store,
+    )
+
+
+def _run_background_codex_response(
+    request: _ResponsesCreateRequest,
+    *,
+    parsed_input: _ParsedResponseInput,
+    context: RequestContext,
+    container: object | None,
+    response_id: str,
+    created_at: int,
+    model: str,
+    metadata: dict[str, object],
+    instructions: str | None,
+    input_items: list[dict[str, object]],
+    reasoning: Any | None,
+    max_output_tokens: int | None,
+    history_items: list[dict[str, object]],
+    messages: list[dict[str, str]],
+    supported_tools: list[dict[str, object]],
+    chatplayground_audit_callback: Callable[..., Any] | None,
+    chatplayground_audit_callback_only: bool,
+    chatplayground_audit_principal_id: str,
+    prompt_route_trace_line: str,
+    effective_codex_profile: str | None,
+) -> Response:
+    background_timeout_seconds = _responses_background_timeout_seconds(
+        model=model,
+        codex_profile=effective_codex_profile,
+    )
+    response_metadata = {
+        **metadata,
+        "background_response": True,
+        "background_poll_url": f"/v1/responses/{response_id}",
+        "background_timeout_seconds": background_timeout_seconds,
+    }
+    if request.store is False:
+        response_metadata["background_store_forced"] = True
+
+    in_progress_obj = _response_object(
+        response_id=response_id,
+        model=model,
+        created_at=created_at,
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=max_output_tokens,
+        metadata=response_metadata,
+        instructions=instructions,
+        input_items=input_items,
+        reasoning=reasoning,
+    )
+    _store_response(
+        response_id=response_id,
+        response_obj=in_progress_obj,
+        input_items=input_items,
+        history_items=history_items,
+        principal_id=context.principal_id,
+        container=container,
+    )
+
+    def _worker() -> None:
+        request_deadline_monotonic = time.monotonic() + background_timeout_seconds
+        try:
+            tool_decision: _ToolShimDecision | None = None
+            if supported_tools:
+                decision = _tool_shim_decision(
+                    model=model,
+                    max_output_tokens=max_output_tokens,
+                    instructions=instructions,
+                    tools=supported_tools,
+                    history_items=history_items,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
+                )
+                if not isinstance(decision, _ToolShimDecision) or not isinstance(decision.upstream_result, UpstreamResult):
+                    raise RuntimeError("invalid_upstream_result")
+                tool_decision = decision
+                result = decision.upstream_result
+            else:
+                result = _generate_upstream_text(
+                    prompt=parsed_input.prompt,
+                    messages=messages,
+                    requested_model=model,
+                    max_output_tokens=max_output_tokens,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
+                )
+            completed_obj, history_items_to_store = _build_completed_response_from_upstream(
+                response_id=response_id,
+                created_at=created_at,
+                model=model,
+                requested_max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
+                instructions=instructions,
+                input_items=input_items,
+                reasoning=reasoning,
+                base_history_items=history_items,
+                result=result,
+                tool_decision=tool_decision,
+            )
+            _store_response(
+                response_id=response_id,
+                response_obj=completed_obj,
+                input_items=input_items,
+                history_items=history_items_to_store,
+                principal_id=context.principal_id,
+                container=container,
+            )
+            _capture_responses_debug(
+                name="response",
+                payload={
+                    "principal_id": context.principal_id,
+                    "codex_profile": effective_codex_profile,
+                    "response": completed_obj,
+                },
+            )
+        except Exception as exc:
+            failure_message = str(exc)[:500]
+            failed_obj = _build_failed_response(
+                response_id=response_id,
+                created_at=created_at,
+                model=model,
+                requested_max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
+                instructions=instructions,
+                input_items=input_items,
+                failure_message=failure_message,
+                visible_text=f"Error: {failure_message}",
+            )
+            _store_response(
+                response_id=response_id,
+                response_obj=failed_obj,
+                input_items=input_items,
+                history_items=history_items,
+                principal_id=context.principal_id,
+                container=container,
+            )
+            _capture_responses_debug(
+                name="response_background_failed",
+                payload={
+                    "principal_id": context.principal_id,
+                    "codex_profile": effective_codex_profile,
+                    "response_id": response_id,
+                    "failure_message": failure_message,
+                },
+            )
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    if not request.stream:
+        return JSONResponse(in_progress_obj, status_code=202)
+
+    def _iter_background_stream() -> Iterable[str]:
+        sequence = 0
+        item_id = "msg_" + uuid.uuid4().hex[:24]
+        message_stream_open = False
+        prompt_route_trace_pending = bool(prompt_route_trace_line)
+
+        def _next_sequence() -> int:
+            nonlocal sequence
+            sequence += 1
+            return sequence
+
+        def _open_message_stream() -> Iterable[str]:
+            empty_item = _message_item(item_id=item_id, text="", status="in_progress")
+            yield _sse_event(
+                event="response.output_item.added",
+                sequence=_next_sequence(),
+                data={"type": "response.output_item.added", "output_index": 0, "item": empty_item},
+            )
+            yield _sse_event(
+                event="response.content_part.added",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.content_part.added",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "part": {"type": "output_text", "text": "", "annotations": []},
+                },
+            )
+
+        yield _sse_event(
+            event="response.created",
+            sequence=_next_sequence(),
+            data={"type": "response.created", "response": in_progress_obj},
+        )
+        yield _sse_event(
+            event="response.in_progress",
+            sequence=_next_sequence(),
+            data={"type": "response.in_progress", "response": in_progress_obj},
+        )
+
+        while True:
+            stored = _load_response(
+                response_id=response_id,
+                principal_id=context.principal_id,
+                container=container,
+            )
+            current_response = dict(stored.response)
+            status = str(current_response.get("status") or "").strip().lower()
+            if status == "in_progress":
+                yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
+                time.sleep(STREAM_HEARTBEAT_SECONDS)
+                continue
+
+            if status == "failed":
+                failure_message = _response_failure_message(current_response) or "background_response_failed"
+                visible_text = f"Error: {failure_message}"
+                failed_obj = {
+                    **current_response,
+                    "output": [_message_item(item_id=item_id, text=visible_text, status="completed")],
+                    "output_text": visible_text,
+                }
+                for event in _failed_stream_events(
+                    sequence_fn=_next_sequence,
+                    failed_obj=failed_obj,
+                    failure_message=failure_message,
+                    item_id=item_id,
+                ):
+                    yield event
+                return
+
+            primary_item = _primary_output_item(current_response)
+            primary_type = str(primary_item.get("type") or "").strip().lower()
+            if primary_type == "function_call":
+                function_item_id = "fc_" + uuid.uuid4().hex[:24]
+                call_id = str(primary_item.get("call_id") or "call_" + uuid.uuid4().hex[:24]).strip()
+                name = str(primary_item.get("name") or "").strip()
+                arguments_json = str(primary_item.get("arguments") or "").strip()
+                in_progress_item = _function_call_item(
+                    item_id=function_item_id,
+                    call_id=call_id,
+                    name=name,
+                    arguments="",
+                    status="in_progress",
+                )
+                yield _sse_event(
+                    event="response.output_item.added",
+                    sequence=_next_sequence(),
+                    data={"type": "response.output_item.added", "output_index": 0, "item": in_progress_item},
+                )
+                yield _sse_event(
+                    event="response.function_call_arguments.delta",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.function_call_arguments.delta",
+                        "output_index": 0,
+                        "item_id": function_item_id,
+                        "delta": arguments_json,
+                    },
+                )
+                yield _sse_event(
+                    event="response.function_call_arguments.done",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.function_call_arguments.done",
+                        "output_index": 0,
+                        "item_id": function_item_id,
+                        "arguments": arguments_json,
+                    },
+                )
+                final_item = _function_call_item(
+                    item_id=function_item_id,
+                    call_id=call_id,
+                    name=name,
+                    arguments=arguments_json,
+                    status="completed",
+                )
+                yield _sse_event(
+                    event="response.output_item.done",
+                    sequence=_next_sequence(),
+                    data={"type": "response.output_item.done", "output_index": 0, "item": final_item},
+                )
+                completed_obj = {
+                    **current_response,
+                    "output": [final_item],
+                    "output_text": "",
+                }
+            else:
+                text = _response_output_text_value(current_response)
+                if not message_stream_open:
+                    for event in _open_message_stream():
+                        yield event
+                    message_stream_open = True
+                if prompt_route_trace_pending and text:
+                    prompt_route_trace_pending = False
+                    yield _sse_event(
+                        event="response.output_text.delta",
+                        sequence=_next_sequence(),
+                        data={
+                            "type": "response.output_text.delta",
+                            "output_index": 0,
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "delta": prompt_route_trace_line,
+                        },
+                    )
+                if text:
+                    yield _sse_event(
+                        event="response.output_text.delta",
+                        sequence=_next_sequence(),
+                        data={
+                            "type": "response.output_text.delta",
+                            "output_index": 0,
+                            "item_id": item_id,
+                            "content_index": 0,
+                            "delta": text,
+                        },
+                    )
+                yield _sse_event(
+                    event="response.output_text.done",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.output_text.done",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "text": text,
+                    },
+                )
+                yield _sse_event(
+                    event="response.content_part.done",
+                    sequence=_next_sequence(),
+                    data={
+                        "type": "response.content_part.done",
+                        "output_index": 0,
+                        "item_id": item_id,
+                        "content_index": 0,
+                        "part": {"type": "output_text", "text": text, "annotations": []},
+                    },
+                )
+                final_item = _message_item(item_id=item_id, text=text, status="completed")
+                yield _sse_event(
+                    event="response.output_item.done",
+                    sequence=_next_sequence(),
+                    data={"type": "response.output_item.done", "output_index": 0, "item": final_item},
+                )
+                completed_obj = {
+                    **current_response,
+                    "output": [final_item],
+                    "output_text": text,
+                }
+
+            yield _sse_event(
+                event="response.completed",
+                sequence=_next_sequence(),
+                data={"type": "response.completed", "response": completed_obj},
+            )
+            yield _sse_event(
+                event="response.done",
+                sequence=_next_sequence(),
+                data={"type": "response.done", "response": completed_obj},
+            )
+            yield _sse_done()
+            return
+
+    return StreamingResponse(
+        _iter_background_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 def _survival_max_output_tokens() -> int:
     raw = str(os.environ.get("EA_SURVIVAL_MAX_OUTPUT_TOKENS") or "768").strip() or "768"
     try:
@@ -3058,6 +3576,30 @@ def _run_response(
             model=SURVIVAL_PUBLIC_MODEL,
             metadata=response_metadata,
             history_items=history_items,
+        )
+
+    if _is_background_codex_profile(model=model, codex_profile=effective_codex_profile):
+        return _run_background_codex_response(
+            request,
+            parsed_input=parsed_input,
+            context=context,
+            container=container,
+            response_id=response_id,
+            created_at=created_at,
+            model=model,
+            metadata=response_metadata,
+            instructions=instructions,
+            input_items=parsed_input.input_items,
+            reasoning=request.reasoning,
+            max_output_tokens=max_output_tokens,
+            history_items=history_items,
+            messages=messages,
+            supported_tools=supported_tools,
+            chatplayground_audit_callback=chatplayground_audit_callback,
+            chatplayground_audit_callback_only=audit_profile_or_model,
+            chatplayground_audit_principal_id=context.principal_id,
+            prompt_route_trace_line=prompt_route.trace_line,
+            effective_codex_profile=effective_codex_profile,
         )
 
     if not stream:
@@ -3872,7 +4414,7 @@ def create_response(
         header_profile = "audit"
     if header_profile == "review-light":
         header_profile = "review_light"
-    if header_profile not in {"core", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
+    if header_profile not in {"core", "core_batch", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
         header_profile = ""
     return _run_response(payload, context=context, container=container, codex_profile=header_profile or None)
 
@@ -3917,6 +4459,40 @@ def create_codex_core(
         principal_id=context.principal_id,
     )
     return _run_response(normalized, context=context, container=container, codex_profile="core")
+
+
+@codex_router.post(
+    "/core-batch",
+    response_model=_ResponseObject,
+    responses={
+        202: {
+            "description": "Returns an in-progress response object for background core batch execution.",
+        }
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+                }
+            },
+        }
+    },
+)
+def create_codex_core_batch(
+    payload: dict[str, object],
+    *,
+    context: RequestContext = Depends(get_request_context),
+    container: object = Depends(get_container),
+) -> Response:
+    normalized = _normalize_payload_for_profile(
+        payload,
+        profile="core_batch",
+        container=container,
+        principal_id=context.principal_id,
+    )
+    return _run_response(normalized, context=context, container=container, codex_profile="core_batch")
 
 
 @codex_router.post(
