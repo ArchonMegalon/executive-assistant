@@ -22,14 +22,14 @@ render_rules:
 shared_prompt_scaffold:
   applies_to: secondary_guide_art_only
   style_anchor: |
-    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to real gear or anatomy, lived-in materials, visible dirt, bruising, stained bandages, vermin pressure, exhausted posture, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, textured surfaces, layered physical props, high information density, product-specific semantics, no readable text, no logos
+    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to real gear or anatomy, lived-in materials, visible dirt, bruising, stained bandages, vermin pressure, exhausted posture, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, visible lore pressure through hard street context, textured surfaces, layered physical props, high information density, product-specific semantics, no readable text, no logos
   negative_prompt: |
     readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
 critical_asset_style_epoch:
   mode: flagship_poster
   overrides_shared_prompt_scaffold: true
   style_anchor: |
-    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, old blood, clinic mess, rust bloom, mold, vermin hints, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, diegetic AR added in post, scene-led color and lighting rather than a fixed green-dark wash, dense practical props, unmistakably Shadowrun-adjacent runner life, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
+    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, old blood, clinic mess, rust bloom, mold, vermin hints, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, diegetic AR added in post, scene-led color and lighting rather than a fixed green-dark wash, dense practical props, unmistakably Shadowrun-adjacent runner life, totemic wards and shamanic residues, recognizable 6th-World location pressure, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
   negative_prompt: |
     stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still
 semantic_anchors:
@@ -49,6 +49,7 @@ world_marker_bucket:
   - critter or parabotany ephemera such as devil rat traps, barghest or hell hound field photos, Blood Orchid plates, or Paper Lotus charms
   - magical focus, fetish, talisman, ward scar, or awakened-world hint
   - recognizable Sixth World geography or landmark residue such as Chicago Bug City towers, Renraku Arcology scar, Redmond Barrens street cues, Ork Underground tilework, Puyallup ash, Glow City fencing, or Touristville market grime
+  - hard-living lore debris such as shamanic sigils, ward circles, blood-stained med wraps, burned med kits, and bug-tower-adjacent clutter
   - rain-soaked streets, sodium-vapor plus neon mix, or grimy utilitarian spaces
   - cables, duct tape, jury-rigged hardware, synthskin wrap, med patches, or off-brand med or corp gear
   - runner-life or shadow-community setting such as clinic, safehouse, van, alley, rooftop, market, back room, industrial rail, or matrix nook
@@ -74,6 +75,7 @@ rules:
   - Lore crumbs should survive in flagship and quality-focus assets: cropped corp packaging, critter photo strips, talismonger ephemera, and parabotany prints are preferred over generic neon clutter.
   - Recognizable lore locations are encouraged when they help the frame: Bug City skyline scars, Arcology shadows, Barrens infrastructure, Underground markets, ash plains, and containment architecture should read as place cues, not tourism postcards.
   - The Sixth World should look expensive, dirty, and physically punishing: grime, vermin, sickness, old blood, crash fatigue, and damaged spaces are welcome when they stay scene-bound and believable.
+  - First-contact and flagship surfaces should prefer scenes with recognizably hard living, not just "dangerous atmosphere": visible treatment residue, rat pressure, medical aftercare evidence, and one clear social-pressure beat each generation.
   - Drug-use or vice cues should read as fallout, dependency, or hard living through spent inhalers, burned spoons, stim patches, crash kits, or shakes; never glamorize them as lifestyle beauty shots.
   - Gore should stay grounded and adult: dried blood, meat-glue residue, stained bandages, trauma cleanup, or ugly clinic aftermath are good; splatter spectacle and torture-porn are failures.
   - When a scene includes humor, keep it adult, peripheral, and diegetic through pictograms, mascot stickers, crossed-out icons, or cropped scribbles rather than readable joke signage.
@@ -118,6 +120,8 @@ visual_contract:
       - tool chest or lift bay residue required
       - cheap fluorescent strips or work lamps required
       - wet concrete, tarp, or extension-cord grime required
+      - visible treatment scars, bruising, or blood residue required
+      - visible vermin or rat pressure required
     required_cast_markers:
       - metahuman clinician required
       - troll patient required
@@ -132,6 +136,7 @@ visual_contract:
       - visible individual hair strands
       - visible wet or matted hair clumping
       - crisp skin and fur microtexture
+      - visible cracked skin, dry throat, or medication fatigue cue
     required_overlay_schema:
       - BOD
       - AGI
@@ -163,12 +168,14 @@ visual_contract:
       - a visible operator relationship instead of a lone isolated figure
       - layered physical proof props across foreground, midground, and background
       - visible reasoning cues or diegetic overlay traces
+      - visible social cost cues such as dirty wraps, coughing pause, or stimulant fatigue
     must_not_show:
       - generic brooding profile at a vague wall
       - single-person dim bay still
       - lone crate or tabletop glamour
       - empty alley mood still
       - central readable signboard
+      - clinical hotel-style polish
   page_index:
     density_target: high
     overlay_density: medium
@@ -196,6 +203,7 @@ visual_contract:
       - street-level chrome or awakened-world clues
       - metahuman traffic or runner-life traces
       - differentiated faction or domain hints
+      - recognized 6th-world transit residue (Bug City, Arcology, Barrens, or Underground) required
     forbidden_environment_markers:
       - empty road ambience
       - sparse interchange
@@ -207,6 +215,7 @@ visual_contract:
       - differentiated future or work lanes
       - at least one metahuman or body-worn cyberware clue that survives banner scale
       - multiple grounded clues instead of one central marker
+      - city-horizon lore continuity from known districts or tower lines
     must_not_show:
       - menu-board composition
       - empty road ambience

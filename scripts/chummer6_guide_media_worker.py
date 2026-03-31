@@ -3823,7 +3823,10 @@ def run_onemin_api_provider(
     def _watchdog_expired() -> bool:
         return (time.monotonic() - started_at) >= float(watchdog_seconds)
 
-    configured_slots = filter_onemin_image_slots(resolve_onemin_image_slots(), estimated_credits=estimated_credits)
+    available_slots = resolve_onemin_image_slots()
+    configured_slots = filter_onemin_image_slots(available_slots, estimated_credits=estimated_credits)
+    if not configured_slots and available_slots:
+        configured_slots = [slot for slot in available_slots if str(slot.get("key") or "").strip()]
     if not configured_slots:
         return False, "onemin:not_configured"
     principal_id = _onemin_principal_id()
@@ -4383,11 +4386,28 @@ def lore_background_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
     if composition == "horizon_boulevard":
-        return "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, cropped megacorp commuter ads, devil rat warnings, ward marks, or lore-place cues like Bug City tower scars, Arcology silhouettes, Puyallup ash, or Glow City fencing, but never as readable signage."
+        return (
+            "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, "
+            "cropped megacorp commuter ads, devil rat warnings, ward marks, a weak astral shamanic silhouette, "
+            "and lore-place cues like Bug City tower scars, Arcology silhouettes, Puyallup ash, or Glow City fencing, "
+            "but never as readable signage."
+        )
     if composition in {"street_front", "city_edge", "transit_checkpoint", "platform_edge", "van_interior", "district_map"}:
-        return "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, cropped Renraku or Horizon consumer gear cues, devil rat bait tins, barghest or hell hound photo scraps, ward marks, grime streaks, rat traps, ash cups, spent stimulants, or recognizable place cues like Redmond bus-stop wreckage, Touristville stalls, Ork Underground tilework, or Arcology shadow lines."
+        return (
+            "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, "
+            "cropped Renraku or Horizon consumer gear cues, Ares/ Aztechnology field cases, devil rat bait tins, "
+            "barghest or hell hound photo scraps, ward marks, grime streaks, rat traps, ash cups, spent stimulants, "
+            "or recognizable place cues like Redmond bus-stop wreckage, Touristville stalls, Ork Underground tilework, "
+            "Chicago Bug City, or Arcology shadow lines."
+        )
     if composition in {"dossier_desk", "workshop_bench", "proof_room", "simulation_lab", "solo_operator", "review_bay", "clinic_intake", "render_lane"}:
-        return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, clipped devil rat / barghest / hell hound field photos, a Blood Orchid plate, a Paper Lotus charm, cropped corp packaging, a faint totem portrait in astral residue, stained gauze, old blood, mold bloom, clinic waste, a spent inhaler, or location residue like Bug City skyline photos, Arcology schematics, or Barrens route scraps."
+        return (
+            "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, "
+            "clipped devil rat / barghest / hell hound field photos, a Blood Orchid plate, a Paper Lotus charm, "
+            "cropped Renraku, Shiawase, or Ares packaging, a faint shamanic totem portrait in astral residue, "
+            "stained gauze, old blood, mold bloom, clinic waste, a spent inhaler, or location residue like "
+            "Bug City skyline photos, Arcology schematics, or Barrens route scraps."
+        )
     return ""
 
 
@@ -7372,9 +7392,9 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
                 else f"world markers {joined}"
             )
             parts.append(
-                "Let at least one of those world markers land as a lore crumb, hardship clue, or location cue on a prop or wall: megacorp gear, critter ephemera, parabotany plate, corp scrip, astral totem cue, stained gauze, rat trap, clinic waste, spent stimulant debris, Bug City skyline scrap, Arcology plan, or Barrens route fragment."
+                "Let at least one of those world markers land as a lore crumb on a prop or wall: megacorp gear, critter ephemera, parabotany plate, corp scrip, astral totem cue, stained gauze, rat trap, clinic waste, spent stimulant debris, Bug City skyline scrap, Arcology plan, or Barrens route fragment."
                 if not compact
-                else "one lore crumb on a prop or wall"
+                else "lore crumb on a prop or wall"
             )
     if negative_space_cap == "low":
         parts.append(
@@ -7608,13 +7628,18 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
             "Ultra-wide 16:9 illustrated flagship Shadowrun streetdoc poster scene inside a lived-in runner clinic carved out of a barrens auto garage. "
             "Set the camera several meters back and slightly above eye level. An ork streetdoc with visible chrome works on a huge ugly hairy troll patient with tusks and a treated cyberlimb in a hacked repair recliner while a second teammate crowds the far edge with tools or hard light. "
             "The full treatment bay must stay visible at once: open garage door with rain outside, parked wreck, ceiling fixtures, tool wall, shelf of old chrome limbs, cloudy organ jar, off-brand med bags, side bench clutter, hanging cables, sputtering caf machine, wet concrete, and improvised work lights. "
-            "The room must tell as much of the story as the people, with the bay, shelves, floor, and doorway occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. More surroundings than portrait anatomy, more clutter than clean surfaces, no human patient, no readable screens, no ECG monitor, no hospital showroom, and no blown-out doorway turning into a blank white panel."
+            "The room must tell as much of the story as the people, with the bay, shelves, floor, and doorway occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. "
+            "Add discarded cyberlimbs, broken tool-jack scaffolding, rat tracks and a rat-trap corner, one hidden Renraku or Ares med shell with a blurred logo, and a weak astral shamanic totem portrait near the wall. "
+            "Make the after-shift cost legible with stale cough syrup, spent stim residue, stained gauze, and old blood smears while keeping colors saturated and dirty-bright, not grayscale. "
+            "More surroundings than portrait anatomy, more clutter than clean surfaces, no human patient, no readable screens, no ECG monitor, no hospital showroom, and no blown-out doorway turning into a blank white panel."
         )
     if normalized == "assets/pages/horizons-index.png":
         return (
             "Ultra-wide 16:9 illustrated flagship Shadowrun horizons boulevard scene showing several practical future lanes at once. "
             "Set the camera far enough back that service-ramp geometry, branch directions, underpass cuts, transit barriers, depot edges, catwalks, and industrial spill tell most of the story. "
             "The environment must dominate over any one figure, sign, or object, with differentiated lanes, partial crowds, vehicles, route clutter, cables, puddles, and branch pressure visible across nearly the whole frame. "
+            "Seed clear Sixth World place pressure: Chicago Bug City tower scarline in the distance, Arcology shadow blocks, Redmond Barrens tilework, and Underground transfer cues. "
+            "Use vivid, saturated lane colors and sodium-cyan contrasts with grime and rain rather than a single dark-key look. "
             "No centered hero figure, no trio of back-facing silhouettes marching toward center, no kiosk centerpiece, no billboard, no single corridor vanishing point, no retail street canyon, and no lettered sign forest replacing the district."
         )
     if normalized == "assets/horizons/karma-forge.png":
@@ -7673,16 +7698,18 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "In-game streetdoc clinic inside a barrens auto garage, unmistakably Shadowrun-adjacent, with a full treatment bay instead of a bedside crop.",
                     "An ork or dwarf streetdoc with obvious chrome operates on a huge ugly hairy troll patient with tusks, scarred skin, matted hair, and a treated cyberlimb in a hacked repair recliner while a second teammate assists from the far edge.",
                     "Fill the room wall to wall: open garage door with rain spill, wet reflective floor, doorway, shelves, tool wall, side bench, old chrome limbs, cloudy organ jar, off-brand med bags, dangling cables, sputtering caf machine, storage cages, tarps, injector trays, and improvised work lights.",
+                    "Anchor the scene with hard Shadowrun crumbs: one clipped Ares or Renraku med shell with blurred logos, a blood-soaked treatment wrap, a Blood Orchid leaf plate, stacked cyberlimb housings, devil rat bait tin, and a totemic ward portrait as a faint astral residue on wall paint.",
+                    "Keep the social cost in frame with rat tracks, dropped inhaler or cough syrup bottle, old gauze, and visible bruising, while still preserving no readable text.",
                     "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and med clutter; avoid blank dark wall or empty negative space.",
                     "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy, and cast roles must read clearly at a glance.",
-                    "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, and bold silhouette grouping.",
+                    "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, saturated civic color highlights, and bold silhouette grouping.",
                     "AR posture is medscan diagnostic; readable rails and calibration callouts are added in post and anchored to anatomy, tool, or rail. The painted scene may carry only faint abstract scan glows.",
                     "Negative constraints: medium shot, bedside crop, close portrait, clean clinic, hospital showroom, medbay monitor wall, human patient, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces, back-view idle pair, or a blown-out doorway panel.",
                     "Do not paint any words, letters, numbers, signage, title text, or UI labels into the scene. No readable status boxes, no pseudo monitors, and no pseudo medical text.",
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1600,
+            limit=2200,
         )
     if normalized == "assets/pages/horizons-index.png":
         return clip_prompt_text(
@@ -7692,6 +7719,8 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "Ultra-wide establishing shot, environment first, camera several meters back, environment occupies about three quarters of frame, and no single figure or object dominates.",
                     "Shadowrun service-interchange of future lanes with at least four differentiated branch directions visible at once: clinic work bay, dossier stair, relay lane, tactical route, and industrial approval lane.",
                     "Keep the frame packed with route clutter, partial crowds, vehicle traces, tram wires, barrier posts, maintenance gantries, wet reflections, cable halos, depot edges, transit hardware, and district pressure.",
+                    "Seed the location with unmistakable lore pressure: Chicago Bug City tower scars on the horizon, Ork Underground tilework edges, Arcology silhouette breaks, and Redmond Barrens transit remnants. "
+                    "Use bright, saturated lane color accents (magenta, cyan, acid green) with grime rather than monochrome gloom.",
                     "The frame must read as a place before it reads as a person, with no centered hero, no trio of back-facing silhouettes marching toward center, no kiosk centerpiece, no glowing rectangle, no billboard, no retail shopfront canyon, and no single corridor vanishing point.",
                     "If any people appear, keep them partial, edge-biased, and secondary to the branch geometry rather than making them the central read.",
                     "Any AR remains ambient and route-anchored only, with readable labels added in post; no diagnostic HUD slabs, floating cards, or giant center boxes.",
@@ -7700,7 +7729,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1500,
+            limit=2200,
         )
     if normalized == "assets/horizons/karma-forge.png":
         return clip_prompt_text(
@@ -7721,7 +7750,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1500,
+            limit=2200,
         )
     if normalized == "assets/horizons/alice.png":
         return clip_prompt_text(
@@ -7739,7 +7768,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1650,
+            limit=2200,
         )
     if normalized == "assets/horizons/nexus-pan.png":
         return clip_prompt_text(
@@ -7757,7 +7786,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1650,
+            limit=2200,
         )
     if normalized == "assets/horizons/runsite.png":
         return clip_prompt_text(
@@ -7775,7 +7804,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1650,
+            limit=2200,
         )
     if normalized == "assets/parts/hub.png":
         return clip_prompt_text(
@@ -7793,7 +7822,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1650,
+            limit=2200,
         )
     if normalized == "assets/pages/parts-index.png":
         return clip_prompt_text(
@@ -7810,7 +7839,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "No readable text or numbers anywhere. No watermark. 16:9.",
                 ]
             ),
-            limit=1650,
+            limit=2200,
         )
     return ""
 

@@ -1187,6 +1187,10 @@ def _row_text_bundle(row: dict[str, object]) -> str:
     return " ".join(values).strip().lower()
 
 
+def _is_sparse_shadowrun_scene_text(text: str, *, minimum_tokens: int = 65) -> bool:
+    return len(str(text or "").split()) < minimum_tokens
+
+
 def _has_visible_relationship_signal(text: str) -> bool:
     lowered = str(text or "").strip().lower()
     if not lowered:
@@ -1258,6 +1262,7 @@ def _critical_target_phrase_groups(target: str) -> tuple[tuple[str, ...], ...]:
             ("multiple lanes", "branching futures", "district split", "market of futures", "interchange"),
             ("street-level cyberpunk", "wet street", "wires", "crowd clue", "district"),
             ("multiple clues", "plurality", "different paths", "differentiated domains", "branching"),
+            ("Bug City", "Arcology", "Barrens", "Underground", "Chicago", "Puyallup"),
         )
     if target == "assets/horizons/karma-forge.png":
         return (
@@ -1390,6 +1395,7 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
     callouts = _dedupe_casefolded(_string_list(row.get("overlay_callouts")))
     overlay_signals = _dedupe_casefolded(overlays + callouts)
     combined = _row_text_bundle(row)
+    is_sparse_scene_text = _is_sparse_shadowrun_scene_text(combined, minimum_tokens=65)
     allowed_overlay_tokens = {
         str(entry).strip().casefold()
         for entry in (
@@ -1452,6 +1458,59 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_detail:missing_troll_microtexture")
         if not any(token in combined for token in ("bod", "agi", "rea", "str", "ess", "edge", "upgrading")):
             findings.append("critical_overlay:missing_attribute_rail")
+        if is_sparse_scene_text:
+            if not any(
+                token in combined
+                for token in (
+                    "ares",
+                    "renraku",
+                    "horizon",
+                    "aztechnology",
+                    "shiawase",
+                    "saeder-krupp",
+                    "saeder krupp",
+                    "evo",
+                    "wuxing",
+                )
+            ):
+                findings.append("critical_lore:missing_megacorp_footprint")
+            if not any(
+                token in combined
+                for token in (
+                    "devil rat",
+                    "barghest",
+                    "hell hound",
+                    "hellhound",
+                    "blood orchid",
+                    "paper lotus",
+                    "ward scar",
+                    "ward",
+                    "totem",
+                    "astral",
+                )
+            ):
+                findings.append("critical_lore:missing_shamanic_or_critter_crumb")
+            if not any(
+                token in combined
+                for token in (
+                    "rat",
+                    "rat trap",
+                    "rat tracks",
+                    "vermin",
+                    "stain",
+                    "crash",
+                    "infection",
+                    "dry blood",
+                    "cough",
+                    "cough syrup",
+                    "stim",
+                    "med waste",
+                    "spit",
+                    "scarred",
+                    "mold",
+                )
+            ):
+                findings.append("critical_scene:missing_hardship_beat")
         if overlay_mode == "medscan_diagnostic" and not any(
             token in combined
             for token in ("medscan", "diagnostic rail", "wound stabilized", "cyberlimb calibration", "neural link resync", "stability indicator")

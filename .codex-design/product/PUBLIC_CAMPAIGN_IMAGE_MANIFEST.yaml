@@ -3,7 +3,7 @@ surface: chummer.run
 version: 2
 mode: raster_campaign_only
 style_anchor: |
-  premium software-campaign still, grounded Shadowrun-inspired cyberpunk fantasy, editorial realism, original composition, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to gear, tools, or anatomy, visible grime, fatigue, cheap-med aftermath, vermin pressure, bruising, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, realistic skin and materials, layered physical props, high information density, product-specific semantics, no readable text, no logos
+  premium software-campaign still, grounded Shadowrun-inspired cyberpunk fantasy, editorial realism, original composition, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to gear, tools, or anatomy, visible grime, fatigue, cheap-med aftermath, vermin pressure, bruising, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, realistic skin and materials, layered physical props, high information density, product-specific semantics, visible lore pressure through lived consequence, no readable text, no logos
 negative_prompt: |
   readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, entertainment poster pose, action-movie gun pose, anime, comic art, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
 output_rules:
@@ -67,13 +67,14 @@ assets:
     prompt_variants:
       - name: hero_a_intake_trust_under_pressure
         prompt: |
-          A premium first-contact still inside a midnight shadowrunner intake bay overlooking a rain-heavy city. Foreground: open dossier folios, cyberware calibration trays, detached chrome forearm hardware, sealed evidence sleeves, six-sided dice, med patches, stained gauze, a used stim inhaler, a commlink, a Paper Lotus charm, and abstract medscan overlays with no readable text. Midground: an ork or elf streetdoc stabilizes a scarred troll runner with visible treated chrome, rough body hair, bruising, dried blood, and ugly clinic fatigue while a teammate watches the numbers and gear. Background: service racks, clipped hell hound and barghest field photos, partial Ares or Renraku med hardware shells with logos obscured, one Blood Orchid botanical plate, wet glass, rat-trap and mold hints, and a skyline cue that could plausibly be Chicago after Bug City or a scarred Arcology district. Dense, layered, information-rich, unmistakably Shadowrun, not poster art.
+          A premium first-contact still inside a midnight shadowrunner intake bay overlooking a rain-heavy city. Foreground: open dossier folios, cyberware calibration trays, detached chrome forearm hardware, sealed evidence sleeves, six-sided dice, med patches, stained gauze, a used stim inhaler, a commlink, a Paper Lotus charm, and abstract medscan overlays with no readable text. Midground: an ork or elf streetdoc stabilizes a scarred troll runner with visible treated chrome, rough body hair, bruising, dried blood, and ugly clinic fatigue while a teammate watches the numbers and gear. Background: service racks, clipped hell hound and barghest field photos, partial Ares or Renraku med hardware shells with logos obscured, one Blood Orchid botanical plate, wet glass, rat-trap and mold hints, and a skyline cue that could plausibly be Chicago after Bug City or a scarred Arcology district. Add a harder lore layer with a shaman casting a faint astral ward-glyph in the background, a few rat tracks in the hallway edge, and a dropped cough-syrup bottle near the treatment crate. Dense, layered, information-rich, unmistakably Shadowrun, not poster art.
       - name: hero_b_boulevard_of_futures
         prompt: |
-          A premium hero still on a rain-polished near-future boulevard with multiple branching paths hinting at product lanes like runsites, dossiers, creator tools, and replay through grounded props and architecture instead of signs. A troll courier with a chrome leg, an elf decker with trodes, and one handler pause in the foreground, comparing a packet and AR route state before moving. Let the city look meaner: sleeping-bag shadows under an awning, a devil rat warning tin, grime, wet trash, bruised faces, and one burned-out stim kiosk shell at the edge of frame. Use recognizable location residue if it helps, such as Redmond Barrens bus shelter geometry, Puyallup ash on the curb, or distant Chicago containment-tower silhouettes. Layered reflections, city depth, subtle magic-tech fusion, clear sense of choice and momentum, dense and cinematic, not an empty road scene.
+          A premium hero still on a rain-polished near-future boulevard with multiple branching paths hinting at product lanes like runsites, dossiers, creator tools, and replay through grounded props and architecture instead of signs. A troll courier with a chrome leg, an elf decker with trodes, and one handler pause in the foreground, comparing a packet and AR route state before moving. Let the city look meaner: sleeping-bag shadows under an awning, a devil rat warning tin, grime, wet trash, bruised faces, and one burned-out stim kiosk shell at the edge of frame. Use recognizable location residue if it helps, such as Redmond Barrens bus shelter geometry, Puyallup ash on the curb, distant Chicago Bug City towers, or Ork Underground tilework. Add a sharper lore anchor with one visible totem portrait in weak AR at the frame edge, visible rat activity on the curb, and cracked hands from a long night of prep.
+          Layered reflections, city depth, subtle magic-tech fusion, clear sense of choice and momentum, dense and cinematic, not an empty road scene.
       - name: hero_c_service_rack_prep
         prompt: |
-          A premium landing hero inside a high-end prep bay with service racks, med storage, deck modules, gear bins, dossier props, and cyberware housings. Two metahuman runners collaborate over build verification while a third support figure observes, with chrome knuckles, datajacks, trode bands, anchored AR fit checks, and visible exhaustion at banner scale. Seed the room with Sixth World lore crumbs: an obscured Shiawase or Evo device shell, clipped devil rat pest snapshots, one grimy cleanup tray, a cough-syrup bottle, and a faint astral totem silhouette or ward scar near the work glass. Rain-glow city beyond glass, electric blue and warm amber accents, semantic richness everywhere, software trust under pressure, realistic editorial campaign photography.
+          A premium landing hero inside a high-end prep bay with service racks, med storage, deck modules, gear bins, dossier props, and cyberware housings. Two metahuman runners collaborate over build verification while a third support figure observes, with chrome knuckles, datajacks, trode bands, anchored AR fit checks, and visible exhaustion at banner scale. Seed the room with Sixth World lore crumbs: an obscured Shiawase or Evo device shell, clipped devil rat pest snapshots, one grimy cleanup tray, a cough-syrup bottle, a faint astral totem silhouette or ward scar near the work glass, and a Blood Orchid print folded near evidence clips. Rain-glow city beyond glass, electric blue and warm amber accents, semantic richness everywhere, software trust under pressure, realistic editorial campaign photography.
   - id: capability_build_runner
     filename_base: capability-build-runner
     runtime_targets:
@@ -83,7 +84,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A professional runner-build workspace inside a safehouse. One player compares dossier fragments, metatype cues, obvious cyberware parts, lifestyle markers, gear pieces, spell fetishes, and six-sided dice while an assistant or GM leans in from the edge of frame to review. Show at least one obvious chrome limb seam, trode rig, or datajack in the cast, plus harder-world texture like grime, rat-chewed packaging, old bandages, or a spent stim patch. The feeling is explainable character creation in a rough life, not generic desk glamour. Dense props, believable materials, grounded premium realism.
+      A professional runner-build workspace inside a safehouse. One player compares dossier fragments, metatype cues, obvious cyberware parts, lifestyle markers, gear pieces, spell fetishes, and six-sided dice while an assistant or GM leans in from the edge of frame to review. Show at least one obvious chrome limb seam, trode rig, or datajack in the cast, plus harder-world texture like grime, rat-chewed packaging, old bandages, or a spent stim patch. Add one visible marker of dependency fallout: a discarded inhaler pack or cracked stimulant tab nearby. The feeling is explainable character creation in a rough life, not generic desk glamour. Dense props, believable materials, grounded premium realism.
   - id: capability_check_rules
     filename_base: capability-check-rules
     runtime_targets:
@@ -94,7 +95,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A precision rules-verification lab that mixes physical source evidence and digital audit traces. Modifier-chain overlays, clipped evidence markers, source fragments, cyberdeck component, spell reagent, ammo tags, and six-sided dice arranged with clean logic. Two people are present: one builder and one reviewer or witness. The scene makes the math feel inspectable and trustworthy, with calm blue light and warm proof accents, no text.
+      A precision rules-verification lab that mixes physical source evidence and digital audit traces. Modifier-chain overlays, clipped evidence markers, source fragments, cyberdeck component, spell reagent, ammo tags, and six-sided dice arranged with clean logic. Two people are present: one builder and one reviewer or witness. The scene must show hard-life stakes with a coughing runner on a nearby cot, med-waste bins, an insect-scattered drawer, and one visible scar on a support wrist under worn glove. The scene makes the math feel inspectable and trustworthy, with calm blue light and warm proof accents, no text.
   - id: scene_archive_stair
     filename_base: scene-archive-stair
     runtime_targets:
@@ -105,7 +106,13 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A knowledge-archive stair interior with stacked primers, case folders, artifact drawers, and packet shelves. Two people move through the archive: one pulling a dossier, one reviewing a proof object. Layered paper, glass, and metal textures, serious product-story mood, rich depth, no library cliché, no sparse composition.
+      A knowledge-archive stair in a battered Chummer research corridor, still clearly part of a living Sixth World archive chain: stacked primers, case folders, packet drawers, artifact lockers, and warped case cabinets.
+      Two people move through the archive: one pulling a dossier, one reviewing a proof object while another nervous runner scans with narrowed eyes.
+      Layered paper, glass, and metal textures with visible city dust, rust, and wet footprints.
+      Add recognizable lore cues that read as real place pressure: Chicago Bug City tower line reflections on one wall, Ork Underground tilework edge detail, and at least one blurred Renraku, Ares, or Shiawase hardware shell still in frame.
+      Hard-edge realism over romance: visible rat tracks near a corner crate, cracked medicine wraps, an old blood-stained med wrap, spent stim patch, and one totemic ward mark burned into wall paint.
+      Add cybernetic density with at least two obvious cyberlimbs/augment kits on carts or racks, and no empty library fantasy or sparse office mood.
+      Rich depth with layered foreground-midground-background, dense shadow, and no clean corporate lobby.
   - id: scene_simulation_bench
     filename_base: scene-simulation-bench
     runtime_targets:
@@ -115,7 +122,11 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A simulation bench for loadout and rules testing. Modular cyberware parts, partial cyberlimb housings, magical focus objects, six-sided dice, consequence traces, receipt markers, measured overlay paths, and test instruments across a dense work surface. One builder and one reviewer, with at least one metahuman or visibly augmented body cue in frame, plus ugly reality cues like stained wraps, crash-kit residue, bruising charts, or a rat trap under the bench. Clinical precision with cinematic polish. It should feel like explainable what-if analysis, not hacker fantasy.
+      A simulation bench for loadout and rules testing inside a dirty industrial test chamber with visible stress history: modular cyberware parts, partial cyberlimb housings, magical focus objects, six-sided dice, consequence traces, receipt markers, and measured overlay paths across a dense work surface.
+      One builder and one reviewer, with at least one metahuman or visibly augmented body cue in frame, plus ugly reality beats: stained wraps, crash-kit residue, used gauze, rat scratch marks, cough syrup bottle, and an anxious breathing pause in posture.
+      Include megacorp lineage hints on adjacent props (blurred Ares, Renraku, Horizon, or Wuxing labels), a blood-smudged devourer ward sketch, and one clipped devil rat photo strip mounted near a test rig.
+      Add mystical debris in the background: a faint astral ward-circle, a totem silhouette fading in AR haze, and barghest/hellhound field photos pinned near the edge.
+      Keep clinical precision with cinematic, high-contrast, cinematic polish. It should feel like explainable what-if analysis in hard conditions, not a clean hacker fantasy.
   - id: capability_carry_dossier
     filename_base: capability-carry-dossier
     runtime_targets:
@@ -147,7 +158,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A controlled release-vault interior for a premium software preview. Sealed build cases, integrity bands, quality-check station, trays, and disciplined packaging. One operator and one reviewer compare package state under cool cyan logistics light. The image should communicate release trust, polish, and process maturity without any readable labels.
+      A controlled release-vault interior for a premium software preview. Sealed build cases, integrity bands, quality-check station, trays, and disciplined packaging. One operator and one reviewer compare package state under cool cyan logistics light. Keep it honest with one worn glove on the floor, a clinic-waste marker bin by the rail, and a used stimulant patch caught in a strap pocket. The image should communicate release trust, polish, and process maturity without any readable labels.
   - id: scene_facility_exterior
     filename_base: scene-facility-exterior
     runtime_targets:
@@ -157,7 +168,7 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A premium night exterior of a controlled release facility in a rain-wet city district. Lit windows, secure loading bay, one courier case transfer, subtle integrity markers, calm industrial polish, and a sense of disciplined rollout. If the scene can support it, nod to recognizable lore geography such as Arcology-adjacent massing, Chicago containment scars, or Puyallup ash settling on the curb. No giant signage, no empty parking lot, no generic sci-fi warehouse.
+      A premium night exterior of a controlled release facility in a rain-wet city district. Lit windows, secure loading bay, one courier case transfer, subtle integrity markers, calm industrial polish, and a sense of disciplined rollout. If the scene can support it, nod to recognizable lore geography such as Arcology-adjacent massing, Chicago containment scars, Bug City towers, or Puyallup ash settling on the curb. Add hard edge details like cracked asphalt, wet runoff with medical residue, and exhausted staff moving under rain.
   - id: auth_entry_blueglass
     filename_base: auth-entry-blueglass
     runtime_targets:
@@ -168,7 +179,7 @@ assets:
     long_side_px: 2560
     negative_space: right_40
     prompt: |
-      A vivid, lived-in credential-signin scene in the Sixth World where two metahuman runners check identity at a rain-specked access terminal beside stacked evidence crates, medical burn-in kits, and stacked dossier folders. Foreground: visible cyberlimb prosthetic hardware and a wired-to-brain commlink worn on one shoulder, a blood-stiffening medic wrap on the clinic cot, a spent stim vial, and a paper-paperweight with a Blood Orchid parabotany print. Midground: a troll streetdoc and ork courier arguing over route and trust while a decker checks route markers through diegetic AR. Background: a scratched Renraku/Saeder-Krupp panel with corporate branding fragments, a barred utility walkway with bug-tower skyline pressure over the horizon, hanging hellhound and barghest photographs, and glowing astral totem wards near the glass. Show recognizable shadowrun grime: rat traces at the floor edge, nicotine stains, bruised faces, and worn gear edges. Dense, layered product-specific realism, harsh city stakes with bright saturated lighting, no readable text.
+      A vivid, lived-in credential-signin scene in the Sixth World where two metahuman runners check identity at a rain-specked access terminal beside stacked evidence crates, medical burn-in kits, and stacked dossier folders. Foreground: visible cyberlimb prosthetic hardware and a wired-to-brain commlink worn on one shoulder, a blood-stiffening medic wrap on the clinic cot, a spent stim vial, and a paper-paperweight with a Blood Orchid parabotany print. Midground: a troll streetdoc and ork courier arguing over route and trust while a decker checks route markers through diegetic AR. Background: a scratched Renraku/Saeder-Krupp panel with corporate branding fragments, a barred utility walkway with bug-tower skyline pressure over the horizon, hanging hellhound and barghest photographs, a faint warded totem portrait in AR, and glowing astral totem wards near the glass. Show recognizable shadowrun grime: rat traces at the floor edge, nicotine stains, bruised faces, and worn gear edges.
   - id: future_blue_boulevard
     filename_base: future-blue-boulevard
     runtime_targets:
@@ -178,7 +189,7 @@ assets:
     long_side_px: 2400
     negative_space: side_35
     prompt: |
-      A rain-polished boulevard that branches into distinct future work lanes for runsites, dossiers, creator tools, and replay, hinted through grounded props, architecture, and traffic flow rather than signs. Two people in the foreground discuss the next path while city depth and reflections create energy. Seed the boulevard with lore-place residue such as Bug City tower ghosts, Redmond bus stop grime, Ork Underground access tile, or Glow City hazard fencing. Bold but disciplined lighting, dense environment, absolutely no billboard centerpiece and no empty road.
+      A rain-polished boulevard that branches into distinct future work lanes for runsites, dossiers, creator tools, and replay, hinted through grounded props, architecture, and traffic flow rather than signs. Two people in the foreground discuss the next path while city depth and reflections create energy. Seed the boulevard with lore-place residue such as Bug City tower ghosts, Redmond bus stop grime, Ork Underground access tile, or Glow City hazard fencing. Add hard context with an overflowing trash bin of stimulant remnants, a broken pulse-radiator, and a rat darting through a puddle by a hazard cone.
   - id: scene_prop_cluster
     filename_base: scene-prop-cluster
     runtime_targets:
@@ -188,7 +199,7 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A creator-proof cluster arranged as a premium publishing workstation: scanner, camera, packet mockups, artifact cards, reference fragments, sealed proofs, and receipt-linked objects on a disciplined desk. One person assembles, another reviews. Editorial-grade realism, calm blue light with warm desk accents, dense but controlled.
+      A creator-proof cluster arranged as a premium publishing workstation: scanner, camera, packet mockups, artifact cards, reference fragments, sealed proofs, and receipt-linked objects on a disciplined desk. One person assembles, another reviews. Add gritty counterpoint with a cracked med kit, old nicotine haze, a coffee can of burned tabs, and a small evidence sleeve with rat bites. Editorial-grade realism, calm blue light with warm desk accents, dense but controlled.
   - id: lane_player
     filename_base: lane-player
     runtime_targets:
@@ -208,7 +219,8 @@ assets:
     long_side_px: 2500
     negative_space: side_35
     prompt: |
-      A GM orchestration table with route overlays, threat markers, timeline fragments, district map pieces, NPC tokens, brief packet fragments, and one person clearly guiding the run. Include at least one metahuman or chrome-heavy runner clue in the cast or prop cluster so it reads as Shadowrun table life rather than generic cyber thriller prep, plus rough fallout like ash, cheap meds, dirty cups, or urban sickness around the edges. Composed authority, evidence and clarity over drama, premium realism, no combat-poster energy.
+      A GM orchestration table with route overlays, threat markers, timeline fragments, district map pieces, NPC tokens, brief packet fragments, and one person clearly guiding the run. Include at least one metahuman or chrome-heavy runner clue in the cast or prop cluster so it reads as Shadowrun table life rather than generic cyber thriller prep, plus rough fallout like ash, cheap meds, dirty cups, or urban sickness around the edges. Add one visible sign of pressure such as cracked hands, crowded cough medicine wrappers, and rat-damaged note corners.
+      Composed authority, evidence and clarity over drama, premium realism, no combat-poster energy.
   - id: lane_creator
     filename_base: lane-creator
     runtime_targets:
@@ -218,7 +230,7 @@ assets:
     long_side_px: 2500
     negative_space: side_35
     prompt: |
-      A creator-lane workstation with packet design proofs, curated reference fragments, packaged artifact cards, a scanning setup, careful rules stewardship, and at least one chrome or awakened-world clue among the props. Let the room feel lived in and slightly wrecked: coffee rot, old nicotine haze, cracked drawers, a clinic-waste bin, or one burnout cue at the margins. Creative but disciplined, strong sense of publishing and curation, not generic content-creator desk clutter.
+      A creator-lane workstation with packet design proofs, curated reference fragments, packaged artifact cards, a scanning setup, careful rules stewardship, and at least one chrome or awakened-world clue among the props. Let the room feel lived in and slightly wrecked: coffee rot, old nicotine haze, cracked drawers, a clinic-waste bin, cough residue, and one rat trail past the scanner tray. Creative but disciplined, strong sense of publishing and curation, not generic content-creator desk clutter.
   - id: participation_ops_lane
     filename_base: participation-ops-lane
     runtime_targets:
@@ -230,7 +242,7 @@ assets:
     long_side_px: 2560
     negative_space: left_35
     prompt: |
-      A secure contribution lane with one operator at a clean multi-device station, intake trays, packet seals, verification lights, audit traces, and subtle signs of connection to a wider trusted system. Solo but not isolated. Serious professionalism, soft human warmth, product-grade trust, no vague “person in a blue room” look.
+      A secure contribution lane with one operator at a cluttered multi-device station, intake trays, packet seals, verification lights, audit traces, and subtle signs of connection to a wider trusted system. Add lived-in cost cues: cracked knuckles, disposable med cloth, one empty stim blister, and a coughing pause before the next submission. Solo but not isolated. Serious professionalism, soft human warmth, product-grade trust, no vague “person in a blue room” look.
   - id: governed_change_room
     filename_base: governed-change-room
     runtime_targets:
@@ -239,4 +251,5 @@ assets:
     long_side_px: 2400
     negative_space: side_30
     prompt: |
-      A governed-change room for a Shadowrun companion product roadmap. Modular future feature panels under review, one operator, one reviewer, and one approver visible in the same scene. Provenance tokens, rollback cues, consequence markers, layered proof objects, bold but disciplined lighting, dense semantic anchors, no blacksmith metaphor, no glow-void hacker cave, no readable text.
+      A governed-change room for a Shadowrun companion product roadmap. Modular future feature panels under review, one operator, one reviewer, and one approver visible in the same scene. Provenance tokens, rollback cues, consequence markers, layered proof objects, bold but disciplined lighting, dense semantic anchors, and background scars of hard living: a cracked stool, nicotine haze, and a used med patch by a filing rail.
+      Add no blacksmith metaphor, no glow-void hacker cave, no readable text.
