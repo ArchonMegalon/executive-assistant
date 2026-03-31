@@ -3,7 +3,7 @@ version: 1
 last_reviewed: 2026-03-31
 program_wave: next_20_big_wins_after_post_audit_closeout
 goal: make the campaign OS indispensable, widen Build and Explain, elevate exchange and publication, and turn trust plus operator depth into launch-scale product truth.
-status: in_progress
+status: complete
 
 waves:
   - id: W1
@@ -26,7 +26,7 @@ waves:
       - 10
   - id: W3
     name: Make exchange, output, and publication a second pillar
-    status: in_progress
+    status: complete
     milestone_ids:
       - 11
       - 12
@@ -221,7 +221,7 @@ milestones:
       - chummer6-hub
       - chummer6-hub-registry
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Creator outputs are discoverable, comparable, and provenance-ranked without collapsing into popularity fog.
       - Moderation, lineage, and trust-ranking posture are explicit and governable end to end.

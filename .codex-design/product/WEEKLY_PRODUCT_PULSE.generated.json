@@ -1,14 +1,14 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-31T01:14:21Z",
+  "generated_at": "2026-03-31T01:19:26Z",
   "as_of": "2026-03-31",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
   "summary": "Next 20 Big Wins After Post-Audit Closeout remains the active wave; journey proof is ready; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
   "active_wave": "Next 20 Big Wins After Post-Audit Closeout",
-  "active_wave_status": "in_progress",
+  "active_wave_status": "complete",
   "journey_gate_health": {
     "state": "ready",
     "reason": "Journey proof is steady on current published evidence.",
