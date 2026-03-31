@@ -5045,6 +5045,9 @@ Requirements:
 - the room must do at least half the storytelling for the hero: visible floor, doorway, bay hardware, shelves, tool wall, side bench, hanging lights, and improvised med clutter belong in frame
 - the troll patient must stay visibly troll-sized with readable tusks, rough skin, hair texture, and treated chrome, not a generic shaved human or a clean sci-fi mannequin
 - seed the hero with small Sixth World lore crumbs such as cropped Ares or Renraku med gear, critter photo strips, Blood Orchid or Paper Lotus ephemera, corp scrip, or a faint astral totem residue, but never a readable ad or product board
+- if a recognizable lore location helps the hero, use it through background residue like Bug City towers, Arcology shadows, Barrens infrastructure, Underground tilework, or ashfall rather than tourist-postcard framing
+- show the human cost of the setting in the hero: dirt, stained gauze, old blood, rat traps, mold, crash fatigue, or cheap-med residue should be visible without turning the scene into splatter theatre
+- if drug or vice cues appear in the hero, keep them scene-bound and ugly through spent inhalers, stim patches, crash kits, or shaky hands, not glamor shots
 - if magic appears in the hero, make it warded or totemic: astral residue, fetish bundles, or a totem portrait glow, not generic fantasy light spam
 - medscan or upgrade overlays must feel anchored to anatomy, tools, rails, or work surfaces; never solve the hero with floating UI wallpaper or a clean monitor wall
 - avoid clean clinics, white-coat doctor staging, hallway symmetry, quiet back-view pairs, or any bedside crop that turns the hero into generic sci-fi medicine
@@ -5138,6 +5141,8 @@ Requirements:
 - if the part naturally implies a person or team, choose believable cyberpunk people
 - if the part naturally implies a machine room, archive, workshop, or table scene, make that spatial metaphor visibly legible
 - use at least one concrete Sixth World lore crumb when it fits: cropped megacorp consumer shells, corp scrip, critter photos, Blood Orchid or Paper Lotus ephemera, talismonger leftovers, or astral-totem residue
+- when a part image needs stronger setting identity, a recognizable lore location cue is welcome: Chicago containment skyline, Redmond Barrens geometry, Renraku Arcology shadow, Ork Underground structure, Puyallup ash, or Glow City hazard detail
+- when the scene can carry it, show at least one hardship cue from the Sixth World: grime, vermin pressure, stained wraps, old blood, crash posture, dirty cups, mold, cough medicine, or spent stimulants
 - if magic shows up in a part image, keep it to wards, fetishes, or a totem portrait ghost, not generic fantasy casting glamour
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - visible copy and meta should read like concept-stage guide material, not a verified ops label
@@ -5234,6 +5239,8 @@ Requirements:
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - if the horizon is a forge / approval / rollback / consequence lane, make the scene a standing rulesmith plus reviewer or witness inside an industrial approval rail with visibly more apparatus than faces; never a quiet workbench or paperwork table
 - seed the horizon with small Sixth World lore crumbs such as cropped megacorp product cues, critter field photos, Paper Lotus or Blood Orchid ephemera, talismonger leftovers, or a totem portrait hanging in astral glow
+- horizons may use recognizable lore locations aggressively when they clarify the fantasy: Bug City, Arcology edges, Barrens cuts, Underground passages, ash zones, or Touristville should read as lived places, not generic cyberpunk backdrop
+- horizons should not feel clean or aspirational by default; when it fits, show the social damage they are meant to solve through grime, sickness, blood, vermin, withdrawal, urban decay, or busted clinic residue
 - if magic appears, make it read as astral Shadowrun magic with wards, fetishes, or a mentor-animal silhouette rather than generic fantasy spellfire
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible copy should sell the horizon without pretending it is active build work

@@ -385,6 +385,8 @@ def test_run_magixai_api_provider_continues_past_forbidden_model(monkeypatch: py
 
 def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -462,6 +464,8 @@ def test_run_onemin_api_provider_uses_local_manager_fallback_when_http_manager_i
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -611,6 +615,8 @@ def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reserva
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -704,6 +710,92 @@ def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reserva
     assert seen_api_keys == ["empty-key", "good-key"]
     assert released_http[0] == ("lease-local", "released", 900, "")
     assert released_local[0] == (local_manager, "lease-local", "released", 900, "")
+
+
+def test_run_onemin_api_provider_walks_other_slots_after_local_no_lease_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_48", "key": "stale-key"},
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_3", "key": "good-key"},
+        ],
+    )
+    monkeypatch.setattr(media, "_reserve_onemin_image_slot", lambda **kwargs: None)
+    monkeypatch.setattr(
+        media,
+        "_reserve_onemin_image_slot_locally",
+        lambda **kwargs: (
+            {
+                "lease_id": "",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_48",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_48",
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(media, "_release_onemin_image_slot", lambda **kwargs: None)
+    monkeypatch.setattr(media, "_release_onemin_image_slot_locally", lambda **kwargs: None)
+    monkeypatch.setattr(media, "onemin_model_candidates", lambda: ["gpt-image-1-mini"])
+    monkeypatch.setattr(
+        media,
+        "onemin_payloads",
+        lambda model, **kwargs: [{"type": "IMAGE_GENERATOR", "model": model, "promptObject": {"size": "1024x1024"}}],
+    )
+    monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="onemin": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    class _SuccessResponse:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"url": "https://example.test/image.png"}).encode("utf-8")
+
+    seen_api_keys: list[str] = []
+
+    def fake_urlopen(request, timeout=0):
+        headers = {str(key).lower(): value for key, value in request.header_items()}
+        api_key = str(headers.get("api-key", ""))
+        seen_api_keys.append(api_key)
+        if api_key == "stale-key":
+            raise media.urllib.error.HTTPError(
+                request.full_url,
+                406,
+                "Not Acceptable",
+                hdrs={},
+                fp=io.BytesIO(
+                    b'{"errorCode":"INSUFFICIENT_CREDITS","message":"The feature requires 4800 credits, but the Singapore Office team only has 46 credits"}'
+                ),
+            )
+        return _SuccessResponse()
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert seen_api_keys == ["stale-key", "good-key"]
 
 
 def test_run_command_provider_returns_timeout_when_subprocess_times_out(

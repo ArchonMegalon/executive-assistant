@@ -75,6 +75,7 @@ SCENE_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_scene_ledger.json")
 CHALLENGER_LEDGER_OUT = Path("/docker/fleet/state/chummer6/ea_challenger_ledger.json")
 PROVIDER_SCHEDULER_OUT = Path("/docker/fleet/state/chummer6/ea_provider_scheduler.json")
 PROVIDER_HEALTH_OUT = Path("/docker/fleet/state/chummer6/ea_provider_health_registry.json")
+MEDIA_FACTORY_PROVIDER_HEALTH_OUT = Path("/docker/fleet/state/chummer6/media-factory/guide_provider_health.json")
 FLEET_STATE_ROOT = STATE_OUT.parent
 GUIDE_VISUAL_OVERRIDES = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
 MEDIA_FACTORY_ROOT = Path("/docker/fleet/repos/chummer-media-factory")
@@ -372,6 +373,8 @@ def _onemin_slot_health_hints() -> dict[str, dict[str, object]]:
             ).strip()
             if not env_name:
                 continue
+            detail = str(row.get("detail") or "").strip()
+            budget_hint = _parse_onemin_insufficient_credits(detail)
             free_credits = row.get("free_credits")
             if free_credits in (None, ""):
                 free_credits = row.get("estimated_remaining_credits")
@@ -386,6 +389,8 @@ def _onemin_slot_health_hints() -> dict[str, dict[str, object]]:
                 "state": str(row.get("state") or row.get("result") or "").strip().lower() or "ready",
                 "slot_role": str(row.get("slot_role") or "").strip().lower() or "reserve",
                 "account_name": str(row.get("account_name") or env_name).strip(),
+                "detail": detail,
+                "team_name": str((budget_hint or {}).get("team_name") or "").strip(),
             }
         return parsed
 
@@ -448,10 +453,242 @@ def _onemin_slot_health_hints() -> dict[str, dict[str, object]]:
         if not hints and stale_hints:
             hints = stale_hints
 
+    hints = _apply_onemin_recent_budget_hints(hints)
+
     _ONEMIN_SLOT_HEALTH_CACHE["cache_key"] = cache_key
     _ONEMIN_SLOT_HEALTH_CACHE["fetched_at"] = time.time()
     _ONEMIN_SLOT_HEALTH_CACHE["hints"] = hints
     return hints
+
+
+_ONEMIN_INSUFFICIENT_CREDITS_RE = re.compile(
+    r"The feature requires\s+(\d+)\s+credits,\s+but the\s+(.+?)\s+team only has\s+(\d+)\s+credits",
+    re.IGNORECASE,
+)
+_ONEMIN_SLOT_LABEL_RE = re.compile(r"\b(?:ONEMIN_AI_API_KEY(?:_FALLBACK_\d+)?|fallback_\d+)\b")
+
+
+def _parse_onemin_insufficient_credits(detail: object) -> dict[str, object] | None:
+    text = str(detail or "").strip()
+    if not text or "INSUFFICIENT_CREDITS" not in text:
+        return None
+    match = _ONEMIN_INSUFFICIENT_CREDITS_RE.search(text)
+    if not match:
+        return None
+    try:
+        required_credits = int(match.group(1))
+    except Exception:
+        required_credits = 0
+    try:
+        remaining_credits = int(match.group(3))
+    except Exception:
+        remaining_credits = 0
+    return {
+        "required_credits": max(0, required_credits),
+        "remaining_credits": max(0, remaining_credits),
+        "team_name": str(match.group(2) or "").strip(),
+        "detail": text,
+    }
+
+
+def _normalize_onemin_slot_env_name(value: object) -> str:
+    text = str(value or "").strip()
+    if text.startswith("fallback_"):
+        suffix = text.split("_", 1)[-1]
+        if suffix.isdigit():
+            return f"ONEMIN_AI_API_KEY_FALLBACK_{suffix}"
+    return text
+
+
+def _normalized_teamish_text(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _team_name_matches_hint(team_name: object, hint: dict[str, object]) -> bool:
+    team_text = str(team_name or "").strip()
+    if not team_text:
+        return False
+    account_text = " ".join(
+        [
+            str(hint.get("account_name") or "").strip(),
+            str(hint.get("detail") or "").strip(),
+            str(hint.get("slot_name") or "").strip(),
+            str(hint.get("secret_env_name") or "").strip(),
+        ]
+    ).strip()
+    if not account_text:
+        return False
+    team_key = _normalized_teamish_text(team_text)
+    account_key = _normalized_teamish_text(account_text)
+    if team_key and team_key in account_key and (len(team_key) >= 10 or any(ch.isdigit() for ch in team_key)):
+        return True
+    tokens = [token for token in re.split(r"[^a-z0-9]+", team_text.lower()) if len(token) >= 4]
+    if not tokens:
+        return False
+    matched = sum(1 for token in tokens if token in account_text.lower())
+    if matched >= 2:
+        return True
+    return matched >= 1 and "office" in tokens and "office" in account_text.lower()
+
+
+def _walk_detail_rows(payload: object) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    stack = [payload]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            if str(current.get("detail") or "").strip():
+                rows.append(current)
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return rows
+
+
+def _merge_onemin_budget_record(
+    table: dict[str, dict[str, object]],
+    key: str,
+    *,
+    remaining_credits: int,
+    required_credits: int,
+    detail: str,
+    team_name: str,
+) -> None:
+    if not key:
+        return
+    current = table.get(key) or {}
+    current_remaining = _floatish(current.get("remaining_credits"), default=float("inf"))
+    table[key] = {
+        "remaining_credits": int(min(current_remaining, float(max(0, remaining_credits)))),
+        "required_credits": int(max(_floatish(current.get("required_credits"), default=0.0), float(max(0, required_credits)))),
+        "detail": detail or str(current.get("detail") or "").strip(),
+        "team_name": team_name or str(current.get("team_name") or "").strip(),
+    }
+
+
+def _onemin_recent_budget_hints() -> dict[str, dict[str, dict[str, object]]]:
+    cache_key = "|".join(
+        f"{path}:{int(path.stat().st_mtime)}"
+        for path in (PROVIDER_HEALTH_OUT, MEDIA_FACTORY_PROVIDER_HEALTH_OUT)
+        if path.exists()
+    )
+    if cache_key and _ONEMIN_SLOT_HEALTH_CACHE.get("failure_cache_key") == cache_key:
+        cached = _ONEMIN_SLOT_HEALTH_CACHE.get("failure_hints")
+        if isinstance(cached, dict):
+            return cached  # type: ignore[return-value]
+
+    by_env: dict[str, dict[str, object]] = {}
+    by_team: dict[str, dict[str, object]] = {}
+    for path in (PROVIDER_HEALTH_OUT, MEDIA_FACTORY_PROVIDER_HEALTH_OUT):
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for row in _walk_detail_rows(payload):
+            parsed = _parse_onemin_insufficient_credits(row.get("detail"))
+            if not parsed:
+                continue
+            detail = str(parsed.get("detail") or "").strip()
+            team_name = str(parsed.get("team_name") or "").strip()
+            remaining_credits = int(parsed.get("remaining_credits") or 0)
+            required_credits = int(parsed.get("required_credits") or 0)
+            if team_name:
+                _merge_onemin_budget_record(
+                    by_team,
+                    team_name.lower(),
+                    remaining_credits=remaining_credits,
+                    required_credits=required_credits,
+                    detail=detail,
+                    team_name=team_name,
+                )
+            for label in _ONEMIN_SLOT_LABEL_RE.findall(detail):
+                env_name = _normalize_onemin_slot_env_name(label)
+                _merge_onemin_budget_record(
+                    by_env,
+                    env_name,
+                    remaining_credits=remaining_credits,
+                    required_credits=required_credits,
+                    detail=detail,
+                    team_name=team_name,
+                )
+
+    result = {"by_env": by_env, "by_team": by_team}
+    _ONEMIN_SLOT_HEALTH_CACHE["failure_cache_key"] = cache_key
+    _ONEMIN_SLOT_HEALTH_CACHE["failure_hints"] = result
+    return result
+
+
+def _apply_onemin_recent_budget_hints(hints: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    if not hints:
+        return {}
+    failure_hints = _onemin_recent_budget_hints()
+    by_env = failure_hints.get("by_env") if isinstance(failure_hints, dict) else {}
+    by_team = failure_hints.get("by_team") if isinstance(failure_hints, dict) else {}
+    merged: dict[str, dict[str, object]] = {}
+    for env_name, hint in hints.items():
+        next_hint = dict(hint)
+        matched: list[dict[str, object]] = []
+        if isinstance(by_env, dict):
+            env_hint = by_env.get(env_name)
+            if isinstance(env_hint, dict):
+                matched.append(env_hint)
+        team_name = str(next_hint.get("team_name") or "").strip().lower()
+        if team_name and isinstance(by_team, dict):
+            team_hint = by_team.get(team_name)
+            if isinstance(team_hint, dict):
+                matched.append(team_hint)
+        if not matched and isinstance(by_team, dict):
+            for failure in by_team.values():
+                if isinstance(failure, dict) and _team_name_matches_hint(failure.get("team_name"), next_hint):
+                    matched.append(failure)
+        for failure in matched:
+            remaining_credits = int(_floatish(failure.get("remaining_credits"), default=0.0))
+            required_credits = int(_floatish(failure.get("required_credits"), default=0.0))
+            current_credits = next_hint.get("estimated_remaining_credits")
+            if current_credits in (None, "") or remaining_credits < int(_floatish(current_credits, default=float("inf"))):
+                next_hint["estimated_remaining_credits"] = remaining_credits
+                next_hint["billing_remaining_credits"] = remaining_credits
+                next_hint["remaining_credits"] = remaining_credits
+            if required_credits > 0 and remaining_credits < required_credits:
+                next_hint["state"] = "cooldown"
+                next_hint["detail"] = str(failure.get("detail") or next_hint.get("detail") or "").strip()
+                if failure.get("team_name"):
+                    next_hint["team_name"] = str(failure.get("team_name") or "").strip()
+        merged[env_name] = next_hint
+    return merged
+
+
+def _merge_onemin_health_hints_into_candidates(
+    *,
+    candidates: list[dict[str, object]],
+    health_hints: dict[str, dict[str, object]],
+) -> list[dict[str, object]]:
+    if not candidates or not health_hints:
+        return [dict(candidate) for candidate in candidates]
+    merged_rows: list[dict[str, object]] = []
+    for candidate in candidates:
+        merged = dict(candidate)
+        hint = None
+        for key in (
+            str(merged.get("secret_env_name") or "").strip(),
+            str(merged.get("account_name") or "").strip(),
+            str(merged.get("account_id") or "").strip(),
+            str(merged.get("slot_name") or "").strip(),
+            str(merged.get("credential_id") or "").strip(),
+        ):
+            maybe = health_hints.get(key)
+            if isinstance(maybe, dict):
+                hint = maybe
+                break
+        if hint:
+            for field in ("estimated_remaining_credits", "billing_remaining_credits", "remaining_credits", "state", "slot_role"):
+                value = hint.get(field)
+                if value not in (None, ""):
+                    merged[field] = value
+        merged_rows.append(merged)
+    return merged_rows
 
 
 def _onemin_allow_reserve() -> bool:
@@ -699,7 +936,9 @@ def _reserve_onemin_image_slot_locally(
         manager = OneminManagerService(repo=build_onemin_manager_service_repo(settings))
         provider_health = upstream._provider_health_report()
         estimated_credits = _estimate_onemin_image_credits(width=width, height=height)
+        health_hints = _onemin_slot_health_hints()
         candidates = manager._candidates_from_provider_health(provider_health=provider_health)  # type: ignore[attr-defined]
+        candidates = _merge_onemin_health_hints_into_candidates(candidates=candidates, health_hints=health_hints)
         synthesized_candidates = []
         if not candidates:
             synthesized_candidates = _synthesized_onemin_candidates(upstream_module=upstream)
@@ -3313,12 +3552,11 @@ def resolve_onemin_image_keys() -> list[str]:
     return [str(slot.get("key") or "").strip() for slot in resolve_onemin_image_slots() if str(slot.get("key") or "").strip()]
 
 
-def filter_onemin_image_slots(slots: list[dict[str, str]]) -> list[dict[str, str]]:
+def filter_onemin_image_slots(slots: list[dict[str, str]], *, estimated_credits: int | None = None) -> list[dict[str, str]]:
     available, occupied_account_ids, occupied_secret_env_names = _refresh_onemin_manager_selection_snapshot()
     if not available:
         return []
-    if not occupied_account_ids and not occupied_secret_env_names:
-        return slots
+    health_hints = _onemin_slot_health_hints()
     filtered: list[dict[str, str]] = []
     for slot in slots:
         env_name = str(slot.get("env_name") or "").strip()
@@ -3327,6 +3565,13 @@ def filter_onemin_image_slots(slots: list[dict[str, str]]) -> list[dict[str, str
             continue
         if account_id and account_id in occupied_account_ids:
             continue
+        hint = health_hints.get(env_name) if isinstance(health_hints, dict) else None
+        state = str((hint or {}).get("state") or "").strip().lower()
+        if state and state not in {"ready", "active", "unknown", "degraded"}:
+            continue
+        if estimated_credits and hint and hint.get("estimated_remaining_credits") not in (None, ""):
+            if _floatish(hint.get("estimated_remaining_credits"), default=-1.0) < float(max(0, int(estimated_credits))):
+                continue
         filtered.append(slot)
     return filtered
 
@@ -3573,11 +3818,12 @@ def run_onemin_api_provider(
 ) -> tuple[bool, str]:
     started_at = time.monotonic()
     watchdog_seconds = onemin_watchdog_seconds(spec)
+    estimated_credits = _estimate_onemin_image_credits(width=width, height=height)
 
     def _watchdog_expired() -> bool:
         return (time.monotonic() - started_at) >= float(watchdog_seconds)
 
-    configured_slots = resolve_onemin_image_slots()
+    configured_slots = filter_onemin_image_slots(resolve_onemin_image_slots(), estimated_credits=estimated_credits)
     if not configured_slots:
         return False, "onemin:not_configured"
     principal_id = _onemin_principal_id()
@@ -3612,7 +3858,14 @@ def run_onemin_api_provider(
             and str(slot.get("env_name") or "").strip() == reserved_account_id
         )
     ]
-    synthetic_reservation = reserved_env_name.startswith("ONEMIN_RESOLVED_SLOT_") or reserved_account_id.startswith("ONEMIN_RESOLVED_SLOT_")
+    # A no-lease local choice is only a hint about the best first slot, not an
+    # exclusive reservation. Keep walking the remaining healthy keys if that
+    # first slot turns out to be stale, depleted, or misclassified.
+    synthetic_reservation = (
+        not lease_id
+        or reserved_env_name.startswith("ONEMIN_RESOLVED_SLOT_")
+        or reserved_account_id.startswith("ONEMIN_RESOLVED_SLOT_")
+    )
     if synthetic_reservation:
         selected_keys = {
             str(slot.get("key") or "").strip()
@@ -4130,11 +4383,11 @@ def lore_background_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
     if composition == "horizon_boulevard":
-        return "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, cropped megacorp commuter ads, devil rat warnings, or ward marks, but never as readable signage."
+        return "Secondary lore texture can appear as crossed-out draconic pictograms, extraction arrows, hazard icon stencils, cropped megacorp commuter ads, devil rat warnings, ward marks, or lore-place cues like Bug City tower scars, Arcology silhouettes, Puyallup ash, or Glow City fencing, but never as readable signage."
     if composition in {"street_front", "city_edge", "transit_checkpoint", "platform_edge", "van_interior", "district_map"}:
-        return "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, cropped Renraku or Horizon consumer gear cues, devil rat bait tins, barghest or hell hound photo scraps, or ward marks."
+        return "Secondary lore texture is welcome: dragon-warning pictograms, crossed-out draconic pictograms, extraction arrows, cropped Renraku or Horizon consumer gear cues, devil rat bait tins, barghest or hell hound photo scraps, ward marks, grime streaks, rat traps, ash cups, spent stimulants, or recognizable place cues like Redmond bus-stop wreckage, Touristville stalls, Ork Underground tilework, or Arcology shadow lines."
     if composition in {"dossier_desk", "workshop_bench", "proof_room", "simulation_lab", "solo_operator", "review_bay", "clinic_intake", "render_lane"}:
-        return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, clipped devil rat / barghest / hell hound field photos, a Blood Orchid plate, a Paper Lotus charm, cropped corp packaging, or a faint totem portrait in astral residue."
+        return "Secondary lore texture can include an anti-dragon sigil, runner superstition sticker, ward mark, clipped devil rat / barghest / hell hound field photos, a Blood Orchid plate, a Paper Lotus charm, cropped corp packaging, a faint totem portrait in astral residue, stained gauze, old blood, mold bloom, clinic waste, a spent inhaler, or location residue like Bug City skyline photos, Arcology schematics, or Barrens route scraps."
     return ""
 
 
@@ -7119,7 +7372,7 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
                 else f"world markers {joined}"
             )
             parts.append(
-                "Let at least one of those world markers land as a lore crumb on a prop or wall: megacorp gear, critter ephemera, parabotany plate, corp scrip, or astral totem cue."
+                "Let at least one of those world markers land as a lore crumb, hardship clue, or location cue on a prop or wall: megacorp gear, critter ephemera, parabotany plate, corp scrip, astral totem cue, stained gauze, rat trap, clinic waste, spent stimulant debris, Bug City skyline scrap, Arcology plan, or Barrens route fragment."
                 if not compact
                 else "one lore crumb on a prop or wall"
             )
