@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-30
+last_reviewed: 2026-03-31
 program_wave: next_20_big_wins_after_post_audit_closeout
 goal: make the campaign OS indispensable, widen Build and Explain, elevate exchange and publication, and turn trust plus operator depth into launch-scale product truth.
 status: in_progress
@@ -236,7 +236,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Campaigns, primers, dossiers, and run modules publish through one coherent governed path.
       - Publication flow reuses shared artifact truth instead of branching into one-off creator-only lanes.
