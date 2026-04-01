@@ -103,7 +103,7 @@
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",
-    "scorecard_metric_count": 20,
+    "scorecard_metric_count": 22,
     "closure_health": {
       "state": "clear",
       "open_case_count": 0,
