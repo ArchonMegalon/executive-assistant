@@ -70,6 +70,7 @@ rules:
   - Critical public assets must choose one overlay posture before compositing: none, ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
   - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
   - Flagship assets should usually carry both a metahuman cue and a body-worn cyberware cue; rain and grime alone do not make the frame feel Shadowrun.
+  - Every image should imply a lived story beat with a clear before-and-after, not just a posed concept frame: someone is warning, bargaining, patching, sorting, checking, arguing, recovering, or choosing in the middle of a real moment.
   - Hardship must read through the situation itself: triage, crowding, fear, debt, sickness, rot, exploitation, addiction fallout, bad shelter, or failing infrastructure. A dark green palette without those story cues is a miss.
   - Bright should mean vivid and saturated, not clean white. Use high-chroma city, clinic, market, ad, or corp color when the scene earns it.
   - Lore crumbs should survive in flagship and quality-focus assets: cropped corp packaging, critter photo strips, talismonger ephemera, and parabotany prints are preferred over generic neon clutter.
@@ -78,9 +79,11 @@ rules:
   - First-contact and flagship surfaces should prefer scenes with recognizably hard living, not just "dangerous atmosphere": visible treatment residue, rat pressure, medical aftercare evidence, and one clear social-pressure beat each generation.
   - Drug-use or vice cues should read as fallout, dependency, or hard living through spent inhalers, burned spoons, stim patches, crash kits, or shakes; never glamorize them as lifestyle beauty shots.
   - Gore should stay grounded and adult: dried blood, meat-glue residue, stained bandages, trauma cleanup, or ugly clinic aftermath are good; splatter spectacle and torture-porn are failures.
+  - Optional recurring easter egg: a half-dead ugly ork runner or dev may appear in background or aftermath scenes when it fits the story. If a shirt slogan is used, the exact words `CHUMMER-DEV` must be added as verified post-composite text, not trusted to raw model lettering.
   - When a scene includes humor, keep it adult, peripheral, and diegetic through pictograms, mascot stickers, crossed-out icons, or cropped scribbles rather than readable joke signage.
   - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
   - Calm isolated workstation energy is not enough for first contact; show relationships, pressure, and proof props.
+  - Horizon surfaces should often feel connected to roleplay dialogue: a frozen in-character warning, hard bargain, bad prognosis, tense briefing, or after-action exchange that the table could immediately speak into.
   - Every generated frame must keep decisive action inside the safe center so one master can survive desktop and mobile crops.
 contact_sheet_rejection:
   - giant letterform or centered signboard

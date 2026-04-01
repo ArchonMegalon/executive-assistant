@@ -9,8 +9,10 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 
 * intake starts from a runner idea, current dossier, or campaign need
 * variant generation, scoring, and projection stay grounded in engine-owned truth
-* compare, timeline, trap-choice, and role-overlap views stay explainable rather than magical
+* compare, timeline, trap-choice, role-overlap, and active-effect views stay explainable rather than magical
 * chosen variants can hand off into the living dossier, campaign continuity, or publication lanes without re-entering data by hand
+* conditional mechanics such as drugs, foci, sustained effects, acquisition timing, and reputation spends stay visible as first-class state rather than hidden side effects
+* SR4, SR5, and SR6 flows feel authored where their build logic or table expectations materially diverge, instead of being flattened into one generic lowest-common-denominator compare view
 
 ## Core product objects
 
@@ -19,6 +21,7 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * progression timeline
 * explain packet
 * export or handoff target
+* conditional-effect state rail
 
 ## Ownership split
 
@@ -32,7 +35,17 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * Build Lab consumes `Chummer.Engine.Contracts`; it does not become a second rules engine.
 * Build Lab outputs may seed a living dossier or campaign plan, but dossier identity and campaign continuity remain in `Chummer.Campaign.Contracts`.
 * Explain hooks must remain visible enough that "why this variant" can be audited without private operator folklore.
+* Build Lab must expose source-linked hints, grouped organizational state, and receipt-backed conditional toggles instead of hiding these behind freeform notes or silent modifiers.
 * Export or handoff actions are explicit relationship or publication seams, not hidden side effects.
+
+## Flagship-grade bar
+
+Build Lab is not flagship grade until:
+
+* dense compare and inspection flows stay comfortable at expert speed
+* timeline, active-effect, and conditional-state surfaces feel intentionally designed rather than debug panels
+* ruleset-specific differences are surfaced with authored terminology and UI where needed
+* a player can understand "why this variant" without leaving the product or trusting invisible operator knowledge
 
 ## Non-goals
 
@@ -40,3 +53,13 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * UI-local scoring or legality math
 * a second campaign truth store
 * a generic simulation sandbox with no dossier, campaign, or publication handoff
+
+## Legacy issue pressure absorbed here
+
+Build Lab is the canon home for several long-running legacy pain points that still fit the flagship product:
+
+* grouped qualities and grouped active-effect organization
+* source-linked acquisition or rules hints instead of mystery labels
+* toggleable conditional modifiers with visible explain receipts
+* calendar-aware training, acquisition, and downtime planning
+* transaction-safe bundle or PACK previews instead of partial hidden edits

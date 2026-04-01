@@ -27,6 +27,28 @@ scorecards:
         target: 0
         measurement: No open release blocker may remain for rules divergence on a promoted channel.
 
+  - id: edition_authorship_and_import_confidence
+    owner_repo: chummer6-core
+    user_promise: SR4, SR5, and SR6 feel authored, and legacy imports expose drift instead of hiding it.
+    metrics:
+      - name: ruleset_specific_surface_coverage
+        target: 100%
+        measurement: Promoted build and explain flows expose edition-specific terminology and workflow cues wherever canon marks the editions as materially divergent.
+      - name: untriaged_legacy_oracle_divergences
+        target: 0
+        measurement: Chummer4, Chummer5a, and approved Hero Lab oracle tests may fail only with a bounded owner and reason. Silent or ignored divergences fail the gate.
+
+  - id: flagship_desktop_quality
+    owner_repo: chummer6-ui
+    user_promise: The flagship desktop client feels like a premium product rather than a technically working preview.
+    metrics:
+      - name: promoted_platform_primary_path_ambiguity
+        target: 0
+        measurement: Each promoted platform exposes one obvious primary download and first-run path. Fallback artifacts must not read as equally primary by accident.
+      - name: install_update_recovery_flow_regressions
+        target: 0
+        measurement: Startup, install, update, crash-recovery, and feedback/reporting proofs stay green for the flagship head on every promoted platform.
+
   - id: session_continuity
     owner_repo: chummer6-mobile
     user_promise: A table can reconnect and resume without rebuilding truth by memory.
@@ -110,6 +132,17 @@ scorecards:
         target: 0
         measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
 
+  - id: flagship_surface_coherence
+    owner_repo: product_governor
+    user_promise: Downloads, support, status, and in-product flows describe one coherent premium product.
+    metrics:
+      - name: public_to_product_coherence_breaks
+        target: 0
+        measurement: Public shelf, help, support status, and promoted in-product UX must not contradict each other about availability, preview posture, or next safe action.
+      - name: flagship_acceptance_failures_open
+        target: 0
+        measurement: Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml may not remain open without a bounded preview explanation and owner.
+
 release_gates:
   - id: public_surface_honesty
     pass_conditions:
@@ -120,6 +153,16 @@ release_gates:
     pass_conditions:
       - Core verification proves deterministic mechanics and explain coverage for promoted surfaces.
       - No release-blocking math or legality blocker remains open.
+
+  - id: edition_authorship_and_import_gate
+    pass_conditions:
+      - SR4, SR5, and SR6 use authored terminology and workflow cues where canon says the editions diverge.
+      - Legacy Chummer4, Chummer5a, and approved Hero Lab oracle tests surface no untriaged parity drift.
+
+  - id: flagship_desktop_gate
+    pass_conditions:
+      - The flagship head has build, startup, install, update, crash-recovery, and feedback-entry proof on every promoted platform.
+      - Dense-data build, compare, and explain flows preserve one obvious primary path and bounded fallback behavior.
 
   - id: continuity_and_conflict_recovery_gate
     pass_conditions:
@@ -152,6 +195,11 @@ release_gates:
     pass_conditions:
       - The six system journeys in GOLDEN_JOURNEY_RELEASE_GATES.yaml are materialized into Fleet journey-gate truth and none are blocked.
       - A journey warning may remain only when the governor can cite the reason, the next action, and the bounded non-breach claim for that wave.
+
+  - id: flagship_coherence_gate
+    pass_conditions:
+      - Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml are green or carry bounded preview explanations that do not overclaim public readiness.
+      - Public, download, help, support, and status surfaces tell the same product story as the promoted in-product experience.
 
 rules:
   - These metrics are release gates, not dashboard decoration.

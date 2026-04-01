@@ -2,7 +2,7 @@
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
   "generated_at": "2026-03-31T14:34:09Z",
-  "as_of": "2026-03-31",
+  "as_of": "2026-04-01",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -17,7 +17,7 @@
   },
   "governor_decisions": [
     {
-      "decision_id": "2026-03-31-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+      "decision_id": "2026-04-01-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
       "action": "closeout_and_continue",
       "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 6 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
       "cited_signals": [
@@ -73,7 +73,7 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-03-31-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
+        "decision_id": "2026-04-01-closeout-and-continue-next-20-big-wins-after-post-audit-closeout",
         "action": "closeout_and_continue",
         "reason": "Keep the recommended wave on Next 20 Big Wins After Post-Audit Closeout now that the Post-Audit Next 20 Big Wins program is materially closed. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 6 snapshots, and the pacing risk is still concentrated in Core Engine rather than in reopened foundation, campaign-middle, or trust-surface blockers.",
         "cited_signals": [
@@ -103,7 +103,7 @@
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml",
-    "scorecard_metric_count": 16,
+    "scorecard_metric_count": 20,
     "closure_health": {
       "state": "clear",
       "open_case_count": 0,

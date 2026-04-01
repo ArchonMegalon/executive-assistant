@@ -13,9 +13,19 @@ This file keeps the center of gravity legible as one product story:
 * Publish
 * Improve
 
+`FLAGSHIP_PRODUCT_BAR.md` defines the craftsmanship bar for those journeys.
+`FLAGSHIP_RELEASE_ACCEPTANCE.yaml` defines the release-ready proof that the journeys feel flagship grade rather than merely mapped.
+
 ## Build
 
 Goal: create or refine a runner without mystery math.
+
+Flagship bar:
+
+* one obvious primary builder path per supported head
+* authored SR4, SR5, and SR6 labels and cues where the rules diverge
+* active drugs, effects, legality, and timed state visible before commit
+* compare and inspect flow stays comfortable under dense expert data
 
 Canonical detail:
 
@@ -26,6 +36,12 @@ Canonical detail:
 
 Goal: understand why a number, legality result, or tradeoff changed.
 
+Flagship bar:
+
+* explain answers read like product truth rather than debug output
+* important deltas cite the responsible source, rule, or effect chain
+* imports surface parity drift explicitly instead of silently normalizing it
+
 Canonical detail:
 
 * `journeys/build-and-inspect-a-character.md`
@@ -35,6 +51,12 @@ Canonical detail:
 ## Run
 
 Goal: keep the same runner, crew, campaign, and recent workspace alive across live play, claimed-device handoff, reconnect, and recovery.
+
+Flagship bar:
+
+* reconnect and resume are trustworthy under table pressure
+* live, stale, offline, pending, and conflict posture are visually obvious
+* player, GM, and observer flows feel authored for live play rather than recycled workbench layouts
 
 Canonical detail:
 
@@ -50,6 +72,12 @@ Canonical detail:
 
 Goal: turn grounded dossiers, packets, and recaps into finished artifacts without losing provenance.
 
+Flagship bar:
+
+* preview-before-publish remains obvious where required
+* artifact polish is strong enough for public sharing, not only internal export
+* provenance and compatibility remain attached without cluttering the primary publishing path
+
 Canonical detail:
 
 * `journeys/publish-a-grounded-artifact.md`
@@ -58,6 +86,12 @@ Canonical detail:
 ## Improve
 
 Goal: report pain, follow closure, and trust whether the product actually got better.
+
+Flagship bar:
+
+* crash, bug, feedback, and support routes are reachable from the product when users need them
+* public shelf, help, status, and in-product fix messaging never contradict each other
+* recovery guidance tells the user the next safe action instead of only exposing system state
 
 Canonical detail:
 
@@ -70,3 +104,4 @@ Canonical detail:
 ## Rule
 
 If a repo changes one of these cross-head journeys, it must update the detailed journey doc and this top-level map before implementation lands.
+If a release claim depends on these journeys, the same change must keep `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` and `METRICS_AND_SLOS.yaml` honest.

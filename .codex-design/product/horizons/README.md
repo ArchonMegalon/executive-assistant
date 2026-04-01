@@ -6,6 +6,10 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 
 ## Current canonical horizon set
 
+* `quicksilver.md` - expert-speed, keyboard, command-surface, and latency-budget horizon
+* `edition-studio.md` - ruleset-specific authored heads, visual language, and interaction posture
+* `onramp.md` - guided mastery, primer, and coached-build horizon
+* `run-control.md` - GM operations, prep, live-control, and recovery horizon
 * `nexus-pan.md` - matrix, device, and shared-state continuity
 * `alice.md` - build quality and comparative analysis
 * `karma-forge.md` - governed house-rule and alternate-ruleset evolution
@@ -16,6 +20,9 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 * `ghostwire.md` - replay, after-action review, and forensics lane
 * `table-pulse.md` - bounded GM coaching and table-dynamics analysis
 * `local-co-processor.md` - optional local acceleration without mandatory local runtime
+
+Cross-horizon foundation truth lives in `FOUNDATIONS.md`.
+Machine-readable order, owners, and dependency truth live in `HORIZON_REGISTRY.yaml`.
 
 ## Canon rule
 

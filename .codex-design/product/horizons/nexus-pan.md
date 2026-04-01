@@ -8,6 +8,7 @@ When phones, tablets, or laptops drift apart during play, the whole table stops 
 
 Chummer would keep reconnects and shared session state steady enough that players can jump back in without the GM rebuilding context by hand.
 It would extend the core rules and session record instead of inventing a second source of truth.
+It also covers premium degraded-mode behavior: clear offline posture, safe local continuity, and honest conflict recovery when the network or device handoff goes bad.
 
 ## Likely owners
 
@@ -26,6 +27,8 @@ If projections or operator aids appear later, they remain downstream helpers onl
 * reliable sync bundles
 * visible reconnect explanations
 * in-session reliability
+* offline-capable local state
+* explicit stale, pending, and conflicted state
 
 ## Why it is not ready yet
 

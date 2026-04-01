@@ -52,6 +52,11 @@ Publication/catalog concerns and render/media concerns do not remain hidden insi
 
 `chummer5a` exists to support migration and regression confidence, not to compete with vNext architecture.
 
+### 8. Flagship-grade craft is part of done
+
+Chummer is not finished when the code merely works.
+It is finished when the whole product feels deliberate, trustworthy, fast under real use, honest on the public shelf, and authored enough that SR4, SR5, and SR6 do not collapse into one generic lowest-common-denominator experience.
+
 ## Finished-state experience
 
 ### Player
