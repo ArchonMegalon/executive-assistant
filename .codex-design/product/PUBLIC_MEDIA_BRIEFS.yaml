@@ -84,6 +84,8 @@ rules:
   - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
   - Calm isolated workstation energy is not enough for first contact; show relationships, pressure, and proof props.
   - Horizon surfaces should often feel connected to roleplay dialogue: a frozen in-character warning, hard bargain, bad prognosis, tense briefing, or after-action exchange that the table could immediately speak into.
+  - When AR appears, treat it like smart-glasses or cybereye field intelligence from the Sixth World: smartlink threat brackets, teammate biomon pulse, ammo or heat state, SIN-spoof confidence, ward-boundary bleed, toxin load, drone pings, comms handshake health, exit vectors, route viability, and corp-security risk. Decorative neon fog is failure.
+  - AR must cling to what the wearer is actually looking at: cyberlimb seams, wound sites, weapon lines, door frames, crate edges, rails, totem glows, critter photos, or floor paths. Free-floating holo posters, giant HUD slabs, and generic rectangles are failures.
   - Every generated frame must keep decisive action inside the safe center so one master can survive desktop and mobile crops.
 contact_sheet_rejection:
   - giant letterform or centered signboard
@@ -338,6 +340,7 @@ asset_overlay_contracts:
     overlay_attachment_rule: >
       Keep overlays edge-biased and route-anchored; never cover the central
       path or imply city-wide scanning.
+    overlay_render_strategy: verified_post_composite_public
   assets/horizons/karma-forge.png:
     style_epoch_force_only: true
     required_overlay_mode: forge_review_ar
@@ -389,7 +392,7 @@ asset_overlay_contracts:
       If overlays appear, keep them faint and anchored to the review rail,
       clips, or trace seam; never let a floating screen or loose text slab
       explain the page.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
@@ -410,7 +413,7 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Keep any AR faint, local, and shelf-anchored; the public niche and its
       surviving physical traces must do more storytelling than electronics.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
@@ -431,7 +434,7 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Any overlay must stay welded to wall seams, pockets, route tiles, or
       shelf traces; never promote a single glowing panel into the subject.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
@@ -451,11 +454,13 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Overlays may only help the viewer parse room-scale work zones and route
       connections; the walkable environment map must remain primary.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/alice.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.58
     apparatus_share_minimum: 0.34
@@ -474,15 +479,22 @@ asset_overlay_contracts:
       - mannequin-silhouette brackets
       - test-lane markers
       - outcome ghost traces
+    overlay_priority_order:
+      - hazard triage
+      - impact silhouette
+      - route risk
+      - biomon anomaly
     overlay_actionability_rule: >
       Treat any overlay as test-lane hazard instrumentation attached to the
       sim bench, mannequin silhouette, or branching risk path, never as a wall
       display verdict.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/runsite.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.60
     subject_crop_maximum: 0.24
@@ -500,14 +512,21 @@ asset_overlay_contracts:
       - ghost-lane traces
       - threat-posture marks
       - wall-seam anchors
+    overlay_priority_order:
+      - ingress cones
+      - threat posture
+      - teammate posture
+      - exit vector
     overlay_actionability_rule: >
       Keep planning cues welded to wet concrete, wall seams, crate edges, and
       ingress paths so the staging point reads as a real place, not a slab UI.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/parts/hub.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
     world_marker_minimum: 4
     environment_share_minimum: 0.62
     apparatus_share_minimum: 0.45
@@ -525,14 +544,21 @@ asset_overlay_contracts:
       - hosted-state brackets
       - aisle pings
       - rack-edge traces
+    overlay_priority_order:
+      - hosted state
+      - relay seam
+      - aisle ping
+      - queue handoff
     overlay_actionability_rule: >
       Any overlay must attach to racks, seams, or aisle hardware and should
       reinforce hosted coordination instead of becoming a screen wall.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/parts/mobile.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.56
     subject_crop_maximum: 0.24
@@ -550,14 +576,21 @@ asset_overlay_contracts:
       - handheld sync halos
       - continuity brackets
       - gesture taps
+    overlay_priority_order:
+      - reconnect state
+      - comm health
+      - route continuity
+      - exit vector
     overlay_actionability_rule: >
       Keep reconnect cues attached to the returning device, sleeve, trode rig,
       or table edge; avoid turning the image into a generic phone demo.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/jackpoint.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.52
     subject_crop_maximum: 0.24
@@ -575,14 +608,21 @@ asset_overlay_contracts:
       - dossier anchor rails
       - route shards
       - redaction bars
+    overlay_priority_order:
+      - packet authenticity
+      - route shard
+      - dead-drop risk
+      - witness link
     overlay_actionability_rule: >
       Keep dossier cues attached to packets, evidence sleeves, chip trays, and
       table edges; never let a fake readable form become the subject.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/nexus-pan.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.56
     subject_crop_maximum: 0.24
@@ -600,10 +640,250 @@ asset_overlay_contracts:
       - continuity rails
       - signal halos
       - sync brackets
+    overlay_priority_order:
+      - reconnect state
+      - link health
+      - sync trust
+      - route continuation
     overlay_actionability_rule: >
       Keep reconnect cues attached to the returning device, sleeve, cable nest,
       or van hardware; avoid generic phone-demo framing.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/runbook-press.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 4
+    environment_share_minimum: 0.54
+    apparatus_share_minimum: 0.34
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - provenance rails
+      - witness-seam brackets
+      - diff strips
+      - press-lane shards
+    overlay_priority_order:
+      - provenance
+      - witness lock
+      - route shard
+      - release risk
+    overlay_actionability_rule: >
+      Keep publication cues attached to proof rails, packets, clip edges, and
+      press-lane hardware so the room reads as a lived briefing, not a board.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/table-pulse.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 4
+    environment_share_minimum: 0.50
+    apparatus_share_minimum: 0.30
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - replay heat paths
+      - consequence echoes
+      - witness pulse rings
+      - route ghosts
+    overlay_priority_order:
+      - replay heat
+      - consequence echo
+      - witness pulse
+      - route ghost
+    overlay_actionability_rule: >
+      Keep replay cues attached to cups, tokens, booth edges, and pushed-aside
+      devices so the after-action scene stays physical and tired.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/core.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 4
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.42
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - smartlink_tactical
+    overlay_geometry:
+      - smartlink wedges
+      - recoil rails
+      - wound chips
+      - line-of-effect brackets
+    overlay_priority_order:
+      - wound state
+      - recoil
+      - line of effect
+      - edge spend
+    overlay_actionability_rule: >
+      Only show ruling cues a hard-bitten runner or referee would actually use
+      in a live exchange: wound load, recoil, line of effect, cover, and edge.
+    overlay_attachment_rule: >
+      Weld overlays to the proof rail, shell clips, hands, or weapon-line
+      geometry; never float labels in dead air.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/design.png:
+    overlay_density: medium
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 4
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.40
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - smartlink_tactical
+      - ambient_diegetic
+    overlay_geometry:
+      - ownership arrows
+      - threat arcs
+      - scope brackets
+      - route seams
+    overlay_priority_order:
+      - scope
+      - ownership
+      - threat
+      - route seam
+    overlay_actionability_rule: >
+      Treat the overlay like a planner's cybereye field view: scope conflict,
+      route risk, and ownership pressure anchored to the prototypes.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/hub-registry.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 4
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.42
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - intake bands
+      - quarantine halos
+      - biohazard brackets
+      - compatibility seals
+    overlay_priority_order:
+      - intake state
+      - quarantine risk
+      - compatibility
+      - release lock
+    overlay_actionability_rule: >
+      Only show intake information a registrar or runner would use while
+      judging rough contraband: quarantine, contamination, compatibility, and
+      release state.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/media-factory.png:
+    overlay_density: medium
+    required_overlay_mode: forge_review_ar
+    world_marker_minimum: 4
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.44
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - forge_review_ar
+    overlay_geometry:
+      - render-lane rails
+      - repair brackets
+      - provenance seals
+      - approval shards
+    overlay_priority_order:
+      - render state
+      - repair target
+      - provenance
+      - approval
+    overlay_actionability_rule: >
+      Use render-lane review cues that feel like a media operator's field view:
+      repair target, render state, provenance, and approval risk anchored to the
+      lane hardware.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/ui.png:
+    overlay_density: medium
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 4
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.40
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - smartlink_tactical
+      - ambient_diegetic
+    overlay_geometry:
+      - compare brackets
+      - build deltas
+      - trust rails
+      - fit-callout seams
+    overlay_priority_order:
+      - compare
+      - delta
+      - trust
+      - fit
+    overlay_actionability_rule: >
+      Treat the overlay like a build bench seen through smart lenses: compare
+      state, fit, trust, and delta cues anchored to the bench and hardware.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/ui-kit.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 4
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.42
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - alignment brackets
+      - component echoes
+      - shell-fit seams
+      - ward-tag halos
+    overlay_priority_order:
+      - alignment
+      - shell fit
+      - component echo
+      - ward tag
+    overlay_actionability_rule: >
+      Any overlay should read like a designer's glasses view while aligning
+      real parts: alignment, shell fit, component echo, and ward tag state.
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional

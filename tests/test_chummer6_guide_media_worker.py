@@ -2070,8 +2070,9 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     assert media.first_contact_variant_count(target="assets/pages/parts-index.png") == 10
     assert media.quality_focus_target("assets/parts/ui.png") is True
     assert media.first_contact_variant_count(target="assets/parts/ui.png") == 5
-    assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png"}) is False
+    assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png"}) is True
     assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png", "review_overlay": True}) is True
+    assert media.review_overlay_enabled(spec={"target": "assets/parts/core.png"}) is True
 
 
 def test_first_contact_target_variant_count_honors_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2086,6 +2087,7 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
 
     hero_contract = media.target_visual_contract("assets/hero/chummer6-hero.png")
     contract = media.target_visual_contract("assets/horizons/karma-forge.png")
+    core_contract = media.target_visual_contract("assets/parts/core.png")
 
     assert hero_contract["person_count_target"] == "duo_or_team"
     assert any("improvised garage clinic" in marker for marker in hero_contract["required_setting_markers"])
@@ -2096,6 +2098,9 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     assert contract["overlay_density"] == "high"
     assert contract["person_count_target"] == "duo_preferred"
     assert "DIFF" in contract["required_overlay_schema"]
+    assert core_contract["required_overlay_mode"] == "smartlink_tactical"
+    assert core_contract["overlay_render_strategy"] == "verified_post_composite_public"
+    assert core_contract["overlay_anchor_required"] is True
     assert contract["required_overlay_mode"] == "forge_review_ar"
     assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
     assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
@@ -2384,19 +2389,19 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
     assert "borderw=1" in seen["command"][7]
 
 
-def test_apply_first_contact_overlay_postpass_skips_public_assets_by_default(tmp_path: Path) -> None:
+def test_apply_first_contact_overlay_postpass_skips_targets_without_overlay_layout(tmp_path: Path) -> None:
     media = _load_module()
     image_path = tmp_path / "hero.png"
     image_path.write_bytes(b"png")
 
     result = media.apply_first_contact_overlay_postpass(
         image_path=image_path,
-        spec={"target": "assets/hero/chummer6-hero.png"},
+        spec={"target": "assets/pages/start-here.png"},
         width=960,
         height=540,
     )
 
-    assert result == "first_contact_overlay:skipped_public_clean"
+    assert result == "first_contact_overlay:skipped"
 
 
 def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
@@ -2441,6 +2446,22 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     assert int(calibration["y"]) > int(0.64 * 540)
     assert int(wound["x"]) < int(0.12 * 960)
     assert int(wound["y"]) > int(0.68 * 540)
+
+
+def test_core_overlay_layout_uses_smartlink_style_chips() -> None:
+    media = _load_module()
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/parts/core.png",
+        width=960,
+        height=540,
+    )
+
+    assert len(layout["chips"]) >= 4
+    assert any(chip["text"] == "WOUND 3" for chip in layout["chips"])
+    assert any(chip["text"] == "LOS LIVE" for chip in layout["chips"])
+    assert any(chip["text"] == "RECOIL 2" for chip in layout["chips"])
+    assert any(chip["text"] == "EDGE 1" for chip in layout["chips"])
 
 
 def test_apply_flagship_finish_postpass_uses_pillow_when_available(tmp_path: Path) -> None:
@@ -2684,9 +2705,9 @@ def test_apply_flagship_finish_postpass_uses_ffmpeg_when_pillow_is_unavailable(
     )
 
     assert result == "flagship_finish_postpass:applied_ffmpeg"
-    assert "cas=strength=0.22" in seen["command"][7]
-    assert "vibrance=intensity=0.10" in seen["command"][7]
-    assert "unsharp=5:5:0.64:3:3:0.0" in seen["command"][7]
+    assert "cas=strength=0.24" in seen["command"][7]
+    assert "vibrance=intensity=0.18" in seen["command"][7]
+    assert "unsharp=5:5:0.66:3:3:0.0" in seen["command"][7]
 
 
 def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
