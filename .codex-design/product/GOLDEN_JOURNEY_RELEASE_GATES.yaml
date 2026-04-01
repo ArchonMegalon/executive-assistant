@@ -1,7 +1,7 @@
 product: chummer
 surface: release_control
 version: 1
-last_reviewed: 2026-03-27
+last_reviewed: 2026-04-01
 purpose: Canonical six-journey release gate layer for proving the campaign OS as a lived system instead of only a coherent repo graph.
 
 journey_gates:
@@ -24,11 +24,13 @@ journey_gates:
         - golden_journey_proof
       release_gates:
         - install_and_update_gate
+        - rule_environment_gate
         - roaming_workspace_gate
         - golden_journey_gate
       health_scorecards:
         - golden_journey_health
         - campaign_middle_health
+        - rule_environment_trust
     fleet_gate:
       required_artifacts:
         - status_plane
@@ -87,11 +89,13 @@ journey_gates:
         - golden_journey_proof
       release_gates:
         - deterministic_truth_gate
+        - rule_environment_gate
         - publication_and_provenance_gate
         - golden_journey_gate
       health_scorecards:
         - golden_journey_health
         - campaign_middle_health
+        - rule_environment_trust
     fleet_gate:
       required_artifacts:
         - status_plane
@@ -223,11 +227,13 @@ journey_gates:
         - golden_journey_proof
       release_gates:
         - continuity_and_conflict_recovery_gate
+        - rule_environment_gate
         - roaming_workspace_gate
         - golden_journey_gate
       health_scorecards:
         - golden_journey_health
         - campaign_middle_health
+        - rule_environment_trust
     fleet_gate:
       required_artifacts:
         - status_plane

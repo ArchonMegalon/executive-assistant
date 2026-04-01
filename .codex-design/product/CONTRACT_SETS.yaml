@@ -215,9 +215,12 @@ contract_sets:
     status: complete
     includes:
       - source pack refs
+      - preset refs
       - house-rule pack refs
+      - amend package refs
       - option toggles
       - compatibility fingerprint
+      - activation receipt refs
       - owner scope
       - approval state
     rule: "`Chummer.Engine.Contracts` owns ruleset and pack provenance atoms, but the chosen person, campaign, or group rule environment that a workspace restores is long-lived product truth in `Chummer.Campaign.Contracts`."

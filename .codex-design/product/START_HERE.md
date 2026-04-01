@@ -77,10 +77,12 @@ Read:
 * What still makes the campaign OS feel unproven or uneven? -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 * Which journeys must every release wave keep passable? -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+* How do rules presets, custom-data overlays, and amend packs work? -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` and `INTEROP_AND_PORTABILITY_MODEL.md`
 * How do claimed devices follow me without turning into mystery sync? -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md`
 * How should the home surface, campaign workspace, and device roles work? -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md`
 * What is the public release and install trust surface? -> `PUBLIC_RELEASE_EXPERIENCE.yaml`, `PUBLIC_DOWNLOADS_POLICY.md`, and `PUBLIC_AUTO_UPDATE_POLICY.md`
 * What is Build Lab supposed to become? -> `BUILD_LAB_PRODUCT_MODEL.md`
+* How does Chummer keep the active rule environment honest? -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md`
 * What from the legacy GitHub issue backlog still matters? -> `LEGACY_GITHUB_ISSUE_SYNTHESIS.md`
 * Who owns what? -> `ARCHITECTURE.md` and `OWNERSHIP_MATRIX.md`
 * What contracts exist? -> `CONTRACT_SETS.yaml`

@@ -24,10 +24,12 @@ User promise:
 
 * numbers and legality stay reproducible and inspectable
 * the fastest builder path still feels crafted for edition-specific reasoning and dense expert work
+* the active ruleset, preset, and amend-package set are visible before the user trusts a result
 
 Primary canon:
 
 * `METRICS_AND_SLOS.yaml` -> `deterministic_rules_truth`
+* `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md`
 
 ## Explain
 
@@ -35,6 +37,7 @@ User promise:
 
 * every important answer keeps a readable evidence chain
 * explain surfaces stay understandable to a paying user, not only to a debugger
+* explain can say which rule environment and amend packages changed the outcome
 
 Primary canon:
 
@@ -47,6 +50,7 @@ User promise:
 
 * the same runner, crew, campaign, and recent workspace survive claimed-device handoff, reconnect, continuity drift, and replay-driven recovery
 * live-play shells clearly distinguish what is safe, stale, pending, or conflicted
+* missing or incompatible rule packages are explicit before a resumed device computes against the wrong environment
 
 Primary canon:
 

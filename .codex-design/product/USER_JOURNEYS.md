@@ -25,6 +25,7 @@ Flagship bar:
 * one obvious primary builder path per supported head
 * authored SR4, SR5, and SR6 labels and cues where the rules diverge
 * active drugs, effects, legality, and timed state visible before commit
+* active ruleset, preset, and amend-package posture visible before a user trusts the build
 * compare and inspect flow stays comfortable under dense expert data
 
 Canonical detail:
@@ -40,6 +41,7 @@ Flagship bar:
 
 * explain answers read like product truth rather than debug output
 * important deltas cite the responsible source, rule, or effect chain
+* explain can name the active rule environment and the package change that altered the outcome
 * imports surface parity drift explicitly instead of silently normalizing it
 
 Canonical detail:
@@ -56,6 +58,7 @@ Flagship bar:
 
 * reconnect and resume are trustworthy under table pressure
 * live, stale, offline, pending, and conflict posture are visually obvious
+* missing or incompatible rule packs and amend packages are explicit before a resumed device computes against the wrong environment
 * player, GM, and observer flows feel authored for live play rather than recycled workbench layouts
 
 Canonical detail:
@@ -76,6 +79,7 @@ Flagship bar:
 
 * preview-before-publish remains obvious where required
 * artifact polish is strong enough for public sharing, not only internal export
+* published artifacts keep the rule-environment and compatibility context needed to trust what was published
 * provenance and compatibility remain attached without cluttering the primary publishing path
 
 Canonical detail:

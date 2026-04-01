@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-25
+last_reviewed: 2026-04-01
 purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
 golden_journey_source: GOLDEN_JOURNEY_RELEASE_GATES.yaml
 
@@ -23,6 +23,9 @@ scorecards:
       - name: promoted_mechanics_receipt_coverage
         target: 100%
         measurement: Every promoted mechanics-affecting output exposes an explain or receipt pointer in repo verification and release signoff.
+      - name: active_rule_environment_receipt_coverage
+        target: 100%
+        measurement: Every promoted build, explain, import, and compare surface exposes the active ruleset, preset, source-pack, and amend-package fingerprint or a receipt pointer to it.
       - name: release_blocking_math_regressions
         target: 0
         measurement: No open release blocker may remain for rules divergence on a promoted channel.
@@ -87,6 +90,9 @@ scorecards:
       - name: device_role_posture_visibility
         target: 100%
         measurement: A claimed install with a device role or distinct channel posture must expose that posture clearly without implying it silently affects other installs.
+      - name: missing_rule_package_guidance_gaps
+        target: 0
+        measurement: Missing, incompatible, or downgraded rule packs or amend packages must surface a next safe action before the client computes against the wrong environment.
 
   - id: hosted_identity_and_participation
     owner_repo: chummer6-hub
@@ -153,6 +159,11 @@ release_gates:
     pass_conditions:
       - Core verification proves deterministic mechanics and explain coverage for promoted surfaces.
       - No release-blocking math or legality blocker remains open.
+
+  - id: rule_environment_gate
+    pass_conditions:
+      - Promoted build, explain, import, and compare flows expose the active rule environment and package fingerprint before the user trusts the result.
+      - Missing or incompatible rule packs or amend packages produce explicit receipt-backed guidance instead of ambient local drift.
 
   - id: edition_authorship_and_import_gate
     pass_conditions:

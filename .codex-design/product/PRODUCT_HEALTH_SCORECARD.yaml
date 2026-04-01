@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-25
+last_reviewed: 2026-04-01
 purpose: Weekly whole-product pulse for the Product Governor and release-control loop.
 
 cadence:
@@ -41,6 +41,17 @@ scorecards:
       - name: primary_path_ambiguities_open
         target: 0
         source: release audits, journey audits, and public-surface audits
+
+  - id: rule_environment_trust
+    owner: product_governor
+    question: Can users tell which rule environment produced this result, and can they recover safely when package state drifts?
+    metrics:
+      - name: package_activation_without_receipt_guidance
+        target: 0
+        source: build/explain/import audits plus workbench and restore signoff evidence
+      - name: missing_or_incompatible_package_without_next_safe_action
+        target: 0
+        source: restore, import, and claimed-device recovery audits
 
   - id: edition_authorship_and_import_confidence
     owner: chummer6-core
@@ -124,6 +135,7 @@ weekly_snapshot:
     - as_of
     - release_health
     - flagship_readiness
+    - rule_environment_trust
     - journey_gate_health
     - edition_authorship_and_import_confidence
     - top_support_or_feedback_clusters
