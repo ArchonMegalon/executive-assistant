@@ -172,6 +172,10 @@ class TaskContractService:
             "campaign_heat_brief",
             "campaign_aftermath_packet",
             "campaign_return_loop_brief",
+            "campaign_safehouse_readiness_brief",
+            "campaign_travel_continuity_packet",
+            "campaign_offline_continuity_brief",
+            "campaign_mobile_companion_brief",
         }:
             deliverable_type = {
                 "meeting_prep": "meeting_brief",
@@ -192,6 +196,10 @@ class TaskContractService:
                 "campaign_heat_brief": "campaign_heat_brief",
                 "campaign_aftermath_packet": "campaign_aftermath_packet",
                 "campaign_return_loop_brief": "campaign_return_loop_brief",
+                "campaign_safehouse_readiness_brief": "campaign_safehouse_readiness_brief",
+                "campaign_travel_continuity_packet": "campaign_travel_continuity_packet",
+                "campaign_offline_continuity_brief": "campaign_offline_continuity_brief",
+                "campaign_mobile_companion_brief": "campaign_mobile_companion_brief",
             }[normalized]
             return TaskContract(
                 task_key=normalized,
