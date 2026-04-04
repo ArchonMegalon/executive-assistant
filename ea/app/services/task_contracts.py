@@ -176,6 +176,7 @@ class TaskContractService:
             "campaign_travel_continuity_packet",
             "campaign_offline_continuity_brief",
             "campaign_mobile_companion_brief",
+            "campaign_workspace_v4_brief",
         }:
             deliverable_type = {
                 "meeting_prep": "meeting_brief",
@@ -200,6 +201,7 @@ class TaskContractService:
                 "campaign_travel_continuity_packet": "campaign_travel_continuity_packet",
                 "campaign_offline_continuity_brief": "campaign_offline_continuity_brief",
                 "campaign_mobile_companion_brief": "campaign_mobile_companion_brief",
+                "campaign_workspace_v4_brief": "campaign_workspace_v4_brief",
             }[normalized]
             return TaskContract(
                 task_key=normalized,

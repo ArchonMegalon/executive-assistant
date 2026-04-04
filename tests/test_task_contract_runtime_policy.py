@@ -196,6 +196,7 @@ def test_task_contract_runtime_policy_deep_merges_nested_skill_catalog_fields() 
         ("campaign_travel_continuity_packet", "campaign_travel_continuity_packet"),
         ("campaign_offline_continuity_brief", "campaign_offline_continuity_brief"),
         ("campaign_mobile_companion_brief", "campaign_mobile_companion_brief"),
+        ("campaign_workspace_v4_brief", "campaign_workspace_v4_brief"),
     ],
 )
 def test_builtin_w3_campaign_and_gm_contracts_resolve_with_groundwork_runtime_policy(

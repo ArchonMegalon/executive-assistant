@@ -335,6 +335,10 @@ def test_builtin_campaign_return_loop_contract_builds_tool_then_artifact_plan(mo
         ("campaign_travel_continuity_packet", "prepare travel continuity packet notes"),
         ("campaign_offline_continuity_brief", "prepare offline continuity notes"),
         ("campaign_mobile_companion_brief", "prepare mobile companion continuity notes"),
+        (
+            "campaign_workspace_v4_brief",
+            "prepare a single campaign workspace v4 continuity brief for downtime, diary, contacts, heat, aftermath, return, gm ops, and offline/mobile continuity",
+        ),
     ],
 )
 def test_builtin_campaign_mobile_continuity_contracts_build_tool_then_artifact_plan(
@@ -382,6 +386,11 @@ def test_builtin_campaign_mobile_continuity_contracts_build_tool_then_artifact_p
         ("campaign_travel_continuity_packet", "prepare travel continuity packet notes", "campaign_travel_continuity_packet"),
         ("campaign_offline_continuity_brief", "prepare offline continuity notes", "campaign_offline_continuity_brief"),
         ("campaign_mobile_companion_brief", "prepare mobile companion continuity notes", "campaign_mobile_companion_brief"),
+        (
+            "campaign_workspace_v4_brief",
+            "prepare one campaign workspace v4 brief that spans downtime, diary, contacts, heat, aftermath, return, gm ops, and offline/mobile continuity",
+            "campaign_workspace_v4_brief",
+        ),
     ],
 )
 def test_builtin_campaign_and_gm_ops_contracts_compile_tool_then_artifact_plan(
