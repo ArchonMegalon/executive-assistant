@@ -166,6 +166,12 @@ class TaskContractService:
             "roster_movement_plan",
             "prep_library_packet",
             "event_control_brief",
+            "campaign_downtime_plan",
+            "campaign_diary_packet",
+            "campaign_contacts_update",
+            "campaign_heat_brief",
+            "campaign_aftermath_packet",
+            "campaign_return_loop_brief",
         }:
             deliverable_type = {
                 "meeting_prep": "meeting_brief",
@@ -180,6 +186,12 @@ class TaskContractService:
                 "roster_movement_plan": "roster_movement_plan",
                 "prep_library_packet": "prep_library_packet",
                 "event_control_brief": "event_control_brief",
+                "campaign_downtime_plan": "campaign_downtime_plan",
+                "campaign_diary_packet": "campaign_diary_packet",
+                "campaign_contacts_update": "campaign_contacts_update",
+                "campaign_heat_brief": "campaign_heat_brief",
+                "campaign_aftermath_packet": "campaign_aftermath_packet",
+                "campaign_return_loop_brief": "campaign_return_loop_brief",
             }[normalized]
             return TaskContract(
                 task_key=normalized,
