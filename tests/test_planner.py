@@ -328,19 +328,32 @@ def test_builtin_campaign_return_loop_contract_builds_tool_then_artifact_plan(mo
     assert plan.steps[2].tool_name == "provider.brain_router.reasoned_patch_review"
 
 
-def test_builtin_campaign_mobile_companion_contract_builds_tool_then_artifact_plan(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("task_key", "goal"),
+    [
+        ("campaign_safehouse_readiness_brief", "prepare safehouse readiness continuity notes"),
+        ("campaign_travel_continuity_packet", "prepare travel continuity packet notes"),
+        ("campaign_offline_continuity_brief", "prepare offline continuity notes"),
+        ("campaign_mobile_companion_brief", "prepare mobile companion continuity notes"),
+    ],
+)
+def test_builtin_campaign_mobile_continuity_contracts_build_tool_then_artifact_plan(
+    monkeypatch,
+    task_key: str,
+    goal: str,
+) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
     planner = PlannerService(TaskContractService(InMemoryTaskContractRepository()))
 
     intent, plan = planner.build_plan(
-        task_key="campaign_mobile_companion_brief",
+        task_key=task_key,
         principal_id="exec-1",
-        goal="prepare safehouse, travel, offline, and mobile companion continuity notes",
+        goal=goal,
     )
 
-    assert intent.task_type == "campaign_mobile_companion_brief"
-    assert intent.deliverable_type == "campaign_mobile_companion_brief"
+    assert intent.task_type == task_key
+    assert intent.deliverable_type == task_key
     assert [step.step_key for step in plan.steps] == [
         "step_input_prepare",
         "step_structured_generate",
