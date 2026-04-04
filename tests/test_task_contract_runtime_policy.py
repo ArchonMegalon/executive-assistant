@@ -218,3 +218,63 @@ def test_builtin_w3_campaign_and_gm_contracts_resolve_with_groundwork_runtime_po
     assert runtime_policy.brain_profile == "groundwork"
     assert runtime_policy.posthoc_review_profile == "review_light"
     assert runtime_policy.artifact_output.template == "groundwork_brief"
+
+
+def test_builtin_w3_gm_ops_contract_projects_lane_memory_metadata() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    runtime_policy = service.get_contract_or_raise("gm_ops_briefing").runtime_policy()
+
+    assert runtime_policy.skill_catalog.memory_reads == (
+        "campaign_state",
+        "rosters",
+        "opposition_notes",
+        "event_controls",
+    )
+    assert runtime_policy.skill_catalog.memory_writes == ("gm_ops_brief_fact",)
+    assert runtime_policy.skill_catalog.provider_hints_json["primary"] == [
+        "Gemini Vortex",
+        "AI Magicx",
+        "BrowserAct",
+    ]
+
+
+def test_builtin_w3_mobile_continuity_contract_projects_safehouse_travel_offline_reads() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    runtime_policy = service.get_contract_or_raise("campaign_mobile_companion_brief").runtime_policy()
+
+    assert runtime_policy.skill_catalog.memory_reads == (
+        "campaign_state",
+        "safehouse_packets",
+        "travel_prefetches",
+        "offline_posture",
+        "mobile_companion_state",
+        "return_targets",
+    )
+    assert runtime_policy.skill_catalog.memory_writes == ("campaign_mobile_companion_fact",)
+
+
+def test_builtin_w3_workspace_v4_contract_projects_unified_campaign_gm_and_offline_reads() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    runtime_policy = service.get_contract_or_raise("campaign_workspace_v4_brief").runtime_policy()
+
+    assert runtime_policy.skill_catalog.memory_reads == (
+        "campaign_state",
+        "downtime_packets",
+        "diary_notes",
+        "contacts",
+        "heat_log",
+        "aftermath_packets",
+        "return_targets",
+        "rosters",
+        "opposition_notes",
+        "prep_library",
+        "event_controls",
+        "safehouse_packets",
+        "travel_prefetches",
+        "offline_actions",
+        "mobile_companion_state",
+    )
+    assert runtime_policy.skill_catalog.memory_writes == ("campaign_workspace_v4_fact",)
