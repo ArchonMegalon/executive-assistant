@@ -362,3 +362,51 @@ def test_builtin_campaign_mobile_continuity_contracts_build_tool_then_artifact_p
     ]
     assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
     assert plan.steps[2].tool_name == "provider.brain_router.reasoned_patch_review"
+
+
+@pytest.mark.parametrize(
+    ("task_key", "goal", "deliverable_type"),
+    [
+        ("gm_ops_briefing", "prepare gm operations briefing notes", "gm_ops_brief"),
+        ("opposition_packet", "prepare opposition packet notes", "opposition_packet"),
+        ("roster_movement_plan", "prepare roster movement plan notes", "roster_movement_plan"),
+        ("prep_library_packet", "prepare prep library packet notes", "prep_library_packet"),
+        ("event_control_brief", "prepare event control briefing notes", "event_control_brief"),
+        ("campaign_downtime_plan", "prepare campaign downtime plan notes", "campaign_downtime_plan"),
+        ("campaign_diary_packet", "prepare campaign diary packet notes", "campaign_diary_packet"),
+        ("campaign_contacts_update", "prepare campaign contacts update notes", "campaign_contacts_update"),
+        ("campaign_heat_brief", "prepare campaign heat brief notes", "campaign_heat_brief"),
+        ("campaign_aftermath_packet", "prepare campaign aftermath packet notes", "campaign_aftermath_packet"),
+        ("campaign_return_loop_brief", "prepare campaign return loop notes", "campaign_return_loop_brief"),
+        ("campaign_safehouse_readiness_brief", "prepare safehouse readiness continuity notes", "campaign_safehouse_readiness_brief"),
+        ("campaign_travel_continuity_packet", "prepare travel continuity packet notes", "campaign_travel_continuity_packet"),
+        ("campaign_offline_continuity_brief", "prepare offline continuity notes", "campaign_offline_continuity_brief"),
+        ("campaign_mobile_companion_brief", "prepare mobile companion continuity notes", "campaign_mobile_companion_brief"),
+    ],
+)
+def test_builtin_campaign_and_gm_ops_contracts_compile_tool_then_artifact_plan(
+    monkeypatch,
+    task_key: str,
+    goal: str,
+    deliverable_type: str,
+) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    planner = PlannerService(TaskContractService(InMemoryTaskContractRepository()))
+
+    intent, plan = planner.build_plan(
+        task_key=task_key,
+        principal_id="exec-1",
+        goal=goal,
+    )
+
+    assert intent.task_type == task_key
+    assert intent.deliverable_type == deliverable_type
+    assert [step.step_key for step in plan.steps] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_reasoned_patch_review",
+        "step_artifact_save",
+    ]
+    assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
+    assert plan.steps[2].tool_name == "provider.brain_router.reasoned_patch_review"
