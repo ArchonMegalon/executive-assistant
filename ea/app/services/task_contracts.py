@@ -161,6 +161,11 @@ class TaskContractService:
             "commitment_briefing",
             "reflection_brief",
             "replan_brief",
+            "gm_ops_briefing",
+            "opposition_packet",
+            "roster_movement_plan",
+            "prep_library_packet",
+            "event_control_brief",
         }:
             deliverable_type = {
                 "meeting_prep": "meeting_brief",
@@ -170,6 +175,11 @@ class TaskContractService:
                 "commitment_briefing": "commitment_brief",
                 "reflection_brief": "reflection_brief",
                 "replan_brief": "replan_brief",
+                "gm_ops_briefing": "gm_ops_brief",
+                "opposition_packet": "opposition_packet",
+                "roster_movement_plan": "roster_movement_plan",
+                "prep_library_packet": "prep_library_packet",
+                "event_control_brief": "event_control_brief",
             }[normalized]
             return TaskContract(
                 task_key=normalized,

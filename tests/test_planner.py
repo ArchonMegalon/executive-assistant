@@ -280,3 +280,26 @@ def test_builtin_groundwork_contract_skips_optional_review_when_unavailable(monk
         "step_artifact_save",
     ]
     assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
+
+
+def test_builtin_gm_ops_contract_builds_tool_then_artifact_plan(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    planner = PlannerService(TaskContractService(InMemoryTaskContractRepository()))
+
+    intent, plan = planner.build_plan(
+        task_key="opposition_packet",
+        principal_id="exec-1",
+        goal="prepare the next opposition packet and roster movement notes",
+    )
+
+    assert intent.task_type == "opposition_packet"
+    assert intent.deliverable_type == "opposition_packet"
+    assert [step.step_key for step in plan.steps] == [
+        "step_input_prepare",
+        "step_structured_generate",
+        "step_reasoned_patch_review",
+        "step_artifact_save",
+    ]
+    assert plan.steps[1].tool_name == "provider.brain_router.structured_generate"
+    assert plan.steps[2].tool_name == "provider.brain_router.reasoned_patch_review"
