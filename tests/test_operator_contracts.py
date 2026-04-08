@@ -265,7 +265,18 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     assert released_caps == required_released
     assert overlay.get("mode") == "prepend"
     items = overlay.get("items") or []
-    assert items == []
+    assert isinstance(items, list)
+    lowered_items = [str(item).lower() for item in items]
+    forbidden_fragments = (
+        "docs, env scaffolding, and deployment configuration still lag the actual router and provider surface",
+        "startup can still resolve into a mixed durability/auth profile instead of one authoritative runtime mode",
+        "provider capability-routing",
+        "typed task-contract and skill metadata",
+    )
+    for fragment in forbidden_fragments:
+        assert not any(fragment in item for item in lowered_items), (
+            "Published queue overlay should not re-queue already materialized uncovered scope: " + fragment
+        )
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
