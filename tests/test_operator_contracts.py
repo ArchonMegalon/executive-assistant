@@ -263,11 +263,9 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     }
 
     assert released_caps == required_released
-    assert overlay.get("mode") == "append"
+    assert overlay.get("mode") == "prepend"
     items = overlay.get("items") or []
-    assert items == [
-        "Sync the approved Chummer design bundle into `ea` under `.codex-design/` and refresh repo-local review context."
-    ]
+    assert items == []
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
