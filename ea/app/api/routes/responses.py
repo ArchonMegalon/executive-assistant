@@ -1839,8 +1839,27 @@ def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
     return accepted
 
 
-def _rejected_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
-    return []
+def _rejected_client_fields(
+    payload: _ResponsesCreateRequest,
+    *,
+    codex_profile: str | None = None,
+) -> list[str]:
+    # Normalized provider contract rejects Codex compatibility fields on the
+    # generic /v1/responses surface.
+    if codex_profile:
+        return []
+    rejected: list[str] = []
+    if payload.store is not None:
+        rejected.append("store")
+    if payload.tools is not None:
+        rejected.append("tools")
+    if payload.tool_choice is not None:
+        rejected.append("tool_choice")
+    if payload.parallel_tool_calls is not None:
+        rejected.append("parallel_tool_calls")
+    if _requested_previous_response_id(payload):
+        rejected.append("previous_response_id")
+    return rejected
 
 
 def _should_store_response(payload: _ResponsesCreateRequest) -> bool:
@@ -5144,7 +5163,7 @@ def _run_response(
     stream = bool(request.stream)
     instructions = request.instructions.strip() if isinstance(request.instructions, str) else None
     accepted_client_fields = _accepted_client_fields(request)
-    rejected_client_fields = _rejected_client_fields(request)
+    rejected_client_fields = _rejected_client_fields(request, codex_profile=codex_profile)
     if rejected_client_fields:
         raise HTTPException(status_code=400, detail=f"unsupported_fields:{','.join(rejected_client_fields)}")
     previous_response_id = _requested_previous_response_id(request)

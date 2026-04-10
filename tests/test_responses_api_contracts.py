@@ -229,135 +229,25 @@ def test_responses_stream_persists_in_progress_state_for_retrieval(monkeypatch: 
         _ = "".join(stream_iter)
 
 
-def test_responses_stream_accepts_codex_compat_fields_and_skips_persistence(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("store", False),
+        ("tools", [{"type": "function", "name": "exec_command"}]),
+        ("tool_choice", "auto"),
+        ("parallel_tool_calls", False),
+        ("previous_response_id", "resp_seeded"),
+    ],
+)
+def test_responses_rejects_unsupported_codex_compat_fields(field: str, value: object) -> None:
     client = _client(principal_id="codex-test")
-    read_client = _client(principal_id="codex-test")
-    from app.api.routes import responses
 
-    def fake_generate(
-        *,
-        prompt: str,
-        messages: list[dict[str, str]] | None = None,
-        requested_model: str,
-        max_output_tokens: int | None = None,
-        **_: object,
-    ) -> UpstreamResult:
-        assert prompt == "seed response"
-        assert messages == [{"role": "user", "content": "seed response"}]
-        assert requested_model == "ea-coder-fast"
-        assert max_output_tokens is None
-        return UpstreamResult(
-            text="stored seed",
-            provider_key="magixai",
-            model="openai/gpt-5.1-codex-mini",
-            tokens_in=2,
-            tokens_out=1,
-        )
-
-    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
-    seed = client.post("/v1/responses", json={"model": "ea-coder-fast", "input": "seed response"})
-    assert seed.status_code == 200
-    seed_id = seed.json()["id"]
-
-    def fake_tool_shim_decision(
-        *,
-        model: str,
-        max_output_tokens: int | None,
-        instructions: str | None,
-        tools: list[dict[str, object]],
-        history_items: list[dict[str, object]],
-        **_: object,
-    ) -> responses._ToolShimDecision:
-        assert model == "ea-coder-fast"
-        assert max_output_tokens is None
-        assert instructions is None
-        assert [tool["name"] for tool in tools] == ["exec_command"]
-        assert history_items[0] == {"type": "input_text", "text": "seed response"}
-        assert history_items[1]["type"] == "message"
-        assert history_items[1]["role"] == "assistant"
-        assert history_items[1]["content"][0]["text"] == "stored seed"
-        assert history_items[2] == {"type": "input_text", "text": "inspect repo"}
-        return responses._ToolShimDecision(
-            kind="final",
-            text="tool-compat-ok",
-            upstream_result=UpstreamResult(
-                text="tool-compat-ok",
-                provider_key="magixai",
-                model="openai/gpt-5.1-codex-mini",
-                tokens_in=5,
-                tokens_out=2,
-            ),
-        )
-
-    monkeypatch.setattr(responses, "_tool_shim_decision", fake_tool_shim_decision)
-    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
-
-    with client.stream(
-        "POST",
+    resp = client.post(
         "/v1/responses",
-        json={
-            "model": "ea-coder-fast",
-            "input": "inspect repo",
-            "stream": True,
-            "store": False,
-            "previous_response_id": seed_id,
-            "tools": [
-                {
-                    "type": "function",
-                    "name": "exec_command",
-                    "description": "run shell",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"cmd": {"type": "string"}},
-                        "required": ["cmd"],
-                    },
-                }
-            ],
-            "tool_choice": "auto",
-            "parallel_tool_calls": False,
-        },
-    ) as resp:
-        assert resp.status_code == 200
-        body = "".join(resp.iter_text())
-
-    assert "event: response.completed" in body
-    assert "tool-compat-ok" in body
-
-    events: list[tuple[str, object]] = []
-    for block in body.split("\n\n"):
-        if not block.strip():
-            continue
-        event_name = ""
-        event_payload: object | None = None
-        for line in block.splitlines():
-            if line.startswith("event: "):
-                event_name = line[len("event: ") :]
-            elif line.startswith("data: "):
-                raw_payload = line[len("data: ") :]
-                if raw_payload == "[DONE]":
-                    event_payload = raw_payload
-                else:
-                    event_payload = json.loads(raw_payload)
-        if event_name:
-            events.append((event_name, event_payload))
-
-    created = next(payload for event, payload in events if event == "response.created")
-    completed = next(payload for event, payload in events if event == "response.completed")
-    assert isinstance(created, dict)
-    assert isinstance(completed, dict)
-    assert created["response"]["metadata"]["accepted_client_fields"] == [
-        "store",
-        "tools",
-        "tool_choice",
-        "parallel_tool_calls",
-        "previous_response_id",
-    ]
-    assert completed["response"]["metadata"]["tool_shim"] is True
-    assert completed["response"]["metadata"]["tool_shim_tools"] == ["exec_command"]
-    response_id = created["response"]["id"]
-    time.sleep(1.05)
-    retrieved = read_client.get(f"/v1/responses/{response_id}")
-    assert retrieved.status_code == 404
+        json={"model": "ea-coder-fast", "input": "inspect repo", field: value},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == f"unsupported_fields:{field}"
 
 
 def test_models_list_returns_responses_aliases() -> None:
@@ -2138,8 +2028,8 @@ def test_previous_response_id_rejects_in_progress_background_response() -> None:
     )
 
     response = client.post(
-        "/v1/responses",
-        json={"model": "ea-coder-fast", "input": "follow up too early", "previous_response_id": response_id},
+        "/v1/codex/core-batch",
+        json={"input": "follow up too early", "previous_response_id": response_id},
     )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "previous_response_in_progress"
@@ -2191,8 +2081,8 @@ def test_previous_response_id_rejects_failed_background_response() -> None:
     )
 
     response = client.post(
-        "/v1/responses",
-        json={"model": "ea-coder-fast", "input": "follow up after failure", "previous_response_id": response_id},
+        "/v1/codex/core-batch",
+        json={"input": "follow up after failure", "previous_response_id": response_id},
     )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "previous_response_failed:background_timeout:1s"
