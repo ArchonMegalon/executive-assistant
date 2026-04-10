@@ -320,8 +320,8 @@ def test_normalize_ooda_coerces_scalar_lists_and_falls_back_to_signal_defaults()
     assert normalized["observe"]["source_signal_tags"] == ["future_rules_coverage"]
     assert normalized["observe"]["user_interest_signals"] == ["receipts over mystery math"]
     assert normalized["orient"]["why_care"] == [
-        "a clearer direction for future rulings tools",
-        "less trust-me math if the concept survives",
+        "a clearer trust path for rulings tools",
+        "less trust-me math through visible receipts",
         "a saner long-range path from prep to live play",
     ]
     assert normalized["observe"]["risks"]
@@ -1150,7 +1150,7 @@ def test_normalize_media_override_reanchors_generic_horizon_scene_contract_and_s
         {"slug": "runbook-press", "title": "RUNBOOK PRESS"},
     )
 
-    assert normalized["meta"] == "Concept lane | books that still point back to source"
+    assert normalized["meta"] == "Flagship lane | publication with receipts"
     assert normalized["scene_contract"]["subject"] == "a campaign writer pushing raw district material through a rail-side proof room"
     assert normalized["scene_contract"]["composition"] == "proof_room"
     assert "Source Truth Verified" not in normalized["overlay_callouts"]
@@ -1187,8 +1187,8 @@ def test_normalize_media_override_derives_horizon_asset_key_from_title_when_slug
 
     assert normalized["badge"] == "Expensive Lane"
     assert normalized["kicker"] == "house rules with rollback dreams"
-    assert normalized["note"] == "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature."
-    assert normalized["meta"] == "Concept lane | expensive experiments, no promises"
+    assert normalized["note"] == "A governed change lane with approval, rollback, and explicit risk controls."
+    assert normalized["meta"] == "Flagship lane | governed rule evolution"
     assert normalized["overlay_hint"] == "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
     assert normalized["scene_contract"]["subject"] == "a standing rulesmith and skeptical reviewer forcing unstable house-rule packs through an industrial approval rail while the apparatus looms larger than they do"
     assert normalized["scene_contract"]["environment"] == "an improvised industrial rules lab with approval rails, rollback rig hardware, provenance seals, consequence chambers, assay racks, cassette bins, gantry hooks, sample lockers, and hard sodium spill"
@@ -1224,7 +1224,7 @@ def test_normalize_media_override_preserves_curated_scene_contract_for_known_hor
 
     assert normalized["badge"] == "Handbook Lane"
     assert normalized["kicker"] == "books that still remember the source"
-    assert normalized["note"] == "Long-form publishing is still an idea lane here, not a finished press."
+    assert normalized["note"] == "A handbook lane that preserves source memory through publication."
 
 
 def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hints() -> None:
@@ -1249,7 +1249,7 @@ def test_normalize_media_override_clamps_statusish_badges_notes_and_overlay_hint
     )
 
     assert normalized["badge"] == "Streetdoc Scan"
-    assert normalized["note"] == "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support."
+    assert normalized["note"] == "Early-access surface. Treat visible artifacts as inspectable evidence with active boundaries."
     assert "metadata hud" not in normalized["overlay_hint"].lower()
     assert "medscan diagnostic rail" in normalized["overlay_hint"].lower()
     assert "trust check" not in normalized["overlay_hint"].lower()
@@ -1311,7 +1311,7 @@ def test_page_prompts_include_faq_and_help_ids() -> None:
     assert "one clear public download" in worker.PAGE_PROMPTS["how_can_i_help"]["source"]
 
 
-def test_copy_quality_findings_requires_concept_posture_on_first_contact_pages() -> None:
+def test_copy_quality_findings_requires_concrete_public_surface_on_first_contact_pages() -> None:
     worker = _load_worker_module()
 
     findings = worker.copy_quality_findings(
@@ -1327,7 +1327,7 @@ def test_copy_quality_findings_requires_concept_posture_on_first_contact_pages()
     )
 
     joined = " ".join(findings).lower()
-    assert "concept-stage" in joined or "accidental-artifact" in joined
+    assert "visible public surface" in joined or "future lane" in joined
 
 
 def test_copy_quality_findings_flags_risky_page_specific_claims_outside_context() -> None:
@@ -1555,7 +1555,7 @@ def test_fallback_page_copy_is_reader_safe_for_what_chummer6_is() -> None:
     row = worker.fallback_page_copy("what_chummer6_is", worker.PAGE_PROMPTS["what_chummer6_is"], {})
 
     assert row["intro"]
-    assert "idea" in row["intro"].lower() or "concept" in row["body"].lower()
+    assert "shadowrun tooling" in row["intro"].lower() or "receipts" in row["body"].lower()
     worker.assert_public_reader_safe(row, context="page:what_chummer6_is:fallback")
 
 
@@ -1565,8 +1565,8 @@ def test_fallback_page_copy_covers_faq_and_help_pages() -> None:
     faq_row = worker.fallback_page_copy("faq", worker.PAGE_PROMPTS["faq"], {})
     help_row = worker.fallback_page_copy("how_can_i_help", worker.PAGE_PROMPTS["how_can_i_help"], {})
 
-    assert "does anything usable actually exist yet" in faq_row["intro"].lower()
-    assert "critique" in help_row["kicker"].lower() or "reality checks" in help_row["kicker"].lower()
+    assert "what can you inspect and use right now" in faq_row["intro"].lower()
+    assert "reproducible evidence" in help_row["kicker"].lower() or "user pain" in help_row["kicker"].lower()
     assert "booster" not in json.dumps({"faq": faq_row, "help": help_row}).lower()
     worker.assert_public_reader_safe(faq_row, context="page:faq:fallback")
     worker.assert_public_reader_safe(help_row, context="page:how_can_i_help:fallback")
@@ -1579,9 +1579,9 @@ def test_fallback_page_copy_covers_index_and_deeper_pages() -> None:
     parts = worker.fallback_page_copy("parts_index", worker.PAGE_PROMPTS["parts_index"], {})
     horizons = worker.fallback_page_copy("horizons_index", worker.PAGE_PROMPTS["horizons_index"], {})
 
-    assert "concept" in deeper["kicker"].lower()
+    assert "guide" in deeper["kicker"].lower() or "proof" in deeper["kicker"].lower()
     assert "part" in parts["intro"].lower()
-    assert "idea lanes" in horizons["intro"].lower()
+    assert "next lanes" in horizons["intro"].lower()
     worker.assert_public_reader_safe(deeper, context="page:where_to_go_deeper:fallback")
     worker.assert_public_reader_safe(parts, context="page:parts_index:fallback")
     worker.assert_public_reader_safe(horizons, context="page:horizons_index:fallback")
