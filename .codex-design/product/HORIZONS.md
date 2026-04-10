@@ -27,7 +27,7 @@ That means:
 
 Cross-horizon foundation expectations live in `horizons/FOUNDATIONS.md`.
 Machine-readable dependency truth lives in `HORIZON_REGISTRY.yaml`.
-The subdirectory `horizons/HORIZON_REGISTRY.yaml` is a derived guide-routing index only; it must never widen horizon eligibility, order, or public-guide visibility beyond the root registry.
+The subdirectory `horizons/HORIZON_REGISTRY.yaml` is a derived guide-routing index only; it must never widen horizon eligibility, order, or public-guide visibility beyond the root registry, and it must preserve root order exactly.
 
 ## Horizon families
 

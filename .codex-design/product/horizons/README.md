@@ -19,7 +19,7 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 
 Cross-horizon foundation truth lives in `FOUNDATIONS.md`.
 Machine-readable order, owners, and dependency truth live in the root `HORIZON_REGISTRY.yaml`.
-The local `horizons/HORIZON_REGISTRY.yaml` file is a derived guide-routing index and must stay narrower than the root registry.
+The local `horizons/HORIZON_REGISTRY.yaml` file is a derived guide-routing index and must stay narrower than the root registry and preserve the root order exactly.
 
 ## Canon rule
 

@@ -19,7 +19,7 @@ sources:
 rules:
 - Downstream generators must not define or retain a private hardcoded horizon catalog.
 - Downstream generators must source horizon existence, ordering, and enable/disable state from HORIZON_REGISTRY.yaml.
-- The root `products/chummer/HORIZON_REGISTRY.yaml` is the authority for horizon eligibility; `products/chummer/horizons/HORIZON_REGISTRY.yaml` is only a derived guide-routing index and must not widen or reorder the public set.
+- The root `products/chummer/HORIZON_REGISTRY.yaml` is the authority for horizon eligibility; `products/chummer/horizons/HORIZON_REGISTRY.yaml` is only a derived guide-routing index and must not widen, reorder, or otherwise reshape the public set. It must preserve the root registry order exactly.
 - Only horizons with public_guide.enabled == true may appear in Chummer6.
 - Retired or disabled horizons must disappear from the guide on the next generation pass.
 - Horizon detail pages may elaborate in human language, but may not invent new horizons, owners, or delivery promises.
