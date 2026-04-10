@@ -349,6 +349,25 @@ cards:
     payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
     proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, and a first-party download path."
     microproof: Installer shelf|Preview channel|Account-aware handoff
+  - id: artifact_mac_codex_release_pipeline
+    bucket: featured_artifacts
+    title: Mac Codex release pipeline
+    summary: A Mac Codex session can clone the release repos, build the mac desktop artifact, sign and notarize it, publish it to chummer.run, and verify the live shelf from one public runbook.
+    href: /artifacts/mac-codex-release-pipeline
+    badge: Available today
+    audience: public
+    image_family: facility_exterior
+    asset_slot: release_current_build
+    detail_route: /artifacts/mac-codex-release-pipeline
+    action_label: Open the Mac release runbook
+    detail_primary_href: /artifacts/mac-codex-release-pipeline/bootstrap.sh
+    detail_primary_label: Open the Mac bootstrap script
+    fallback_route: /artifacts/mac-codex-release-pipeline/readme.md
+    fallback_label: Read the full runbook
+    pain: Mac release work falls apart when cloning, signing, notarization, publication, and live verification live in separate tribal steps.
+    payoff: One truthful bootstrap turns a Mac Codex session into a repeatable public-release lane instead of a manual operator ritual.
+    proof_note: "Paste `bash <(curl -fsSL https://chummer.run/artifacts/mac-codex-release-pipeline/bootstrap.sh)` into the Mac shell, then let the bootstrap build, sign, notarize, publish, and verify the release with the current supported chummer.run topology."
+    microproof: Clone and pin refs|Codesign and notarize|Publish and verify live shelf
   - id: artifact_rules_receipt
     bucket: featured_artifacts
     title: Explanation receipt trail

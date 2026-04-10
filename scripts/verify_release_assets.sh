@@ -38,6 +38,8 @@ required_files=(
   "ENVIRONMENT_MATRIX.md"
   "MILESTONE.json"
   "RELEASE_CHECKLIST.md"
+  ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
+  ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
   "scripts/db_status.sh"
@@ -95,13 +97,34 @@ required_files=(
 
 echo "== verify release assets =="
 for f in "${required_files[@]}"; do
-  if [[ -f "${f}" ]]; then
+if [[ -f "${f}" ]]; then
     echo "ok: ${f}"
   else
     echo "missing: ${f}" >&2
     missing=1
   fi
 done
+
+if python3 - <<'PY'
+import json
+from pathlib import Path
+
+gate = json.loads(Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8"))
+assert gate["product"] == "executive-assistant"
+assert gate["surface"] == "flagship_release_control"
+browser_sources = {entry["file"]: set(entry["cases"]) for entry in gate["browser_workflow_proof"]["evidence_sources"]}
+assert "tests/test_product_browser_journeys.py" in browser_sources
+assert "tests/e2e/test_product_workflows.py" in browser_sources
+assert "test_workspace_pages_render_seeded_product_objects" in browser_sources["tests/test_product_browser_journeys.py"]
+assert "test_activation_and_memo_flow_in_real_browser" in browser_sources["tests/e2e/test_product_workflows.py"]
+assert "EA_FLAGSHIP_TRUTH_PLANE.md" == gate["truth_plane"]["source"].split("/")[-1]
+PY
+then
+  echo "ok: EA flagship truth plane gate seed"
+else
+  echo "missing: EA flagship truth plane gate seed" >&2
+  missing=1
+fi
 
 echo "== verify release docs linkage =="
 if grep -Fq "make operator-help" "README.md"; then
@@ -400,17 +423,17 @@ else
   missing=1
 fi
 
-if grep -Fq 'Gate-bundle hardening flags are tracked in `MILESTONE.json` release tags' "README.md"; then
-  echo "ok: README milestone gate-tag pointer"
+if grep -Fq 'Release preflight now keys off the EA flagship truth plane and gate seed; `MILESTONE.json` remains supporting delivery history.' "README.md"; then
+  echo "ok: README EA flagship gate pointer"
 else
-  echo "missing: README milestone gate-tag pointer" >&2
+  echo "missing: README EA flagship gate pointer" >&2
   missing=1
 fi
 
-if grep -Fq 'Release preflight checklist includes milestone release-tag parity verification in `RELEASE_CHECKLIST.md`.' "README.md"; then
-  echo "ok: README checklist milestone parity note"
+if grep -Fq 'Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.' "README.md"; then
+  echo "ok: README checklist EA truth-plane note"
 else
-  echo "missing: README checklist milestone parity note" >&2
+  echo "missing: README checklist EA truth-plane note" >&2
   missing=1
 fi
 
@@ -442,10 +465,10 @@ else
   missing=1
 fi
 
-if grep -Fq '`scripts/version_info.sh` now also prints milestone capability-status counts and release tags' "README.md"; then
-  echo "ok: README version-info milestone summary note"
+if grep -Fq '`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json`.' "README.md"; then
+  echo "ok: README version-info EA truth-plane note"
 else
-  echo "missing: README version-info milestone summary note" >&2
+  echo "missing: README version-info EA truth-plane note" >&2
   missing=1
 fi
 
@@ -538,10 +561,10 @@ else
   missing=1
 fi
 
-if grep -Fq '`bash scripts/version_info.sh` now prints milestone capability-status counts and release tags' "RUNBOOK.md"; then
-  echo "ok: RUNBOOK version-info milestone summary note"
+if grep -Fq '`bash scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json`.' "RUNBOOK.md"; then
+  echo "ok: RUNBOOK version-info EA truth-plane note"
 else
-  echo "missing: RUNBOOK version-info milestone summary note" >&2
+  echo "missing: RUNBOOK version-info EA truth-plane note" >&2
   missing=1
 fi
 
@@ -623,17 +646,24 @@ else
   missing=1
 fi
 
-if grep -Fq 'Milestone tracking linkage: `MILESTONE.json` maps capabilities to `planned|coded|wired|tested|released`' "RUNBOOK.md"; then
-  echo "ok: RUNBOOK milestone gate-tag linkage note"
+if grep -Fq 'RELEASE_CHECKLIST.md` now includes an explicit EA flagship truth-plane preflight line to validate the browser proof and release gate seed.' "RUNBOOK.md"; then
+  echo "ok: RUNBOOK EA truth-plane linkage note"
 else
-  echo "missing: RUNBOOK milestone gate-tag linkage note" >&2
+  echo "missing: RUNBOOK EA truth-plane linkage note" >&2
   missing=1
 fi
 
-if grep -Fq 'RELEASE_CHECKLIST.md` now includes an explicit milestone release-tag parity preflight line' "RUNBOOK.md"; then
-  echo "ok: RUNBOOK checklist milestone parity linkage note"
+if grep -Fq 'EA_FLAGSHIP_TRUTH_PLANE.md` as the release oracle for EA-specific flagship claims.' "FLAGSHIP_CLOSEOUT_PLAN.md"; then
+  echo "ok: FLAGSHIP_CLOSEOUT_PLAN EA truth oracle note"
 else
-  echo "missing: RUNBOOK checklist milestone parity linkage note" >&2
+  echo "missing: FLAGSHIP_CLOSEOUT_PLAN EA truth oracle note" >&2
+  missing=1
+fi
+
+if grep -Fq 'EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json` are green' "FLAGSHIP_CLOSEOUT_PLAN.md"; then
+  echo "ok: FLAGSHIP_CLOSEOUT_PLAN EA gate note"
+else
+  echo "missing: FLAGSHIP_CLOSEOUT_PLAN EA gate note" >&2
   missing=1
 fi
 
@@ -686,10 +716,10 @@ else
   missing=1
 fi
 
-if grep -Fq 'Docs parity confirms milestone release tags in `MILESTONE.json`' "RELEASE_CHECKLIST.md"; then
-  echo "ok: RELEASE_CHECKLIST milestone gate-tag line"
+if grep -Fq 'Docs parity confirms the EA flagship truth plane and gate seed are present and the browser proof is still green.' "RELEASE_CHECKLIST.md"; then
+  echo "ok: RELEASE_CHECKLIST EA truth-plane line"
 else
-  echo "missing: RELEASE_CHECKLIST milestone gate-tag line" >&2
+  echo "missing: RELEASE_CHECKLIST EA truth-plane line" >&2
   missing=1
 fi
 

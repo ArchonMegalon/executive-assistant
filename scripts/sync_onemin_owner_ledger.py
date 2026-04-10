@@ -49,7 +49,168 @@ def _load_dotenv_values(path: Path) -> dict[str, str]:
     return values
 
 
-def _discover_onemin_slots(values: dict[str, str]) -> list[dict[str, str]]:
+def _manifest_file_path(values: dict[str, str], *, dotenv_path: Path) -> Path | None:
+    raw = str(values.get("ONEMIN_DIRECT_API_KEYS_JSON_FILE") or "").strip()
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+    except Exception:
+        return None
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+        if str(path).startswith("/config/"):
+            candidates.append(dotenv_path.parent / "config" / path.name)
+    else:
+        candidates.extend(
+            [
+                dotenv_path.parent / path,
+                path,
+            ]
+        )
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            return normalized
+    return None
+
+
+def _load_onemin_manifest_payload(values: dict[str, str], *, dotenv_path: Path) -> object:
+    inline = str(values.get("ONEMIN_DIRECT_API_KEYS_JSON") or "").strip()
+    if inline:
+        try:
+            return json.loads(inline)
+        except Exception:
+            return None
+    path = _manifest_file_path(values, dotenv_path=dotenv_path)
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _fallback_number_from_slot(raw: object) -> int | None:
+    normalized = str(raw or "").strip()
+    env_match = _FALLBACK_ENV_RE.match(normalized)
+    if env_match is not None:
+        try:
+            number = int(env_match.group(1))
+        except Exception:
+            number = None
+        if number is not None and number >= 1:
+            return number
+    text = normalized.lower().replace(" ", "_").replace("-", "_")
+    if not text:
+        return None
+    match = re.fullmatch(r"fallback_?(\d+)", text)
+    if match is None:
+        return None
+    try:
+        number = int(match.group(1))
+    except Exception:
+        return None
+    return number if number >= 1 else None
+
+
+def _manifest_slots(values: dict[str, str], *, dotenv_path: Path) -> list[dict[str, str]]:
+    payload = _load_onemin_manifest_payload(values, dotenv_path=dotenv_path)
+    if isinstance(payload, dict):
+        if isinstance(payload.get("slots"), list):
+            items = payload.get("slots") or []
+        elif isinstance(payload.get("keys"), list):
+            items = payload.get("keys") or []
+        elif isinstance(payload.get("accounts"), list):
+            items = payload.get("accounts") or []
+        else:
+            items = []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    fallback_numbers: set[int] = set()
+    for key in values:
+        match = _FALLBACK_ENV_RE.match(key)
+        if match is None:
+            continue
+        try:
+            fallback_numbers.add(int(match.group(1)))
+        except ValueError:
+            continue
+    next_fallback = max(fallback_numbers, default=0) + 1
+
+    slots: list[dict[str, str]] = []
+    seen_account_names: set[str] = set()
+    for item in items:
+        slot = ""
+        account_name = ""
+        key = ""
+        owner_email = ""
+        owner_name = ""
+        owner_label = ""
+        notes = ""
+        if isinstance(item, str):
+            key = str(item or "").strip()
+        elif isinstance(item, dict):
+            key = str(
+                item.get("key")
+                or item.get("secret")
+                or item.get("api_key")
+                or item.get("value")
+                or item.get("token")
+                or ""
+            ).strip()
+            slot = str(item.get("slot") or item.get("slot_name") or "").strip()
+            account_name = str(item.get("account_name") or item.get("name") or "").strip()
+            owner_email = str(item.get("owner_email") or item.get("email") or "").strip()
+            owner_name = str(item.get("owner_name") or item.get("display_name") or "").strip()
+            owner_label = str(item.get("owner_label") or "").strip()
+            notes = str(item.get("notes") or "").strip()
+        if not key:
+            continue
+        slot_number = _fallback_number_from_slot(slot) or _fallback_number_from_slot(account_name)
+        normalized_account_name = account_name
+        if not normalized_account_name:
+            if str(slot or "").strip().lower() == "primary":
+                normalized_account_name = "ONEMIN_AI_API_KEY"
+            elif slot_number is not None:
+                normalized_account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
+            else:
+                normalized_account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}"
+                next_fallback += 1
+        if normalized_account_name in seen_account_names:
+            continue
+        seen_account_names.add(normalized_account_name)
+        normalized_slot = "primary" if normalized_account_name == "ONEMIN_AI_API_KEY" else ""
+        if not normalized_slot:
+            derived_number = _fallback_number_from_slot(slot) or _fallback_number_from_slot(normalized_account_name)
+            if derived_number is not None:
+                normalized_slot = f"fallback_{derived_number}"
+        row = {
+            "slot": normalized_slot or normalized_account_name.lower(),
+            "account_name": normalized_account_name,
+            "secret_sha256": hashlib.sha256(key.encode("utf-8")).hexdigest(),
+        }
+        if owner_email:
+            row["owner_email"] = owner_email
+        if owner_name:
+            row["owner_name"] = owner_name
+        if owner_label:
+            row["owner_label"] = owner_label
+        if notes:
+            row["notes"] = notes
+        slots.append(row)
+    return slots
+
+
+def _discover_onemin_slots(values: dict[str, str], *, dotenv_path: Path) -> list[dict[str, str]]:
     slots: list[dict[str, str]] = []
     primary = str(values.get("ONEMIN_AI_API_KEY") or "").strip()
     if primary:
@@ -81,6 +242,7 @@ def _discover_onemin_slots(values: dict[str, str]) -> list[dict[str, str]]:
                 "secret_sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
             }
         )
+    slots.extend(_manifest_slots(values, dotenv_path=dotenv_path))
     return slots
 
 
@@ -149,6 +311,14 @@ def _synchronized_payload(payload: dict[str, object], env_slots: list[dict[str, 
         owner_name = str(row.get("owner_name") or "").strip()
         owner_label = str(row.get("owner_label") or "").strip()
         notes = str(row.get("notes") or "").strip()
+        if not owner_email:
+            owner_email = str(env_slot.get("owner_email") or "").strip()
+        if not owner_name:
+            owner_name = str(env_slot.get("owner_name") or "").strip()
+        if not owner_label:
+            owner_label = str(env_slot.get("owner_label") or "").strip()
+        if not notes:
+            notes = str(env_slot.get("notes") or "").strip()
         if owner_email:
             synced["owner_email"] = owner_email
         if owner_name:
@@ -173,7 +343,7 @@ def _synchronized_payload(payload: dict[str, object], env_slots: list[dict[str, 
 def main() -> int:
     args = _parse_args()
     env_values = _load_dotenv_values(args.dotenv)
-    env_slots = _discover_onemin_slots(env_values)
+    env_slots = _discover_onemin_slots(env_values, dotenv_path=args.dotenv)
     if not env_slots:
         raise SystemExit(f"No configured ONEMIN_AI_API_KEY* values were found in {args.dotenv}")
     payload = _load_owner_payload(args.ledger)

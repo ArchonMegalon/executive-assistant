@@ -294,6 +294,76 @@
       "slot": "fallback_48",
       "account_name": "ONEMIN_AI_API_KEY_FALLBACK_48",
       "secret_sha256": "0a07b481e17db8e19196f5eb8b98991ed1a5c482e86f4feb38ca4baef817051a"
+    },
+    {
+      "slot": "fallback_49",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_49",
+      "secret_sha256": "eac879229a709ee54dea958293265c775d2affa016af47763514bf9913b18a1e",
+      "owner_email": "Jaciara.Cavalcanti@myexternalbrain.com",
+      "owner_name": "Jaciara Cavalcanti"
+    },
+    {
+      "slot": "fallback_50",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_50",
+      "secret_sha256": "b874d0463d0e6fc3ec83e23ea01c68f4d6b3296f03bd713288116e3e8f82c10a",
+      "owner_email": "Ladina.Zgraggen@myexternalbrain.com",
+      "owner_name": "Ladina Zgraggen"
+    },
+    {
+      "slot": "fallback_51",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_51",
+      "secret_sha256": "01cdb750bd96850cd824ef6c2bff5f160e1e9e7aa2d57ad7995dd2138091f618",
+      "owner_email": "Kateri.Parenteau@myexternalbrain.com",
+      "owner_name": "Kateri Parenteau"
+    },
+    {
+      "slot": "fallback_52",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_52",
+      "secret_sha256": "f5bd639600fb35647019b280823414abc9862fe08b9a518fbf75ace460903deb",
+      "owner_email": "Saga.Silfverberg@myexternalbrain.com",
+      "owner_name": "Saga Silfverberg"
+    },
+    {
+      "slot": "fallback_53",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_53",
+      "secret_sha256": "c9208257259ed3e50252319230cd8e5866a7ae06b71a6b053e636f0557a52a3b",
+      "owner_email": "Csenge.Solymosi@myexternalbrain.com",
+      "owner_name": "Csenge Solymosi"
+    },
+    {
+      "slot": "fallback_54",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_54",
+      "secret_sha256": "eb26064240e8a572bbe86ebd8d188ec00c281b08bdc728e832a4ca23f6659b68",
+      "owner_email": "Philomene.Goudreau@myexternalbrain.com",
+      "owner_name": "Philomene Goudreau"
+    },
+    {
+      "slot": "fallback_55",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_55",
+      "secret_sha256": "cf1dd0d3b7cd75d5b3e5de8c9aa15951df4933d25af67fda2ce725b74a693856",
+      "owner_email": "Elvira.Fortunato@myexternalbrain.com",
+      "owner_name": "Elvira Fortunato"
+    },
+    {
+      "slot": "fallback_56",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_56",
+      "secret_sha256": "fc3370f694be95e41b55049ec4d4ed4cfed706df550a0878a65606e4c5bf1bcc",
+      "owner_email": "Julia.Lagahuzere@myexternalbrain.com",
+      "owner_name": "Julia Lagahuzere"
+    },
+    {
+      "slot": "fallback_57",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_57",
+      "secret_sha256": "34b012fe97138c25263777833fc10a82c9bdb28726cf7083d58aade37b14d6e0",
+      "owner_email": "Rosa.Mota@myexternalbrain.com",
+      "owner_name": "Rosa Mota"
+    },
+    {
+      "slot": "fallback_58",
+      "account_name": "ONEMIN_AI_API_KEY_FALLBACK_58",
+      "secret_sha256": "ba2c09cecf3d00190439cb1b7d2615b55cdfdeb09b4943bf18f1d17c205bd2be",
+      "owner_email": "Valmai.Johnston@myexternalbrain.com",
+      "owner_name": "Valmai Johnston"
     }
   ]
 }

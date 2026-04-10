@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import re
 import shlex
 import shutil
@@ -22,7 +23,16 @@ _ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
 
 
 def _onemin_fallback_slot_number(raw: object) -> int | None:
-    match = _ONEMIN_FALLBACK_SLOT_RE.match(str(raw or "").strip().lower().replace(" ", "_").replace("-", "_"))
+    normalized = str(raw or "").strip()
+    env_match = _ONEMIN_FALLBACK_ENV_RE.match(normalized)
+    if env_match is not None:
+        try:
+            slot_number = int(env_match.group(1))
+        except Exception:
+            slot_number = None
+        if slot_number is not None and slot_number >= 1:
+            return slot_number
+    match = _ONEMIN_FALLBACK_SLOT_RE.match(normalized.lower().replace(" ", "_").replace("-", "_"))
     if match is None:
         return None
     try:
@@ -30,6 +40,118 @@ def _onemin_fallback_slot_number(raw: object) -> int | None:
     except Exception:
         return None
     return slot_number if slot_number >= 1 else None
+
+
+def _onemin_manifest_path() -> Path | None:
+    raw = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON_FILE") or "").strip()
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+    except Exception:
+        return None
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+        if str(path).startswith("/config/"):
+            candidates.append(Path("/docker/EA") / "config" / path.name)
+            candidates.append(Path(__file__).resolve().parents[3] / "config" / path.name)
+    else:
+        candidates.extend(
+            [
+                path,
+                Path(__file__).resolve().parents[3] / path,
+            ]
+        )
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            return normalized
+    return None
+
+
+def _load_onemin_manifest_payload() -> object:
+    inline = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON") or "").strip()
+    if inline:
+        try:
+            return json.loads(inline)
+        except Exception:
+            return None
+    path = _onemin_manifest_path()
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _onemin_manifest_account_names() -> tuple[str, ...]:
+    payload = _load_onemin_manifest_payload()
+    if isinstance(payload, dict):
+        if isinstance(payload.get("slots"), list):
+            items = payload.get("slots") or []
+        elif isinstance(payload.get("keys"), list):
+            items = payload.get("keys") or []
+        elif isinstance(payload.get("accounts"), list):
+            items = payload.get("accounts") or []
+        else:
+            items = []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    fallback_numbers: set[int] = set()
+    for env_name in os.environ:
+        match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+        if match is None:
+            continue
+        try:
+            fallback_numbers.add(int(match.group(1)))
+        except Exception:
+            continue
+    next_fallback = max(fallback_numbers, default=0) + 1
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        slot = ""
+        account_name = ""
+        key = ""
+        if isinstance(item, str):
+            key = str(item or "").strip()
+        elif isinstance(item, dict):
+            key = str(
+                item.get("key")
+                or item.get("secret")
+                or item.get("api_key")
+                or item.get("value")
+                or item.get("token")
+                or ""
+            ).strip()
+            slot = str(item.get("slot") or item.get("slot_name") or "").strip()
+            account_name = str(item.get("account_name") or item.get("name") or "").strip()
+        if not key:
+            continue
+        slot_number = _onemin_fallback_slot_number(slot) or _onemin_fallback_slot_number(account_name)
+        normalized_account_name = account_name
+        if not normalized_account_name:
+            if str(slot or "").strip().lower() == "primary":
+                normalized_account_name = "ONEMIN_AI_API_KEY"
+            elif slot_number is not None:
+                normalized_account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
+            else:
+                normalized_account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}"
+                next_fallback += 1
+        if normalized_account_name in seen:
+            continue
+        seen.add(normalized_account_name)
+        names.append(normalized_account_name)
+    return tuple(names)
 
 
 def _onemin_secret_env_names() -> tuple[str, ...]:
@@ -47,10 +169,30 @@ def _onemin_secret_env_names() -> tuple[str, ...]:
             slot_number = _onemin_fallback_slot_number(slot_name)
             if slot_number is not None:
                 fallback_numbers.add(slot_number)
+    manifest_by_slot: dict[int, str] = {}
+    trailing_names: list[str] = []
+    for account_name in _onemin_manifest_account_names():
+        if account_name == "ONEMIN_AI_API_KEY":
+            continue
+        slot_number = _onemin_fallback_slot_number(account_name)
+        if slot_number is not None:
+            fallback_numbers.add(slot_number)
+            manifest_by_slot[slot_number] = account_name
+            continue
+        trailing_names.append(account_name)
     names = ["ONEMIN_AI_API_KEY"]
     for slot_number in sorted(fallback_numbers):
-        names.append(f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
-    return tuple(names)
+        names.append(manifest_by_slot.get(slot_number) or f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
+    names.extend(trailing_names)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        cleaned = str(name or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        deduped.append(cleaned)
+    return tuple(deduped)
 
 
 def _collect_strings(value: object) -> tuple[str, ...]:
@@ -1219,6 +1361,82 @@ class ProviderRegistryService:
         return getattr(decision, field_name, default)
 
     @staticmethod
+    def _preferred_lane_primary(providers: Sequence[ProviderRegistryProviderView]) -> ProviderRegistryProviderView | None:
+        lane_providers = [provider for provider in providers if provider is not None]
+        if not lane_providers:
+            return None
+
+        def _normalized_state(provider: ProviderRegistryProviderView) -> str:
+            return str(provider.state or provider.health_state or "").strip().lower()
+
+        for provider in lane_providers:
+            if bool(provider.enabled) and bool(provider.executable) and _normalized_state(provider) == "ready":
+                return provider
+        for provider in lane_providers:
+            if bool(provider.enabled) and bool(provider.executable) and _normalized_state(provider) not in {
+                "unavailable",
+                "disabled",
+                "unconfigured",
+                "error",
+            }:
+                return provider
+        for provider in lane_providers:
+            if bool(provider.enabled) and bool(provider.executable):
+                return provider
+        return lane_providers[0]
+
+    @staticmethod
+    def _effective_lane_provider_hint_order(
+        provider_hint_order: Sequence[str],
+        primary: ProviderRegistryProviderView | None,
+    ) -> tuple[str, ...]:
+        hints = tuple(str(value or "").strip() for value in provider_hint_order if str(value or "").strip())
+        if primary is None:
+            return hints
+        primary_key = str(primary.provider_key or "").strip()
+        if not primary_key or primary_key not in hints:
+            return hints
+        return (primary_key, *(hint for hint in hints if hint != primary_key))
+
+    @staticmethod
+    def _effective_lane_backend_key(
+        decision_backend_key: object,
+        *,
+        primary: ProviderRegistryProviderView | None,
+        providers: Sequence[ProviderRegistryProviderView],
+    ) -> str:
+        explicit = str(decision_backend_key or "").strip()
+        if primary is None:
+            return explicit
+        provider_keys = {
+            str(provider.provider_key or "").strip()
+            for provider in providers
+            if str(provider.provider_key or "").strip()
+        }
+        if explicit and explicit in provider_keys:
+            return str(primary.provider_key or "").strip() or explicit
+        return explicit or str(primary.backend or "").strip()
+
+    @staticmethod
+    def _effective_lane_health_provider_key(
+        decision_health_provider_key: object,
+        *,
+        primary: ProviderRegistryProviderView | None,
+        providers: Sequence[ProviderRegistryProviderView],
+    ) -> str:
+        explicit = str(decision_health_provider_key or "").strip()
+        if primary is None:
+            return explicit
+        provider_keys = {
+            str(provider.provider_key or "").strip()
+            for provider in providers
+            if str(provider.provider_key or "").strip()
+        }
+        if explicit and explicit in provider_keys:
+            return str(primary.health_provider_key or primary.provider_key or "").strip() or explicit
+        return explicit or str(primary.health_provider_key or primary.provider_key or "").strip()
+
+    @staticmethod
     def _lane_capacity_summary(primary: ProviderRegistryProviderView | None) -> dict[str, object]:
         if primary is None:
             return {
@@ -1326,7 +1544,8 @@ class ProviderRegistryService:
                 for provider_key in provider_hint_order
                 if provider_key in provider_views
             )
-            primary = lane_providers[0] if lane_providers else None
+            primary = self._preferred_lane_primary(lane_providers)
+            effective_hint_order = self._effective_lane_provider_hint_order(provider_hint_order, primary)
             capacity_summary = self._lane_capacity_summary(primary)
             lane_views.append(
                 ProviderRegistryLaneView(
@@ -1334,11 +1553,17 @@ class ProviderRegistryService:
                     lane=str(self._decision_field(decision, "lane", "") or ""),
                     public_model=str(self._decision_field(decision, "public_model", "") or ""),
                     brain=str(self._decision_field(decision, "public_model", "") or ""),
-                    backend=str(self._decision_field(decision, "backend_key", "") or (primary.backend if primary else "")),
-                    health_provider_key=str(
-                        self._decision_field(decision, "health_provider_key", "") or (primary.health_provider_key if primary else "")
+                    backend=self._effective_lane_backend_key(
+                        self._decision_field(decision, "backend_key", ""),
+                        primary=primary,
+                        providers=lane_providers,
                     ),
-                    provider_hint_order=provider_hint_order,
+                    health_provider_key=self._effective_lane_health_provider_key(
+                        self._decision_field(decision, "health_provider_key", ""),
+                        primary=primary,
+                        providers=lane_providers,
+                    ),
+                    provider_hint_order=effective_hint_order,
                     review_required=bool(self._decision_field(decision, "review_required", False)),
                     needs_review=bool(self._decision_field(decision, "needs_review", False)),
                     merge_policy=str(self._decision_field(decision, "merge_policy", "auto") or "auto"),

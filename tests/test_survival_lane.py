@@ -6,7 +6,7 @@ import pytest
 
 from app.domain.models import ToolInvocationResult
 from app.services import survival_lane
-from app.services.survival_lane import SurvivalLaneService, _test_reset_survival_state
+from app.services.survival_lane import SurvivalLaneService, _survival_route_order, _test_reset_survival_state
 from app.services.tool_execution_common import ToolExecutionError
 
 
@@ -89,6 +89,55 @@ def test_survival_falls_back_from_gemini_vortex_to_gemini_web(monkeypatch: pytes
     assert [item.backend for item in result.attempts] == ["gemini_vortex", "gemini_web"]
     assert result.attempts[0].status == "failed"
     assert result.attempts[1].status == "completed"
+
+
+def test_survival_route_order_defaults_to_onemin_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_SURVIVAL_ROUTE_ORDER", raising=False)
+
+    assert _survival_route_order() == ("onemin", "gemini_vortex", "gemini_web", "chatplayground")
+
+
+def test_survival_uses_onemin_before_ui_backends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_SURVIVAL_ROUTE_ORDER", "onemin,gemini_web")
+
+    def _onemin(_invocation) -> ToolInvocationResult:
+        return _result(
+            tool_name="provider.onemin.code_generate",
+            output_json={
+                "normalized_text": "from onemin",
+                "provider_backend": "1min",
+                "model": "gpt-5",
+            },
+            model_name="gpt-5",
+        )
+
+    def _gemini_web(_invocation) -> ToolInvocationResult:
+        raise AssertionError("gemini_web should not be reached when onemin succeeds")
+
+    tool_execution = _FakeToolExecution(
+        {
+            "provider.onemin.code_generate": _onemin,
+            "browseract.gemini_web_generate": _gemini_web,
+        }
+    )
+    service = SurvivalLaneService(
+        tool_execution=tool_execution,
+        tool_runtime=_FakeToolRuntime(),
+        principal_id="survival-test",
+    )
+
+    result = service.execute(
+        instructions="stay concise",
+        history_items=[],
+        current_input="what now",
+        desired_format="plain_text",
+    )
+
+    assert result.text == "from onemin"
+    assert result.provider_key == "onemin"
+    assert result.provider_backend == "1min"
+    assert [item.backend for item in result.attempts] == ["onemin"]
+    assert tool_execution.calls == ["provider.onemin.code_generate"]
 
 
 def test_survival_falls_back_from_gemini_web_to_chatplayground_on_challenge(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -165,6 +165,33 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: artifact detail only
+  - path: /artifacts/mac-codex-release-pipeline
+    title: Mac Codex release pipeline detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/mac-codex-release-pipeline
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/mac-codex-release-pipeline/bootstrap.sh
+    title: Mac Codex release bootstrap script
+    audience: public
+    purpose: artifact_support_file
+    requires_auth: false
+    guest_fallback: /artifacts/mac-codex-release-pipeline/bootstrap.sh
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: static bootstrap script only
+  - path: /artifacts/mac-codex-release-pipeline/readme.md
+    title: Mac Codex release runbook markdown
+    audience: public
+    purpose: artifact_support_file
+    requires_auth: false
+    guest_fallback: /artifacts/mac-codex-release-pipeline/readme.md
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: static markdown instructions only
   - path: /artifacts/explanation-receipt-trail
     title: Explanation receipt trail detail
     audience: public

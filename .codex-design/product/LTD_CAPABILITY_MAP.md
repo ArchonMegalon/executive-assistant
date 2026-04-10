@@ -35,6 +35,7 @@ It does not imply that every owned tool must be integrated.
 * `Teable` - curation and projection board only, never system of record
 * `ApiX-Drive` - low-risk automation glue only, never truth
 * `Browserly` - bounded browser capture and reference-pack helper
+* `hedy.ai` - bounded post-session transcript structure, highlight digest, and GM debrief helper for `TABLE PULSE`
 * `Nonverbia` - post-session coaching and social-dynamics analysis lane
 * `Unmixr AI` - candidate voice lane until proven
 
@@ -73,6 +74,7 @@ Current rule:
 * `Teable` - `chummer6-hub` for curation/projection workflows
 * `ApiX-Drive` - `chummer6-hub` for low-risk automation glue
 * `Browserly` - `chummer6-hub` for bounded capture/reference packets
+* `hedy.ai` - `chummer6-hub` for consent-gated coaching packet orchestration, `chummer6-media-factory` for transcript prep and rendered recap packet support
 * `Nonverbia` - `chummer6-hub` for coaching analysis and privacy gating, `chummer6-media-factory` for bounded rendered outputs
 * `Unmixr AI` - `chummer6-media-factory` for bounded voice experiments
 
@@ -100,6 +102,7 @@ Horizon fit:
 Current cluster:
 
 * `Nonverbia`
+* `hedy.ai`
 * bounded `Soundmadeseen`
 * bounded `Unmixr AI`
 * bounded `MarkupGo`

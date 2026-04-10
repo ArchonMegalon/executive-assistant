@@ -5,6 +5,8 @@ import json
 import os
 import queue
 import re
+import shlex
+import shutil
 import threading
 import time
 import uuid
@@ -13,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response
@@ -29,6 +31,7 @@ from app.services.brain_catalog import (
     GROUNDWORK_PUBLIC_MODEL,
     HARD_BATCH_PUBLIC_MODEL,
     HARD_RESCUE_PUBLIC_MODEL,
+    ONEMIN_PUBLIC_MODEL,
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     get_brain_profile,
@@ -55,6 +58,47 @@ codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
 _SSE_KEEPALIVE_TEXT = "Trace: waiting on upstream reasoning.\n"
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
+_ENV_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_SHELL_BUILTIN_COMMANDS = frozenset(
+    {
+        ":",
+        ".",
+        "alias",
+        "bg",
+        "builtin",
+        "cd",
+        "command",
+        "echo",
+        "eval",
+        "exec",
+        "exit",
+        "export",
+        "false",
+        "fg",
+        "getopts",
+        "hash",
+        "help",
+        "jobs",
+        "kill",
+        "printf",
+        "pwd",
+        "read",
+        "return",
+        "set",
+        "shift",
+        "source",
+        "test",
+        "times",
+        "trap",
+        "true",
+        "type",
+        "ulimit",
+        "umask",
+        "unalias",
+        "unset",
+        "wait",
+    }
+)
 _PROMPT_ROUTE_HARD_PROFILES = frozenset(
     {
         "core",
@@ -105,8 +149,62 @@ _PROMPT_ROUTE_QUERY_PREFIXES = (
     "status",
 )
 _PROMPT_ROUTE_FILLER_PREFIXES = ("so", "ok", "okay", "then", "now", "please")
+_DIRECT_FLEET_RUNTIME_TARGET_KEYWORDS = frozenset(
+    {
+        "fleet",
+        "fleet loop",
+        "shard",
+        "shards",
+        "worker",
+        "workers",
+        "supervisor",
+        "runtime",
+    }
+)
+_DIRECT_FLEET_RUNTIME_SIGNAL_KEYWORDS = frozenset(
+    {
+        "running",
+        "active",
+        "alive",
+        "busy",
+        "idle",
+        "status",
+        "count",
+        "currently",
+        "right now",
+        "now",
+    }
+)
+_DIRECT_FLEET_ETA_TARGET_KEYWORDS = frozenset(
+    {
+        "fleet",
+        "fleet loop",
+        "shard",
+        "shards",
+        "milestone",
+        "milestones",
+        "product",
+        "completion",
+        "finish",
+    }
+)
+_DIRECT_FLEET_ETA_SIGNAL_KEYWORDS = frozenset(
+    {
+        "eta",
+        "finish",
+        "finished",
+        "complete",
+        "completion",
+        "done",
+        "when",
+        "long",
+        "how long",
+    }
+)
 _PROMPT_ROUTE_SUBJECT_KEYWORDS = frozenset(
     {
+        "fleet",
+        "fleet loop",
         "codex",
         "codexes",
         "quartermaster",
@@ -125,8 +223,15 @@ _PROMPT_ROUTE_SUBJECT_KEYWORDS = frozenset(
         "spawned",
         "running",
         "run",
+        "worker",
+        "workers",
+        "helper",
+        "helpers",
         "process",
         "pid",
+        "shard",
+        "shards",
+        "loop",
         "credits",
         "credit",
         "balance",
@@ -246,9 +351,27 @@ def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: 
     return max(timeout_seconds, STREAM_HEARTBEAT_SECONDS + 1.0)
 
 
+def _streaming_codex_profiles() -> set[str]:
+    raw = str(os.environ.get("EA_RESPONSES_STREAMING_CODEX_PROFILES") or "easy,repair,groundwork").strip()
+    values = {item.strip().lower() for item in raw.split(",") if item.strip()}
+    return values or {"easy", "repair", "groundwork"}
+
+
+def _requested_model_is_explicit(value: str | None) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if ":" in normalized:
+        return True
+    return not lowered.startswith("ea-")
+
+
 def _prefer_nonstream_upstream(*, model: str = "", codex_profile: str = "") -> bool:
     normalized_model = str(model or "").strip().lower()
     normalized_profile = str(codex_profile or "").strip().lower()
+    if normalized_profile and normalized_profile in _streaming_codex_profiles():
+        return False
     if normalized_profile:
         return True
     if not normalized_model:
@@ -256,6 +379,24 @@ def _prefer_nonstream_upstream(*, model: str = "", codex_profile: str = "") -> b
     if normalized_model.startswith("ea-"):
         return True
     return normalized_model == str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower() or normalized_profile == "core_batch"
+
+
+def _codex_trace_instructions_enabled(*, codex_profile: str | None = None, stream: bool = False) -> bool:
+    normalized_profile = str(codex_profile or "").strip().lower()
+    if not stream or not normalized_profile:
+        return False
+    raw = str(os.environ.get("EA_CODEX_TRACE_INSTRUCTIONS") or "1").strip().lower()
+    return raw not in {"0", "false", "off", "no"}
+
+
+def _codex_trace_instruction(*, codex_profile: str | None = None) -> str:
+    lane = str(codex_profile or "easy").strip().lower() or "easy"
+    return (
+        f"Immediately print one short `Trace:` line with lane={lane} and the work you are starting.\n"
+        "Keep emitting short one-line `Trace:` updates before each meaningful work unit and again if you have been quiet for roughly 20-45 seconds.\n"
+        "If you need to wait on tools, remote state, or a long-running step, emit a short `Trace:` wait line before continuing.\n"
+        "After the first trace line, continue the task normally."
+    )
 
 
 @dataclass(frozen=True)
@@ -672,6 +813,64 @@ def _enrich_codex_profile(profile: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _repair_ready_provider(
+    profile: dict[str, object],
+    *,
+    provider_health: dict[str, object] | None = None,
+) -> str:
+    if str(profile.get("profile") or "").strip().lower() != "repair":
+        return ""
+    providers = dict(((provider_health or {}).get("providers") or {}))
+    hints = [
+        str(item or "").strip()
+        for item in (profile.get("provider_hint_order") or ())
+        if str(item or "").strip()
+    ]
+    for provider_key in hints:
+        row = dict(providers.get(provider_key) or {})
+        state = str(row.get("state") or "").strip().lower()
+        if state == "ready":
+            return provider_key
+        if state in {"degraded", "missing", "unavailable", "disabled", "error"}:
+            continue
+        slots = [dict(item) for item in (row.get("slots") or []) if isinstance(item, dict)]
+        if any(str(slot.get("state") or "").strip().lower() == "ready" for slot in slots):
+            return provider_key
+    return ""
+
+
+def _effective_codex_profile_model(
+    profile: dict[str, object],
+    *,
+    provider_health: dict[str, object] | None = None,
+) -> str:
+    model = str(profile.get("model") or DEFAULT_PUBLIC_MODEL).strip() or DEFAULT_PUBLIC_MODEL
+    return model
+
+
+def _stabilize_codex_profile(
+    profile: dict[str, object],
+    *,
+    provider_health: dict[str, object] | None = None,
+) -> dict[str, object]:
+    normalized = dict(profile or {})
+    preferred_ready_provider = _repair_ready_provider(normalized, provider_health=provider_health)
+    if preferred_ready_provider:
+        existing_hints = [
+            str(item or "").strip()
+            for item in (normalized.get("provider_hint_order") or ())
+            if str(item or "").strip()
+        ]
+        normalized["backend"] = preferred_ready_provider
+        normalized["health_provider_key"] = preferred_ready_provider
+        normalized["provider_hint_order"] = tuple(
+            [preferred_ready_provider]
+            + [item for item in existing_hints if item != preferred_ready_provider]
+        )
+    normalized["model"] = _effective_codex_profile_model(normalized, provider_health=provider_health)
+    return normalized
+
+
 def _set_stream_response_override(
     *,
     response_id: str,
@@ -930,6 +1129,29 @@ def _extract_textish(value: object) -> str:
 
 
 def _latest_user_prompt(parsed_input: _ParsedResponseInput) -> str:
+    for item in reversed(parsed_input.input_items):
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type in {"input_text", "text"}:
+            cleaned = str(item.get("text") or "").strip()
+            if cleaned:
+                return cleaned
+            continue
+        if item_type != "message":
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role != "user":
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in reversed(content):
+            if not isinstance(part, dict):
+                continue
+            cleaned = str(part.get("text") or "").strip()
+            if cleaned:
+                return cleaned
     for item in reversed(parsed_input.messages):
         if str(item.get("role") or "").strip().lower() != "user":
             continue
@@ -937,6 +1159,47 @@ def _latest_user_prompt(parsed_input: _ParsedResponseInput) -> str:
         if cleaned:
             return cleaned
     return str(parsed_input.prompt or "").strip()
+
+
+def _prompt_route_fragments(prompt: str) -> list[str]:
+    raw = str(prompt or "").strip()
+    if not raw:
+        return []
+    fragments: list[str] = []
+    seen: set[str] = set()
+    for chunk in re.split(r"(?:\n\s*\n|\r\n\s*\r\n)", raw):
+        for line in str(chunk).splitlines():
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            normalized = re.sub(r"\s+", " ", cleaned).strip()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                fragments.append(normalized)
+    normalized_raw = re.sub(r"\s+", " ", raw).strip()
+    if normalized_raw and normalized_raw not in seen:
+        fragments.append(normalized_raw)
+    return fragments
+
+
+def _effective_prompt_route_text(parsed_input: _ParsedResponseInput) -> str:
+    user_prompts: list[str] = []
+    latest_prompt = _latest_user_prompt(parsed_input)
+    if latest_prompt:
+        user_prompts.append(latest_prompt)
+    for item in reversed(parsed_input.messages):
+        if str(item.get("role") or "").strip().lower() != "user":
+            continue
+        cleaned = str(item.get("content") or "").strip()
+        if cleaned and cleaned not in user_prompts:
+            user_prompts.append(cleaned)
+    for prompt in user_prompts:
+        fragments = _prompt_route_fragments(prompt)
+        for fragment in reversed(fragments):
+            lightweight_ops, _ = _looks_like_lightweight_ops_query(fragment)
+            if lightweight_ops:
+                return fragment
+    return latest_prompt
 
 
 def _normalized_prompt_route_text(prompt: str) -> str:
@@ -975,6 +1238,161 @@ def _looks_like_lightweight_ops_query(prompt: str) -> tuple[bool, str]:
     if not any(keyword in normalized for keyword in _PROMPT_ROUTE_SUBJECT_KEYWORDS):
         return False, "not_ops_status_query"
     return True, "lightweight_ops_query"
+
+
+def _looks_like_direct_fleet_runtime_query(prompt: str) -> bool:
+    normalized = _trim_prompt_route_fillers(_normalized_prompt_route_text(prompt))
+    if not normalized:
+        return False
+    if len(normalized) > 280 or len(normalized.split()) > 48:
+        return False
+    if any(marker in normalized for marker in _PROMPT_ROUTE_CODE_MARKERS):
+        return False
+    if "eta" in normalized:
+        return False
+    query_like = normalized.endswith("?") or any(
+        normalized == prefix or normalized.startswith(f"{prefix} ") for prefix in _PROMPT_ROUTE_QUERY_PREFIXES
+    )
+    if not query_like:
+        return False
+    return any(keyword in normalized for keyword in _DIRECT_FLEET_RUNTIME_TARGET_KEYWORDS) and any(
+        keyword in normalized for keyword in _DIRECT_FLEET_RUNTIME_SIGNAL_KEYWORDS
+    )
+
+
+def _looks_like_direct_fleet_eta_query(prompt: str) -> bool:
+    normalized = _trim_prompt_route_fillers(_normalized_prompt_route_text(prompt))
+    if not normalized:
+        return False
+    if len(normalized) > 280 or len(normalized.split()) > 48:
+        return False
+    if any(marker in normalized for marker in _PROMPT_ROUTE_CODE_MARKERS):
+        return False
+    query_like = normalized.endswith("?") or any(
+        normalized == prefix or normalized.startswith(f"{prefix} ") for prefix in _PROMPT_ROUTE_QUERY_PREFIXES
+    )
+    if not query_like and "eta" not in normalized:
+        return False
+    return any(keyword in normalized for keyword in _DIRECT_FLEET_ETA_TARGET_KEYWORDS) and any(
+        keyword in normalized for keyword in _DIRECT_FLEET_ETA_SIGNAL_KEYWORDS
+    )
+
+
+def _fleet_runtime_state_path() -> Path:
+    raw = str(
+        os.environ.get("EA_FLEET_RUNTIME_STATE_PATH")
+        or os.environ.get("CHUMMER_DESIGN_SUPERVISOR_STATE_ROOT")
+        or "/docker/fleet/state/chummer_design_supervisor/state.json"
+    ).strip()
+    path = Path(raw)
+    if path.name != "state.json":
+        path = path / "state.json"
+    return path
+
+
+def _load_direct_fleet_runtime_status_payload() -> dict[str, object] | None:
+    try:
+        payload = json.loads(_fleet_runtime_state_path().read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _render_direct_fleet_runtime_status(payload: dict[str, object]) -> str:
+    shards = list(payload.get("shards") or [])
+    active_shards = [item for item in shards if isinstance(item, dict) and str(item.get("active_run_id") or "").strip()]
+    active_runs = [item for item in list(payload.get("active_runs") or []) if isinstance(item, dict)]
+    active_shard_names = [
+        str(item.get("name") or "").strip()
+        for item in active_shards
+        if str(item.get("name") or "").strip()
+    ]
+    if not active_shard_names:
+        active_shard_names = [
+            str(item.get("_shard") or "").strip()
+            for item in active_runs
+            if str(item.get("_shard") or "").strip()
+        ]
+    deduped_active_shard_names = list(dict.fromkeys(active_shard_names))
+    shard_count = len(shards) or None
+    active_count = len(active_shards)
+    if active_count == 0:
+        if deduped_active_shard_names:
+            active_count = len(deduped_active_shard_names)
+        else:
+            active_count = len(active_runs)
+    mode = str(payload.get("mode") or "unknown").strip() or "unknown"
+    updated_at = str(payload.get("updated_at") or "").strip()
+    open_milestones = list(payload.get("open_milestone_ids") or [])
+    active_run = payload.get("active_run") if isinstance(payload.get("active_run"), dict) else {}
+    active_run_id = str(active_run.get("run_id") or "").strip()
+    active_names = ", ".join(deduped_active_shard_names)
+    status_prefix = f"Live fleet status: {active_count} active shards"
+    if shard_count is not None:
+        status_prefix += f" out of {shard_count} total"
+    status_prefix += f", mode {mode}"
+    fragments = [status_prefix]
+    if active_names:
+        fragments.append(f"active shards {active_names}")
+    if active_run_id:
+        fragments.append(f"aggregate active run {active_run_id}")
+    if open_milestones:
+        fragments.append(f"{len(open_milestones)} open milestones")
+    if updated_at:
+        fragments.append(f"updated {updated_at}")
+    return "; ".join(fragments) + "."
+
+
+def _render_direct_fleet_eta(payload: dict[str, object]) -> str:
+    eta_payload = payload.get("eta") if isinstance(payload.get("eta"), dict) else {}
+    if not eta_payload:
+        return "Fleet ETA is unavailable right now; supervisor state does not include an ETA estimate."
+    eta_human = str(eta_payload.get("eta_human") or "").strip()
+    predicted_completion_at = str(eta_payload.get("predicted_completion_at") or "").strip()
+    eta_confidence = str(eta_payload.get("eta_confidence") or "").strip()
+    summary = str(eta_payload.get("summary") or "").strip()
+    blocking_reason = str(eta_payload.get("blocking_reason") or "").strip()
+    status = str(eta_payload.get("status") or "").strip()
+    updated_at = str(payload.get("updated_at") or "").strip()
+    fragments = ["Fleet ETA"]
+    detail_parts: list[str] = []
+    if eta_human:
+        detail_parts.append(eta_human)
+    if eta_confidence:
+        detail_parts.append(f"{eta_confidence} confidence")
+    if status and status != "estimated":
+        detail_parts.append(status)
+    if detail_parts:
+        fragments[0] += f": {'; '.join(detail_parts)}"
+    else:
+        fragments[0] += ": estimated"
+    if predicted_completion_at:
+        fragments.append(f"predicted completion {predicted_completion_at}")
+    if summary:
+        fragments.append(summary)
+    if blocking_reason:
+        fragments.append(f"blocking reason {blocking_reason}")
+    if updated_at:
+        fragments.append(f"updated {updated_at}")
+    return "; ".join(fragments) + "."
+
+
+def _direct_fleet_runtime_text(prompt: str) -> str | None:
+    if not _looks_like_direct_fleet_runtime_query(prompt):
+        return None
+    payload = _load_direct_fleet_runtime_status_payload()
+    if not isinstance(payload, dict):
+        return "Live fleet runtime status is unavailable right now; mounted supervisor state could not be loaded."
+    return _render_direct_fleet_runtime_status(payload)
+
+
+def _direct_fleet_eta_text(prompt: str) -> str | None:
+    if not _looks_like_direct_fleet_eta_query(prompt):
+        return None
+    payload = _load_direct_fleet_runtime_status_payload()
+    if not isinstance(payload, dict):
+        return "Fleet ETA is unavailable right now; mounted supervisor state could not be loaded."
+    return _render_direct_fleet_eta(payload)
 
 
 def _looks_like_coding_task(prompt: str) -> tuple[bool, str]:
@@ -1073,7 +1491,13 @@ def _resolve_prompt_route(
             reason = demote_reason
     else:
         lightweight_ops, lightweight_reason = _looks_like_lightweight_ops_query(prompt)
-        if not lightweight_ops:
+        if lightweight_ops:
+            effective_profile = "easy"
+            if normalized_original_profile in {"", "default", "easy", "repair", "groundwork"}:
+                effective_model = str(ONEMIN_PUBLIC_MODEL or "").strip() or original_model
+            applied = effective_profile != original_profile or effective_model != original_model
+            reason = lightweight_reason
+        else:
             coding_task, coding_reason = _looks_like_coding_task(prompt)
             if coding_task and (
                 not normalized_original_profile
@@ -1506,14 +1930,19 @@ def _codex_profiles(
     *,
     container: object | None = None,
     principal_id: str = "",
+    provider_health: dict[str, object] | None = None,
 ) -> tuple[dict[str, object], ...]:
     router = _brain_router(container)
     if router is None:
-        return tuple(_enrich_codex_profile(dict(item)) for item in _CODEx_PROFILES)
+        return tuple(
+            _stabilize_codex_profile(_enrich_codex_profile(dict(item)), provider_health=provider_health)
+            for item in _CODEx_PROFILES
+        )
     rows = []
     for profile in router.list_profile_decisions(principal_id=principal_id or None):
         rows.append(
-            _enrich_codex_profile(
+            _stabilize_codex_profile(
+                _enrich_codex_profile(
                 {
                 "profile": profile.profile,
                 "lane": profile.lane,
@@ -1526,18 +1955,29 @@ def _codex_profiles(
                 "risk_labels": list(profile.risk_labels),
                 "merge_policy": str(profile.merge_policy or "auto"),
                 }
+                ),
+                provider_health=provider_health,
             )
         )
     if rows:
         return tuple(rows)
-    return tuple(_enrich_codex_profile(dict(item)) for item in _CODEx_PROFILES)
+    return tuple(
+        _stabilize_codex_profile(_enrich_codex_profile(dict(item)), provider_health=provider_health)
+        for item in _CODEx_PROFILES
+    )
 
 
-def _codex_profile(profile: str, *, container: object | None = None, principal_id: str = "") -> dict[str, object]:
-    for item in _codex_profiles(container=container, principal_id=principal_id):
+def _codex_profile(
+    profile: str,
+    *,
+    container: object | None = None,
+    principal_id: str = "",
+    provider_health: dict[str, object] | None = None,
+) -> dict[str, object]:
+    for item in _codex_profiles(container=container, principal_id=principal_id, provider_health=provider_health):
         if item["profile"] == profile:
             return dict(item)
-    return _enrich_codex_profile(
+    return _stabilize_codex_profile(_enrich_codex_profile(
         {
         "profile": profile,
         "lane": "default",
@@ -1548,7 +1988,7 @@ def _codex_profile(profile: str, *, container: object | None = None, principal_i
         "review_required": False,
         "needs_review": False,
         }
-    )
+    ), provider_health=provider_health)
 
 
 def _attach_provider_slot_state(
@@ -1685,7 +2125,12 @@ def _normalize_payload_for_profile(
     container: object | None = None,
     principal_id: str = "",
 ) -> dict[str, object]:
-    profile_config = _codex_profile(profile, container=container, principal_id=principal_id)
+    profile_config = _codex_profile(
+        profile,
+        container=container,
+        principal_id=principal_id,
+        provider_health=_provider_health_report(lightweight=True),
+    )
     normalized = dict(payload)
     normalized["model"] = str(profile_config["model"])
     return normalized
@@ -1835,6 +2280,168 @@ def _message_item(*, item_id: str, text: str, status: str) -> dict[str, object]:
         status=status,
         content=[_ResponseOutputTextPart(text=text)],
     ).model_dump(mode="json")
+
+
+def _completed_text_response(
+    *,
+    request: _ResponsesCreateRequest,
+    response_id: str,
+    item_id: str,
+    model: str,
+    created_at: int,
+    text: str,
+    metadata: dict[str, object],
+    instructions: str | None,
+    input_items: list[dict[str, object]],
+    history_items: list[dict[str, object]],
+    principal_id: str,
+    container: object | None,
+    reasoning: Any | None,
+    max_output_tokens: int | None,
+    prompt_route_trace_line: str = "",
+) -> Response:
+    final_item = _message_item(item_id=item_id, text=text, status="completed")
+    response_obj = _response_object(
+        response_id=response_id,
+        model=model,
+        created_at=created_at,
+        status="completed",
+        output=[final_item],
+        output_text=text,
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=max_output_tokens,
+        metadata=metadata,
+        instructions=instructions,
+        input_items=input_items,
+        reasoning=reasoning,
+    )
+    if _should_store_response(request):
+        _store_response(
+            response_id=response_id,
+            response_obj=response_obj,
+            input_items=input_items,
+            history_items=list(history_items) + [final_item],
+            principal_id=principal_id,
+            container=container,
+        )
+    if not request.stream:
+        return JSONResponse(response_obj)
+
+    in_progress_obj = _response_object(
+        response_id=response_id,
+        model=model,
+        created_at=created_at,
+        status="in_progress",
+        output=[],
+        output_text="",
+        tokens_in=0,
+        tokens_out=0,
+        max_output_tokens=max_output_tokens,
+        metadata=metadata,
+        instructions=instructions,
+        input_items=input_items,
+        reasoning=reasoning,
+    )
+
+    def event_stream() -> Iterable[str]:
+        sequence = 0
+
+        def _next_sequence() -> int:
+            nonlocal sequence
+            sequence += 1
+            return sequence
+
+        empty_item = _message_item(item_id=item_id, text="", status="in_progress")
+        yield _sse_event(
+            event="response.created",
+            sequence=_next_sequence(),
+            data={"type": "response.created", "response": in_progress_obj},
+        )
+        yield _sse_event(
+            event="response.in_progress",
+            sequence=_next_sequence(),
+            data={"type": "response.in_progress", "response": in_progress_obj},
+        )
+        yield _sse_event(
+            event="response.output_item.added",
+            sequence=_next_sequence(),
+            data={"type": "response.output_item.added", "output_index": 0, "item": empty_item},
+        )
+        yield _sse_event(
+            event="response.content_part.added",
+            sequence=_next_sequence(),
+            data={
+                "type": "response.content_part.added",
+                "output_index": 0,
+                "item_id": item_id,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": "", "annotations": []},
+            },
+        )
+        if prompt_route_trace_line:
+            yield _sse_event(
+                event="response.output_text.delta",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_text.delta",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "delta": prompt_route_trace_line,
+                },
+            )
+        if text:
+            yield _sse_event(
+                event="response.output_text.delta",
+                sequence=_next_sequence(),
+                data={
+                    "type": "response.output_text.delta",
+                    "output_index": 0,
+                    "item_id": item_id,
+                    "content_index": 0,
+                    "delta": text,
+                },
+            )
+        yield _sse_event(
+            event="response.output_text.done",
+            sequence=_next_sequence(),
+            data={
+                "type": "response.output_text.done",
+                "output_index": 0,
+                "item_id": item_id,
+                "content_index": 0,
+                "text": text,
+            },
+        )
+        yield _sse_event(
+            event="response.content_part.done",
+            sequence=_next_sequence(),
+            data={
+                "type": "response.content_part.done",
+                "output_index": 0,
+                "item_id": item_id,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": text, "annotations": []},
+            },
+        )
+        yield _sse_event(
+            event="response.output_item.done",
+            sequence=_next_sequence(),
+            data={"type": "response.output_item.done", "output_index": 0, "item": final_item},
+        )
+        yield _sse_event(
+            event="response.completed",
+            sequence=_next_sequence(),
+            data={"type": "response.completed", "response": response_obj},
+        )
+        yield _sse_event(
+            event="response.done",
+            sequence=_next_sequence(),
+            data={"type": "response.done", "response": response_obj},
+        )
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 def _function_call_item(
@@ -2004,6 +2611,7 @@ def _background_replay_payload(
     effective_codex_profile: str | None,
     chatplayground_audit_callback_enabled: bool,
     chatplayground_audit_callback_only: bool,
+    preferred_onemin_labels: tuple[str, ...] = (),
 ) -> dict[str, object]:
     return {
         "prompt": str(prompt or ""),
@@ -2012,7 +2620,26 @@ def _background_replay_payload(
         "effective_codex_profile": str(effective_codex_profile or "").strip(),
         "chatplayground_audit_callback_enabled": bool(chatplayground_audit_callback_enabled),
         "chatplayground_audit_callback_only": bool(chatplayground_audit_callback_only),
+        "preferred_onemin_labels": [str(item or "").strip() for item in preferred_onemin_labels if str(item or "").strip()],
     }
+
+
+def _preferred_onemin_labels_from_request(request: Request) -> tuple[str, ...]:
+    labels: list[str] = []
+    for header_name in (
+        "X-EA-Onemin-Account-Alias",
+        "X-EA-Onemin-Account-Env",
+        "X-EA-Onemin-Account",
+        "X-EA-Onemin-Preferred-Accounts",
+    ):
+        raw = str(request.headers.get(header_name) or "").strip()
+        if not raw:
+            continue
+        for part in raw.replace(";", ",").split(","):
+            label = str(part or "").strip()
+            if label and label not in labels:
+                labels.append(label)
+    return tuple(labels)
 
 
 def _background_failed_response(
@@ -2099,6 +2726,7 @@ def _spawn_background_codex_worker(
     chatplayground_audit_callback: Callable[..., Any] | None,
     chatplayground_audit_callback_only: bool,
     chatplayground_audit_principal_id: str,
+    preferred_onemin_labels: tuple[str, ...],
     principal_id: str,
     container: object | None,
     background_job: dict[str, object] | None,
@@ -2137,6 +2765,7 @@ def _spawn_background_codex_worker(
                     chatplayground_audit_callback=chatplayground_audit_callback,
                     chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                     chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    preferred_onemin_labels=preferred_onemin_labels,
                     request_deadline_monotonic=request_deadline_monotonic,
                 )
             completed_obj, history_items_to_store = _build_completed_response_from_upstream(
@@ -2311,6 +2940,11 @@ def _ensure_background_response_progress(
             chatplayground_audit_callback=replay_callback,
             chatplayground_audit_callback_only=bool(replay.get("chatplayground_audit_callback_only")),
             chatplayground_audit_principal_id=principal_id,
+            preferred_onemin_labels=tuple(
+                str(item or "").strip()
+                for item in list(replay.get("preferred_onemin_labels") or [])
+                if str(item or "").strip()
+            ),
             principal_id=principal_id,
             container=container,
             background_job=replay,
@@ -2343,6 +2977,7 @@ def _generate_upstream_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    preferred_onemin_labels: tuple[str, ...] = (),
     request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     try:
@@ -2354,6 +2989,7 @@ def _generate_upstream_text(
             chatplayground_audit_callback=chatplayground_audit_callback,
             chatplayground_audit_callback_only=chatplayground_audit_callback_only,
             chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+            preferred_onemin_labels=preferred_onemin_labels,
             request_deadline_monotonic=request_deadline_monotonic,
         )
     except ResponsesUpstreamError as exc:
@@ -2394,7 +3030,11 @@ def _tool_choice_disables_tools(payload: _ResponsesCreateRequest) -> bool:
     return False
 
 
-def _tool_shim_supported_tools(raw_tools: list[dict[str, object]]) -> list[dict[str, object]]:
+def _tool_shim_supported_tools(
+    raw_tools: list[dict[str, object]],
+    *,
+    prompt: str | None = None,
+) -> list[dict[str, object]]:
     supported: list[dict[str, object]] = []
     for tool in raw_tools:
         tool_type = str(tool.get("type") or "").strip().lower()
@@ -2411,6 +3051,17 @@ def _tool_shim_supported_tools(raw_tools: list[dict[str, object]]) -> list[dict[
                 "parameters": parameters,
             }
         )
+    lightweight_ops, _ = _looks_like_lightweight_ops_query(prompt or "")
+    if lightweight_ops:
+        preferred_names = (
+            "exec_command",
+            "write_stdin",
+            "read_mcp_resource",
+            "list_mcp_resources",
+        )
+        narrowed = [tool for name in preferred_names for tool in supported if tool["name"] == name]
+        if narrowed:
+            return narrowed
     return supported
 
 
@@ -2456,6 +3107,25 @@ def _tool_shim_transcript_part_max_chars() -> int:
         return max(200, min(8000, int(raw)))
     except Exception:
         return 1200
+
+
+def _tool_shim_planner_model(model: str, *, prompt: str | None = None) -> str:
+    normalized = str(model or "").strip().lower()
+    if not normalized:
+        return "onemin:gpt-4.1"
+    if normalized == str(ONEMIN_PUBLIC_MODEL or "").strip().lower() or normalized.startswith("onemin:"):
+        return "onemin:gpt-4.1"
+    return model
+
+
+def _tool_shim_planner_max_output_tokens(max_output_tokens: int | None) -> int:
+    if max_output_tokens is None:
+        return 256
+    try:
+        value = int(max_output_tokens)
+    except Exception:
+        return 256
+    return max(96, min(256, value))
 
 
 def _tool_shim_truncate_text(text: str, *, limit: int) -> str:
@@ -2523,6 +3193,249 @@ def _history_item_to_transcript(item: dict[str, object], *, include_system: bool
     return ""
 
 
+def _tool_shim_latest_user_text(history_items: list[dict[str, object]]) -> str:
+    for item in reversed(history_items):
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type == "input_text":
+            text = _extract_textish(item.get("text"))
+            if text:
+                return text
+            continue
+        if item_type != "message":
+            continue
+        role = _normalize_message_role(item.get("role"))
+        if role != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, list):
+            text = "\n\n".join(
+                _extract_textish(part.get("text"))
+                for part in content
+                if isinstance(part, dict) and _extract_textish(part.get("text"))
+            ).strip()
+        else:
+            text = _extract_textish(content)
+        if text:
+            return text
+    return ""
+
+
+def _tool_shim_unwrap_tool_output_envelope(output_text: str) -> str:
+    stripped = str(output_text or "").strip()
+    if not stripped:
+        return ""
+    output_marker = "\nOutput:\n"
+    if output_marker in stripped:
+        return stripped.rsplit(output_marker, 1)[1].strip()
+    succeeded_match = re.search(r"\nsucceeded in [^\n]*:\n(?P<body>.*)\Z", stripped, flags=re.DOTALL)
+    if succeeded_match:
+        return str(succeeded_match.group("body") or "").strip()
+    return stripped
+
+
+def _tool_shim_latest_function_output(history_items: list[dict[str, object]]) -> str:
+    for item in reversed(history_items):
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type != "function_call_output":
+            continue
+        output_text = _tool_shim_unwrap_tool_output_envelope(_extract_textish(item.get("output")))
+        if output_text:
+            return output_text
+    return ""
+
+
+def _tool_shim_requires_immediate_tool(
+    *,
+    latest_user_text: str,
+    available_tools: list[dict[str, object]],
+) -> bool:
+    if not available_tools:
+        return False
+    prompt = str(latest_user_text or "").strip()
+    if not prompt:
+        return False
+    lightweight_ops, _ = _looks_like_lightweight_ops_query(prompt)
+    if lightweight_ops:
+        return True
+    normalized = " ".join(prompt.lower().split())
+    if len(normalized) > 220:
+        return False
+    if not (
+        "?" in normalized
+        or normalized.startswith(("how many ", "what ", "which ", "is ", "are ", "eta ", "status "))
+    ):
+        return False
+    local_markers = (
+        "right now",
+        "currently",
+        "current ",
+        "in the fleet",
+        "in this repo",
+        "in the repo",
+        "in the workspace",
+        "local ",
+    )
+    return any(marker in normalized for marker in local_markers)
+
+
+def _tool_shim_local_upstream_result(text: str, *, reason: str) -> UpstreamResult:
+    return UpstreamResult(
+        text=text,
+        provider_key="local",
+        model="tool_shim_local",
+        provider_key_slot=None,
+        provider_backend="local",
+        provider_account_name="tool_shim_local",
+        tokens_in=0,
+        tokens_out=0,
+        upstream_model="tool_shim_local",
+        latency_ms=0,
+        fallback_reason=reason,
+    )
+
+
+def _tool_shim_scalar_text(value: object) -> str | None:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if value is None:
+        return None
+    if isinstance(value, list) and len(value) == 1:
+        return _tool_shim_scalar_text(value[0])
+    if isinstance(value, dict):
+        preferred_keys = ("output", "stdout", "text", "result", "value", "content", "message")
+        for key in preferred_keys:
+            if key in value:
+                scalar = _tool_shim_scalar_text(value.get(key))
+                if scalar is not None:
+                    return scalar
+        if len(value) == 1:
+            only_value = next(iter(value.values()))
+            return _tool_shim_scalar_text(only_value)
+    return None
+
+
+def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str | None:
+    latest_user_text = _tool_shim_latest_user_text(history_items)
+    lightweight_ops, _ = _looks_like_lightweight_ops_query(latest_user_text)
+    if not lightweight_ops:
+        return None
+    output_text = _tool_shim_latest_function_output(history_items)
+    if not output_text:
+        return None
+    stripped = output_text.strip()
+    if not stripped:
+        return None
+    if len(stripped) <= 40 and "\n" not in stripped:
+        return stripped
+    parsed_ok = False
+    try:
+        parsed = json.loads(stripped)
+        parsed_ok = True
+    except Exception:
+        parsed = None
+    if parsed_ok:
+        scalar = _tool_shim_scalar_text(parsed)
+        if scalar is not None:
+            return scalar
+    compact_lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    if len(compact_lines) == 1 and len(compact_lines[0]) <= 120:
+        return compact_lines[0]
+    return None
+
+
+def _tool_shim_direct_local_fleet_command(latest_user_text: str) -> str | None:
+    normalized = " ".join(str(latest_user_text or "").strip().lower().split())
+    if "fleet" not in normalized:
+        return None
+    state_root = Path("/docker/fleet/state/chummer_design_supervisor")
+    supervisor_script = Path("/docker/fleet/scripts/chummer_design_supervisor.py")
+    if not supervisor_script.exists() or not state_root.exists():
+        return None
+    eta_cmd = (
+        "python3 /docker/fleet/scripts/chummer_design_supervisor.py "
+        "eta --state-root /docker/fleet/state/chummer_design_supervisor --json"
+    )
+    status_cmd = (
+        "python3 /docker/fleet/scripts/chummer_design_supervisor.py "
+        "status --state-root /docker/fleet/state/chummer_design_supervisor --json"
+    )
+    def _json_field(cmd: str, expr: str) -> str:
+        return (
+            f"{cmd} | "
+            "python3 -c "
+            + shlex.quote(
+                "import json,sys; payload=json.load(sys.stdin); " + expr
+            )
+        )
+    if "how many" in normalized and "milestone" in normalized and "not started" in normalized:
+        return _json_field(eta_cmd, "print((payload or {}).get('remaining_not_started_milestones', ''))")
+    if "how many" in normalized and "milestone" in normalized and "in progress" in normalized:
+        return _json_field(eta_cmd, "print((payload or {}).get('remaining_in_progress_milestones', ''))")
+    if "how many" in normalized and "milestone" in normalized and "open" in normalized:
+        return _json_field(eta_cmd, "print((payload or {}).get('remaining_open_milestones', ''))")
+    if "how many" in normalized and "shard" in normalized and any(token in normalized for token in ("running", "active")):
+        return _json_field(status_cmd, "print((payload or {}).get('active_runs_count', ''))")
+    if normalized.startswith("eta") or "eta of the fleet" in normalized or "fleet eta" in normalized:
+        return _json_field(
+            eta_cmd,
+            "print((payload or {}).get('summary') or (payload or {}).get('eta_human') or json.dumps(payload,separators=(',',':')))"
+        )
+    if "fleet" in normalized and any(token in normalized for token in ("status", "running", "milestone", "shard")):
+        return (
+            f"{status_cmd} | "
+            "python3 -c "
+            + shlex.quote(
+                "import json,sys; payload=json.load(sys.stdin) or {}; eta=payload.get('eta') or {}; "
+                "out={'active_runs_count':payload.get('active_runs_count'),"
+                "'remaining_open_milestones':eta.get('remaining_open_milestones'),"
+                "'remaining_not_started_milestones':eta.get('remaining_not_started_milestones'),"
+                "'remaining_in_progress_milestones':eta.get('remaining_in_progress_milestones'),"
+                "'eta_human':eta.get('eta_human'),'summary':eta.get('summary')}; "
+                "print(json.dumps(out,separators=(',',':')))"
+            )
+        )
+    return None
+
+
+def _tool_shim_text_rejection_reason(*, text: str, requires_tool: bool) -> str | None:
+    if not requires_tool:
+        return None
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return (
+            "You returned an empty answer. Return JSON only and choose one focused function_call "
+            "or provide the concrete answer if it is already known from prior tool output."
+        )
+    intent_markers = (
+        "i'll ",
+        "i will ",
+        "let me ",
+        "i need to ",
+        "please let me ",
+        "i'm going to ",
+        "i am going to ",
+        "starting repo inspection",
+        "scan the repo",
+        "inspect the repo",
+        "inspect the fleet",
+        "need to inspect",
+    )
+    if any(marker in normalized for marker in intent_markers):
+        return (
+            "Do not narrate future inspection. Return JSON only. For this factual local-state question, "
+            "choose one focused function_call immediately or provide the concrete answer if prior tool "
+            "output already contains it."
+        )
+    if normalized.startswith("trace:") and "waiting" in normalized:
+        return (
+            "Do not return trace-only or waiting text as the answer. Return JSON only with the single next "
+            "action or the final answer."
+        )
+    return None
+
+
 def _tool_shim_messages(
     *,
     instructions: str | None,
@@ -2533,6 +3446,8 @@ def _tool_shim_messages(
     tool_names = {str(tool.get("name") or "").strip() for tool in tools}
     has_apply_patch = "apply_patch" in tool_names
     has_exec_command = "exec_command" in tool_names
+    latest_user_text = _tool_shim_latest_user_text(history_items)
+    lightweight_ops, _ = _looks_like_lightweight_ops_query(latest_user_text)
     tool_catalog = []
     for tool in tools:
         tool_catalog.append(
@@ -2568,6 +3483,8 @@ def _tool_shim_messages(
         "- Prefer a real tool call over describing future intent when inspection or execution is needed.",
         "- For coding or backlog tasks, inspect files and run commands before claiming conclusions.",
         "- Prefer the smallest single-purpose command that advances the work.",
+        "- For shell-like tools, do not prepend exploratory boilerplate such as pwd or ls unless it is required to answer the request.",
+        "- Keep search/read commands tightly scoped and bound noisy output with a limiter such as | head -n 200 when matches could be large.",
         "- Do not emit multiline shell scripts, here-docs, or long quoted bash programs when a simple command sequence would do.",
         "- Prefer commands like pwd, ls, rg, sed -n, cat, git status, pytest <target>, or a small focused shell command.",
         "- If a command session is already running, prefer write_stdin with the existing session_id.",
@@ -2580,6 +3497,31 @@ def _tool_shim_messages(
         "Available function tools:",
         _json_compact(tool_catalog),
     ]
+    if lightweight_ops:
+        system_parts.extend(
+            [
+                "Lightweight ops question rules:",
+                "- For short factual questions about the current repo/workspace/fleet state, do not narrate inspection or ask for permission to inspect.",
+                "- Use one focused function_call immediately if you need fresh local state.",
+                "- Prefer a direct status read or narrow command over broad repo scanning.",
+            ]
+        )
+        normalized_user_text = " ".join(latest_user_text.lower().split())
+        if (
+            "fleet" in normalized_user_text
+            and any(token in normalized_user_text for token in ("milestone", "shard", "eta", "status", "running"))
+            and (
+                Path("/docker/fleet/state/chummer_design_supervisor/state.json").exists()
+                or any(Path("/docker/fleet/state/chummer_design_supervisor").glob("shard-*/state.json"))
+            )
+        ):
+            system_parts.extend(
+                [
+                    "Fleet status hint for this repo:",
+                    "- Prefer reading structured state under /docker/fleet/state/chummer_design_supervisor/ directly for fleet milestone/shard/eta/status questions.",
+                    "- Prefer a direct structured read over rg/grep against repo text when those state files can answer the question.",
+                ]
+            )
     if has_exec_command and not has_apply_patch:
         system_parts.extend(
             [
@@ -2591,12 +3533,23 @@ def _tool_shim_messages(
             ]
         )
     if instructions and not compact_for_audit:
-        system_parts.extend(
-            [
-                "Original Codex instructions:",
-                instructions,
-            ]
-        )
+        normalized_instructions = str(instructions or "").strip()
+        if normalized_instructions:
+            if len(normalized_instructions) <= 1200:
+                system_parts.extend(
+                    [
+                        "Original Codex instructions:",
+                        normalized_instructions,
+                    ]
+                )
+            else:
+                system_parts.extend(
+                    [
+                        "Original Codex instructions are enforced outside this shim.",
+                        "- Omit the full instruction body here to keep the tool-planning prompt small and fast.",
+                        "- Follow the visible conversation and available tool schemas to choose the next action.",
+                    ]
+                )
     elif compact_for_audit:
         system_parts.extend(
             [
@@ -2655,6 +3608,111 @@ def _extract_json_object(text: str) -> dict[str, object] | None:
     return None
 
 
+def _normalize_tool_shim_payload(
+    payload: dict[str, object],
+    *,
+    available_tools: list[dict[str, object]],
+) -> dict[str, object]:
+    available_names = {str(tool.get("name") or "").strip() for tool in available_tools}
+    command_tool_name = None
+    if "exec_command" in available_names:
+        command_tool_name = "exec_command"
+    elif "shell" in available_names:
+        command_tool_name = "shell"
+
+    def _command_tool_arguments(source_payload: dict[str, object]) -> dict[str, object] | None:
+        if not command_tool_name:
+            return None
+        raw_arguments = source_payload.get("arguments")
+        if isinstance(raw_arguments, dict):
+            arguments = dict(raw_arguments)
+        else:
+            arguments = {
+                key: value
+                for key, value in source_payload.items()
+                if key not in {"decision", "name", "arguments"}
+            }
+        cmd_value = arguments.get("cmd")
+        command_value = arguments.get("command")
+        if command_tool_name == "exec_command":
+            if isinstance(cmd_value, str) and cmd_value.strip():
+                return arguments
+            if isinstance(command_value, str) and command_value.strip():
+                normalized = dict(arguments)
+                normalized["cmd"] = str(normalized.pop("command"))
+                return normalized
+            return None
+        if isinstance(command_value, str) and command_value.strip():
+            return arguments
+        if isinstance(cmd_value, str) and cmd_value.strip():
+            normalized = dict(arguments)
+            normalized["command"] = str(normalized.pop("cmd"))
+            return normalized
+        return None
+
+    decision = str(payload.get("decision") or "").strip()
+    if decision == "function_call":
+        name = str(payload.get("name") or "").strip()
+        if name not in available_names:
+            arguments = _command_tool_arguments(payload)
+            if arguments is not None and command_tool_name:
+                return {
+                    "decision": "function_call",
+                    "name": command_tool_name,
+                    "arguments": arguments,
+                }
+        return payload
+    if decision in available_names:
+        arguments = payload.get("arguments")
+        if not isinstance(arguments, dict):
+            arguments = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"decision", "name", "arguments"}
+            }
+        return {
+            "decision": "function_call",
+            "name": decision,
+            "arguments": arguments,
+        }
+    name = str(payload.get("name") or "").strip()
+    if not decision and name in available_names:
+        arguments = payload.get("arguments")
+        if not isinstance(arguments, dict):
+            arguments = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"decision", "name", "arguments"}
+            }
+        return {
+            "decision": "function_call",
+            "name": name,
+            "arguments": arguments,
+        }
+    if command_tool_name:
+        arguments = _command_tool_arguments(payload)
+        if arguments is not None:
+            return {
+                "decision": "function_call",
+                "name": command_tool_name,
+                "arguments": arguments,
+            }
+    return payload
+
+
+def _tool_invocation_command_name(cmd: str) -> str | None:
+    try:
+        tokens = shlex.split(str(cmd or ""), posix=True)
+    except Exception:
+        return None
+    index = 0
+    while index < len(tokens) and _ENV_ASSIGNMENT_PATTERN.match(tokens[index]):
+        index += 1
+    if index >= len(tokens):
+        return None
+    return str(tokens[index] or "").strip() or None
+
+
 def _tool_call_rejection_reason(
     *,
     tool_name: str,
@@ -2668,10 +3726,17 @@ def _tool_call_rejection_reason(
             "That exact tool call already ran and its output is already present. "
             "Use the existing output and choose a different next action or return a final answer."
         )
-    if tool_name == "exec_command":
+    if tool_name in {"exec_command", "shell"}:
         raw_cmd = arguments.get("cmd")
+        if raw_cmd is None:
+            raw_cmd = arguments.get("command")
         if isinstance(raw_cmd, str):
             cmd = raw_cmd.strip()
+            latest_user_text = _tool_shim_latest_user_text(history_items)
+            requires_structured_status = _tool_shim_requires_immediate_tool(
+                latest_user_text=latest_user_text,
+                available_tools=available_tools,
+            )
             tool_names = {str(tool.get("name") or "").strip() for tool in available_tools}
             has_apply_patch = "apply_patch" in tool_names
             edit_markers = (
@@ -2683,13 +3748,58 @@ def _tool_call_rejection_reason(
                 "python - <<'PY'",
             )
             is_edit_command = any(marker in cmd for marker in edit_markers)
-            if not has_apply_patch and is_edit_command:
+            if tool_name == "exec_command" and not has_apply_patch and is_edit_command:
                 if len(cmd) > 1400 or cmd.count("\n") > 24:
                     return (
                         "The edit command is too large. Use a shorter focused edit command "
                         "that changes only the needed lines."
                     )
                 return None
+            lowered_cmd = cmd.lower()
+            if (
+                ("pwd" in lowered_cmd or "ls -la" in lowered_cmd)
+                and any(marker in lowered_cmd for marker in ("rg ", "grep ", "find ", "sed -n", "cat "))
+            ):
+                return (
+                    "The command includes exploratory boilerplate before the real inspection. "
+                    "Use the focused read/search command directly."
+                )
+            if "rg " in lowered_cmd and (" -s ." in lowered_cmd or lowered_cmd.endswith(" .") or " . |" in lowered_cmd):
+                if "| head" not in lowered_cmd and "| sed -n" not in lowered_cmd:
+                    return (
+                        "The rg search is too broad and its output is unbounded. "
+                        "Narrow the target path or add a small output cap such as | head -n 200."
+                    )
+            if (
+                requires_structured_status
+                and "fleet" in latest_user_text.lower()
+                and (
+                    Path("/docker/fleet/state/chummer_design_supervisor/state.json").exists()
+                    or any(Path("/docker/fleet/state/chummer_design_supervisor").glob("shard-*/state.json"))
+                )
+                and ("rg " in lowered_cmd or "grep " in lowered_cmd or "find " in lowered_cmd)
+                and "/docker/fleet/state/chummer_design_supervisor/" not in cmd
+            ):
+                return (
+                    "For fleet status questions in this repo, read the structured state under "
+                    "/docker/fleet/state/chummer_design_supervisor/ directly instead of grepping repo text."
+                )
+            if requires_structured_status and ("rg " in lowered_cmd or "grep " in lowered_cmd) and "wc -l" in lowered_cmd:
+                return (
+                    "The command heuristically counts text matches instead of reading a structured local status source. "
+                    "Use a direct file/data read or a precise structured command for this count/status question."
+                )
+            command_name = _tool_invocation_command_name(cmd)
+            if (
+                command_name
+                and "/" not in command_name
+                and command_name not in _SHELL_BUILTIN_COMMANDS
+                and shutil.which(command_name) is None
+            ):
+                return (
+                    f"The command starts with `{command_name}`, which is not installed on this host. "
+                    "Choose a real available command such as rg, sed -n, cat, python3, or another installed tool."
+                )
             if "\n" in cmd or len(cmd) > 280:
                 return (
                     "The exec_command payload is too large. Use a shorter, single-purpose command "
@@ -2710,6 +3820,13 @@ def _tool_shim_retry_payload(
     chatplayground_audit_principal_id: str = "",
     request_deadline_monotonic: float | None = None,
 ) -> tuple[dict[str, object] | None, UpstreamResult]:
+    latest_user_text = _tool_shim_latest_user_text(
+        [
+            {"type": "input_text", "text": shim_messages[-1]["content"]},
+        ]
+    )
+    planner_model = _tool_shim_planner_model(model, prompt=latest_user_text)
+    planner_max_output_tokens = _tool_shim_planner_max_output_tokens(max_output_tokens)
     retry_messages = list(shim_messages)
     retry_messages.append({"role": "assistant", "content": _json_compact(prior_payload)})
     retry_messages.append(
@@ -2721,8 +3838,8 @@ def _tool_shim_retry_payload(
     retry_result = _generate_upstream_text(
         prompt=retry_messages[-1]["content"],
         messages=retry_messages,
-        requested_model=model,
-        max_output_tokens=max_output_tokens,
+        requested_model=planner_model,
+        max_output_tokens=planner_max_output_tokens,
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
@@ -2743,6 +3860,37 @@ def _tool_shim_decision(
     chatplayground_audit_principal_id: str = "",
     request_deadline_monotonic: float | None = None,
 ) -> _ToolShimDecision:
+    latest_user_text = _tool_shim_latest_user_text(history_items)
+    direct_final_text = _tool_shim_direct_final_text(history_items)
+    if direct_final_text is not None:
+        return _ToolShimDecision(
+            kind="final",
+            text=direct_final_text,
+            upstream_result=_tool_shim_local_upstream_result(
+                direct_final_text,
+                reason="tool_output_finalizer",
+            ),
+        )
+    tool_names = {str(tool.get("name") or "").strip() for tool in tools}
+    local_fleet_cmd = None
+    if "exec_command" in tool_names:
+        local_fleet_cmd = _tool_shim_direct_local_fleet_command(latest_user_text)
+    if local_fleet_cmd:
+        return _ToolShimDecision(
+            kind="function_call",
+            tool_name="exec_command",
+            arguments={"cmd": local_fleet_cmd, "max_output_tokens": 200},
+            upstream_result=_tool_shim_local_upstream_result(
+                local_fleet_cmd,
+                reason="fleet_local_telemetry_tool",
+            ),
+        )
+    planner_model = _tool_shim_planner_model(model, prompt=latest_user_text)
+    planner_max_output_tokens = _tool_shim_planner_max_output_tokens(max_output_tokens)
+    requires_immediate_tool = _tool_shim_requires_immediate_tool(
+        latest_user_text=latest_user_text,
+        available_tools=tools,
+    )
     shim_messages = _tool_shim_messages(
         instructions=instructions,
         tools=tools,
@@ -2753,8 +3901,8 @@ def _tool_shim_decision(
     result = _generate_upstream_text(
         prompt=shim_prompt,
         messages=shim_messages,
-        requested_model=model,
-        max_output_tokens=max_output_tokens,
+        requested_model=planner_model,
+        max_output_tokens=planner_max_output_tokens,
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
@@ -2762,8 +3910,54 @@ def _tool_shim_decision(
     )
     payload = _extract_json_object(result.text)
     if not isinstance(payload, dict):
+        retry_reason = _tool_shim_text_rejection_reason(
+            text=result.text,
+            requires_tool=requires_immediate_tool,
+        )
+        if retry_reason:
+            retry_payload, retry_result = _tool_shim_retry_payload(
+                model=model,
+                max_output_tokens=max_output_tokens,
+                shim_messages=shim_messages,
+                prior_payload={"decision": "final", "text": result.text},
+                retry_reason=retry_reason,
+                chatplayground_audit_callback=chatplayground_audit_callback,
+                chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                request_deadline_monotonic=request_deadline_monotonic,
+            )
+            if isinstance(retry_payload, dict):
+                payload = retry_payload
+                result = retry_result
+            else:
+                return _ToolShimDecision(kind="final", text=retry_result.text, upstream_result=retry_result)
+        else:
+            return _ToolShimDecision(kind="final", text=result.text, upstream_result=result)
+    if not isinstance(payload, dict):
         return _ToolShimDecision(kind="final", text=result.text, upstream_result=result)
+    payload = _normalize_tool_shim_payload(payload, available_tools=tools)
     decision = str(payload.get("decision") or "").strip().lower()
+    if decision == "final":
+        retry_reason = _tool_shim_text_rejection_reason(
+            text=str(payload.get("text") or ""),
+            requires_tool=requires_immediate_tool,
+        )
+        if retry_reason:
+            retry_payload, retry_result = _tool_shim_retry_payload(
+                model=model,
+                max_output_tokens=max_output_tokens,
+                shim_messages=shim_messages,
+                prior_payload=payload,
+                retry_reason=retry_reason,
+                chatplayground_audit_callback=chatplayground_audit_callback,
+                chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                request_deadline_monotonic=request_deadline_monotonic,
+            )
+            if isinstance(retry_payload, dict):
+                payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
+                result = retry_result
+                decision = str(payload.get("decision") or "").strip().lower()
     if decision == "function_call":
         tool_name = str(payload.get("name") or "").strip()
         arguments = payload.get("arguments")
@@ -2787,7 +3981,7 @@ def _tool_shim_decision(
                     request_deadline_monotonic=request_deadline_monotonic,
                 )
                 if isinstance(retry_payload, dict):
-                    payload = retry_payload
+                    payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
                     result = retry_result
                     decision = str(payload.get("decision") or "").strip().lower()
     if decision == "function_call":
@@ -2978,11 +4172,13 @@ def _responses_background_timeout_seconds(*, model: str = "", codex_profile: str
         parsed = float(raw)
     except Exception:
         parsed = 7200.0
-    hard_batch_raw = str(os.environ.get("EA_RESPONSES_BACKGROUND_TIMEOUT_HARD_BATCH_SECONDS") or parsed).strip()
+    hard_batch_raw = str(
+        os.environ.get("EA_RESPONSES_BACKGROUND_TIMEOUT_HARD_BATCH_SECONDS") or max(parsed, 21600.0)
+    ).strip()
     try:
         hard_batch_parsed = float(hard_batch_raw)
     except Exception:
-        hard_batch_parsed = parsed
+        hard_batch_parsed = max(parsed, 21600.0)
     rescue_raw = str(
         os.environ.get("EA_RESPONSES_BACKGROUND_TIMEOUT_CORE_RESCUE_SECONDS") or max(hard_batch_parsed, 21600.0)
     ).strip()
@@ -3161,6 +4357,11 @@ def _run_background_codex_response(
         effective_codex_profile=effective_codex_profile,
         chatplayground_audit_callback_enabled=chatplayground_audit_callback is not None,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+        preferred_onemin_labels=tuple(
+            str(item or "").strip()
+            for item in list(metadata.get("preferred_onemin_labels") or [])
+            if str(item or "").strip()
+        ),
     )
     response_metadata = {
         **metadata,
@@ -3212,6 +4413,11 @@ def _run_background_codex_response(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        preferred_onemin_labels=tuple(
+            str(item or "").strip()
+            for item in list(metadata.get("preferred_onemin_labels") or [])
+            if str(item or "").strip()
+        ),
         principal_id=context.principal_id,
         container=container,
         background_job=background_job,
@@ -3478,7 +4684,7 @@ def _run_survival_response(
         "principal_id": context.principal_id,
         "survival_lane": True,
         "survival_background": True,
-        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "gemini_vortex,gemini_web,chatplayground"),
+        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "onemin,gemini_vortex,gemini_web,chatplayground"),
     }
     if codex_profile:
         response_metadata.update(
@@ -3876,6 +5082,7 @@ def _run_response(
     context: RequestContext,
     container: object | None = None,
     codex_profile: str | None = None,
+    preferred_onemin_labels: tuple[str, ...] = (),
 ) -> Response:
     _capture_responses_debug(
         name="request",
@@ -3889,9 +5096,14 @@ def _run_response(
     model = _requested_model(request) or DEFAULT_PUBLIC_MODEL
     profile_config: dict[str, object] | None = None
     if codex_profile:
-        profile_config = _codex_profile(codex_profile, container=container, principal_id=context.principal_id)
+        profile_config = _codex_profile(
+            codex_profile,
+            container=container,
+            principal_id=context.principal_id,
+            provider_health=_provider_health_report(lightweight=True),
+        )
         codex_model = profile_config.get("model")
-        if isinstance(codex_model, str) and codex_model:
+        if isinstance(codex_model, str) and codex_model and not _requested_model_is_explicit(_requested_model(request)):
             model = codex_model
     else:
         router = _brain_router(container)
@@ -3901,8 +5113,10 @@ def _run_response(
                 model = resolved.public_model
 
     requested_model = _requested_model(request)
+    latest_prompt = _latest_user_prompt(parsed_input)
+    effective_prompt = _effective_prompt_route_text(parsed_input)
     prompt_route = _resolve_prompt_route(
-        prompt=_latest_user_prompt(parsed_input),
+        prompt=effective_prompt,
         model=model,
         codex_profile=codex_profile,
     )
@@ -3935,7 +5149,7 @@ def _run_response(
         raise HTTPException(status_code=400, detail=f"unsupported_fields:{','.join(rejected_client_fields)}")
     previous_response_id = _requested_previous_response_id(request)
     raw_tools = _response_tools(request)
-    supported_tools = _tool_shim_supported_tools(raw_tools)
+    supported_tools = _tool_shim_supported_tools(raw_tools, prompt=latest_prompt)
     if _tool_choice_disables_tools(request):
         supported_tools = []
     history_items = _history_items_for_request(
@@ -3948,6 +5162,15 @@ def _run_response(
     messages: list[dict[str, str]] = []
     if instructions:
         _append_message(messages, role="system", content=instructions)
+    if _codex_trace_instructions_enabled(
+        codex_profile=effective_codex_profile or codex_profile,
+        stream=stream,
+    ):
+        _append_message(
+            messages,
+            role="system",
+            content=_codex_trace_instruction(codex_profile=effective_codex_profile or codex_profile),
+        )
     for item in parsed_input.messages:
         _append_message(messages, role=item.get("role"), content=item.get("content"))
 
@@ -3959,6 +5182,8 @@ def _run_response(
         **metadata,
         "principal_id": context.principal_id,
     }
+    if preferred_onemin_labels:
+        response_metadata["preferred_onemin_labels"] = list(preferred_onemin_labels)
     if accepted_client_fields:
         response_metadata["accepted_client_fields"] = accepted_client_fields
     if supported_tools:
@@ -4071,6 +5296,7 @@ def _run_response(
                     chatplayground_audit_callback=chatplayground_audit_callback,
                     chatplayground_audit_callback_only=audit_profile_or_model,
                     chatplayground_audit_principal_id=context.principal_id,
+                    preferred_onemin_labels=preferred_onemin_labels,
                     request_deadline_monotonic=request_deadline_monotonic,
                 )
                 result_queue.put(("result", result))
@@ -4290,6 +5516,7 @@ def _run_response(
                         chatplayground_audit_callback=chatplayground_audit_callback,
                         chatplayground_audit_callback_only=audit_profile_or_model,
                         chatplayground_audit_principal_id=context.principal_id,
+                        preferred_onemin_labels=preferred_onemin_labels,
                         request_deadline_monotonic=request_deadline_monotonic,
                     )
                 else:
@@ -4301,6 +5528,7 @@ def _run_response(
                         chatplayground_audit_callback=chatplayground_audit_callback,
                         chatplayground_audit_callback_only=audit_profile_or_model,
                         chatplayground_audit_principal_id=context.principal_id,
+                        preferred_onemin_labels=preferred_onemin_labels,
                         request_deadline_monotonic=request_deadline_monotonic,
                         on_delta=lambda delta: result_queue.put(("delta", delta)),
                     )
@@ -4752,9 +5980,10 @@ def get_provider_health(
     *,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    lightweight: bool = Query(default=False),
 ) -> Response:
     include_sensitive = is_operator_context(context)
-    provider_health = _provider_health_report()
+    provider_health = _provider_health_report(lightweight=lightweight)
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     return JSONResponse(
         {
@@ -4847,13 +6076,20 @@ def create_response(
     container: object = Depends(get_container),
 ) -> Response:
     header_profile = str(request.headers.get("X-EA-Codex-Profile") or request.headers.get("X-CodexEA-Profile") or "").strip().lower()
+    preferred_onemin_labels = _preferred_onemin_labels_from_request(request)
     if header_profile == "jury":
         header_profile = "audit"
     if header_profile == "review-light":
         header_profile = "review_light"
     if header_profile not in {"core", "core_batch", "core_rescue", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
         header_profile = ""
-    return _run_response(payload, context=context, container=container, codex_profile=header_profile or None)
+    return _run_response(
+        payload,
+        context=context,
+        container=container,
+        codex_profile=header_profile or None,
+        preferred_onemin_labels=preferred_onemin_labels,
+    )
 
 
 @codex_router.post(
@@ -4886,6 +6122,7 @@ def create_response(
 def create_codex_core(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -4895,7 +6132,13 @@ def create_codex_core(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="core")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="core",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -4920,6 +6163,7 @@ def create_codex_core(
 def create_codex_core_batch(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -4929,7 +6173,13 @@ def create_codex_core_batch(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="core_batch")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="core_batch",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -4962,6 +6212,7 @@ def create_codex_core_batch(
 def create_codex_core_rescue(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -4971,7 +6222,13 @@ def create_codex_core_rescue(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="core_rescue")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="core_rescue",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -5004,6 +6261,7 @@ def create_codex_core_rescue(
 def create_codex_easy(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -5013,7 +6271,13 @@ def create_codex_easy(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="easy")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="easy",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -5046,6 +6310,7 @@ def create_codex_easy(
 def create_codex_repair(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -5055,7 +6320,13 @@ def create_codex_repair(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="repair")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="repair",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -5088,6 +6359,7 @@ def create_codex_repair(
 def create_codex_groundwork(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -5097,7 +6369,13 @@ def create_codex_groundwork(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="groundwork")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="groundwork",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -5130,6 +6408,7 @@ def create_codex_groundwork(
 def create_codex_review_light(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -5139,7 +6418,13 @@ def create_codex_review_light(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="review_light")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="review_light",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -5164,6 +6449,7 @@ def create_codex_review_light(
 def create_codex_survival(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: object = Depends(get_container),
 ) -> Response:
@@ -5173,7 +6459,13 @@ def create_codex_survival(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="survival")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="survival",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.post(
@@ -5206,6 +6498,7 @@ def create_codex_survival(
 def create_codex_audit(
     payload: dict[str, object],
     *,
+    request: Request,
     context: RequestContext = Depends(get_request_context),
     container: AppContainer = Depends(get_container),
 ) -> Response:
@@ -5215,7 +6508,13 @@ def create_codex_audit(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(normalized, context=context, container=container, codex_profile="audit")
+    return _run_response(
+        normalized,
+        context=context,
+        container=container,
+        codex_profile="audit",
+        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
+    )
 
 
 @codex_router.get("/profiles")
@@ -5224,11 +6523,15 @@ def list_codex_profiles(
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
     include_sensitive = is_operator_context(context)
-    provider_health = _provider_health_report()
+    provider_health = _provider_health_report(lightweight=(not include_sensitive))
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     profiles = [
         {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
-        for profile in _codex_profiles(container=container, principal_id=context.principal_id)
+        for profile in _codex_profiles(
+            container=container,
+            principal_id=context.principal_id,
+            provider_health=provider_health,
+        )
     ]
     return JSONResponse(
         {
@@ -5254,13 +6557,22 @@ def list_codex_profiles(
 def get_codex_status(
     window: str = "1h",
     refresh: bool = False,
+    compact: bool = False,
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
     _ = refresh
+    profile_health = _provider_health_report(lightweight=(not is_operator_context(context)))
     if is_operator_context(context):
-        report = codex_status_report(window=window)
+        report = codex_status_report(window=window, provider_health=profile_health, compact=compact)
     else:
-        report = dict(codex_status_report(window=window, principal_id=context.principal_id))
+        report = dict(
+            codex_status_report(
+                window=window,
+                principal_id=context.principal_id,
+                provider_health=profile_health,
+                compact=compact,
+            )
+        )
         report["fleet_burn"] = {}
     report["governance"] = _codex_governance_payload()
     return JSONResponse(report)

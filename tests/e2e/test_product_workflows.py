@@ -192,8 +192,8 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
 
     response = page.goto(f"{base_url}/register", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Create a personal workspace before you add anything else." in page.content()
-    assert "Workspace mode stays personal here." in page.content()
+    assert "Start a workspace that shows the first useful loop." in page.content()
+    assert "Workspace shape" in page.content()
     assert "Google Core" in page.content()
     assert "Build first brief" in page.content()
 

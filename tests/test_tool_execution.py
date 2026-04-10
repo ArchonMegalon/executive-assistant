@@ -2959,7 +2959,11 @@ def test_tool_execution_service_uses_template_backed_onemin_billing_fallback_wit
                     "login_email": "slot@example.com",
                     "login_password": "slotpass",
                 }
-            }
+            },
+            "browser_proxy_server": "http://proxy.pool.local:9000",
+            "browser_proxy_username": "pool-user",
+            "browser_proxy_password": "pool-pass",
+            "browser_proxy_bypass": "localhost,127.0.0.1",
         },
         status="enabled",
     )
@@ -3003,10 +3007,89 @@ def test_tool_execution_service_uses_template_backed_onemin_billing_fallback_wit
     assert observed["service"].service_key == "onemin_billing_usage"
     assert observed["request_payload"]["login_email"] == "slot@example.com"
     assert observed["request_payload"]["browseract_password"] == "slotpass"
+    assert observed["request_payload"]["browser_proxy_server"] == "http://proxy.pool.local:9000"
+    assert observed["request_payload"]["browser_proxy_username"] == "pool-user"
+    assert observed["request_payload"]["browser_proxy_password"] == "pool-pass"
+    assert observed["request_payload"]["browser_proxy_bypass"] == "localhost,127.0.0.1"
     assert observed["requested_inputs"]["browseract_username"] == "slot@example.com"
     assert observed["requested_inputs"]["browseract_password"] == "slotpass"
     assert result.output_json["remaining_credits"] == 12345
     assert result.output_json["next_topup_at"] == "2026-03-31T00:00:00Z"
+
+
+def test_tool_execution_service_passes_proxy_settings_to_onemin_member_template_worker(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={
+            "onemin_account_credentials_json": {
+                "ONEMIN_AI_API_KEY": {
+                    "login_email": "slot@example.com",
+                    "login_password": "slotpass",
+                }
+            },
+            "proxy_server": "http://proxy.pool.local:9100",
+            "proxy_username": "members-user",
+            "proxy_password": "members-pass",
+        },
+        status="enabled",
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_template_direct(_cls, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "members_page": "\n".join(
+                [
+                    "Owner One - slot@example.com - active - owner",
+                ]
+            )
+        }
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_create_template_backed_ui_service_direct",
+        classmethod(_fake_template_direct),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-members-template-1",
+            step_id="step-browseract-onemin-members-template-1",
+            tool_name="browseract.onemin_member_reconciliation",
+            action_kind="billing.reconcile_members",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "account_label": "ONEMIN_AI_API_KEY",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert observed["service"].service_key == "onemin_member_reconciliation"
+    assert observed["request_payload"]["browser_proxy_server"] == "http://proxy.pool.local:9100"
+    assert observed["request_payload"]["browser_proxy_username"] == "members-user"
+    assert observed["request_payload"]["browser_proxy_password"] == "members-pass"
+    assert result.output_json["member_count"] == 1
 
 
 def test_tool_execution_service_parses_onemin_billing_workflow_usage_history_output(
@@ -3310,6 +3393,91 @@ def test_tool_execution_service_parses_json_array_raw_text_onemin_billing_output
     assert structured["billing_overview_json"]["plan_name"] == "BUSINESS"
     assert structured["billing_overview_json"]["daily_bonus_credits"] == 15000
     assert structured["bonus_catalog_json"][0]["bonus_type"] == "Daily Visit"
+
+
+def test_tool_execution_service_parses_nested_extract_text_onemin_billing_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps({"slots": [{"owner_email": "owner@example.com"}]}),
+    )
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="acct-onemin-primary",
+        scope_json={},
+        auth_metadata_json={"onemin_billing_usage_run_url": "https://browseract.example/run/billing"},
+        status="enabled",
+    )
+
+    def _fake_billing_usage(**_: object) -> dict[str, object]:
+        return {
+            "editor_url": "https://app.1min.ai/free-credits",
+            "body_text": "Free Credits\n4,265,000",
+            "structured_output_json": {
+                "extracts": {
+                    "billing_settings_page": (
+                        "Billing - Usage\n"
+                        "4,265,000\n"
+                        "Plan\nBUSINESS\n"
+                        "Billing Cycle\nLIFETIME\n"
+                        "Status\nActive\n"
+                        "Credit\n4,265,000\n"
+                        "Manage Subscription\n"
+                        "Top Up Credits\n"
+                        "Unlock Free Credits\n"
+                    ),
+                    "usage_records_page": "Usage Records\nNo data\n",
+                    "billing_usage_bonus_page": "Free Credits\n4,265,000\nDaily Visit Credits\n15,000\n",
+                }
+            },
+        }
+
+    service._browseract_onemin_billing_usage = _fake_billing_usage
+    registry._rows.pop("browseract.onemin_billing_usage", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "browseract.onemin_billing_usage"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-onemin-billing-extract-text-1",
+            step_id="step-browseract-onemin-billing-extract-text-1",
+            tool_name="browseract.onemin_billing_usage",
+            action_kind="billing.inspect",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "run_url": "https://browseract.example/run/billing",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["remaining_credits"] == 4265000
+    assert result.output_json["plan_name"] == "BUSINESS"
+    assert result.output_json["billing_cycle"] == "LIFETIME"
+    assert result.output_json["subscription_status"] == "Active"
+    structured = result.output_json["structured_output_json"]
+    assert structured["visible_actions_json"] == [
+        "Manage Subscription",
+        "Top Up Credits",
+        "Unlock Free Credits",
+    ]
+    assert structured["visible_tabs_json"] == ["Subscription", "Usage Records", "Voucher"]
 
 
 def test_tool_execution_service_self_heals_missing_builtin_browseract_onemin_member_reconciliation_definition(

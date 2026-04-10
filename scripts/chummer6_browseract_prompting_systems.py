@@ -16,7 +16,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from chummer6_runtime_config import load_local_env, load_runtime_overrides
+from chummer6_runtime_config import load_local_env, load_runtime_overrides, resolve_env_value
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
@@ -27,7 +27,7 @@ POLICY_ENV = load_runtime_overrides()
 
 
 def env_value(name: str) -> str:
-    return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
+    return resolve_env_value(name, LOCAL_ENV, POLICY_ENV)
 
 
 def browseract_key() -> str:
@@ -136,7 +136,8 @@ def resolve_workflow(kind: str) -> tuple[str, str]:
             "aimagicx render",
         ],
     }
-    queries = [query] if query else default_queries.get(normalized, [])
+    default_query_list = default_queries.get(normalized, [])
+    queries = ([query] if query else []) + [value for value in default_query_list if value and value != query]
     workflows = list_workflows()
     for needle in queries:
         lowered = str(needle or "").strip().lower()

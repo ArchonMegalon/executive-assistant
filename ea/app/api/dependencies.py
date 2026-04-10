@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,6 +23,9 @@ from app.services.cloudflare_access import (
 from app.settings import RuntimeProfile, resolve_runtime_profile
 
 
+_LOG = logging.getLogger(__name__)
+
+
 def get_container(request: Request) -> AppContainer:
     container = getattr(request.app.state, "container", None)
     if container is None:
@@ -30,10 +34,55 @@ def get_container(request: Request) -> AppContainer:
 
 
 def _extract_token(request: Request) -> str:
+    ea_api_token = str(request.headers.get("x-ea-api-token") or "").strip()
+    if ea_api_token:
+        return ea_api_token
+    api_token = str(request.headers.get("x-api-token") or "").strip()
+    if api_token:
+        return api_token
     header = str(request.headers.get("authorization") or "").strip()
     if header.lower().startswith("bearer "):
         return header[7:].strip()
-    return str(request.headers.get("x-api-token") or "").strip()
+    return ""
+
+
+def _log_auth_failure(
+    request: Request,
+    *,
+    detail: str,
+    profile: RuntimeProfile,
+    expected_token_configured: bool,
+) -> None:
+    client_host = ""
+    client_port = ""
+    if request.client is not None:
+        client_host = str(getattr(request.client, "host", "") or "")
+        client_port = str(getattr(request.client, "port", "") or "")
+    authorization = str(request.headers.get("authorization") or "")
+    x_ea_api_token = str(request.headers.get("x-ea-api-token") or "")
+    x_api_token = str(request.headers.get("x-api-token") or "")
+    principal_header = str(
+        request.headers.get("x-ea-principal-id")
+        or request.headers.get("x-principal-id")
+        or request.headers.get("x-ea-operator-id")
+        or ""
+    ).strip()
+    user_agent = str(request.headers.get("user-agent") or "").strip()
+    _LOG.warning(
+        "ea_auth_failure detail=%s method=%s path=%s client_host=%s client_port=%s auth_mode=%s has_bearer=%s has_x_ea_api_token=%s has_x_api_token=%s has_principal=%s expected_token_configured=%s user_agent=%r",
+        detail,
+        request.method,
+        str(request.url.path or ""),
+        client_host,
+        client_port,
+        str(profile.auth_mode or ""),
+        bool(authorization.strip().lower().startswith("bearer ")),
+        bool(x_ea_api_token.strip()),
+        bool(x_api_token.strip()),
+        bool(principal_header),
+        bool(expected_token_configured),
+        user_agent[:160],
+    )
 
 
 def _configured_api_token(container: AppContainer) -> str:
@@ -264,13 +313,16 @@ def require_request_auth(
     if profile.auth_mode not in {"token", "token_or_access", "access"}:
         return
     if profile.auth_mode == "access":
+        _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
         raise HTTPException(status_code=401, detail="auth_required")
     expected = _configured_api_token(container)
     if not expected:
+        _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
         raise HTTPException(status_code=401, detail="auth_required")
     provided = _extract_token(request)
     if provided == expected:
         return
+    _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=True)
     raise HTTPException(status_code=401, detail="auth_required")
 
 
@@ -377,6 +429,7 @@ def get_request_context(
     if workspace_session is not None:
         principal_id = str(workspace_session.get("principal_id") or "").strip()
         if not principal_id:
+            _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
             raise HTTPException(status_code=401, detail="principal_required")
         role = str(workspace_session.get("role") or "principal").strip().lower() or "principal"
         operator_id = str(workspace_session.get("operator_id") or "").strip() if role == "operator" else ""
@@ -390,6 +443,7 @@ def get_request_context(
     if _loopback_no_auth_allowed(request, container):
         principal_id = _resolved_principal_id(request, container=container, authenticated=True)
         if not principal_id:
+            _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
             raise HTTPException(status_code=401, detail="principal_required")
         return RequestContext(
             principal_id=principal_id,
@@ -401,18 +455,22 @@ def get_request_context(
     if profile.auth_mode in {"token", "token_or_access"}:
         expected = _configured_api_token(container)
         if not expected:
+            _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
             raise HTTPException(status_code=401, detail="auth_required")
         provided = _extract_token(request)
         if provided != expected:
+            _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=True)
             raise HTTPException(status_code=401, detail="auth_required")
         authenticated = True
 
     elif profile.auth_mode == "access":
         if not profile.default_principal_fallback_allowed:
+            _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
             raise HTTPException(status_code=401, detail="auth_required")
 
     principal_id = _resolved_principal_id(request, container=container, authenticated=authenticated)
     if not principal_id:
+        _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
         raise HTTPException(status_code=401, detail="principal_required")
     return RequestContext(
         principal_id=principal_id,

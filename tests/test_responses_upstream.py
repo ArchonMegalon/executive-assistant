@@ -212,6 +212,42 @@ def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.Monkey
     assert upstream._onemin_max_credits_per_day() == 600000
 
 
+def test_onemin_json_manifest_slots_feed_keys_and_account_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "primary-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "fallback-1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "primary,fallback_1,fallback_55")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_RESERVE_SLOTS", "fallback_56")
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps(
+            [
+                {
+                    "slot": "fallback_55",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_55",
+                    "key": "json-key-55",
+                },
+                {
+                    "slot": "fallback_56",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_56",
+                    "key": "json-key-56",
+                },
+            ]
+        ),
+    )
+
+    assert upstream._onemin_secret_env_names() == (
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_55",
+        "ONEMIN_AI_API_KEY_FALLBACK_56",
+    )
+    key_names = upstream._onemin_key_names()
+    assert key_names == ("primary-key", "fallback-1", "json-key-55", "json-key-56")
+    assert upstream._provider_account_name("onemin", key_names=key_names, key="json-key-55") == "ONEMIN_AI_API_KEY_FALLBACK_55"
+    assert upstream._onemin_key_slot("json-key-55", key_names=key_names) == "fallback_55"
+    assert upstream._provider_secret_from_account_name("ONEMIN_AI_API_KEY_FALLBACK_56") == "json-key-56"
+
+
 def test_pick_onemin_key_skips_zero_credit_observed_error_even_with_stale_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

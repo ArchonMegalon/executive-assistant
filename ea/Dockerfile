@@ -23,8 +23,8 @@ COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chown -R ea:ea /app && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER root
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import os,sys,urllib.request; role=os.environ.get('EA_ROLE','api').strip().lower(); sys.exit(0 if role in {'worker','scheduler'} else int(urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3).status != 200))" >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
+  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exit 0 ;; esac; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "-m", "app.runner"]

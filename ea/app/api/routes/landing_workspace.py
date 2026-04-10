@@ -300,7 +300,7 @@ def settings_support_detail(
         workspace_label=str(workspace.get("name") or "Executive Workspace"),
         page_title="Executive Assistant Workspace support",
         current_nav="settings",
-        console_title="Support and diagnostics",
+        console_title="Support and recovery",
         console_summary="Support posture should explain what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
         object_kind="Support bundle",
         object_title=str(billing.get("support_tier") or "standard").title(),
@@ -342,7 +342,7 @@ def settings_support_detail(
             ),
             _object_detail_row(
                 "Export bundle",
-                "Open the support-ready workspace bundle from Settings or Diagnostics export.",
+                "Open the support-ready workspace bundle from Settings or the workspace review export.",
                 "Bundle",
                 action_href="/app/api/diagnostics/export",
                 action_label="Open bundle",

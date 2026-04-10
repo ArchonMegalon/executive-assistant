@@ -63,14 +63,17 @@ Then open `http://localhost:8090/health`.
 - HTTP examples: [HTTP_EXAMPLES.http](/docker/EA/HTTP_EXAMPLES.http)
 - Environment/profile guidance: [ENVIRONMENT_MATRIX.md](/docker/EA/ENVIRONMENT_MATRIX.md)
 - Release notes: [CHANGELOG.md](/docker/EA/CHANGELOG.md)
-- Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json)
+- EA flagship truth plane: [EA_FLAGSHIP_TRUTH_PLANE.md](/docker/EA/.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md)
+- EA flagship gate seed: [EA_FLAGSHIP_RELEASE_GATE.json](/docker/EA/.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json)
+- Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json) (delivery history, not the flagship oracle)
 - Skills catalog: [SKILLS.md](/docker/EA/SKILLS.md)
 - Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
 - BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py` (includes 1min daily-bonus and billing/usage scaffold packets)
-- Gate-bundle hardening flags are tracked in `MILESTONE.json` release tags.
-- Release preflight checklist includes milestone release-tag parity verification in `RELEASE_CHECKLIST.md`.
+- Release preflight now keys off the EA flagship truth plane and gate seed; `MILESTONE.json` remains supporting delivery history.
+- Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.
+- Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy.
 
 ## Runtime Spine
 
@@ -95,7 +98,9 @@ Then open `http://localhost:8090/health`.
   - survival mode is intentionally non-streaming in v1; create returns an `in_progress` response object and clients poll `GET /v1/responses/{response_id}` until completion
   - `GET /v1/models` returns the public EA aliases plus the currently configured upstream model IDs so Codex can target concrete provider backends when needed.
   - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, owner-ledger metadata matched by hash or stable slot/account identifiers, latest explicit probe result, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
-  - `python3 scripts/sync_onemin_owner_ledger.py --write` refreshes `config/onemin_slot_owners.json` from the current `ONEMIN_AI_API_KEY*` values while preserving the existing owner roster metadata by slot/account.
+  - `python3 scripts/sync_onemin_owner_ledger.py --write` refreshes `config/onemin_slot_owners.json` from the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries while preserving the existing owner roster metadata by slot/account.
+  - The template-backed 1min BrowserAct login lanes can now read a generic rotating proxy from `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`, and `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` / `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` control whether one refresh cycle can sweep the full configured slot set without the old per-minute cadence gate.
+  - [rotate_fastestvpn_proxy.sh](/docker/EA/scripts/rotate_fastestvpn_proxy.sh) recreates the FastestVPN sidecar plus EA services so BrowserAct can pick up a fresh FastestVPN exit profile before a broad 1min sweep.
   - `GET /v1/models` includes the Gemini Vortex-backed `ea-gemini-flash` public alias, the groundwork aliases `ea-groundwork-gemini` and `ea-groundwork`, plus the concrete `gemini-2.5-flash` model id when that backend is configured.
   - the survival lane reduces the request locally first, then tries Gemini Vortex, then BrowserAct Gemini web, and only then a single-role ChatPlayground tie-break
   - UI-backed survival backends are challenge-aware: Cloudflare/Turnstile/human-verification or session-expiry responses put that backend on cooldown and survival falls through to the next backend instead of trying to automate the challenge
@@ -346,7 +351,7 @@ stream_max_retries = 5
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.
 Version fingerprint can be printed via `scripts/version_info.sh` or `make version-info`.
-`scripts/version_info.sh` now also prints milestone capability-status counts and release tags from `MILESTONE.json`.
+`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json`.
 Operator summary can be printed via `scripts/operator_summary.sh` or `make operator-summary`.
 The operator summary includes smoke, readiness, CI parity, release/support, and task-archive shortcuts.
 `bash scripts/operator_summary.sh --help` prints the usage contract and is included in `make operator-help`.

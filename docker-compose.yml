@@ -24,6 +24,7 @@ services:
       - "${EA_HOST_PORT:-8090}:8090"
     volumes:
       - ./config:/config:ro
+      - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
@@ -54,6 +55,7 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
+      - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
@@ -84,6 +86,7 @@ services:
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
+      - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker

@@ -5,6 +5,9 @@
 - [ ] `git status` is clean on release branch.
 - [ ] `.env` is present with production-safe values.
 - [ ] `EA_STORAGE_BACKEND=postgres` and `DATABASE_URL` are set.
+- [ ] `PRODUCT_RELEASE_CHECKLIST.md` is fully satisfied for the current product wedge.
+- [ ] `FLAGSHIP_CLOSEOUT_PLAN.md` blocker set is green enough to support the intended release claim.
+- [ ] `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json` agree with the browser workflow proof.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] CI smoke workflow is green.
 - [ ] CI gate bundle (`make smoke-help`, `make ci-local`, runtime smoke API tests, `make verify-release-assets`) is green.
@@ -13,7 +16,7 @@
 - [ ] Optional local parity run including legacy migration smoke completed: `make ci-gates-postgres-legacy`.
 - [ ] Optional docs parity run completed: `make docs-verify`.
 - [ ] Optional docs+usage parity run completed: `make release-docs`.
-- [ ] Docs parity confirms milestone release tags in `MILESTONE.json` (`ci_gate_bundle`, `release_preflight_bundle`, `docs_verify_alias`).
+- [ ] Docs parity confirms the EA flagship truth plane and gate seed are present and the browser proof is still green.
 
 ## Build & Deploy
 
@@ -35,6 +38,7 @@
 
 - [ ] Optional one-command release bundle: `make release-preflight`
 - [ ] `make release-smoke`
+- [ ] The core workspace proves one real memo -> queue -> draft/approval -> follow-up loop on durable product objects.
 - [ ] Browser surface contract tests confirm no product-surface links to experimental routes in product mode.
 - [ ] `make operator-help` (manual spot-check of script usage contracts)
 - [ ] Optional combined local mirror: `make ci-gates`

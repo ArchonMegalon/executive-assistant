@@ -96,7 +96,7 @@ _LANE_REVIEW_LIGHT = "review_light"
 
 _AUDIT_OUTPUT_TEXT_HEADER = "BrowserAct ChatPlayground audit"
 
-_HARD_MAX_ACTIVE_REQUESTS = 1
+_HARD_MAX_ACTIVE_REQUESTS = 8
 _HARD_QUEUE_TIMEOUT_SECONDS = 120.0
 _HARD_DOWNSCALE_MAX_OUTPUT_TOKENS = 256
 _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
@@ -160,7 +160,7 @@ def _hard_default_max_unknown_slots() -> int:
 
 
 def _hard_default_admitted() -> tuple[bool, str]:
-    onemin = dict(((_provider_health_report().get("providers") or {}).get("onemin") or {}))
+    onemin = dict(((_provider_health_report(lightweight=True).get("providers") or {}).get("onemin") or {}))
     state = str(onemin.get("state") or "").strip().lower()
     if state and state != "ready":
         return False, "onemin_not_ready"
@@ -862,7 +862,16 @@ _ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
 
 
 def _onemin_fallback_slot_number(raw: object) -> int | None:
-    match = _ONEMIN_FALLBACK_SLOT_RE.match(str(raw or "").strip().lower().replace(" ", "_").replace("-", "_"))
+    normalized = str(raw or "").strip()
+    env_match = _ONEMIN_FALLBACK_ENV_RE.match(normalized)
+    if env_match is not None:
+        try:
+            slot_number = int(env_match.group(1))
+        except Exception:
+            slot_number = None
+        if slot_number is not None and slot_number >= 1:
+            return slot_number
+    match = _ONEMIN_FALLBACK_SLOT_RE.match(normalized.lower().replace(" ", "_").replace("-", "_"))
     if match is None:
         return None
     try:
@@ -870,6 +879,152 @@ def _onemin_fallback_slot_number(raw: object) -> int | None:
     except Exception:
         return None
     return slot_number if slot_number >= 1 else None
+
+
+def _onemin_manifest_path() -> Path | None:
+    raw = _env("ONEMIN_DIRECT_API_KEYS_JSON_FILE")
+    if not raw:
+        return None
+    try:
+        path = Path(raw)
+    except Exception:
+        return None
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+        if str(path).startswith("/config/"):
+            candidates.append(Path("/docker/EA") / "config" / path.name)
+            candidates.append(Path(__file__).resolve().parents[3] / "config" / path.name)
+    else:
+        candidates.extend(
+            [
+                path,
+                Path(__file__).resolve().parents[3] / path,
+            ]
+        )
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            return normalized
+    return None
+
+
+def _load_onemin_manifest_payload() -> object:
+    inline = _env("ONEMIN_DIRECT_API_KEYS_JSON")
+    if inline:
+        try:
+            return json.loads(inline)
+        except Exception:
+            return None
+    path = _onemin_manifest_path()
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _onemin_manifest_entries() -> tuple[dict[str, str], ...]:
+    payload = _load_onemin_manifest_payload()
+    if isinstance(payload, dict):
+        if isinstance(payload.get("slots"), list):
+            items = payload.get("slots") or []
+        elif isinstance(payload.get("keys"), list):
+            items = payload.get("keys") or []
+        elif isinstance(payload.get("accounts"), list):
+            items = payload.get("accounts") or []
+        else:
+            items = []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    fallback_numbers: set[int] = set()
+    for env_name in os.environ:
+        match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+        if match is None:
+            continue
+        try:
+            fallback_numbers.add(int(match.group(1)))
+        except Exception:
+            continue
+
+    next_fallback = max(fallback_numbers, default=0) + 1
+    entries: list[dict[str, str]] = []
+    seen_account_names: set[str] = set()
+    for item in items:
+        owner_email = ""
+        owner_name = ""
+        slot = ""
+        account_name = ""
+        if isinstance(item, str):
+            key = str(item or "").strip()
+        elif isinstance(item, dict):
+            key = str(
+                item.get("key")
+                or item.get("secret")
+                or item.get("api_key")
+                or item.get("value")
+                or item.get("token")
+                or ""
+            ).strip()
+            slot = str(item.get("slot") or item.get("slot_name") or "").strip()
+            account_name = str(item.get("account_name") or item.get("name") or "").strip()
+            owner_email = str(item.get("owner_email") or item.get("email") or "").strip()
+            owner_name = str(item.get("owner_name") or item.get("display_name") or "").strip()
+        else:
+            continue
+        if not key:
+            continue
+        slot_number = _onemin_fallback_slot_number(slot) or _onemin_fallback_slot_number(account_name)
+        normalized_account_name = account_name
+        if not normalized_account_name:
+            if str(slot or "").strip().lower() == "primary":
+                normalized_account_name = "ONEMIN_AI_API_KEY"
+            elif slot_number is not None:
+                normalized_account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
+            else:
+                normalized_account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}"
+                next_fallback += 1
+        if normalized_account_name in seen_account_names:
+            continue
+        seen_account_names.add(normalized_account_name)
+        normalized_slot = "primary" if normalized_account_name == "ONEMIN_AI_API_KEY" else ""
+        if not normalized_slot:
+            derived_number = _onemin_fallback_slot_number(slot) or _onemin_fallback_slot_number(normalized_account_name)
+            if derived_number is not None:
+                normalized_slot = f"fallback_{derived_number}"
+        entry = {
+            "account_name": normalized_account_name,
+            "key": key,
+        }
+        if normalized_slot:
+            entry["slot"] = normalized_slot
+        if owner_email:
+            entry["owner_email"] = owner_email
+        if owner_name:
+            entry["owner_name"] = owner_name
+        entries.append(entry)
+    return tuple(entries)
+
+
+def _onemin_secret_value(account_name: str) -> str:
+    target = str(account_name or "").strip()
+    if not target:
+        return ""
+    env_value = _env(target)
+    if env_value:
+        return env_value
+    for entry in _onemin_manifest_entries():
+        if entry.get("account_name") == target:
+            return str(entry.get("key") or "").strip()
+    return ""
 
 
 def _onemin_secret_env_names() -> tuple[str, ...]:
@@ -889,10 +1044,23 @@ def _onemin_secret_env_names() -> tuple[str, ...]:
         slot_number = _onemin_fallback_slot_number(slot_name)
         if slot_number is not None:
             fallback_numbers.add(slot_number)
+    manifest_by_slot: dict[int, str] = {}
+    trailing_names: list[str] = []
+    for entry in _onemin_manifest_entries():
+        account_name = str(entry.get("account_name") or "").strip()
+        if not account_name or account_name == "ONEMIN_AI_API_KEY":
+            continue
+        slot_number = _onemin_fallback_slot_number(entry.get("slot")) or _onemin_fallback_slot_number(account_name)
+        if slot_number is not None:
+            fallback_numbers.add(slot_number)
+            manifest_by_slot[slot_number] = account_name
+            continue
+        trailing_names.append(account_name)
     names = ["ONEMIN_AI_API_KEY"]
     for slot_number in sorted(fallback_numbers):
-        names.append(f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
-    return tuple(names)
+        names.append(manifest_by_slot.get(slot_number) or f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}")
+    names.extend(trailing_names)
+    return tuple(_merge_unique(tuple(names)))
 
 
 def _browserplayground_url() -> str:
@@ -1084,10 +1252,7 @@ def _provider_secret_from_account_name(account_name: str) -> str:
     target = str(account_name or "").strip()
     if not target:
         return ""
-    env_value = _env(target)
-    if env_value:
-        return env_value
-    return ""
+    return _env(target) or _onemin_secret_value(target)
 
 
 def _sha256_hex(value: str) -> str:
@@ -1458,7 +1623,7 @@ def _onemin_key_names() -> tuple[str, ...]:
     return _merge_unique(
         _non_empty_values(
             _env("EA_RESPONSES_ONEMIN_API_KEY"),
-            *(_env(env_name) for env_name in _onemin_secret_env_names()),
+            *(_onemin_secret_value(env_name) for env_name in _onemin_secret_env_names()),
         )
     )
 
@@ -1617,6 +1782,45 @@ def _ordered_onemin_keys_allow_reserve(allow_reserve: bool) -> tuple[str, ...]:
     if not keys:
         return ()
     return _ordered_onemin_keys_for_keys(keys, allow_reserve=allow_reserve, cursor=_onemin_key_cursor(len(keys)))
+
+
+def _normalize_preferred_onemin_labels(labels: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for item in labels or ():
+        value = str(item or "").strip()
+        if value and value not in normalized:
+            normalized.append(value)
+    return tuple(normalized)
+
+
+def _candidate_matches_preferred_onemin_label(
+    candidate: dict[str, object],
+    preferred_labels: tuple[str, ...],
+) -> bool:
+    if not preferred_labels:
+        return False
+    wanted = set(preferred_labels)
+    for key in ("account_name", "account_id", "slot_name", "credential_id", "secret_env_name"):
+        if str(candidate.get(key) or "").strip() in wanted:
+            return True
+    return False
+
+
+def _preferred_onemin_key_names(
+    key_names: tuple[str, ...],
+    *,
+    preferred_labels: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not key_names or not preferred_labels:
+        return ()
+    wanted = set(preferred_labels)
+    matched: list[str] = []
+    for key in key_names:
+        account_name = _provider_account_name("onemin", key_names=key_names, key=key)
+        slot_name = _onemin_key_slot(key, key_names=key_names)
+        if account_name in wanted or slot_name in wanted:
+            matched.append(key)
+    return tuple(matched)
 
 
 def _recent_onemin_dispatch_credit_estimate(*, lane: str, model: str, now: float) -> int | None:
@@ -2268,6 +2472,7 @@ def _onemin_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_MODELS"))
     legacy = _csv_values(_env("EA_RESPONSES_ONEMIN_MODEL"))
     defaults = (
+        "gpt-5.4",
         "gpt-5",
         "gpt-4.1",
         "deepseek-chat",
@@ -2281,6 +2486,7 @@ def _onemin_models() -> tuple[str, ...]:
 def _onemin_code_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_CODE_MODELS"))
     defaults = (
+        "gpt-5.4",
         "gpt-5",
         "gpt-4o",
     )
@@ -2300,7 +2506,7 @@ def _onemin_probe_model() -> str:
     configured = str(_env("EA_RESPONSES_ONEMIN_PROBE_MODEL") or "").strip()
     if configured:
         return configured
-    preferred = ("gpt-4.1-nano", "gpt-4.1", "deepseek-chat", "gpt-5")
+    preferred = ("gpt-5.4", "gpt-5", "gpt-4.1-nano", "gpt-4.1", "deepseek-chat")
     available = _merge_unique(_onemin_models(), _onemin_code_models())
     lowered = {item.lower(): item for item in available}
     for candidate in preferred:
@@ -2346,7 +2552,7 @@ def _magicx_lane_models() -> tuple[str, ...]:
 
 def _onemin_hard_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_HARD_MODELS"))
-    defaults = ("gpt-5", "gpt-4o")
+    defaults = ("gpt-5.4", "gpt-5", "gpt-4o")
     if configured:
         return _merge_unique(configured, defaults)
     return defaults
@@ -3008,7 +3214,7 @@ def _provider_order() -> tuple[str, ...]:
 
 
 def _cheap_provider_order() -> tuple[str, ...]:
-    return _merge_unique(("gemini_vortex", "magixai"), tuple(item for item in _provider_order() if item != "onemin"))
+    return ("onemin",)
 
 
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
@@ -3089,7 +3295,7 @@ def _provider_model_order_for_lane(
     if lane == _LANE_REVIEW:
         return _onemin_review_models()
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
-        return _onemin_review_models()
+        return _onemin_code_models()
     if normalized in {ONEMIN_PUBLIC_MODEL, DEFAULT_PUBLIC_MODEL} or not normalized:
         return _onemin_models()
     return _onemin_models()
@@ -3267,6 +3473,12 @@ def _persist_onemin_key_state(api_key: str) -> None:
 
 
 def _onemin_key_slot(api_key: str, *, key_names: tuple[str, ...]) -> str:
+    account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+    if account_name == "ONEMIN_AI_API_KEY":
+        return "primary"
+    fallback_number = _onemin_fallback_slot_number(account_name)
+    if fallback_number is not None:
+        return f"fallback_{fallback_number}"
     for index, candidate in enumerate(key_names, start=1):
         if candidate == api_key:
             if index == 1:
@@ -3786,8 +3998,8 @@ def _provider_candidates(
         provider_keys_by_lane = _provider_order()
 
     if normalized == DEFAULT_PUBLIC_MODEL or requested == "":
-        # Keep the public default biased toward the cheap/fast lane, but never
-        # trap it on Magicx-only when the fast lane is degraded or leak into 1min by default.
+        # Keep the public default biased toward the fast lane. In the current
+        # OneMinAI-only execution policy, that lane is intentionally backed by onemin.
         if lane in {_LANE_FAST, _LANE_OVERFLOW}:
             provider_keys_by_lane = _cheap_provider_order()
         candidates: list[tuple[ProviderConfig, str]] = []
@@ -3811,9 +4023,9 @@ def _provider_candidates(
 
     if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
         return [
-            (configs["gemini_vortex"], model_name)
-            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
-            or _gemini_vortex_models()
+            (configs["onemin"], model_name)
+            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+            or _onemin_code_models()
         ]
 
     if normalized == ONEMIN_PUBLIC_MODEL:
@@ -3821,9 +4033,7 @@ def _provider_candidates(
         return [(configs["onemin"], model_name) for model_name in model_names]
 
     if normalized in {item.lower() for item in _onemin_supported_models()}:
-        candidates: list[tuple[ProviderConfig, str]] = [(configs["onemin"], requested)]
-        candidates.extend((configs["magixai"], model_name) for model_name in _magicx_lane_models())
-        return candidates
+        return [(configs["onemin"], requested)]
 
     if normalized == GEMINI_VORTEX_PUBLIC_MODEL or normalized in gemini_model_names:
         model_names = _provider_model_order_for_lane("gemini_vortex", lane, requested) or _gemini_vortex_models()
@@ -3831,9 +4041,9 @@ def _provider_candidates(
 
     if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
         return [
-            (configs["gemini_vortex"], model_name)
-            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
-            or _gemini_vortex_models()
+            (configs["onemin"], model_name)
+            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
+            or _onemin_code_models()
         ]
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
@@ -4811,6 +5021,7 @@ def _call_onemin(
     max_output_tokens: int | None = None,
     lane: str = _LANE_DEFAULT,
     principal_id: str = "",
+    preferred_onemin_labels: tuple[str, ...] = (),
     request_deadline_monotonic: float | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
@@ -4846,6 +5057,7 @@ def _call_onemin(
     failures: list[str] = []
     tested: set[str] = set()
     selection_request_id = f"onemin-{uuid.uuid4().hex[:16]}"
+    preferred_onemin_labels = _normalize_preferred_onemin_labels(preferred_onemin_labels)
     manager = active_onemin_manager()
     active_key_names = _ordered_onemin_keys_allow_reserve(False)
     all_key_names = _ordered_onemin_keys_allow_reserve(True)
@@ -4858,6 +5070,11 @@ def _call_onemin(
     while len(tested) < len(all_key_names):
         candidate_key_names = active_key_names if not allow_reserve else all_key_names
         filtered_key_names = tuple(key for key in candidate_key_names if key not in tested)
+        if not filtered_key_names:
+            if not allow_reserve and len(all_key_names) > len(active_key_names):
+                allow_reserve = True
+                continue
+            break
         manager_lease_id = ""
         manager_selection: dict[str, object] | None = None
         if manager is not None and filtered_key_names:
@@ -4904,27 +5121,57 @@ def _call_onemin(
                         "last_error": state.last_error,
                     }
                 )
-            manager_selection = manager.reserve_for_candidates(
-                candidates=manager_candidates,
-                lane=lane,
-                capability="reasoned_patch_review" if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} else "code_generate",
-                principal_id=principal_id,
-                request_id=selection_request_id,
-                estimated_credits=required_credits,
-                allow_reserve=allow_reserve,
-            )
+            candidate_groups: list[list[dict[str, object]]] = []
+            preferred_manager_candidates = [
+                candidate
+                for candidate in manager_candidates
+                if _candidate_matches_preferred_onemin_label(candidate, preferred_onemin_labels)
+            ]
+            if preferred_manager_candidates:
+                candidate_groups.append(preferred_manager_candidates)
+            candidate_groups.append(manager_candidates)
+            seen_candidate_group_keys: set[tuple[str, ...]] = set()
+            for candidate_group in candidate_groups:
+                group_key = tuple(str(item.get("credential_id") or item.get("slot_name") or item.get("account_name") or "") for item in candidate_group)
+                if not candidate_group or group_key in seen_candidate_group_keys:
+                    continue
+                seen_candidate_group_keys.add(group_key)
+                manager_selection = manager.reserve_for_candidates(
+                    candidates=candidate_group,
+                    lane=lane,
+                    capability="reasoned_patch_review" if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} else "code_generate",
+                    principal_id=principal_id,
+                    request_id=selection_request_id,
+                    estimated_credits=required_credits,
+                    allow_reserve=allow_reserve,
+                )
+                if manager_selection is not None:
+                    break
         if manager_selection is not None:
             api_key = str(manager_selection.get("api_key") or "")
             wait_until = 0.0
             manager_lease_id = str(manager_selection.get("lease_id") or "")
         else:
-            key_pick = _pick_onemin_key(
-                allow_reserve=allow_reserve,
-                key_names=candidate_key_names,
-                lane=lane,
-                model=model,
-                required_credits=required_credits,
-            )
+            key_pick = None
+            key_name_groups: list[tuple[str, ...]] = []
+            preferred_key_names = _preferred_onemin_key_names(filtered_key_names, preferred_labels=preferred_onemin_labels)
+            if preferred_key_names:
+                key_name_groups.append(preferred_key_names)
+            key_name_groups.append(filtered_key_names)
+            seen_key_groups: set[tuple[str, ...]] = set()
+            for key_name_group in key_name_groups:
+                if not key_name_group or key_name_group in seen_key_groups:
+                    continue
+                seen_key_groups.add(key_name_group)
+                key_pick = _pick_onemin_key(
+                    allow_reserve=allow_reserve,
+                    key_names=key_name_group,
+                    lane=lane,
+                    model=model,
+                    required_credits=required_credits,
+                )
+                if key_pick is not None:
+                    break
             if key_pick is None:
                 if not allow_reserve and len(all_key_names) > len(active_key_names):
                     allow_reserve = True
@@ -4981,8 +5228,17 @@ def _call_onemin(
                         else:
                             content = str(parsed_data or "")
                         if content:
-                            stream_chunks.append(content)
-                            on_delta(content)
+                            current_text = "".join(stream_chunks)
+                            normalized_content = content
+                            if current_text:
+                                if normalized_content == current_text:
+                                    return
+                                if normalized_content.startswith(current_text):
+                                    normalized_content = normalized_content[len(current_text) :]
+                            if not normalized_content:
+                                return
+                            stream_chunks.append(normalized_content)
+                            on_delta(normalized_content)
                         return
                     if event_type == "result" and isinstance(parsed_data, dict):
                         stream_payload = parsed_data
@@ -5438,6 +5694,7 @@ def generate_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    preferred_onemin_labels: tuple[str, ...] = (),
     request_deadline_monotonic: float | None = None,
 ) -> UpstreamResult:
     return _run_text_request(
@@ -5448,6 +5705,7 @@ def generate_text(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        preferred_onemin_labels=preferred_onemin_labels,
         request_deadline_monotonic=request_deadline_monotonic,
         on_delta=None,
     )
@@ -5462,6 +5720,7 @@ def stream_text(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    preferred_onemin_labels: tuple[str, ...] = (),
     request_deadline_monotonic: float | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
@@ -5473,6 +5732,7 @@ def stream_text(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+        preferred_onemin_labels=preferred_onemin_labels,
         request_deadline_monotonic=request_deadline_monotonic,
         on_delta=on_delta,
     )
@@ -5487,6 +5747,7 @@ def _run_text_request(
     chatplayground_audit_callback: Callable[..., Any] | None = None,
     chatplayground_audit_callback_only: bool = False,
     chatplayground_audit_principal_id: str = "",
+    preferred_onemin_labels: tuple[str, ...] = (),
     request_deadline_monotonic: float | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> UpstreamResult:
@@ -5562,6 +5823,7 @@ def _run_text_request(
                         max_output_tokens=resolved_max_output_tokens,
                         lane=lane,
                         principal_id=chatplayground_audit_principal_id,
+                        preferred_onemin_labels=preferred_onemin_labels,
                         request_deadline_monotonic=request_deadline_monotonic,
                         on_delta=on_delta,
                     )
@@ -5980,8 +6242,97 @@ def estimate_credit_runway_with_topups(
     }
 
 
-def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[str, object]:
-    provider_health = _provider_health_report()
+def _compact_codex_status_report(
+    *,
+    window: str = "1h",
+    principal_id: str = "",
+    provider_health: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if provider_health is None:
+        provider_health = _provider_health_report(lightweight=True)
+    now = _now_epoch()
+    normalized_principal = str(principal_id or "").strip()
+    principal_scoped = bool(normalized_principal)
+    onemin = dict((provider_health.get("providers") or {}).get("onemin") or {})
+    providers_summary: list[dict[str, object]] = []
+    for provider_key, provider in dict(provider_health.get("providers") or {}).items():
+        provider_dict = dict(provider or {})
+        provider_backend = str(provider_dict.get("backend") or provider_dict.get("provider_name") or provider_key)
+        provider_name = str(provider_dict.get("display_name") or provider_backend)
+        provider_slots = list(provider_dict.get("slots") or [])
+        if not provider_slots:
+            providers_summary.append(
+                {
+                    "provider_key": provider_key,
+                    "provider_name": provider_name,
+                    "account_name": None,
+                    "slot_env_name": None,
+                    "slot": None,
+                    "slot_role": None,
+                    "state": str(provider_dict.get("state") or "missing"),
+                    "basis": "no_slots",
+                    "detail": "",
+                }
+            )
+            continue
+        for slot in provider_slots:
+            providers_summary.append(
+                {
+                    "provider_key": provider_key,
+                    "provider_name": provider_name,
+                    "account_name": slot.get("account_name"),
+                    "slot_env_name": slot.get("slot_env_name") or slot.get("account_name"),
+                    "slot": slot.get("slot"),
+                    "slot_role": slot.get("slot_role"),
+                    "state": slot.get("state") or provider_dict.get("state") or "unknown",
+                    "basis": str(slot.get("billing_basis") or slot.get("estimated_credit_basis") or "unknown_unprobed"),
+                    "detail": str(
+                        slot.get("last_probe_result")
+                        or slot.get("last_error")
+                        or slot.get("last_probe_detail")
+                        or slot.get("credit_subject")
+                        or ""
+                    ).strip(),
+                    "last_probe_at": slot.get("last_probe_at"),
+                    "principal": normalized_principal if principal_scoped else "",
+                    "last_balance_observed_at": slot.get("last_billing_snapshot_at") or slot.get("last_balance_observed_at"),
+                }
+            )
+
+    burn_1h = _onemin_lane_burn_summary(now=now, window_seconds=3600.0, principal_id=normalized_principal)
+    if principal_scoped:
+        basis_summary = "principal_scoped_compact"
+    else:
+        basis_summary = str(provider_health.get("provider_config") or {}).get("default_profile", "")
+        if not basis_summary:
+            basis_summary = str(provider_health.get("provider_config") or {}).get("default_lane", "")
+        if not basis_summary:
+            basis_summary = "compact"
+    return {
+        "status_basis": basis_summary,
+        "providers_summary": providers_summary,
+        "fleet_burn": {"1h": {"provider_credits": {"onemin": burn_1h.get("provider_credits", {}).get("onemin", 0)}}},
+        "default_profile": str((provider_health.get("provider_config") or {}).get("default_profile", "")) if not principal_scoped else "",
+        "default_lane": str((provider_health.get("provider_config") or {}).get("default_lane", "")) if not principal_scoped else "",
+        "provider_health": {"providers": {"_compact": {"state": "ready"}}} if principal_scoped else (provider_health or {}),
+    }
+
+
+def codex_status_report(
+    *,
+    window: str = "1h",
+    principal_id: str = "",
+    provider_health: dict[str, object] | None = None,
+    compact: bool = False,
+) -> dict[str, object]:
+    if compact:
+        return _compact_codex_status_report(
+            window=window,
+            principal_id=principal_id,
+            provider_health=provider_health,
+        )
+    if provider_health is None:
+        provider_health = _provider_health_report()
     now = _now_epoch()
     window_seconds = _status_window_seconds(window)
     normalized_principal = str(principal_id or "").strip()
@@ -6136,6 +6487,7 @@ def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[s
         )
     seven_day_burn_total = (burn_7d_summary.get("provider_credits") or {}).get("onemin") or 0
     avg_daily_burn_7d = (float(seven_day_burn_total) / 7.0) if seven_day_burn_total else None
+    avg_hourly_burn_7d = round(float(avg_daily_burn_7d) / 24.0, 2) if avg_daily_burn_7d not in (None, 0) else None
     remaining_total = onemin.get("estimated_remaining_credits_total")
     days_remaining_7d = None
     if remaining_total is not None and avg_daily_burn_7d not in (None, 0):
@@ -6261,20 +6613,36 @@ def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[s
         if billing_basis_counts
         else "unknown_unprobed"
     )
+    observed_usage_burn_credits_per_hour = round(observed_usage_burn_total, 2) if observed_usage_burn_slot_count > 0 else None
+    estimated_current_burn = onemin.get("estimated_burn_credits_per_hour")
+    try:
+        estimated_current_burn = float(estimated_current_burn) if estimated_current_burn not in (None, "") else None
+    except Exception:
+        estimated_current_burn = None
+    effective_current_burn = estimated_current_burn
+    effective_burn_basis = "estimated_pool" if estimated_current_burn not in (None, 0) else "unknown"
+    if effective_current_burn in (None, 0) and observed_usage_burn_credits_per_hour not in (None, 0):
+        effective_current_burn = observed_usage_burn_credits_per_hour
+        effective_burn_basis = "observed_usage"
+    elif effective_current_burn in (None, 0) and avg_hourly_burn_7d not in (None, 0):
+        effective_current_burn = avg_hourly_burn_7d
+        effective_burn_basis = "7d_average"
+    if effective_current_burn in (None, 0):
+        effective_current_burn = None
+        effective_burn_basis = "unknown"
     billing_runway = estimate_credit_runway_with_topups(
         remaining_credits=selected_billing_free_total if selected_billing_free_known > 0 else remaining_total,
-        current_burn_per_hour=onemin.get("estimated_burn_credits_per_hour"),
+        current_burn_per_hour=effective_current_burn,
         burn_per_day_7d_avg=avg_daily_burn_7d,
         next_topup_at=next_topup_at or None,
         topup_amount=topup_amount_at_next_window if topup_amount_known else None,
         now=now,
     )
-    observed_usage_burn_credits_per_hour = round(observed_usage_burn_total, 2) if observed_usage_burn_slot_count > 0 else None
     free_plus_claimable_bonus = None
     if selected_billing_free_known > 0 and daily_bonus_known_credit_slot_count > 0:
         free_plus_claimable_bonus = round(float(selected_billing_free_total) + float(daily_bonus_known_credit_total), 2)
     hours_with_claimable_bonus = None
-    current_burn = onemin.get("estimated_burn_credits_per_hour")
+    current_burn = effective_current_burn
     if free_plus_claimable_bonus not in (None, "") and current_burn not in (None, "", 0):
         hours_with_claimable_bonus = round(float(free_plus_claimable_bonus) / float(current_burn), 2)
     hours_at_observed_usage_pace = None
@@ -6296,6 +6664,9 @@ def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[s
             float(free_plus_claimable_bonus) / float(observed_usage_burn_credits_per_hour),
             2,
         )
+    hours_remaining_at_current_pace = onemin.get("estimated_hours_remaining_at_current_pace")
+    if hours_remaining_at_current_pace in (None, "") and remaining_total not in (None, "") and effective_current_burn not in (None, 0):
+        hours_remaining_at_current_pace = round(float(remaining_total) / float(effective_current_burn), 2)
     onemin_aggregate = {
         "slot_count": len(slots),
         "slot_count_with_known_balance": sum(1 for slot in slots if slot.get("estimated_remaining_credits") is not None),
@@ -6303,10 +6674,11 @@ def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[s
         "sum_max_credits": onemin.get("max_credits_total"),
         "sum_free_credits": onemin.get("estimated_remaining_credits_total"),
         "remaining_percent_total": onemin.get("remaining_percent_of_max"),
-        "current_pace_burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
-        "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
+        "current_pace_burn_credits_per_hour": effective_current_burn,
+        "hours_remaining_at_current_pace": hours_remaining_at_current_pace,
         "avg_daily_burn_credits_7d": avg_daily_burn_7d,
         "days_remaining_at_7d_avg_burn": days_remaining_7d,
+        "burn_basis": effective_burn_basis,
         "basis_summary": onemin.get("balance_basis_summary"),
         "state_summary": ",".join(sorted(state_counts.keys())) if state_counts else "unknown",
         "basis_counts": basis_counts,
@@ -6330,8 +6702,9 @@ def codex_status_report(*, window: str = "1h", principal_id: str = "") -> dict[s
         "sum_max_credits": selected_billing_max_total if selected_billing_max_known > 0 else onemin.get("max_credits_total"),
         "sum_free_credits": selected_billing_free_total if selected_billing_free_known > 0 else onemin.get("estimated_remaining_credits_total"),
         "remaining_percent_total": billing_remaining_percent_total if billing_remaining_percent_total is not None else onemin.get("remaining_percent_of_max"),
-        "current_pace_burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
+        "current_pace_burn_credits_per_hour": effective_current_burn,
         "avg_daily_burn_credits_7d": avg_daily_burn_7d,
+        "burn_basis": effective_burn_basis,
         "next_topup_at": next_topup_at or None,
         "topup_amount": round(topup_amount_at_next_window, 2) if topup_amount_known else None,
         "daily_bonus_claimable_slot_count": daily_bonus_claimable_slot_count,
@@ -6934,7 +7307,7 @@ def probe_all_onemin_slots(*, include_reserve: bool = True) -> dict[str, object]
     }
 
 
-def _provider_health_report() -> dict[str, object]:
+def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
     _load_provider_ledgers_once()
     now = _now_epoch()
     fleet_jury_telemetry = _fleet_jury_telemetry_report()
@@ -6943,7 +7316,7 @@ def _provider_health_report() -> dict[str, object]:
     onemin_reserve_keys = _onemin_reserve_keys()
     onemin_key_states = _onemin_states_snapshot(onemin_key_names)
     onemin_slots: list[dict[str, object]] = []
-    if _magix_health_probe_enabled():
+    if not lightweight and _magix_health_probe_enabled():
         _magix_is_ready()
 
     for key in onemin_key_names:

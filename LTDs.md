@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-03-31
+Updated: 2026-04-02
 
 ## Workspace Integration Tier Guide
 
@@ -24,6 +24,7 @@ Updated: 2026-03-31
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
 | `Headway` | `Premium` | `1 account` | `Owned` |  | `Tier 3` | None | Knowledge/content utility only; no local runtime integration yet. |
+| `hedy.ai` | `LTD account` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Credentials are stored locally for later browser-driven account access or structured verification; no active runtime lane is wired yet. |
 | `Internxt Cloud Storage` | `100TB` | `1 account` | `Owned` |  | `Tier 3` | None | Storage service not currently wired into the workspace. |
 
 ## AppSumo LTDs
@@ -51,7 +52,7 @@ Updated: 2026-03-31
 
 ## Summary
 
-- `28` total LTD products tracked
+- `29` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -70,6 +71,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Headway` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `hedy.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-02T00:00:00Z | Username/password are stored locally; plan/tier and activation details still need structured verification. |
 | `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApproveThis` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |

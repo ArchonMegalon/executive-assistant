@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from typing import Literal
 import urllib.error
 import urllib.request
 import uuid
@@ -17,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context as shared_is_operator_context, resolve_principal_id
 from app.container import AppContainer
-from app.domain.models import ProviderBindingRecord, ProviderBindingState, ToolInvocationRequest
+from app.domain.models import OneminAccount, OneminCredential, ProviderBindingRecord, ProviderBindingState, ToolInvocationRequest
 from app.services import responses_upstream as upstream
 from app.services.responses_upstream import onemin_owner_account_names_for_email, probe_all_onemin_slots
 from app.services.tool_execution_common import ToolExecutionError
@@ -63,6 +64,12 @@ class OneminBillingRefreshIn(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=30, le=1800)
     binding_ids: list[str] = Field(default_factory=list)
     account_labels: list[str] = Field(default_factory=list)
+
+
+class OneminBillingSnapshotRecordIn(BaseModel):
+    account_label: str = Field(min_length=1, max_length=200)
+    source: str = Field(default="browseract.onemin_billing_usage.fastestvpn_refresh", max_length=200)
+    snapshot_json: dict[str, object] = Field(default_factory=dict)
 
 
 class OneminImageReserveIn(BaseModel):
@@ -463,17 +470,143 @@ def probe_all_onemin(
 
 
 _ONEMIN_SLOT_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY(?:_FALLBACK_\d+)?$")
+_ONEMIN_ACCOUNT_LABEL_FALLBACK_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
+
+
+def _resolve_onemin_snapshot_scope(
+    *,
+    container: AppContainer,
+    context: RequestContext,
+    scope: Literal["principal", "global"],
+) -> tuple[list[object], str]:
+    if scope == "global":
+        if not _is_operator_context(context):
+            raise HTTPException(status_code=403, detail="operator_scope_required")
+        return _all_enabled_browseract_bindings(container), ""
+    return _enabled_browseract_bindings(container, context.principal_id), context.principal_id
+
+
+def _onemin_slot_name_for_account_label(account_label: str) -> str:
+    normalized = str(account_label or "").strip()
+    if normalized == "ONEMIN_AI_API_KEY":
+        return "primary"
+    match = _ONEMIN_ACCOUNT_LABEL_FALLBACK_RE.fullmatch(normalized)
+    if match is not None:
+        return f"fallback_{int(match.group(1))}"
+    return normalized
+
+
+def _upsert_recorded_onemin_snapshot_into_repo(
+    *,
+    container: AppContainer,
+    account_label: str,
+    snapshot: dict[str, object],
+) -> dict[str, object] | None:
+    manager = container.onemin_manager
+    account_id = str(account_label or "").strip()
+    if not account_id:
+        return None
+    current_accounts = {row.account_id: row for row in manager._repo.list_accounts()}
+    current_credentials = {row.credential_id: row for row in manager._repo.list_credentials()}
+    existing_account = current_accounts.get(account_id)
+    slot_name = _onemin_slot_name_for_account_label(account_id)
+    existing_credential = current_credentials.get(slot_name) or current_credentials.get(account_id)
+    owner_row = next(
+        (
+            row
+            for row in upstream.onemin_owner_rows()
+            if str(row.get("account_name") or "").strip() == account_id
+        ),
+        {},
+    )
+    remaining_credits = float(snapshot.get("remaining_credits")) if snapshot.get("remaining_credits") is not None else 0.0
+    max_credits = float(snapshot.get("max_credits")) if snapshot.get("max_credits") is not None else remaining_credits or None
+    core_floor, image_spendable, reserve_credits = manager._floor_credits(remaining_credits)
+    basis = str(snapshot.get("basis") or "unknown").strip() or "unknown"
+    has_actual_billing = basis not in {"unknown", "page_seen_but_unparsed"} and snapshot.get("remaining_credits") is not None
+    details_json = dict(existing_account.details_json or {}) if existing_account is not None else {}
+    details_json.update(
+        {
+            "credit_basis": basis,
+            "has_actual_billing": has_actual_billing,
+            "actual_remaining_credits": remaining_credits if has_actual_billing else None,
+            "actual_max_credits": max_credits if has_actual_billing else None,
+            "estimated_remaining_credits": remaining_credits,
+            "observed_usage_burn_credits_per_hour": details_json.get("observed_usage_burn_credits_per_hour"),
+            "slot_count_with_observed_usage_burn": int(details_json.get("slot_count_with_observed_usage_burn") or 0),
+            "estimated_pool_burn_credits_per_hour": details_json.get("estimated_pool_burn_credits_per_hour"),
+            "current_burn_credits_per_hour": details_json.get("current_burn_credits_per_hour"),
+            "burn_basis": str(details_json.get("burn_basis") or "unknown"),
+        }
+    )
+    current_accounts[account_id] = OneminAccount(
+        account_id=account_id,
+        provider_key="onemin",
+        account_label=account_id,
+        owner_email=str(existing_account.owner_email if existing_account is not None else owner_row.get("owner_email") or ""),
+        owner_name=str(existing_account.owner_name if existing_account is not None else owner_row.get("owner_name") or ""),
+        browseract_binding_id=existing_account.browseract_binding_id if existing_account is not None else "",
+        workspace_id=existing_account.workspace_id if existing_account is not None else "",
+        status=existing_account.status if existing_account is not None and str(existing_account.status or "").strip() else "ready",
+        remaining_credits=remaining_credits,
+        max_credits=max_credits,
+        core_floor_credits=core_floor,
+        image_spendable_credits=image_spendable,
+        reserve_credits=reserve_credits,
+        slot_count=max(int(existing_account.slot_count or 0), 1) if existing_account is not None else 1,
+        ready_slot_count=max(int(existing_account.ready_slot_count or 0), 1) if existing_account is not None else 1,
+        last_billing_snapshot_at=str(
+            snapshot.get("observed_at")
+            or (existing_account.last_billing_snapshot_at if existing_account is not None else "")
+        )
+        or None,
+        last_member_reconciliation_at=existing_account.last_member_reconciliation_at if existing_account is not None else None,
+        details_json=details_json,
+    )
+    current_credentials[slot_name] = OneminCredential(
+        credential_id=slot_name,
+        account_id=account_id,
+        slot_name=slot_name,
+        secret_env_name=account_id,
+        owner_email=str(existing_credential.owner_email if existing_credential is not None else owner_row.get("owner_email") or ""),
+        active_role=existing_credential.active_role if existing_credential is not None and str(existing_credential.active_role or "").strip() else "configured",
+        state=existing_credential.state if existing_credential is not None and str(existing_credential.state or "").strip() else "ready",
+        remaining_credits=remaining_credits,
+        max_credits=max_credits,
+        last_probe_at=existing_credential.last_probe_at if existing_credential is not None else None,
+        last_success_at=existing_credential.last_success_at if existing_credential is not None else None,
+        last_error=existing_credential.last_error if existing_credential is not None else "",
+        quarantine_until=existing_credential.quarantine_until if existing_credential is not None else None,
+        details_json=dict(existing_credential.details_json or {}) if existing_credential is not None else {},
+    )
+    manager._repo.replace_state(
+        accounts=list(current_accounts.values()),
+        credentials=list(current_credentials.values()),
+    )
+    return {
+        "account_id": account_id,
+        "actual_remaining_credits": remaining_credits if has_actual_billing else None,
+        "credit_basis": basis,
+        "has_actual_billing": has_actual_billing,
+        "last_billing_snapshot_at": str(snapshot.get("observed_at") or "") or None,
+    }
 
 
 @router.get("/onemin/aggregate", response_model=None)
 def get_onemin_aggregate(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    scope: Literal["principal", "global"] = Query(default="principal"),
 ) -> dict[str, object]:
+    binding_rows, effective_principal_id = _resolve_onemin_snapshot_scope(
+        container=container,
+        context=context,
+        scope=scope,
+    )
     return container.onemin_manager.aggregate_snapshot(
         provider_health=upstream._provider_health_report(),
-        binding_rows=_enabled_browseract_bindings(container, context.principal_id),
-        principal_id=context.principal_id,
+        binding_rows=binding_rows,
+        principal_id=effective_principal_id,
     )
 
 
@@ -505,18 +638,83 @@ def get_onemin_accounts(
     }
 
 
+@router.post("/onemin/billing-snapshots", response_model=None)
+def record_onemin_billing_snapshot(
+    body: OneminBillingSnapshotRecordIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    if not _is_operator_context(context):
+        raise HTTPException(status_code=403, detail="operator_scope_required")
+    account_label = str(body.account_label or "").strip()
+    if not account_label:
+        raise HTTPException(status_code=400, detail="account_label_required")
+    snapshot = upstream.record_onemin_billing_snapshot(
+        account_name=account_label,
+        snapshot_json=dict(body.snapshot_json or {}),
+        source=str(body.source or "browseract.onemin_billing_usage.fastestvpn_refresh").strip()
+        or "browseract.onemin_billing_usage.fastestvpn_refresh",
+    )
+    provider_health = upstream._provider_health_report()
+    aggregate_snapshot = container.onemin_manager.aggregate_snapshot(
+        provider_health=provider_health,
+        binding_rows=[],
+        principal_id="",
+    )
+    account_snapshot = next(
+        (
+            dict(row)
+            for row in (aggregate_snapshot.get("accounts") or [])
+            if str(row.get("account_id") or row.get("account_label") or "").strip() == account_label
+        ),
+        None,
+    )
+    if account_snapshot is None:
+        fallback_snapshot = _upsert_recorded_onemin_snapshot_into_repo(
+            container=container,
+            account_label=account_label,
+            snapshot=snapshot,
+        )
+        aggregate_snapshot = container.onemin_manager.aggregate_snapshot(
+            provider_health={"providers": {"onemin": {"slots": []}}},
+            binding_rows=[],
+            principal_id="",
+        )
+        account_snapshot = next(
+            (
+                dict(row)
+                for row in (aggregate_snapshot.get("accounts") or [])
+                if str(row.get("account_id") or row.get("account_label") or "").strip() == account_label
+            ),
+            fallback_snapshot,
+        )
+    return {
+        "provider_key": "onemin",
+        "account_label": account_label,
+        "snapshot": snapshot,
+        "account_snapshot": account_snapshot,
+        "aggregate_snapshot": aggregate_snapshot,
+    }
+
+
 @router.get("/onemin/runway", response_model=None)
 def get_onemin_runway(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    scope: Literal["principal", "global"] = Query(default="principal"),
 ) -> dict[str, object]:
+    binding_rows, effective_principal_id = _resolve_onemin_snapshot_scope(
+        container=container,
+        context=context,
+        scope=scope,
+    )
     return {
         "provider_key": "onemin",
-        "principal_id": context.principal_id,
+        "principal_id": effective_principal_id or context.principal_id,
         "forecast": container.onemin_manager.runway_snapshot(
             provider_health=upstream._provider_health_report(),
-            binding_rows=_enabled_browseract_bindings(container, context.principal_id),
-            principal_id=context.principal_id,
+            binding_rows=binding_rows,
+            principal_id=effective_principal_id,
         ),
     }
 
@@ -820,7 +1018,7 @@ def _onemin_browseract_max_accounts_per_refresh() -> int:
         value = int(raw) if raw else 50
     except Exception:
         value = 50
-    return max(1, min(50, value))
+    return max(1, min(500, value))
 
 
 def _onemin_browseract_parallelism() -> int:
@@ -957,6 +1155,18 @@ def _onemin_browseract_failure_code(error: object) -> str:
         parts = [part for part in remainder.split(":") if part]
         if len(parts) >= 2:
             return parts[-1]
+    if (
+        "api.1min.ai/auth/login" in lowered
+        and (
+            "access to xmlhttprequest" in lowered
+            or "access-control-allow-origin" in lowered
+            or "cors policy" in lowered
+            or "content security policy" in lowered
+            or "connect-src 'none'" in lowered
+            or "refused to connect" in lowered
+        )
+    ):
+        return "challenge_required"
     if "auth_request_failed" in lowered or "api.1min.ai/auth/login" in lowered:
         return "auth_request_failed"
     if "invalid_credentials" in lowered or "email or password you entered is incorrect" in lowered:

@@ -19,6 +19,7 @@ daemon-gogcli-config/
 data-*/
 *.log
 config/*.local.yml
+config/onemin_api_keys.local.json
 config/onemin_slot_owners.local.json
 artifacts/
 

@@ -86,9 +86,9 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
     onboarding = client.get("/register")
     assert onboarding.status_code == 200
-    assert "Create a personal workspace before you add anything else." in onboarding.text
+    assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google Core" in onboarding.text
-    assert "Workspace mode stays personal here." in onboarding.text
+    assert "Workspace shape" in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text
 
@@ -487,7 +487,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
 
     support_page = client.get("/app/settings/support")
     assert support_page.status_code == 200
-    assert "Support and diagnostics" in support_page.text
+    assert "Support and recovery" in support_page.text
     assert "Operational reliability" in support_page.text
     assert "Fix verification" in support_page.text
     assert "Support closure grounding" in support_page.text

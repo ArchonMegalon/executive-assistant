@@ -59,6 +59,26 @@ def test_onemin_browseract_failure_code_detects_invalid_credentials() -> None:
     ) == "invalid_credentials"
 
 
+def test_onemin_browseract_failure_code_detects_onemin_auth_cors_block_as_challenge() -> None:
+    from app.api.routes import providers as providers_route
+
+    assert providers_route._onemin_browseract_failure_code(
+        "template_worker_failed: Submit Login:auth_request_failed:console:Access to XMLHttpRequest at "
+        "'https://api.1min.ai/auth/login' from origin 'https://app.1min.ai' has been blocked by "
+        "CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    ) == "challenge_required"
+
+
+def test_onemin_browseract_failure_code_detects_onemin_auth_csp_block_as_challenge() -> None:
+    from app.api.routes import providers as providers_route
+
+    assert providers_route._onemin_browseract_failure_code(
+        "template_worker_failed: Submit Login:auth_request_failed:console:[Report Only] Refused to connect to "
+        "'https://api.1min.ai/auth/login' because it violates the following Content Security Policy directive: "
+        "\"connect-src 'none'\"."
+    ) == "challenge_required"
+
+
 def test_provider_bindings_are_principal_scoped_and_support_probe_updates() -> None:
     owner = _client(principal_id="exec-1")
     created = owner.post(
@@ -419,8 +439,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/register")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Create a personal workspace before you add anything else." in setup.text
-    assert "Workspace mode stays personal here." in setup.text
+    assert "Start a workspace that shows the first useful loop." in setup.text
+    assert "Workspace shape" in setup.text
     assert "Google Core" in setup.text
 
     sign_in = owner.get("/sign-in")
@@ -2082,6 +2102,150 @@ def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actua
     assert actual_body["burn_basis"] == "observed_usage"
     assert actual_body["global_estimated_pool_burn_credits_per_hour"] == 2400.0
 
+def test_onemin_aggregate_and_runway_expose_scope_and_operator_global_view(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    owner = _client(principal_id="exec-1", operator=True)
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "owner@example.com",
+            "auth_metadata_json": {
+                "onemin_account_name": "ONEMIN_AI_API_KEY",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "onemin": {
+                    "configured_slots": 2,
+                    "estimated_remaining_credits_total": 1500.0,
+                    "remaining_percent_of_max": 75.0,
+                    "estimated_hours_remaining_at_current_pace": 12.0,
+                    "estimated_days_remaining_at_7d_average": 1.5,
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "state": "ready",
+                            "estimated_remaining_credits": 1000.0,
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot": "fallback_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "state": "ready",
+                            "estimated_remaining_credits": 500.0,
+                        },
+                    ],
+                }
+            }
+        },
+    )
+
+    principal_aggregate = owner.get("/v1/providers/onemin/aggregate")
+    assert principal_aggregate.status_code == 200
+    principal_aggregate_body = principal_aggregate.json()
+    assert principal_aggregate_body["scope"] == "principal_bindings"
+    assert principal_aggregate_body["sum_free_credits"] == 1000.0
+    assert principal_aggregate_body["global_estimated_free_credits_total"] == 1500.0
+    assert principal_aggregate_body["global_estimated_hours_remaining_at_current_pace"] == 12.0
+    assert principal_aggregate_body["scope_note"].startswith("principal view only includes 1min accounts bound")
+
+    principal_runway = owner.get("/v1/providers/onemin/runway")
+    assert principal_runway.status_code == 200
+    principal_runway_body = principal_runway.json()
+    assert principal_runway_body["forecast"]["scope"] == "principal_bindings"
+    assert principal_runway_body["forecast"]["remaining_credits"] == 1000.0
+    assert principal_runway_body["forecast"]["global_estimated_free_credits_total"] == 1500.0
+
+    viewer = _client(principal_id="exec-viewer")
+    denied_global = viewer.get("/v1/providers/onemin/aggregate?scope=global")
+    assert denied_global.status_code == 403
+    denied_body = denied_global.json()
+    if "detail" in denied_body:
+        assert denied_body["detail"] == "operator_scope_required"
+    else:
+        assert denied_body["error"]["code"] == "operator_scope_required"
+
+    operator = _client(principal_id="exec-ops", operator=True)
+    global_aggregate = operator.get("/v1/providers/onemin/aggregate?scope=global")
+    assert global_aggregate.status_code == 200
+    global_aggregate_body = global_aggregate.json()
+    assert global_aggregate_body["scope"] == "global_pool"
+    assert global_aggregate_body["scope_principal_id"] is None
+    assert global_aggregate_body["sum_free_credits"] == 1500.0
+    assert global_aggregate_body["account_count"] == 2
+    assert global_aggregate_body["scope_note"] == ""
+
+    global_runway = operator.get("/v1/providers/onemin/runway?scope=global")
+    assert global_runway.status_code == 200
+    global_runway_body = global_runway.json()
+    assert global_runway_body["principal_id"] == "exec-ops"
+    assert global_runway_body["forecast"]["scope"] == "global_pool"
+    assert global_runway_body["forecast"]["remaining_credits"] == 1500.0
+
+
+def test_onemin_manager_runway_falls_back_to_observed_burn_when_provider_pace_is_missing() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "configured_slots": 3,
+                "estimated_burn_credits_per_hour": 2400.0,
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "slot": "primary",
+                        "slot_env_name": "ONEMIN_AI_API_KEY",
+                        "state": "ready",
+                        "billing_remaining_credits": 1000.0,
+                        "billing_max_credits": 2000.0,
+                        "billing_basis": "actual_billing_usage_page",
+                        "billing_observed_usage_burn_credits_per_hour": 1200.0,
+                    },
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "slot": "fallback_1",
+                        "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                        "state": "ready",
+                        "estimated_remaining_credits": 0.0,
+                        "billing_observed_usage_burn_credits_per_hour": 300.0,
+                    },
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                        "slot": "fallback_2",
+                        "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                        "state": "ready",
+                        "estimated_remaining_credits": 500.0,
+                    },
+                ],
+            }
+        }
+    }
+
+    forecast = manager.runway_snapshot(provider_health=provider_health, binding_rows=[], principal_id="")
+
+    assert forecast["remaining_credits"] == 1500.0
+    assert forecast["current_burn_per_hour"] == 1500.0
+    assert forecast["hours_remaining_current_pace"] == 1.0
+    assert forecast["days_remaining_7d_avg"] == 0.04
+    assert forecast["burn_basis"] == "observed_usage"
+
 
 def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
     owner = _client(principal_id="exec-1", operator=True)
@@ -2438,6 +2602,57 @@ def test_onemin_manager_does_not_count_unparsed_page_views_as_actual_billing() -
     assert actual["binding_account_count"] == 1
     assert actual["accounts_without_actual_billing_count"] == 1
     assert manager.occupancy_snapshot(principal_id="exec-2")["active_lease_count"] == 0
+
+
+def test_operator_can_record_onemin_billing_snapshot_into_live_manager_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_54", "business-54")
+
+    owner = _client(principal_id="codex-fleet", operator=True)
+
+    recorded = owner.post(
+        "/v1/providers/onemin/billing-snapshots",
+        json={
+            "account_label": "ONEMIN_AI_API_KEY_FALLBACK_54",
+            "source": "browseract.onemin_billing_usage.fastestvpn_refresh",
+            "snapshot_json": {
+                "observed_at": "2026-04-04T08:24:48Z",
+                "remaining_credits": 4280000,
+                "max_credits": 4280000,
+                "basis": "actual_billing_usage_page",
+                "source_url": "https://app.1min.ai/billing-usage",
+                "structured_output_json": {
+                    "billing_overview_json": {
+                        "plan_name": "BUSINESS",
+                        "billing_cycle": "LIFETIME",
+                        "subscription_status": "Active",
+                    }
+                },
+            },
+        },
+    )
+
+    assert recorded.status_code == 200
+    body = recorded.json()
+    assert body["snapshot"]["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_54"
+    assert body["snapshot"]["remaining_credits"] == 4280000.0
+    assert body["account_snapshot"]["account_id"] == "ONEMIN_AI_API_KEY_FALLBACK_54"
+    assert body["account_snapshot"]["actual_remaining_credits"] == 4280000.0
+    assert body["account_snapshot"]["credit_basis"] == "actual_billing_usage_page"
+    assert body["account_snapshot"]["has_actual_billing"] is True
+    assert body["aggregate_snapshot"]["sum_free_credits"] == 4280000.0
+    assert body["aggregate_snapshot"]["actual_free_credits_total"] == 4280000.0
+    assert body["aggregate_snapshot"]["actual_billing_account_count"] == 1
+
+    aggregate = owner.get("/v1/providers/onemin/aggregate?scope=global")
+    assert aggregate.status_code == 200
+    aggregate_body = aggregate.json()
+    assert aggregate_body["sum_free_credits"] == 4280000.0
+    assert aggregate_body["actual_free_credits_total"] == 4280000.0
+    assert aggregate_body["actual_billing_account_count"] == 1
 
 
 def test_onemin_image_reservation_and_release_are_principal_scoped(monkeypatch: pytest.MonkeyPatch) -> None:

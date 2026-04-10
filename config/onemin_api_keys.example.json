@@ -1,0 +1,16 @@
+[
+  {
+    "slot": "primary",
+    "account_name": "ONEMIN_AI_API_KEY",
+    "key": "replace-me-primary",
+    "owner_email": "primary@example.com",
+    "owner_name": "Primary Account"
+  },
+  {
+    "slot": "fallback_1",
+    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+    "key": "replace-me-fallback-1",
+    "owner_email": "fallback@example.com",
+    "owner_name": "Fallback Account"
+  }
+]

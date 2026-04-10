@@ -895,6 +895,10 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
             provider_account = "EA_GEMINI_VORTEX_API_KEY"
             provider_key = "gemini_vortex"
             provider_model = "gemini-2.5-flash"
+        elif requested_model == "ea-repair-gemini":
+            provider_account = "EA_GEMINI_VORTEX_API_KEY"
+            provider_key = "gemini_vortex"
+            provider_model = "gemini-2.5-flash"
         elif requested_model == "ea-review-light":
             provider_account = "BROWSERACT_API_KEY"
             provider_key = "chatplayground"
@@ -938,7 +942,7 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
     assert calls == [
         "ea-coder-hard",
         "ea-coder-fast",
-        "ea-coder-fast",
+        "ea-repair-gemini",
         "ea-groundwork-gemini",
         "ea-review-light",
         "ea-audit-jury",
@@ -980,7 +984,7 @@ def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_forc
     assert easy.json()["metadata"]["codex_support_help_boundary"]["owner"] == "chummer6-hub"
     assert core.json()["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
     assert easy.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
-    assert repair.json()["metadata"]["provider_account_name"] == "EA_RESPONSES_MAGICX_API_KEY"
+    assert repair.json()["metadata"]["provider_account_name"] == "EA_GEMINI_VORTEX_API_KEY"
     assert groundwork.json()["metadata"]["provider_account_name"] == "EA_GEMINI_VORTEX_API_KEY"
     assert review_light.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
     assert audit.json()["metadata"]["provider_account_name"] == "BROWSERACT_API_KEY"
@@ -1140,6 +1144,7 @@ def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch:
     assert created_body["model"] == "ea-coder-survival"
     assert created_body["metadata"]["codex_profile"] == "survival"
     assert created_body["metadata"]["codex_lane"] == "survival"
+    assert created_body["metadata"]["survival_route_order"] == "onemin,gemini_vortex,gemini_web,chatplayground"
 
     response_id = created_body["id"]
     completed_body: dict[str, object] | None = None
@@ -1430,11 +1435,11 @@ def test_codex_repair_endpoint_keeps_explicit_repair_lane_for_coding_prompt(
         **_: object,
     ) -> UpstreamResult:
         assert prompt == "fix the routing bug in /docker/EA/ea/app/api/routes/responses.py"
-        assert requested_model == "ea-coder-fast"
+        assert requested_model == "ea-repair-gemini"
         return UpstreamResult(
             text="repair stayed repair",
-            provider_key="magixai",
-            model="inception/mercury-coder",
+            provider_key="gemini_vortex",
+            model="gemini-2.5-flash",
             tokens_in=5,
             tokens_out=7,
         )
@@ -1451,6 +1456,59 @@ def test_codex_repair_endpoint_keeps_explicit_repair_lane_for_coding_prompt(
     assert body["metadata"]["codex_profile"] == "repair"
     assert body["metadata"]["codex_effective_profile"] == "repair"
     assert body["metadata"]["codex_prompt_route_applied"] is False
+
+
+def test_codex_repair_endpoint_uses_onemin_model_when_cheap_repair_backends_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-repair-onemin")
+    from app.api.routes import responses
+
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setattr(
+        responses,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "gemini_vortex": {"state": "degraded"},
+                "magixai": {"state": "degraded"},
+                "onemin": {"state": "ready"},
+            }
+        },
+    )
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "repair fallback"
+        assert messages == [{"role": "user", "content": "repair fallback"}]
+        assert requested_model == "ea-onemin-coder"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="repair via onemin",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=2,
+            tokens_out=1,
+            provider_account_name="ONEMIN_AI_API_KEY",
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response = client.post("/v1/codex/repair", json={"input": "repair fallback"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output_text"] == "repair via onemin"
+    assert body["metadata"]["codex_profile"] == "repair"
+    assert body["metadata"]["codex_effective_profile"] == "repair"
+    assert body["metadata"]["codex_effective_model"] == "ea-onemin-coder"
+    assert body["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
 
 
 def test_core_batch_get_response_resumes_in_progress_job_after_worker_loss(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1992,6 +2050,48 @@ def test_core_rescue_route_uses_rescue_model_and_longer_background_timeout(
 
 
 
+def test_core_batch_route_defaults_to_long_background_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-core-batch-timeout")
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_RESPONSES_BACKGROUND_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_BACKGROUND_TIMEOUT_HARD_BATCH_SECONDS", raising=False)
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "finish the long-running flagship slice"
+        assert requested_model == "ea-coder-hard-batch"
+        return UpstreamResult(
+            text="core batch complete",
+            provider_key="onemin",
+            model="gpt-5",
+            tokens_in=9,
+            tokens_out=11,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    created = client.post(
+        "/v1/responses",
+        headers={"X-EA-Codex-Profile": "core_batch"},
+        json={"input": "finish the long-running flagship slice", "store": False},
+    )
+    assert created.status_code == 202
+    body = created.json()
+    assert body["model"] == "ea-coder-hard-batch"
+    assert body["metadata"]["codex_profile"] == "core_batch"
+    assert body["metadata"]["background_store_forced"] is True
+    assert body["metadata"]["background_timeout_seconds"] == 21600.0
+
+
 def test_previous_response_id_rejects_in_progress_background_response() -> None:
     client = _client(principal_id="codex-previous-response-progress")
     from app.api.routes import responses
@@ -2379,6 +2479,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
     assert repair_profile["provider_hint_order"] == ["gemini_vortex"]
+    assert repair_profile["model"] == "ea-repair-gemini"
+    assert repair_profile["backend"] == "gemini_vortex"
+    assert repair_profile["health_provider_key"] == "gemini_vortex"
     groundwork_profile = next(profile for profile in body["profiles"] if profile["profile"] == "groundwork")
     assert groundwork_profile["lane"] == "groundwork"
     assert groundwork_profile["provider_hint_order"] == ["gemini_vortex"]
@@ -2398,7 +2501,11 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert review_light_profile["provider_hint_order"] == ["browseract"]
     assert review_light_profile["backend"] == "chatplayground"
     assert review_light_profile["health_provider_key"] == "chatplayground"
-    assert any(profile["profile"] == "survival" and profile["lane"] == "survival" for profile in body["profiles"])
+    survival_profile = next(profile for profile in body["profiles"] if profile["profile"] == "survival")
+    assert survival_profile["lane"] == "survival"
+    assert survival_profile["provider_hint_order"] == ["onemin", "gemini_vortex", "browseract"]
+    assert survival_profile["backend"] == "onemin"
+    assert survival_profile["health_provider_key"] == "onemin"
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == ""
     assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == ""
@@ -2416,7 +2523,79 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == ""
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
     assert review_light_lane["health_provider_key"] == "chatplayground"
-    assert review_light_lane["providers"][0]["provider_key"] == "browseract"
+
+
+def test_stabilize_codex_profile_promotes_repair_model_to_onemin_backend() -> None:
+    from app.api.routes import responses
+
+    profile = responses._stabilize_codex_profile(
+        {
+            "profile": "repair",
+            "lane": "repair",
+            "model": "ea-coder-fast",
+            "provider_hint_order": ["onemin"],
+            "backend": "onemin",
+            "health_provider_key": "onemin",
+        }
+    )
+
+    assert profile["model"] == "ea-onemin-coder"
+
+
+def test_stabilize_codex_profile_promotes_repair_model_when_onemin_only_reports_ready_slots() -> None:
+    from app.api.routes import responses
+
+    profile = responses._stabilize_codex_profile(
+        {
+            "profile": "repair",
+            "lane": "repair",
+            "model": "ea-coder-fast",
+            "provider_hint_order": ["magixai", "onemin"],
+            "backend": "magixai",
+            "health_provider_key": "magixai",
+        },
+        provider_health={
+            "providers": {
+                "magixai": {"state": "degraded"},
+                "onemin": {"slots": [{"state": "ready"}]},
+            }
+        },
+    )
+
+    assert profile["backend"] == "onemin"
+    assert profile["health_provider_key"] == "onemin"
+    assert profile["provider_hint_order"][0] == "onemin"
+    assert profile["model"] == "ea-onemin-coder"
+
+
+def test_codex_profile_index_promotes_repair_to_onemin_when_live_provider_health_prefers_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-repair-fallback")
+    from app.api.routes import responses
+
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setattr(
+        responses,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "gemini_vortex": {"state": "degraded"},
+                "magixai": {"state": "degraded"},
+                "onemin": {"state": "ready"},
+            }
+        },
+    )
+
+    response = client.get("/v1/codex/profiles")
+
+    assert response.status_code == 200
+    body = response.json()
+    repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
+    assert repair_profile["provider_hint_order"][0] == "onemin"
+    assert repair_profile["backend"] == "onemin"
+    assert repair_profile["health_provider_key"] == "onemin"
+    assert repair_profile["model"] == "ea-onemin-coder"
 
 
 def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2501,6 +2680,42 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     core_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "core")
     assert core_lane["backend"] == "onemin"
     assert core_lane["primary_provider_key"] == "onemin"
+
+
+def test_responses_provider_health_endpoint_supports_lightweight_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health-operator", operator=True)
+    from app.api.routes import responses
+
+    calls: list[bool] = []
+
+    def fake_provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
+        calls.append(lightweight)
+        return {
+            "providers": {
+                "onemin": {
+                    "provider_key": "onemin",
+                    "backend": "1min",
+                    "configured_slots": 1,
+                    "slots": [{"slot": "primary", "account_name": "slot-a"}],
+                }
+            },
+            "provider_config": {"provider_order": ["onemin"]},
+        }
+
+    monkeypatch.setattr(responses, "_provider_health_report", fake_provider_health_report)
+    monkeypatch.setattr(
+        responses,
+        "_provider_registry_payload",
+        lambda **_: {"lanes": [{"profile": "core", "state": "ready"}]},
+    )
+
+    response = client.get("/v1/responses/_provider_health?lightweight=1")
+
+    assert response.status_code == 200
+    assert calls == [True]
+    body = response.json()
+    assert body["providers"]["onemin"]["configured_slots"] == 1
+    assert body["provider_registry"]["lanes"][0]["profile"] == "core"
 
 
 def test_responses_provider_health_reports_observed_credit_balance_without_leaking_keys(monkeypatch: pytest.MonkeyPatch) -> None:

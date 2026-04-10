@@ -1054,14 +1054,14 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             ],
         },
         "api": {
-            "title": "Diagnostics",
-            "summary": "Plan, readiness, usage, and support posture for the current workspace deployment.",
+            "title": "Workspace review",
+            "summary": "Plan, readiness, support, and product signals for the current workspace.",
             "cards": [
                 {"eyebrow": "Workspace", "title": "Workspace posture", "items": workspace_rows},
-                {"eyebrow": "Plan and entitlements", "title": "Commercial boundary", "items": entitlement_rows + billing_rows},
-                {"eyebrow": "Support view", "title": "What support can inspect quickly", "items": support_rows + analytics_rows},
-                {"eyebrow": "Warnings", "title": "What needs attention before support is surprised", "items": warning_rows or [_row("No current warnings", "Commercial and support posture are aligned with the current workspace.", "Clear")]},
-                {"eyebrow": "Recent product events", "title": "What the office loop is actually doing", "items": recent_event_rows or [_row("No recent product events", "The product event stream is still empty.", "Empty")]},
+                {"eyebrow": "Plan and access", "title": "Commercial boundary", "items": entitlement_rows + billing_rows},
+                {"eyebrow": "Support and recovery", "title": "What support can inspect quickly", "items": support_rows + analytics_rows},
+                {"eyebrow": "Risks to address", "title": "What needs attention before support is surprised", "items": warning_rows or [_row("No current warnings", "Commercial and support posture are aligned with the current workspace.", "Clear")]},
+                {"eyebrow": "Recent workspace events", "title": "What the office loop is actually doing", "items": recent_event_rows or [_row("No recent product events", "The product event stream is still empty.", "Empty")]},
             ],
         },
     }

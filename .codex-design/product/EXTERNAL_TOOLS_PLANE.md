@@ -42,6 +42,7 @@ Current known external-tool inventory includes:
 * FastestVPN PRO
 * OneAir
 * Headway
+* hedy.ai
 * Internxt Cloud Storage
 * ApiX-Drive
 * ApproveThis
@@ -88,7 +89,7 @@ Current horizon-facing posture:
 * `jackpoint` - narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
 * `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
 * `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
-* `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, with bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
+* `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
 
 ## Classification model
 
