@@ -792,4 +792,4 @@ journey_gates:
 rules:
   - A journey gate is blocked when required published artifacts are missing or stale, or when an owning project falls below its minimum stage or deployment posture.
   - A journey gate is warning when the minimum posture is met but the target posture or history depth is still not boring.
-  - Fleet publish readiness must consume this registry through a generated JOURNEY_GATES artifact rather than by ad hoc prose.
+  - Fleet publish readiness must consume this registry through the design-owned `JOURNEY_GATES.generated.json` truth plane rather than by ad hoc prose, then mirror that truth into the fleet-published artifact.

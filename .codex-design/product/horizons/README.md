@@ -1,15 +1,11 @@
 # Horizon registry
 
-This directory is the canonical future-capability registry for Project Chummer.
+This directory holds the human-readable horizon canon for Project Chummer.
 
 Each file defines a bounded future lane, the table pain it targets, the likely owners, and the architectural reasons it is still parked.
 
 ## Current canonical horizon set
 
-* `quicksilver.md` - expert-speed, keyboard, command-surface, and latency-budget horizon
-* `edition-studio.md` - ruleset-specific authored heads, visual language, and interaction posture
-* `onramp.md` - guided mastery, primer, and coached-build horizon
-* `run-control.md` - GM operations, prep, live-control, and recovery horizon
 * `nexus-pan.md` - matrix, device, and shared-state continuity
 * `alice.md` - build quality and comparative analysis
 * `karma-forge.md` - governed house-rule and alternate-ruleset evolution
@@ -22,7 +18,8 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 * `local-co-processor.md` - optional local acceleration without mandatory local runtime
 
 Cross-horizon foundation truth lives in `FOUNDATIONS.md`.
-Machine-readable order, owners, and dependency truth live in `HORIZON_REGISTRY.yaml`.
+Machine-readable order, owners, and dependency truth live in the root `HORIZON_REGISTRY.yaml`.
+The local `horizons/HORIZON_REGISTRY.yaml` file is a derived guide-routing index and must stay narrower than the root registry.
 
 ## Canon rule
 

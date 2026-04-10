@@ -8,6 +8,7 @@ Start with `START_HERE.md` if you are new.
 Use `GLOSSARY.md` when the repo-specific language gets dense.
 Use `journeys/README.md` when the question is "what does the user actually do end to end?"
 Use `GOLDEN_JOURNEY_RELEASE_GATES.yaml` when the question is "which journeys must every release wave prove?"
+Use `JOURNEY_GATES.generated.json` when the question is "what lived journey truth is the fleet publishing right now?"
 Use `METRICS_AND_SLOS.yaml` when the question is "what counts as good enough to ship?"
 Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product reality steer the next decision?"
 
@@ -16,7 +17,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 1. Public/product story:
    `VISION.md` -> `PUBLIC_LANDING_POLICY.md` -> `PUBLIC_NAVIGATION.yaml` -> `PUBLIC_LANDING_MANIFEST.yaml` -> `PUBLIC_FEATURE_REGISTRY.yaml` -> `PUBLIC_PROGRESS_PARTS.yaml` -> `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml` -> `PUBLIC_USER_MODEL.md` -> `PUBLIC_AUTH_FLOW.md`
 2. Product middle and control loop:
-   `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `INTEROP_AND_PORTABILITY_MODEL.md` -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` -> `USER_JOURNEYS.md` -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
+   `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `INTEROP_AND_PORTABILITY_MODEL.md` -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` -> `USER_JOURNEYS.md` -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml` -> `JOURNEY_GATES.generated.json` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
 3. Repo and contract boundaries:
    `ARCHITECTURE.md` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `PROVIDER_AND_ROUTE_STEWARDSHIP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
 4. Delivery and release control:
@@ -104,15 +105,16 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 76. `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
 77. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 78. `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
-79. `PRIVACY_AND_RETENTION_BOUNDARIES.md`
-80. `FLAGSHIP_RELEASE_ACCEPTANCE.yaml`
-81. `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md`
-82. `NEXT_12_BIGGEST_WINS_GUIDE.md`
-83. `NEXT_12_BIGGEST_WINS_REGISTRY.yaml`
-84. `LEGACY_CLIENT_AND_ADJACENT_PARITY.md`
-85. `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml`
-86. `PRODUCT_USAGE_TELEMETRY_MODEL.md`
-87. `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`
+79. `JOURNEY_GATES.generated.json`
+80. `PRIVACY_AND_RETENTION_BOUNDARIES.md`
+81. `FLAGSHIP_RELEASE_ACCEPTANCE.yaml`
+82. `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md`
+83. `NEXT_12_BIGGEST_WINS_GUIDE.md`
+84. `NEXT_12_BIGGEST_WINS_REGISTRY.yaml`
+85. `LEGACY_CLIENT_AND_ADJACENT_PARITY.md`
+86. `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml`
+87. `PRODUCT_USAGE_TELEMETRY_MODEL.md`
+88. `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.

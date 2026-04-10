@@ -185,7 +185,7 @@ horizons:
   - cited rules answer
   - explain receipt pack
   - searchable rules projection
-  public_signal_eligible: true
+  public_signal_eligible: false
   owner_handoff_gate: Knowledge projections must be visibly derived, cited, and non-authoritative before promotion out of horizon.
 - id: jackpoint
   title: JACKPOINT
@@ -375,7 +375,7 @@ horizons:
   - after-action report
   - what-if comparison
   - forensics receipt packet
-  public_signal_eligible: true
+  public_signal_eligible: false
   owner_handoff_gate: Replay must prove reducer-safe, receipt-backed reconstruction before it can leave horizon status.
 - id: table-pulse
   title: TABLE PULSE
@@ -383,7 +383,7 @@ horizons:
   family: table_coaching_social_dynamics
   canon_doc: products/chummer/horizons/table-pulse.md
   public_guide:
-    enabled: true
+    enabled: false
     order: 75
   pain_label: I know the table drifted, but I cannot say where the energy, pacing, or spotlight balance broke.
   wow_promise: GMs get opt-in post-session coaching about table dynamics without turning Chummer into surveillance.

@@ -11,7 +11,7 @@ scorecards:
     metrics:
       - name: blocked_golden_journey_count
         target: 0
-        measurement: "`JOURNEY_GATES.generated.json` must report zero blocked golden journeys before promotion claims widen."
+        measurement: "`products/chummer/JOURNEY_GATES.generated.json` must report zero blocked golden journeys before promotion claims widen."
       - name: warning_golden_journey_without_governor_note
         target: explained_only
         measurement: "A warning golden journey must carry a bounded governor reason and next action instead of being silently tolerated."

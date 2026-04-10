@@ -19,6 +19,8 @@ It is not a second design authority.
 * `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` is the contract for page classes, allowed sources, forbidden sources, and depth limits.
 * `PUBLIC_PART_REGISTRY.yaml` is the source of truth for public part pages.
 * `PUBLIC_FAQ_REGISTRY.yaml` and `PUBLIC_HELP_COPY.md` are the source of truth for FAQ/help participation copy.
+* The root `products/chummer/HORIZON_REGISTRY.yaml` is the only source of truth for horizon existence, order, and public-guide eligibility.
+* `products/chummer/horizons/HORIZON_REGISTRY.yaml` is a derived guide-routing index only; it may not widen eligibility, reorder horizons, or create a second canon.
 * If the guide and design canon disagree, the guide is wrong and must be corrected.
 * Generated public guide output must include a human-facing help/support lane that explains the guided contribution concept and points readers at the Hub participation endpoint.
 * The guided-contribution support lane must describe opt-in premium help on top of the cheap baseline, not a return to premium-by-default execution.

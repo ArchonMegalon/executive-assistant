@@ -15,10 +15,10 @@ scorecards:
     metrics:
       - name: blocked_golden_journey_count
         target: 0
-        source: Fleet JOURNEY_GATES.generated.json
+        source: Design JOURNEY_GATES.generated.json
       - name: warning_golden_journey_count
         target: explained_only
-        source: Fleet JOURNEY_GATES.generated.json plus governor decision notes
+        source: Design JOURNEY_GATES.generated.json plus governor decision notes
 
   - id: release_health
     owner: product_governor
