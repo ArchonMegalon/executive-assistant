@@ -1826,16 +1826,6 @@ def _accepted_client_fields(payload: _ResponsesCreateRequest) -> list[str]:
         accepted.append("service_tier")
     if payload.prompt_cache_key:
         accepted.append("prompt_cache_key")
-    if payload.store is not None:
-        accepted.append("store")
-    if payload.tools is not None:
-        accepted.append("tools")
-    if payload.tool_choice is not None:
-        accepted.append("tool_choice")
-    if payload.parallel_tool_calls is not None:
-        accepted.append("parallel_tool_calls")
-    if _requested_previous_response_id(payload):
-        accepted.append("previous_response_id")
     return accepted
 
 
