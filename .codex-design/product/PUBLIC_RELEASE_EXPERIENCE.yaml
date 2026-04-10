@@ -3,12 +3,13 @@ surface: chummer.run
 version: 1
 guest_readable_channels:
   - stable
+  - preview
 release_notes_summary: The current preview centers one clear public download, a visible proof trail, and support guidance that matches the shelf you can actually use today.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_flagship_head: Chummer.Avalonia
 desktop_fallback_head: Chummer.Blazor.Desktop
-desktop_cut_summary: The current desktop wave treats Avalonia as the flagship native preview head, keeps Blazor Desktop as the bounded compatibility fallback, and distinguishes promoted installers from manual packages when they differ.
+desktop_cut_summary: The current desktop wave treats Avalonia as the flagship native preview head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and distinguishes promoted installers from manual packages when they differ.
 supported_locale_targets:
   - en-US
   - de-DE
@@ -23,6 +24,8 @@ install_help_href: /help#install-update
 update_posture_summary: The release page is the source of truth for the current preview channel, the public download currently available for each platform, and whether setup is straightforward or still manual.
 flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
+  - Avalonia is the flagship desktop head. Blazor Desktop is only a compatibility fallback when the platform matrix and release copy both say so.
+  - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require flagship proof rather than fallback proof.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
   - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released artifacts.
   - The public shelf must not overclaim platform or feature posture just because internal proof artifacts exist.
@@ -45,13 +48,13 @@ guest_gate_summary: Create a Chummer account first when the current preview requ
 guest_gate_primary_label: Create account to get preview
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Keep this install linked from the first launch
-signed_in_dispatch_summary: Start the same published download from the signed-in handoff page, keep any shown claim code or recovery note nearby, and let Chummer attach this copy back to your account when it opens.
+signed_in_dispatch_summary: Start the same published download from the signed-in handoff page and follow the platform-specific guided install path that keeps the install linked to your account from the first successful launch.
 signed_in_dispatch_steps:
-  - Start the installer from this signed-in handoff page.
-  - Copy the short-lived claim code before you leave the browser.
-  - Launch Chummer and use the first-launch handoff to link this copy back to your account.
+  - Start from the signed-in handoff page for the platform you are installing.
+  - Follow the platform-specific guided install path; when macOS is on the unsigned-preview lane, that path begins with a short-lived Terminal install command.
+  - The happy path must apply the install claim automatically on first successful launch instead of depending on a manual claim-code ritual.
   - If Chummer reports missing rule packs or amend packages during restore, follow the explicit recovery guidance before trusting the restored result.
-  - Reopen Devices and access later if you need the same claim path again.
+  - Reopen Devices and access later only for recovery, relinking, or support follow-through.
 install_steps:
   - Download the current published package for your platform.
   - Finish setup for that package, then launch Chummer.
@@ -62,8 +65,9 @@ account_required_install_steps:
   - Create your Chummer account first.
   - Start the published download from the signed-in handoff page.
   - Finish setup for that package and launch Chummer.
+  - Follow the platform-specific guided install path where one exists; macOS unsigned preview begins with a Terminal command that streams the setup assistant.
   - Resolve any shown rule-environment or package mismatch before trusting the restored workspace.
-  - Keep the claim code or first-launch handoff attached so this copy lands in Devices and access automatically.
+  - Let the happy path attach the install automatically; use claim/recovery details only when Chummer explicitly falls back to recovery mode.
 windows_requirements:
   - 64-bit Windows 10 or newer.
   - Enough free disk space for the installed preview plus future updates.
@@ -74,6 +78,7 @@ linux_requirements:
   - Use the current public package when available; use manual packages only for advanced or support-directed setup.
   - Linux preview is secondary to Windows and should not promise more than the currently published package lane can support.
 macos_requirements:
-  - macOS is a real build lane, but it is not on the public preview shelf until a signed and notarized `.dmg` is promoted.
-  - A built macOS `.dmg` may exist as internal release evidence without being guest-visible on `/downloads`.
-  - Use the public downloads page and release-truth surfaces as the live source of truth before assuming the current preview is available for macOS.
+  - The public downloads page may expose a macOS install-command preview before notarized promotion, but that lane must stay account-gated and clearly labeled as an unsigned preview.
+  - The Mac default action is a Terminal command, not a downloaded unsigned `.command` file and not the raw DMG. The command must stream a guided setup assistant that downloads the current DMGs, removes quarantine, lets the user choose which supported desktop heads to install, lets the user choose `/Applications` versus `~/Applications`, and offers to open the selected apps when setup finishes.
+  - The guided setup assistant must apply the baked install claim codes automatically on first launch instead of asking the user to copy codes by hand.
+  - A guest-visible raw macOS `.dmg` stays off the shelf until a signed, notarized, startup-smoke-proven promotion lands.

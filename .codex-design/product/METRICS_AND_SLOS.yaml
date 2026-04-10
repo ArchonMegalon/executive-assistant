@@ -1,6 +1,6 @@
 product: chummer
 version: 1
-last_reviewed: 2026-04-01
+last_reviewed: 2026-04-10
 purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
 golden_journey_source: GOLDEN_JOURNEY_RELEASE_GATES.yaml
 
@@ -43,11 +43,20 @@ scorecards:
 
   - id: flagship_desktop_quality
     owner_repo: chummer6-ui
-    user_promise: The flagship desktop client feels like a premium product rather than a technically working preview.
+    user_promise: Every shipped desktop head feels like a premium product rather than a technically working preview, even when only one head is the default public route.
     metrics:
       - name: promoted_platform_primary_path_ambiguity
         target: 0
         measurement: Each promoted platform exposes one obvious primary download and first-run path. Fallback artifacts must not read as equally primary by accident.
+      - name: fallback_head_designation_honesty
+        target: 100%
+        measurement: Each promoted desktop lane names exactly one primary head and one bounded fallback head; fallback copy never reads as equally primary in shelf, install help, or release notes.
+      - name: fallback_head_independent_flagship_coverage
+        target: 100%
+        measurement: When Blazor Desktop is the sole or recommended desktop route, it must clear the same startup, install, update, crash-recovery, feedback, workflow, and visual-familiarity proof as Avalonia.
+      - name: shipped_head_independent_flagship_coverage
+        target: 100%
+        measurement: Any desktop head that ships in a lane claiming flagship or gold quality independently clears the full startup, install, update, crash-recovery, feedback, workflow, and visual-familiarity proof set instead of borrowing the primary head's proof.
       - name: install_update_recovery_flow_regressions
         target: 0
         measurement: Startup, install, update, crash-recovery, and feedback/reporting proofs stay green for the flagship head on every promoted platform.
@@ -172,7 +181,9 @@ release_gates:
 
   - id: flagship_desktop_gate
     pass_conditions:
-      - The flagship head has build, startup, install, update, crash-recovery, and feedback-entry proof on every promoted platform.
+      - Avalonia is the promoted primary head for the lane, or the release docs explicitly reclassify another head as flagship for that lane.
+      - Blazor Desktop is only accepted as fallback when the desktop cut and platform matrix explicitly bound it as secondary; otherwise it must meet the same flagship proof set as Avalonia.
+      - Any shipped desktop head in a flagship or gold claim independently has build, startup, install, update, crash-recovery, feedback-entry, workflow, and visual-familiarity proof on every promoted platform it promises.
       - Dense-data build, compare, and explain flows preserve one obvious primary path and bounded fallback behavior.
 
   - id: continuity_and_conflict_recovery_gate
@@ -209,6 +220,7 @@ release_gates:
 
   - id: flagship_coherence_gate
     pass_conditions:
+      - Public, download, help, support, and status copy name head posture consistently, and a fallback head never becomes the silent default.
       - Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml are green or carry bounded preview explanations that do not overclaim public readiness.
       - Public, download, help, support, and status surfaces tell the same product story as the promoted in-product experience.
 
