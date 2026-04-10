@@ -66,15 +66,19 @@ Read:
 10. `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
 11. `EXPERIENCE_SUCCESS_METRICS.md`
 12. `METRICS_AND_SLOS.yaml`
-13. `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
-14. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
+13. `PRODUCT_USAGE_TELEMETRY_MODEL.md`
+14. `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`
+15. `NEXT_12_BIGGEST_WINS_GUIDE.md`
+16. `LEGACY_CLIENT_AND_ADJACENT_PARITY.md`
+17. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
 
 ## Fast path by question
 
 * What is Chummer? -> `VISION.md`
 * What is real today? -> `PUBLIC_FEATURE_REGISTRY.yaml` and `RELEASE_EVIDENCE_PACK.md`
-* What just closed and what is next? -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` and `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md`
+* What just closed and what is next? -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` and `NEXT_12_BIGGEST_WINS_GUIDE.md`
 * What still makes the campaign OS feel unproven or uneven? -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md`
+* How do we avoid Chummer6 becoming a step back from Chummer4, Chummer5a, Hero Lab, Genesis, or CommLink-class clients? -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` and `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml`
 * Which journeys must every release wave keep passable? -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml`
 * What is the product middle between build, play, and publication? -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` and `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * How do rules presets, custom-data overlays, and amend packs work? -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` and `INTEROP_AND_PORTABILITY_MODEL.md`
@@ -83,6 +87,7 @@ Read:
 * What is the public release and install trust surface? -> `PUBLIC_RELEASE_EXPERIENCE.yaml`, `PUBLIC_DOWNLOADS_POLICY.md`, and `PUBLIC_AUTO_UPDATE_POLICY.md`
 * What is Build Lab supposed to become? -> `BUILD_LAB_PRODUCT_MODEL.md`
 * How does Chummer keep the active rule environment honest? -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md`
+* What should we measure for future roadmap calls, and how is it kept opt-out instead of creepy? -> `PRODUCT_USAGE_TELEMETRY_MODEL.md`, `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`, and `PRIVACY_AND_RETENTION_BOUNDARIES.md`
 * What from the legacy GitHub issue backlog still matters? -> `LEGACY_GITHUB_ISSUE_SYNTHESIS.md`
 * Who owns what? -> `ARCHITECTURE.md` and `OWNERSHIP_MATRIX.md`
 * What contracts exist? -> `CONTRACT_SETS.yaml`

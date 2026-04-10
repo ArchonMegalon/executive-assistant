@@ -5,7 +5,7 @@
 This is a remediation guide for the active post-foundation product wave.
 
 It does not replace the machine-readable milestone registry in
-`NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`.
+`NEXT_12_BIGGEST_WINS_REGISTRY.yaml`.
 
 Its job is to state the current product risk clearly:
 
@@ -86,6 +86,13 @@ Partial localization in those trust-critical seams will feel worse than a clearl
 The public guide and weekly pulse are real, but measured history is still shallow.
 The product needs stronger evidence that users can install, claim, sync, recover, update, publish, and get closure successfully.
 
+### 11. No-step-back parity can still be lost behind modernization language
+
+It is now valid to modernize away from old window names, MDI posture, and one-form-per-job cargo.
+It is not valid to quietly drop serious user jobs just because the new shell is cleaner.
+The parity registry now closes the in-scope non-plugin feature families through proof-backed successor routes.
+The remaining flagship risk is keeping installer/platform proof, localization proof, and lived-system journey proof from lagging that now-closed parity surface.
+
 ## Team change guide
 
 ## A. chummer6-design plus Product Governor
@@ -111,6 +118,8 @@ Turn the design repo from canonical map into canonical map plus journey-based op
 4. Define campaign-OS maturity explicitly.
    The maturity bar is not just repo completion; it is that a campaign can live here,
    survive here, and close the loop here.
+5. Keep no-step-back parity machine-readable.
+   The legacy and adjacent client parity registry must stay aligned with the active flagship wave and blocker register so modernization cannot silently strand real user jobs.
 
 ### Exit criteria
 
@@ -151,6 +160,7 @@ Ship one flagship desktop and workbench experience that feels like the main door
 4. Surface one obvious rule-environment workbench with package preview, activation proof, and mismatch recovery instead of hidden custom-data state.
 5. Make localization complete enough to trust across chrome, install/update/support, explain, rules/data names, and generated artifacts.
 6. Close platform honesty gaps by either finishing macOS promotion/signing/notarization or keeping macOS explicitly gated.
+7. Close the no-step-back parity families that still sit outside the promoted desktop shell, especially sourcebook/reference, utility/operator, settings/data-authoring, and export/viewer lanes.
 
 ### Exit criteria
 

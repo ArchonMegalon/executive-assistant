@@ -6,6 +6,8 @@ This file defines the default privacy, retention, and redaction rules for the ca
 
 It exists so support, crash, install-linking, survey, assistant, and provider traces do not silently turn into an ungoverned data lake.
 
+The product-steering telemetry model and concrete opt-out event schema that sit inside these boundaries are defined in `PRODUCT_USAGE_TELEMETRY_MODEL.md` and `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`.
+
 ## Default rules
 
 * retain the smallest surface that still allows honest closure, replay-safe support, and bounded auditability
@@ -60,6 +62,22 @@ Redaction baseline:
 
 * never persist personalized binary data because the binary remains canonical and signed
 * keep person, install, device-role, and campaign scopes explicit instead of flattening them into a single sync blob
+
+### Product usage telemetry
+
+Owner: `chummer6-hub` plus `fleet`
+
+Retention posture:
+
+* raw hosted product-improvement event envelopes: retain for 30 days or less, then collapse into bounded daily rollups
+* install-linked daily usage rollups: retain for 18 months
+* explicit debug-uplift telemetry tied to a support case or beta investigation: retain only while the case or investigation is active, then delete or summarize within 30 days
+
+Redaction baseline:
+
+* retain package IDs, fingerprints, buckets, and counters instead of raw character content, campaign content, or houserule bodies
+* no character names, campaign names, notes, free text, or full custom-data blobs in the default hosted telemetry plane
+* install-linked telemetry is opt-out by default, pseudonymous by default, and must not be repurposed as a marketing profile
 
 ### Survey and follow-up results
 
