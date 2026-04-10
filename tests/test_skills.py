@@ -865,6 +865,10 @@ def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_t
         assert "critical_asset_targets" in properties
         assert "asset_contract_overrides" in properties
         assert "rerun_scope" in properties
+        assert "story_arc_required" in properties
+        assert "runner_question_ladder" in properties
+        assert "anticipatory_overlay_brief" in properties
+        assert "flagship_visual_bar" in properties
 
     assert "public_media_briefs" not in payloads["chummer6_public_writer"]["memory_reads"]
 
