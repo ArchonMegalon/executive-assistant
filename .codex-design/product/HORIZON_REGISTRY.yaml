@@ -6,6 +6,8 @@ rules:
 - Horizon docs in `products/chummer/horizons/*.md` remain the long-form human-readable canon.
 - A horizon listed here is a future-capability lane, not a shipment promise.
 - A horizon must define an eventual build path before it is treated as more than public storytelling.
+- A horizon does not count as flagship or near-term release scope until its build path advances beyond `horizon`, its owner handoff gate is materially satisfied, and owning repos can cite executable proof instead of public-guide ambition.
+- Open flagship blockers and lived-system release blockers outrank horizon storytelling; horizons must not dilute or outrun current release truth.
 optional_fields:
 - family
 - wow_promise
