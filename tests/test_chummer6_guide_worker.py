@@ -1629,7 +1629,7 @@ def test_fallback_horizon_copy_uses_varied_scene_lengths() -> None:
                 if line.strip()
             ]
         )
-        for name in ("nexus-pan", "alice", "karma-forge", "jackpoint", "runsite", "runbook-press", "table-pulse")
+        for name in ("nexus-pan", "alice", "karma-forge", "jackpoint", "runsite", "runbook-press")
     }
 
     assert len(set(counts.values())) >= 3

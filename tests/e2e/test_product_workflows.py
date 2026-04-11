@@ -483,11 +483,12 @@ def test_admin_diagnostics_bundle_in_real_browser(page: Page, product_browser_se
 
     response = page.goto(f"{base_url}/admin/api", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Diagnostics" in page.content()
+    assert "Workspace review" in page.content()
     assert "Billing state" in page.content()
-    assert "Support tier" in page.content()
+    assert "Commercial boundary" in page.content()
+    assert "Workspace diagnostics bundle" in page.content()
     assert "Open bundle" in page.content()
-    assert "Recent product events" in page.content()
+    assert "What the office loop is actually doing" in page.content()
 
     page.get_by_role("link", name="Open bundle").first.click()
     page.wait_for_load_state("networkidle")
@@ -850,7 +851,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
 
         response = page.goto(f"{base_url}/admin/api", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Diagnostics" in page.content()
+        assert "Workspace review" in page.content()
         assert "Commercial boundary" in page.content()
         assert "Workspace diagnostics bundle" in page.content()
         assert "SLA breaches" in page.content()

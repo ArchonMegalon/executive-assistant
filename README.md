@@ -65,11 +65,13 @@ Then open `http://localhost:8090/health`.
 - Release notes: [CHANGELOG.md](/docker/EA/CHANGELOG.md)
 - EA flagship truth plane: [EA_FLAGSHIP_TRUTH_PLANE.md](/docker/EA/.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md)
 - EA flagship gate seed: [EA_FLAGSHIP_RELEASE_GATE.json](/docker/EA/.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json)
+- EA flagship release receipt: [EA_FLAGSHIP_RELEASE_GATE.generated.json](/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json) (refresh with `python3 scripts/materialize_ea_flagship_release_gate.py`)
+- EA weekly product pulse: [WEEKLY_PRODUCT_PULSE.generated.json](/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json) (refresh with `python3 scripts/materialize_weekly_product_pulse.py`)
 - Milestone/state model: [MILESTONE.json](/docker/EA/MILESTONE.json) (delivery history, not the flagship oracle)
 - Skills catalog: [SKILLS.md](/docker/EA/SKILLS.md)
 - Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
 - BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py` (includes 1min daily-bonus and billing/usage scaffold packets)
-- Release preflight now keys off the EA flagship truth plane and gate seed; `MILESTONE.json` remains supporting delivery history.
+- Release preflight now keys off the EA flagship truth plane, gate seed, generated release receipt, and weekly pulse; `MILESTONE.json` remains supporting delivery history.
 - Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.
@@ -89,7 +91,7 @@ Then open `http://localhost:8090/health`.
   - `POST /v1/providers/onemin/probe-all` for explicit per-slot 1min validation
   - `POST /v1/codex/core` (hard lane, forced `ea-coder-hard`)
   - `POST /v1/codex/easy` (fast lane, forced `ea-coder-fast`)
-  - `POST /v1/codex/repair` (bounded-fix lane, forced `ea-coder-fast`)
+  - `POST /v1/codex/repair` (bounded-fix lane, prefers `ea-repair-gemini` and promotes to `ea-onemin-coder` when cheap repair backends are unavailable)
   - `POST /v1/codex/groundwork` (Gemini groundwork lane, forced `ea-groundwork-gemini`)
   - `POST /v1/codex/review-light` (cheap review lane, forced `ea-review-light`)
   - `POST /v1/codex/survival` (slow backup lane, forced `ea-coder-survival`, background/poll only in v1)
@@ -351,7 +353,7 @@ stream_max_retries = 5
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
 Endpoint inventory can be printed via `scripts/list_endpoints.sh` or `make endpoints`.
 Version fingerprint can be printed via `scripts/version_info.sh` or `make version-info`.
-`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json`.
+`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.
 Operator summary can be printed via `scripts/operator_summary.sh` or `make operator-summary`.
 The operator summary includes smoke, readiness, CI parity, release/support, and task-archive shortcuts.
 `bash scripts/operator_summary.sh --help` prints the usage contract and is included in `make operator-help`.

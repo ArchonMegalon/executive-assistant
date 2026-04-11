@@ -61,12 +61,9 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
-        ("magixai", "mx-best"),
-        ("magixai", "mx-fallback"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-        ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "inception/mercury-coder"),
+        ("onemin", "gpt-5.4"),
+        ("onemin", "gpt-5"),
+        ("onemin", "gpt-4o"),
     ]
 
 
@@ -88,11 +85,9 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
-        ("magixai", "mx-best"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-        ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "inception/mercury-coder"),
+        ("onemin", "gpt-5.4"),
+        ("onemin", "gpt-5"),
+        ("onemin", "gpt-4o"),
     ]
 
 
@@ -138,32 +133,28 @@ def test_explicit_hard_model_stays_hard_even_when_onemin_health_is_stale(monkeyp
     assert upstream._effective_request_lane(requested_model="ea-coder-hard", max_output_tokens=None) == "hard"
 
 
-def test_default_public_model_falls_back_to_gemini_without_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_public_model_stays_onemin_only_when_the_primary_backend_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "review-best")
 
-    def fake_call_magicx(*args: object, **kwargs: object) -> upstream.UpstreamResult:
-        raise upstream.ResponsesUpstreamError("magicx_unavailable")
+    def fake_call_onemin(*args: object, **kwargs: object) -> upstream.UpstreamResult:
+        raise upstream.ResponsesUpstreamError("invalid api key")
 
     def fake_call_gemini_vortex(*args: object, **kwargs: object) -> upstream.UpstreamResult:
-        return upstream.UpstreamResult(
-            text="fallback ok",
-            provider_key="gemini_vortex",
-            model="gemini-2.5-flash",
-            tokens_in=3,
-            tokens_out=2,
-        )
+        raise AssertionError("default public model must not fall back to gemini")
 
+    def fake_call_magicx(*args: object, **kwargs: object) -> upstream.UpstreamResult:
+        raise AssertionError("default public model must not fall back to magicx")
+
+    monkeypatch.setattr(upstream, "_call_onemin", fake_call_onemin)
     monkeypatch.setattr(upstream, "_call_magicx", fake_call_magicx)
     monkeypatch.setattr(upstream, "_call_gemini_vortex", fake_call_gemini_vortex)
 
-    result = upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
-
-    assert result.provider_key == "gemini_vortex"
-    assert result.text == "fallback ok"
+    with pytest.raises(upstream.ResponsesUpstreamError, match="onemin/gpt-5.4:invalid api key"):
+        upstream.generate_text(prompt="fallback please", requested_model=upstream.DEFAULT_PUBLIC_MODEL)
 
 
 def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
@@ -178,11 +169,9 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     ]
 
     assert candidates == [
-        ("gemini_vortex", "gemini-2.5-flash"),
-        ("magixai", "mx-best"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-        ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "inception/mercury-coder"),
+        ("onemin", "gpt-5.4"),
+        ("onemin", "gpt-5"),
+        ("onemin", "gpt-4o"),
     ]
 
 
@@ -206,7 +195,7 @@ def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.Monkey
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY", raising=False)
 
-    assert upstream._resolve_hard_defaults() == (1, 120.0, 256)
+    assert upstream._resolve_hard_defaults() == (8, 120.0, 256)
     assert upstream._lane_max_output_tokens(upstream._LANE_HARD) == 1536
     assert upstream._onemin_max_credits_per_hour() == 80000
     assert upstream._onemin_max_credits_per_day() == 600000
@@ -501,7 +490,7 @@ def test_normalize_provider_aliases_for_onemin_in_candidates(monkeypatch: pytest
     assert upstream._provider_order() == ("onemin", "magixai")
 
 
-def test_plain_onemin_model_routes_onemin_first_with_magicx_fallback_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plain_onemin_model_stays_provider_exact_without_magicx_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_PROVIDER_ORDER", "onemin,magicxai")
     monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best,mx-fallback")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-5,gpt-4.1")
@@ -511,14 +500,7 @@ def test_plain_onemin_model_routes_onemin_first_with_magicx_fallback_lane(monkey
         for config, model in upstream._provider_candidates("gpt-5")
     ]
 
-    assert candidates == [
-        ("onemin", "gpt-5"),
-        ("magixai", "mx-best"),
-        ("magixai", "mx-fallback"),
-        ("magixai", "x-ai/grok-code-fast-1"),
-        ("magixai", "mistralai/codestral-2508"),
-        ("magixai", "inception/mercury-coder"),
-    ]
+    assert candidates == [("onemin", "gpt-5")]
 
 
 def test_plain_magicx_model_skips_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -870,7 +852,7 @@ def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.Monke
     assert [payload["max_tokens"] for payload in calls] == [128, 16]
 
 
-def test_call_onemin_fully_depletes_rotation_keys_and_fallbacks_to_magicx(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_call_onemin_fully_depletes_rotation_keys_without_cross_provider_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_key_cursor()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "depleted-key-1")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "depleted-key-2")
@@ -911,15 +893,13 @@ def test_call_onemin_fully_depletes_rotation_keys_and_fallbacks_to_magicx(monkey
 
     monkeypatch.setattr(upstream, "_post_json", fake_post_json)
 
-    result = upstream.generate_text(prompt="write fix", requested_model="gpt-4.1")
+    with pytest.raises(upstream.ResponsesUpstreamError, match="INSUFFICIENT_CREDITS"):
+        upstream.generate_text(prompt="write fix", requested_model="gpt-4.1")
 
-    assert result.provider_key == "magixai"
-    assert result.text == "magicx answer"
     assert calls == [
         ("https://api.1min.ai/api/chat-with-ai", "depleted-key-1"),
         ("https://api.1min.ai/api/chat-with-ai", "depleted-key-2"),
         ("https://api.1min.ai/api/chat-with-ai", "depleted-key-3"),
-        ("https://good.magicx.local/api/v1/chat/completions", "Bearer magicx-key"),
     ]
 
 

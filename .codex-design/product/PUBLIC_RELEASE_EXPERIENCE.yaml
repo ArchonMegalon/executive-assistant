@@ -26,6 +26,8 @@ flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
   - Avalonia is the flagship desktop head. Blazor Desktop is only a compatibility fallback when the platform matrix and release copy both say so.
   - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require flagship proof rather than fallback proof.
+  - The flagship release path starts with a guided Chummer product installer path first and opens the real workbench or restore continuation flow on first launch.
+  - The happy path must not send the user to a browser to copy or paste a claim code by hand.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
   - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released artifacts.
   - The public shelf must not overclaim platform or feature posture just because internal proof artifacts exist.

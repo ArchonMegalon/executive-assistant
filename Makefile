@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets docs-verify all-local
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
@@ -47,6 +47,7 @@ release-docs:
 	$(MAKE) operator-help
 
 test-api:
+	$(MAKE) materialize-release-assets
 	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests
 
 test-postgres-contracts:
@@ -89,6 +90,11 @@ tasks-archive-prune:
 tasks-archive-dry-run:
 	bash scripts/archive_tasks.sh --dry-run
 
+materialize-release-assets:
+	$(PYTHON_BIN) scripts/materialize_ea_browser_workflow_proof.py
+	$(PYTHON_BIN) scripts/materialize_ea_flagship_release_gate.py
+	$(PYTHON_BIN) scripts/materialize_weekly_product_pulse.py
+
 ci-local:
 	$(PYTHON_BIN) -m compileall -q ea/app
 	$(PYTHON_BIN) -m compileall -q tests
@@ -110,6 +116,7 @@ ci-gates-postgres-legacy:
 	$(MAKE) smoke-postgres-legacy
 
 verify-release-assets:
+	$(MAKE) materialize-release-assets
 	bash scripts/verify_release_assets.sh
 
 docs-verify: verify-release-assets

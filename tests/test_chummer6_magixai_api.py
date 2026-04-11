@@ -36,7 +36,7 @@ def test_normalize_magixai_base_url_strips_endpoint_suffixes() -> None:
 def test_magixai_size_variants_include_raw_and_shape_aliases() -> None:
     magix = _load_module()
 
-    assert magix.magixai_size_variants(1536, 1024) == ["landscape_4_3", "1536x1024", "landscape_16_9"]
+    assert magix.magixai_size_variants(1536, 1024) == ["landscape_4_3", "1536x1024", "1792x1024", "landscape_16_9"]
     assert magix.magixai_size_variants(1024, 1024) == ["square_hd", "1024x1024", "square"]
 
 

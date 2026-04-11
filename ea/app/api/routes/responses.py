@@ -31,7 +31,9 @@ from app.services.brain_catalog import (
     GROUNDWORK_PUBLIC_MODEL,
     HARD_BATCH_PUBLIC_MODEL,
     HARD_RESCUE_PUBLIC_MODEL,
+    MAGICX_PUBLIC_MODEL,
     ONEMIN_PUBLIC_MODEL,
+    REPAIR_GEMINI_PUBLIC_MODEL,
     REVIEW_LIGHT_PUBLIC_MODEL,
     SURVIVAL_PUBLIC_MODEL,
     get_brain_profile,
@@ -839,11 +841,32 @@ def _repair_ready_provider(
     return ""
 
 
+def _provider_health_snapshot(*, lightweight: bool) -> dict[str, object]:
+    try:
+        payload = _provider_health_report(lightweight=lightweight)
+    except TypeError:
+        payload = _provider_health_report()
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
 def _effective_codex_profile_model(
     profile: dict[str, object],
     *,
     provider_health: dict[str, object] | None = None,
 ) -> str:
+    normalized_profile = str(profile.get("profile") or "").strip().lower()
+    backend = str(profile.get("backend") or "").strip().lower()
+    health_provider_key = str(profile.get("health_provider_key") or "").strip().lower()
+    effective_provider = backend or health_provider_key
+    if normalized_profile == "repair":
+        if effective_provider == "onemin":
+            return ONEMIN_PUBLIC_MODEL
+        if effective_provider == "magixai":
+            return MAGICX_PUBLIC_MODEL
+        if effective_provider in {"gemini_vortex", ""}:
+            return REPAIR_GEMINI_PUBLIC_MODEL
+    if normalized_profile == "groundwork":
+        return GROUNDWORK_PUBLIC_MODEL
     model = str(profile.get("model") or DEFAULT_PUBLIC_MODEL).strip() or DEFAULT_PUBLIC_MODEL
     return model
 
@@ -2138,7 +2161,7 @@ def _normalize_payload_for_profile(
         profile,
         container=container,
         principal_id=principal_id,
-        provider_health=_provider_health_report(lightweight=True),
+        provider_health=_provider_health_snapshot(lightweight=True),
     )
     normalized = dict(payload)
     normalized["model"] = str(profile_config["model"])
@@ -5109,7 +5132,7 @@ def _run_response(
             codex_profile,
             container=container,
             principal_id=context.principal_id,
-            provider_health=_provider_health_report(lightweight=True),
+            provider_health=_provider_health_snapshot(lightweight=True),
         )
         codex_model = profile_config.get("model")
         if isinstance(codex_model, str) and codex_model and not _requested_model_is_explicit(_requested_model(request)):
@@ -5992,7 +6015,7 @@ def get_provider_health(
     lightweight: bool = Query(default=False),
 ) -> Response:
     include_sensitive = is_operator_context(context)
-    provider_health = _provider_health_report(lightweight=lightweight)
+    provider_health = _provider_health_snapshot(lightweight=lightweight)
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     return JSONResponse(
         {
@@ -6532,7 +6555,7 @@ def list_codex_profiles(
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
     include_sensitive = is_operator_context(context)
-    provider_health = _provider_health_report(lightweight=(not include_sensitive))
+    provider_health = _provider_health_snapshot(lightweight=(not include_sensitive))
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     profiles = [
         {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
@@ -6570,7 +6593,7 @@ def get_codex_status(
     context: RequestContext = Depends(get_request_context),
 ) -> Response:
     _ = refresh
-    profile_health = _provider_health_report(lightweight=(not is_operator_context(context)))
+    profile_health = _provider_health_snapshot(lightweight=(not is_operator_context(context)))
     if is_operator_context(context):
         report = codex_status_report(window=window, provider_health=profile_health, compact=compact)
     else:

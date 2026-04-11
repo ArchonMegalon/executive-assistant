@@ -1,2 +1,13 @@
-mode: prepend
-items: []
+mode: append
+items:
+- title: Sync the approved Chummer design bundle into `ea` under `.codex-design/` and refresh repo-local review context.
+  task: Sync the approved Chummer design bundle into `ea` under `.codex-design/` and refresh repo-local review context.
+  package_id: audit-task-4257456
+  source_ref: audit_task_candidates[4257456]
+  audit_finding_key: project.design_mirror_missing_or_stale
+  audit_scope_id: ea
+  allowed_paths:
+  - .codex-design
+  owned_surfaces:
+  - design_mirror:ea
+source_queue_fingerprint: 97d170e1550eee4afc0af065b78cda302a97674c

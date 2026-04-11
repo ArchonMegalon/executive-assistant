@@ -40,6 +40,9 @@ required_files=(
   "RELEASE_CHECKLIST.md"
   ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
   ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
+  ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
+  ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+  ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
   "scripts/db_status.sh"
@@ -59,6 +62,9 @@ required_files=(
   "scripts/archive_tasks.sh"
   "scripts/resolve_onemin_ai_key.sh"
   "scripts/resolve_browseract_key.sh"
+  "scripts/materialize_ea_flagship_release_gate.py"
+  "scripts/materialize_ea_browser_workflow_proof.py"
+  "scripts/materialize_weekly_product_pulse.py"
   "scripts/refresh_ltds_from_inventory.py"
   "scripts/refresh_ltds_from_inventory.sh"
   "scripts/refresh_ltds_via_api.py"
@@ -118,11 +124,37 @@ assert "tests/e2e/test_product_workflows.py" in browser_sources
 assert "test_workspace_pages_render_seeded_product_objects" in browser_sources["tests/test_product_browser_journeys.py"]
 assert "test_activation_and_memo_flow_in_real_browser" in browser_sources["tests/e2e/test_product_workflows.py"]
 assert "EA_FLAGSHIP_TRUTH_PLANE.md" == gate["truth_plane"]["source"].split("/")[-1]
+
+receipt = json.loads(Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json").read_text(encoding="utf-8"))
+assert receipt["product"] == "executive-assistant"
+assert receipt["surface"] == "flagship_release_control"
+assert receipt["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
+assert receipt["verification_binding"]["primary_verifier"] == "scripts/verify_release_assets.sh"
+assert receipt["verification_binding"]["materializer"] == "scripts/materialize_ea_flagship_release_gate.py"
+assert receipt["release_claim"]["summary"] == gate["release_claim"]["summary"]
+assert receipt["browser_workflow_proof"]["evidence_sources"] == gate["browser_workflow_proof"]["evidence_sources"]
+assert receipt["status"] in {"blocked", "preview_only", "pass"}
+
+browser_receipt = json.loads(Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(encoding="utf-8"))
+assert browser_receipt["contract_name"] == "ea.browser_workflow_proof"
+assert browser_receipt["status"] in {"blocked", "preview_only", "pass"}
+assert browser_receipt["expected_browser_signals"] == gate["browser_workflow_proof"]["expected_browser_signals"]
+assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/test_product_browser_journeys.py"
+assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_product_workflows.py"
+
+pulse = json.loads(Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json").read_text(encoding="utf-8"))
+assert pulse["contract_name"] == "ea.weekly_product_pulse"
+assert pulse["release_truth_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+assert pulse["supporting_signals"]["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+assert pulse["supporting_signals"]["flagship_release_receipt_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+assert pulse["supporting_signals"]["launch_readiness"]
+assert pulse["governor_decisions"]
 PY
 then
   echo "ok: EA flagship truth plane gate seed"
 else
-  echo "missing: EA flagship truth plane gate seed" >&2
+  echo "missing: EA flagship truth plane gate seed, generated receipt, or weekly pulse" >&2
   missing=1
 fi
 
@@ -423,10 +455,34 @@ else
   missing=1
 fi
 
-if grep -Fq 'Release preflight now keys off the EA flagship truth plane and gate seed; `MILESTONE.json` remains supporting delivery history.' "README.md"; then
+if grep -Fq 'Release preflight now keys off the EA flagship truth plane, gate seed, generated release receipt, and weekly pulse; `MILESTONE.json` remains supporting delivery history.' "README.md"; then
   echo "ok: README EA flagship gate pointer"
 else
   echo "missing: README EA flagship gate pointer" >&2
+  missing=1
+fi
+
+if grep -Fq "EA_FLAGSHIP_RELEASE_GATE.generated.json" "README.md" && \
+   grep -Fq "scripts/materialize_ea_flagship_release_gate.py" "README.md"; then
+  echo "ok: README EA flagship receipt pointer"
+else
+  echo "missing: README EA flagship receipt pointer" >&2
+  missing=1
+fi
+
+if grep -Fq "WEEKLY_PRODUCT_PULSE.generated.json" "README.md" && \
+   grep -Fq "scripts/materialize_weekly_product_pulse.py" "README.md"; then
+  echo "ok: README EA weekly pulse pointer"
+else
+  echo "missing: README EA weekly pulse pointer" >&2
+  missing=1
+fi
+
+if grep -Fq "WEEKLY_PRODUCT_PULSE.generated.json" ".codex-design/product/README.md" && \
+   grep -Fq "EA flagship receipt, fleet journey gates, and scorecard" ".codex-design/product/README.md"; then
+  echo "ok: design README EA weekly pulse note"
+else
+  echo "missing: design README EA weekly pulse note" >&2
   missing=1
 fi
 
@@ -465,7 +521,7 @@ else
   missing=1
 fi
 
-if grep -Fq '`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json`.' "README.md"; then
+if grep -Fq '`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.' "README.md"; then
   echo "ok: README version-info EA truth-plane note"
 else
   echo "missing: README version-info EA truth-plane note" >&2
@@ -561,10 +617,27 @@ else
   missing=1
 fi
 
-if grep -Fq '`bash scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json`.' "RUNBOOK.md"; then
+if grep -Fq '`bash scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.' "RUNBOOK.md"; then
   echo "ok: RUNBOOK version-info EA truth-plane note"
 else
   echo "missing: RUNBOOK version-info EA truth-plane note" >&2
+  missing=1
+fi
+
+if grep -Fq "EA_FLAGSHIP_RELEASE_GATE.generated.json" "RUNBOOK.md" && \
+   grep -Fq "scripts/materialize_ea_flagship_release_gate.py" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK EA flagship receipt pointer"
+else
+  echo "missing: RUNBOOK EA flagship receipt pointer" >&2
+  missing=1
+fi
+
+if grep -Fq "WEEKLY_PRODUCT_PULSE.generated.json" "RUNBOOK.md" && \
+   grep -Fq "scripts/materialize_weekly_product_pulse.py" "RUNBOOK.md" && \
+   grep -Fq "Refresh the weekly pulse" "RUNBOOK.md"; then
+  echo "ok: RUNBOOK EA weekly pulse pointer"
+else
+  echo "missing: RUNBOOK EA weekly pulse pointer" >&2
   missing=1
 fi
 
@@ -716,10 +789,24 @@ else
   missing=1
 fi
 
-if grep -Fq 'Docs parity confirms the EA flagship truth plane and gate seed are present and the browser proof is still green.' "RELEASE_CHECKLIST.md"; then
+if grep -Fq 'Docs parity confirms the EA flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.' "RELEASE_CHECKLIST.md"; then
   echo "ok: RELEASE_CHECKLIST EA truth-plane line"
 else
   echo "missing: RELEASE_CHECKLIST EA truth-plane line" >&2
+  missing=1
+fi
+
+if grep -Fq "EA_FLAGSHIP_RELEASE_GATE.generated.json" "RELEASE_CHECKLIST.md"; then
+  echo "ok: RELEASE_CHECKLIST EA flagship receipt line"
+else
+  echo "missing: RELEASE_CHECKLIST EA flagship receipt line" >&2
+  missing=1
+fi
+
+if grep -Fq "EA_FLAGSHIP_RELEASE_GATE.generated.json" "PRODUCT_RELEASE_CHECKLIST.md"; then
+  echo "ok: PRODUCT_RELEASE_CHECKLIST EA flagship receipt line"
+else
+  echo "missing: PRODUCT_RELEASE_CHECKLIST EA flagship receipt line" >&2
   missing=1
 fi
 

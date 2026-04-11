@@ -28,6 +28,14 @@ def _load_module():
     return module
 
 
+def _clear_onemin_runtime_policy(media, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", raising=False)
+    monkeypatch.delenv("CHUMMER6_ONEMIN_ALLOW_RESERVE", raising=False)
+    for env in (media.LOCAL_ENV, media.POLICY_ENV):
+        env.pop("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", None)
+        env.pop("CHUMMER6_ONEMIN_ALLOW_RESERVE", None)
+
+
 def test_provider_order_filters_fallback_render_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.setenv(
@@ -132,6 +140,14 @@ def test_onemin_credit_floor_guard_returns_floor_violation_when_total_is_low(mon
     monkeypatch.setattr(media, "_onemin_total_remaining_credits", lambda: 120)
 
     assert media._onemin_credit_guard_reason() == "onemin:credit_floor_guard:120<500"
+
+
+def test_onemin_credit_floor_guard_allows_when_total_meets_floor(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", "500")
+    monkeypatch.setattr(media, "_onemin_total_remaining_credits", lambda: 750)
+
+    assert media._onemin_credit_guard_reason() == ""
 
 
 def test_run_onemin_api_provider_short_circuits_when_credit_floor_guard_trips(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -473,6 +489,7 @@ def test_run_magixai_api_provider_continues_past_forbidden_model(monkeypatch: py
 
 def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
     monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
@@ -552,6 +569,7 @@ def test_run_onemin_api_provider_uses_local_manager_fallback_when_http_manager_i
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
     monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
@@ -635,6 +653,7 @@ def test_run_onemin_api_provider_trips_no_output_watchdog(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -703,6 +722,7 @@ def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reserva
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
     monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
@@ -804,6 +824,7 @@ def test_run_onemin_api_provider_walks_other_slots_after_local_no_lease_selectio
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
     monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
@@ -1335,6 +1356,7 @@ def test_render_targets_keep_release_build_opt_in(monkeypatch: pytest.MonkeyPatc
 
 def test_reserve_onemin_image_slot_allows_reserve_pool_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     seen: list[tuple[str, dict[str, object]]] = []
 
     monkeypatch.setattr(

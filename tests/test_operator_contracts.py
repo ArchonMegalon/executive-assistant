@@ -263,7 +263,7 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     }
 
     assert released_caps == required_released
-    assert overlay.get("mode") == "prepend"
+    assert overlay.get("mode") == "append"
     items = overlay.get("items") or []
     assert isinstance(items, list)
     lowered_items = [str(item).lower() for item in items]
@@ -284,10 +284,9 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "EA_ROLE" in dockerfile
-    assert "worker','scheduler" in dockerfile
-    assert "http://127.0.0.1:8090/health" in dockerfile
-    assert ".status != 200" in dockerfile
-    assert ".status < 500" not in dockerfile
+    assert 'role=${EA_ROLE:-api}; case \\"$role\\" in' in dockerfile
+    assert "worker|scheduler)" in dockerfile
+    assert "http://127.0.0.1:8090/health/live" in dockerfile
     assert "EA_ROLE=api" in compose
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose

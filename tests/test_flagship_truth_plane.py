@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GATE_PATH = ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_RELEASE_GATE.json"
 TRUTH_PLANE_PATH = ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_TRUTH_PLANE.md"
+GENERATED_GATE_PATH = ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json"
 RELEASE_CHECKLIST_PATH = ROOT / "RELEASE_CHECKLIST.md"
 PRODUCT_RELEASE_CHECKLIST_PATH = ROOT / "PRODUCT_RELEASE_CHECKLIST.md"
 README_PATH = ROOT / "README.md"
@@ -52,9 +53,19 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in truth_plane
     assert "MILESTONE.json" in truth_plane
     assert "EA_FLAGSHIP_RELEASE_GATE.json" in release_checklist
+    assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in release_checklist
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in release_checklist
     assert "EA_FLAGSHIP_RELEASE_GATE.json" in product_release_checklist
+    assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in product_release_checklist
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in product_release_checklist
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in readme
     assert "EA_FLAGSHIP_RELEASE_GATE.json" in readme
+    assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in readme
+    assert "scripts/materialize_ea_flagship_release_gate.py" in readme
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in runbook
+    assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in runbook
+    assert "scripts/materialize_ea_flagship_release_gate.py" in runbook
+
+
+def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -> None:
+    assert GENERATED_GATE_PATH.exists()

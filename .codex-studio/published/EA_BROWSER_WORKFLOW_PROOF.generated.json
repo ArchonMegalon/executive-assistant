@@ -1,0 +1,61 @@
+{
+  "contract_name": "ea.browser_workflow_proof",
+  "product": "executive-assistant",
+  "surface": "browser_workflow_proof",
+  "version": 1,
+  "kind": "proof_receipt",
+  "generated_at": "2026-04-11T08:39:18Z",
+  "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
+  "status": "pass",
+  "operator_summary": "EA browser workflow proof is published and green across both seeded browser journeys and real-browser E2E.",
+  "seed_source": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+  "release_claim_summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
+  "expected_browser_signals": [
+    "/register leads with Google-first activation and a first useful loop",
+    "/app/today renders Morning Memo, Send board materials, and Approve reply to Sofia N.",
+    "/app/briefing renders a decision queue tied to workspace objects",
+    "/app/inbox renders drafts and open commitments rather than placeholder cards",
+    "/app/follow-ups renders open handoffs and unresolved commitments",
+    "/app/settings keeps operator/admin noise out of the core product story"
+  ],
+  "source_backed_journey_proof": {
+    "status": "pass",
+    "command": "/docker/EA/.venv/bin/python -m pytest -q tests/test_product_browser_journeys.py -k 'test_workspace_pages_render_seeded_product_objects or test_browser_journey_updates_after_approval_and_commitment_closure or test_browser_action_routes_match_rendered_forms or test_browser_handoff_and_people_memory_actions_work'",
+    "cwd": "/docker/EA",
+    "python_bin": "/docker/EA/.venv/bin/python",
+    "test_file": "tests/test_product_browser_journeys.py",
+    "cases": [
+      "test_workspace_pages_render_seeded_product_objects",
+      "test_browser_journey_updates_after_approval_and_commitment_closure",
+      "test_browser_action_routes_match_rendered_forms",
+      "test_browser_handoff_and_people_memory_actions_work"
+    ],
+    "exit_code": 0,
+    "duration_seconds": 3.842,
+    "output_excerpt": [
+      "....                                                                     [100%]",
+      "4 passed, 20 deselected in 2.96s"
+    ],
+    "limitations": []
+  },
+  "real_browser_e2e_proof": {
+    "status": "pass",
+    "command": "/docker/EA/.venv/bin/python -m pytest -q tests/e2e/test_product_workflows.py -k 'test_activation_and_memo_flow_in_real_browser or test_draft_and_commitment_workflows_in_real_browser' -rs",
+    "cwd": "/docker/EA",
+    "python_bin": "/docker/EA/.venv/bin/python",
+    "test_file": "tests/e2e/test_product_workflows.py",
+    "cases": [
+      "test_activation_and_memo_flow_in_real_browser",
+      "test_draft_and_commitment_workflows_in_real_browser"
+    ],
+    "exit_code": 0,
+    "duration_seconds": 12.955,
+    "output_excerpt": [
+      "..                                                                       [100%]",
+      "2 passed, 19 deselected in 12.10s"
+    ],
+    "limitations": []
+  },
+  "blocking_reasons": [],
+  "current_limitations": []
+}

@@ -159,8 +159,16 @@ def _hard_default_max_unknown_slots() -> int:
     return _to_int(_env("EA_RESPONSES_HARD_DEFAULT_MAX_UNKNOWN_SLOTS", "0"), 0, minimum=0, maximum=1000)
 
 
+def _provider_health_snapshot(*, lightweight: bool = False) -> dict[str, object]:
+    try:
+        payload = _provider_health_report(lightweight=lightweight)
+    except TypeError:
+        payload = _provider_health_report()
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
 def _hard_default_admitted() -> tuple[bool, str]:
-    onemin = dict(((_provider_health_report(lightweight=True).get("providers") or {}).get("onemin") or {}))
+    onemin = dict(((_provider_health_snapshot(lightweight=True).get("providers") or {}).get("onemin") or {}))
     state = str(onemin.get("state") or "").strip().lower()
     if state and state != "ready":
         return False, "onemin_not_ready"
@@ -2341,7 +2349,8 @@ def _pick_onemin_key(
         key_names = _ordered_onemin_keys_allow_reserve(allow_reserve)
     if not key_names:
         return None
-    _clean_onemin_states(key_names)
+    configured_keys = _onemin_key_names()
+    _clean_onemin_states(configured_keys or key_names)
     states = _onemin_states_snapshot(key_names)
     now = _now_epoch()
     candidates: list[tuple[str, int, int, int, float, float, float]] = []
@@ -3306,7 +3315,7 @@ def _audit_lane_models() -> tuple[str, ...]:
 
 
 def _groundwork_lane_models() -> tuple[str, ...]:
-    models = _browserplayground_models()
+    models = _gemini_vortex_models()
     return models[:1] or models
 
 
@@ -4023,9 +4032,9 @@ def _provider_candidates(
 
     if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
         return [
-            (configs["onemin"], model_name)
-            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
-            or _onemin_code_models()
+            (configs["gemini_vortex"], model_name)
+            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
+            or _gemini_vortex_models()
         ]
 
     if normalized == ONEMIN_PUBLIC_MODEL:
@@ -4041,9 +4050,9 @@ def _provider_candidates(
 
     if normalized in {GROUNDWORK_PUBLIC_MODEL, GROUNDWORK_PUBLIC_MODEL_ALIAS}:
         return [
-            (configs["onemin"], model_name)
-            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
-            or _onemin_code_models()
+            (configs["gemini_vortex"], model_name)
+            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
+            or _groundwork_lane_models()
         ]
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:

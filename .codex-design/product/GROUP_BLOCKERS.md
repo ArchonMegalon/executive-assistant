@@ -1,6 +1,6 @@
 # Group blockers
 
-Last reviewed: 2026-04-04
+Last reviewed: 2026-04-10
 
 Review-template mirror drift status:
 - `BLK-007` remains cleared after WL-D012 drift follow-up completion and the `chummer6-ui` UI-template parity revalidation recorded on `2026-03-13T18:15:19Z`.
@@ -43,19 +43,18 @@ Semantic session meaning is now single-owned in `chummer6-core`, the mobile/play
 Cleared 2026-04-04.
 The parity registry now closes every in-scope non-plugin family through proof-backed successor routes, and milestones `13` through `18` in `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` are complete.
 
-## RED blockers
-
 ### BLK-009 — flagship localization proof is below release bar
 
-Active since 2026-04-04.
-The localization release gate is now honest enough to fail on real debt: non-English trust-surface strings and locale-smoke completeness remain below flagship grade, especially across support, update, explain, and release-critical chrome.
-This stays blocking until the shipping locale set passes executable localization proof rather than only catalog completeness checks.
+Cleared 2026-04-10.
+The localization release gate now passes on current shipping-locale proof, so localization is no longer the active release blocker.
+
+## RED blockers
 
 ### BLK-010 — campaign-OS lived-system proof still lags the architectural center
 
 Active since 2026-04-04.
 The product architecture is coherent, but flagship release truth can still outrun the lived system across install, claim, restore, campaign continuity, publication, closure, and public/support trust surfaces.
-This remains blocking until journey proof, platform proof, and localization proof line up as one release posture.
+This is now an external-only blocker: the remaining release debt is the two missing promoted Windows desktop tuples plus matching startup-smoke proof, followed by release/journey receipt republication from that Windows evidence.
 
 ## GREEN candidates once current blockers clear
 

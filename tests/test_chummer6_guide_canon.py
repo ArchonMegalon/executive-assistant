@@ -52,7 +52,6 @@ def test_load_horizon_canon_tracks_live_design_horizons() -> None:
         "jackpoint",
         "runsite",
         "runbook-press",
-        "table-pulse",
     }
     assert "ghostwire" not in catalog
     assert "knowledge-fabric" not in catalog

@@ -4,7 +4,7 @@
 
 This checklist is not enough by itself.
 
-A flagship claim must also satisfy `FLAGSHIP_CLOSEOUT_PLAN.md`, `EA_FLAGSHIP_TRUTH_PLANE.md`, and `EA_FLAGSHIP_RELEASE_GATE.json`.
+A flagship claim must also satisfy `FLAGSHIP_CLOSEOUT_PLAN.md`, `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and the generated `EA_FLAGSHIP_RELEASE_GATE.generated.json` receipt.
 `MILESTONE.json` is supporting delivery history, not the release oracle.
 
 The critical test is whether the shipped workspace behaves like a real executive-office work system rather than a polished shell.
@@ -57,4 +57,5 @@ The critical test is whether the shipped workspace behaves like a real executive
 - product entitlement contracts pass.
 - real browser E2E passes.
 - runtime smoke passes.
+- the EA flagship receipt is materialized and current.
 - the flagship closeout blockers in `FLAGSHIP_CLOSEOUT_PLAN.md` are all materially closed.

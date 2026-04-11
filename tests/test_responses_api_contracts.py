@@ -888,7 +888,14 @@ def test_codex_profile_endpoints_resolve_profile_model_with_current_principal_an
 
     seen: list[tuple[str, bool, str]] = []
 
-    def fake_codex_profile(profile: str, *, container=None, principal_id: str = "") -> dict[str, object]:
+    def fake_codex_profile(
+        profile: str,
+        *,
+        container=None,
+        principal_id: str = "",
+        provider_health: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        assert isinstance(provider_health, dict)
         seen.append((profile, container is not None, principal_id))
         return {
             "profile": profile,
@@ -939,7 +946,7 @@ def test_responses_upstream_defaults_to_easy_fast_lane(monkeypatch: pytest.Monke
     assert responses_upstream._resolve_default_response_lane() == "fast"
 
 
-def test_prompt_router_does_not_treat_default_public_model_as_hard_context() -> None:
+def test_prompt_router_demotes_default_public_model_for_lightweight_ops_queries() -> None:
     from app.api.routes import responses
 
     decision = responses._resolve_prompt_route(
@@ -948,10 +955,10 @@ def test_prompt_router_does_not_treat_default_public_model_as_hard_context() -> 
         codex_profile=None,
     )
 
-    assert decision.applied is False
-    assert decision.effective_profile is None
-    assert decision.effective_model == "ea-coder-best"
-    assert decision.reason == "session_route"
+    assert decision.applied is True
+    assert decision.effective_profile == "easy"
+    assert decision.effective_model == "ea-onemin-coder"
+    assert decision.reason == "lightweight_ops_query"
 
 
 def test_prompt_router_promotes_default_public_model_coding_task_to_core() -> None:
@@ -2359,7 +2366,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["profiles"][0]["work_class"] == "hard_coder"
     assert "Hard coder lane" in body["profiles"][0]["expectation_summary"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
-    assert easy_profile["provider_hint_order"] == ["gemini_vortex"]
+    assert easy_profile["provider_hint_order"][0] == "gemini_vortex"
+    assert "onemin" in easy_profile["provider_hint_order"]
     assert easy_profile["backend"] == "gemini_vortex"
     assert easy_profile["health_provider_key"] == "gemini_vortex"
     assert easy_profile["work_class"] == "easy"
@@ -2368,7 +2376,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert easy_profile["support_help_boundary"]["owner"] == "chummer6-hub"
     repair_profile = next(profile for profile in body["profiles"] if profile["profile"] == "repair")
     assert repair_profile["lane"] == "repair"
-    assert repair_profile["provider_hint_order"] == ["gemini_vortex"]
+    assert repair_profile["provider_hint_order"][0] == "gemini_vortex"
+    assert "onemin" in repair_profile["provider_hint_order"]
     assert repair_profile["model"] == "ea-repair-gemini"
     assert repair_profile["backend"] == "gemini_vortex"
     assert repair_profile["health_provider_key"] == "gemini_vortex"
