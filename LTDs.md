@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-04-02
+Updated: 2026-04-14
 
 ## Workspace Integration Tier Guide
 
@@ -24,6 +24,7 @@ Updated: 2026-04-02
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
 | `Headway` | `Premium` | `1 account` | `Owned` |  | `Tier 3` | None | Knowledge/content utility only; no local runtime integration yet. |
+| `VidBoard.ai` | `Tier 5` | `1 account` | `Owned` |  | `Tier 4` | BrowserAct-stored credentials for account access; no active runtime lane yet | Newly tracked LTD; account access exists, but no structured verification run or workspace integration is pinned yet. |
 | `hedy.ai` | `LTD account` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Credentials are stored locally for later browser-driven account access or structured verification; no active runtime lane is wired yet. |
 | `Internxt Cloud Storage` | `100TB` | `1 account` | `Owned` |  | `Tier 3` | None | Storage service not currently wired into the workspace. |
 
@@ -52,7 +53,7 @@ Updated: 2026-04-02
 
 ## Summary
 
-- `29` total LTD products tracked
+- `30` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -71,6 +72,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Headway` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `VidBoard.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `browseract_local` | 2026-04-14T00:00:00Z | Tier 5 and account email were seeded manually; credentials remain out of git and structured BrowserAct verification is still pending. |
 | `hedy.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-02T00:00:00Z | Username/password are stored locally; plan/tier and activation details still need structured verification. |
 | `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
