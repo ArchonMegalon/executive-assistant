@@ -1,0 +1,67 @@
+version: 1
+last_reviewed: 2026-04-12
+purpose: Release-blocking closure-honesty contract for support, bug, crash, and feedback loops.
+release_blocking: true
+sources:
+  support_packets: SUPPORT_CASE_PACKETS.generated.json
+  release_truth: RELEASE_CHANNEL.generated.json
+  journey_truth: JOURNEY_GATES.generated.json
+  status_model: FEEDBACK_AND_CRASH_STATUS_MODEL.md
+  progress_email_workflow: FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml
+thresholds:
+  max_support_packet_age_hours: 24
+  max_open_non_external_packets: 0
+  max_closure_waiting_on_release_truth: 0
+  max_update_required_misrouted_cases: 0
+  max_non_external_needs_human_response: 0
+  require_named_owner_on_non_external_packets: true
+  require_named_lane_on_non_external_packets: true
+  allow_cached_packet_refresh_for_gold: false
+  allow_external_backlog_only_with_synced_runbook: true
+  require_feedback_progress_email_workflow: true
+  require_feedback_progress_email_e2e_gate: true
+  require_feedback_progress_email_decision_awards: true
+  required_feedback_progress_sender_email: wageslave@chummer.run
+requirements:
+  - id: packets_must_be_current
+    rule: Support packets must publish a current generated_at timestamp before the loop can count as healthy.
+  - id: packet_owner_and_lane_truth
+    rule: Every non-external open packet must carry one named owner repo and one concrete next lane.
+  - id: no_closure_without_release_truth
+    rule: closure_waiting_on_release_truth must be zero before flagship truth may claim honest closure.
+  - id: no_update_misroutes
+    rule: update_required_misrouted_case_count must be zero so fix notices never bypass the downloads or updater shelf.
+  - id: human_response_backlog_cleared_for_gold
+    rule: Non-external needs_human_response backlog must be zero for gold truth; lower states must publish it as backlog instead of hiding it.
+  - id: external_backlog_requires_runbook
+    rule: External-host proof backlog may remain only when the synced runbook matches support packets and release truth.
+  - id: staged_progress_mail_contract
+    rule: Reporter-facing progress mail must use FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml with `request_received`, `audited_decision`, and `fix_available` stages.
+  - id: progress_mail_sender_identity
+    rule: Reporter-facing support progress mail must send from `wageslave@chummer.run`, with support reply traffic still pointing at `support@chummer.run`.
+  - id: progress_mail_decision_awards
+    rule: Audited decision mail must award `Clad Feedbacker` on accepted paths and `Denied` on rejected or deferred paths.
+  - id: progress_mail_e2e_receipts
+    rule: The E2E gate must fail closed unless the progress-mail workflow requires sent Emailit receipts via EA `connector.dispatch`.
+status_spine:
+  - received
+  - clustered
+  - routed
+  - awaiting_evidence
+  - known_issue
+  - accepted
+  - deferred
+  - rejected
+  - in_progress
+  - fixed_pending_release
+  - released_to_reporter_channel
+  - user_notified
+  - closed
+failure_modes:
+  - Reporter-facing status claims a fix before registry truth says that fix reached the reporter channel.
+  - A case is treated as closed because a PR merged or a preview build exists somewhere else.
+  - Update-required cases route anywhere except downloads or updater recovery.
+  - Feedback is clustered without one named owner and one concrete next lane.
+  - External-host proof backlog exists without current capture instructions.
+  - Reporter-facing progress mail exists only as prose or timeline state instead of a sent, receipt-bearing staged email workflow.
+  - Decision mail claims acceptance or denial without the bounded reason, ETA posture, and explicit Clad Feedbacker or Denied award state.

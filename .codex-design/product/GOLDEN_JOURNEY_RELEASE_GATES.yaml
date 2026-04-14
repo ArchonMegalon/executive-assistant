@@ -689,6 +689,7 @@ journey_gates:
       - journeys/claim-install-and-close-a-support-case.md
       - journeys/install-and-update.md
     owner_repos:
+      - chummer6-design
       - chummer6-hub
       - chummer6-ui
       - chummer6-hub-registry
@@ -715,12 +716,33 @@ journey_gates:
       minimum_history_snapshots: 2
       target_history_snapshots: 4
       repo_source_proof:
+        - repo: chummer6-design
+          path: products/chummer/FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml
+          must_contain:
+            - "wageslave@chummer.run"
+            - "request_received"
+            - "audited_decision"
+            - "fix_available"
+            - "Clad Feedbacker"
+            - "Denied"
         - repo: chummer6-hub
           path: .codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
           must_contain:
             - '"report_cluster_release_notify"'
             - '"/account/support"'
             - '"/contact"'
+        - repo: executive-assistant
+          path: README.md
+          must_contain:
+            - "/v1/delivery/outbox"
+            - "connector.dispatch"
+            - "delivery.send"
+        - repo: executive-assistant
+          path: scripts/process_emailit_delivery_outbox.py
+          must_contain:
+            - "EMAILIT_API_BASE"
+            - "sender_email"
+            - "Idempotency-Key"
         - repo: chummer6-hub-registry
           path: .codex-studio/published/RELEASE_CHANNEL.generated.json
           json_must_be_one_of:
@@ -762,6 +784,7 @@ journey_gates:
       - journeys/claim-install-and-close-a-support-case.md
     owner_repos:
       - chummer6-hub
+      - chummer6-hub-registry
       - fleet
       - executive-assistant
       - chummer6-design
@@ -776,6 +799,7 @@ journey_gates:
         - golden_journey_gate
       health_scorecards:
         - golden_journey_health
+        - support_and_feedback_closure
         - control_loop_integrity
         - public_promise_drift
     fleet_gate:
@@ -785,12 +809,61 @@ journey_gates:
         - support_packets
       minimum_history_snapshots: 2
       target_history_snapshots: 4
+      repo_source_proof:
+        - repo: chummer6-design
+          path: products/chummer/FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml
+          must_contain:
+            - "wageslave@chummer.run"
+            - "request_received"
+            - "audited_decision"
+            - "fix_available"
+        - repo: chummer6-hub
+          path: .codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
+          must_contain:
+            - '"/downloads"'
+            - '"/account/support"'
+            - '"/contact"'
+          max_age_hours: 48
+          generated_at_fields:
+            - generated_at
+            - generatedAt
+        - repo: executive-assistant
+          path: README.md
+          must_contain:
+            - "/v1/delivery/outbox"
+            - "connector.dispatch"
+            - "delivery.send"
+        - repo: chummer6-hub-registry
+          path: .codex-studio/published/RELEASE_CHANNEL.generated.json
+          json_must_be_one_of:
+            status:
+              - published
+              - publishable
+          json_must_be_non_empty_string:
+            supportabilitySummary: true
+            knownIssueSummary: true
+            fixAvailabilitySummary: true
+          must_contain:
+            - '"desktopTupleCoverage"'
+            - '"supportabilitySummary"'
+            - '"knownIssueSummary"'
+            - '"fixAvailabilitySummary"'
+          max_age_hours: 48
+          generated_at_fields:
+            - generated_at
+            - generatedAt
+      require_support_freshness: true
+      require_support_closure_waiting_zero: true
+      require_support_update_required_routes_to_downloads: true
       required_project_posture:
         - project_id: hub
           minimum_stage: pre_repo_local_complete
           target_stage: publicly_promoted
           minimum_deployment_posture: protected_preview
           target_deployment_posture: public
+        - project_id: hub-registry
+          minimum_stage: boundary_pure
+          target_stage: boundary_pure
         - project_id: fleet
           minimum_stage: package_canonical
           target_stage: boundary_pure

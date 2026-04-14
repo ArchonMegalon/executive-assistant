@@ -1,0 +1,34 @@
+{
+  "contract_name": "ea.chummer5a_parity_oracle_pack",
+  "product": "executive-assistant",
+  "surface": "desktop_parity_oracle",
+  "version": 1,
+  "kind": "proof_receipt",
+  "generated_at": "2026-04-11T20:28:11Z",
+  "status": "preview_only",
+  "operator_summary": "Chummer5a parity-oracle extraction lane is defined and publishing, but remains preview_only until screenshot corpus, workflow maps, compare packs, and fixture inventory are complete.",
+  "outputs": {
+    "screenshot_corpora": false,
+    "workflow_maps": false,
+    "compare_packs": false,
+    "import_export_fixture_inventory": false
+  },
+  "desktop_noise_auditor": {
+    "target_surface": "Avalonia screenshots",
+    "metrics": {
+      "spacing_padding_budget": null,
+      "visible_row_count": null,
+      "header_to_content_ratio": null,
+      "badge_banner_count": null,
+      "menu_toolstrip_status_strip_presence": null
+    }
+  },
+  "blocking_reasons": [],
+  "current_limitations": [
+    "screenshot corpora for core forms and dialogs are not published yet",
+    "workflow maps for veteran first-minute tasks are not published yet",
+    "compare packs for Avalonia review are not published yet",
+    "import/export fixture inventory is not published yet",
+    "desktop noise-auditor metrics are not measured yet"
+  ]
+}

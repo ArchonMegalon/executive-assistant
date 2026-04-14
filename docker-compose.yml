@@ -6,6 +6,8 @@ services:
     image: ea-rewrite:latest
     container_name: ea-api
     restart: unless-stopped
+    mem_limit: 4g
+    mem_reservation: 1g
     env_file:
       - .env
     environment:

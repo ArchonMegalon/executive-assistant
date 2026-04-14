@@ -4,7 +4,7 @@
   "surface": "browser_workflow_proof",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-04-11T14:06:59Z",
+  "generated_at": "2026-04-12T16:09:48Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "EA browser workflow proof is published and green across both seeded browser journeys and real-browser E2E.",
@@ -31,10 +31,10 @@
       "test_browser_handoff_and_people_memory_actions_work"
     ],
     "exit_code": 0,
-    "duration_seconds": 3.484,
+    "duration_seconds": 4.043,
     "output_excerpt": [
       "....                                                                     [100%]",
-      "4 passed, 20 deselected in 2.78s"
+      "4 passed, 20 deselected in 3.14s"
     ],
     "limitations": []
   },
@@ -49,10 +49,10 @@
       "test_draft_and_commitment_workflows_in_real_browser"
     ],
     "exit_code": 0,
-    "duration_seconds": 12.458,
+    "duration_seconds": 13.041,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed, 19 deselected in 11.67s"
+      "2 passed, 19 deselected in 12.14s"
     ],
     "limitations": []
   },

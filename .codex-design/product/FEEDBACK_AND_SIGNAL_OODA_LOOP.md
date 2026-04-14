@@ -179,6 +179,19 @@ The loop is closed only when:
 * the reporter-facing status was updated where appropriate
 * public help or release truth was corrected when needed
 
+## Release-gate tie-in
+
+The flagship release loop must measure this through `FEEDBACK_LOOP_RELEASE_GATE.yaml`.
+
+That gate is allowed to fail flagship truth when any of these are still open:
+
+* non-external packets still lack a named owner or next lane
+* closure is waiting on release truth
+* update-required cases are misrouted away from downloads or updater recovery
+* the support packet surface is stale or cached
+* an external-host proof backlog exists without a synced runbook
+* the staged `request_received -> audited_decision -> fix_available` email loop is missing, underspecified, or not bound to sent receipts
+
 ## Forbidden shortcuts
 
 The loop must not:

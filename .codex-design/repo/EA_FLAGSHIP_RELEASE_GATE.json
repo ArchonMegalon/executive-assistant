@@ -12,6 +12,8 @@
       "browser workflow proof renders seeded browser workspace pages with durable product objects",
       "browser workflow proof shows browser actions updating the live workspace without stale narration",
       "real browser E2E covers activation and the memo-to-queue loop",
+      "chummer5a parity-oracle extraction lane publishes screenshot corpora, workflow maps, compare packs, and import/export fixture inventories",
+      "desktop noise-auditor metrics for Avalonia screenshots stay within veteran-parity tolerances",
       "release asset verification knows the EA flagship truth plane and gate seed",
       "release checklists cite the EA truth plane instead of using MILESTONE green as the oracle"
     ]
@@ -47,5 +49,24 @@
   "verification_binding": {
     "primary_verifier": "scripts/verify_release_assets.sh",
     "supporting_test": "tests/test_flagship_truth_plane.py"
+  },
+  "chummer5a_parity_oracle": {
+    "published_receipt": ".codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
+    "required_outputs": [
+      "screenshot_corpora",
+      "workflow_maps",
+      "compare_packs",
+      "import_export_fixture_inventory"
+    ],
+    "desktop_noise_auditor": {
+      "target_surface": "Avalonia screenshots",
+      "metrics": [
+        "spacing_padding_budget",
+        "visible_row_count",
+        "header_to_content_ratio",
+        "badge_banner_count",
+        "menu_toolstrip_status_strip_presence"
+      ]
+    }
   }
 }

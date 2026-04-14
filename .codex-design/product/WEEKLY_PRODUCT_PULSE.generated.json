@@ -1,8 +1,8 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-04-11T09:32:01Z",
-  "as_of": "2026-04-11",
+  "generated_at": "2026-04-13T20:25:52Z",
+  "as_of": "2026-04-13",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -29,17 +29,12 @@
   "journey_gate_health": {
     "state": "blocked",
     "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-    "blocked_count": 3,
+    "blocked_count": 6,
     "warning_count": 0,
-    "blocked_external_only_count": 2,
-    "blocked_with_local_count": 1,
-    "blocked_external_only_hosts": [
-      "windows"
-    ],
-    "blocked_external_only_tuples": [
-      "avalonia:win-x64:windows",
-      "blazor-desktop:win-x64:windows"
-    ]
+    "blocked_external_only_count": 0,
+    "blocked_with_local_count": 6,
+    "blocked_external_only_hosts": [],
+    "blocked_external_only_tuples": []
   },
   "top_support_or_feedback_clusters": [
     {
@@ -67,32 +62,32 @@
       ]
     }
   ],
-  "oldest_blocker_days": 1,
+  "oldest_blocker_days": 3,
   "design_drift_count": 0,
   "public_promise_drift_count": 0,
   "governor_decisions": [
     {
-      "decision_id": "2026-04-11-focus-next-12-biggest-wins",
+      "decision_id": "2026-04-13-focus-next-12-biggest-wins",
       "action": "focus_shift",
-      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 12 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
+      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 14 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
       "cited_signals": [
         "overall_progress_percent=99",
-        "history_snapshot_count=12",
-        "oldest_blocker_days=1",
+        "history_snapshot_count=14",
+        "oldest_blocker_days=3",
         "phase_label=Public-fit polish",
         "longest_pole=Core Engine",
         "active_wave_status=active"
       ]
     },
     {
-      "decision_id": "2026-04-11-launch-governance",
+      "decision_id": "2026-04-13-launch-governance",
       "action": "freeze_launch",
-      "reason": "Freeze launch expansion while 3 golden journey(s) remain blocked and journey health is blocked.",
+      "reason": "Freeze launch expansion while 6 golden journey(s) remain blocked and journey health is blocked.",
       "cited_signals": [
         "journey_gate_state=blocked",
-        "journey_gate_blocked_count=3",
+        "journey_gate_blocked_count=6",
         "local_release_proof_status=unknown",
-        "provider_canary_status=Canary green on all active lanes",
+        "provider_canary_status=Canary evidence is still accumulating",
         "closure_health_state=watch"
       ]
     }
@@ -119,17 +114,12 @@
     "journey_gate_health": {
       "state": "blocked",
       "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-      "blocked_count": 3,
+      "blocked_count": 6,
       "warning_count": 0,
-      "blocked_external_only_count": 2,
-      "blocked_with_local_count": 1,
-      "blocked_external_only_hosts": [
-        "windows"
-      ],
-      "blocked_external_only_tuples": [
-        "avalonia:win-x64:windows",
-        "blazor-desktop:win-x64:windows"
-      ]
+      "blocked_external_only_count": 0,
+      "blocked_with_local_count": 6,
+      "blocked_external_only_hosts": [],
+      "blocked_external_only_tuples": []
     },
     "top_support_or_feedback_clusters": [
       {
@@ -157,32 +147,32 @@
         ]
       }
     ],
-    "oldest_blocker_days": 1,
+    "oldest_blocker_days": 3,
     "design_drift_count": 0,
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-04-11-focus-next-12-biggest-wins",
+        "decision_id": "2026-04-13-focus-next-12-biggest-wins",
         "action": "focus_shift",
-        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 12 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
+        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 14 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
         "cited_signals": [
           "overall_progress_percent=99",
-          "history_snapshot_count=12",
-          "oldest_blocker_days=1",
+          "history_snapshot_count=14",
+          "oldest_blocker_days=3",
           "phase_label=Public-fit polish",
           "longest_pole=Core Engine",
           "active_wave_status=active"
         ]
       },
       {
-        "decision_id": "2026-04-11-launch-governance",
+        "decision_id": "2026-04-13-launch-governance",
         "action": "freeze_launch",
-        "reason": "Freeze launch expansion while 3 golden journey(s) remain blocked and journey health is blocked.",
+        "reason": "Freeze launch expansion while 6 golden journey(s) remain blocked and journey health is blocked.",
         "cited_signals": [
           "journey_gate_state=blocked",
-          "journey_gate_blocked_count=3",
+          "journey_gate_blocked_count=6",
           "local_release_proof_status=unknown",
-          "provider_canary_status=Canary green on all active lanes",
+          "provider_canary_status=Canary evidence is still accumulating",
           "closure_health_state=watch"
         ]
       }
@@ -193,19 +183,19 @@
     "current_recommended_wave": "Next 12 Biggest Wins",
     "overall_progress_percent": 99,
     "phase_label": "Public-fit polish",
-    "history_snapshot_count": 12,
+    "history_snapshot_count": 14,
     "longest_pole": "Core Engine",
-    "launch_readiness": "Hold launch expansion pending route-canary validation. 3 golden journey(s) remain blocked.",
+    "launch_readiness": "Hold launch expansion pending route-canary validation. 6 golden journey(s) remain blocked.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
-      "canary_status": "Canary green on all active lanes",
-      "review_due": "2026-04-24",
-      "next_decision": "Hold broad promotion until fresh local release proof passes on the public edge."
+      "canary_status": "Canary evidence is still accumulating",
+      "review_due": "2026-04-26",
+      "next_decision": "Hold broad promotion until public route canary coverage exists."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
-    "scorecard_metric_count": 22,
+    "scorecard_metric_count": 24,
     "automation_alignment": {
       "state": "misaligned",
       "active_wave_registry": "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
@@ -250,37 +240,29 @@
       "state": "watch",
       "open_case_count": 0,
       "waiting_closure_count": 0,
-      "pending_human_response_count": 12,
+      "pending_human_response_count": 24,
       "reported_case_count": 0,
-      "materialized_packet_count": 2,
+      "materialized_packet_count": 4,
       "design_impact_count": 0,
-      "summary": "0 waiting closure / 12 pending human response. 0 open support packets still need closure follow-through."
+      "summary": "0 waiting closure / 24 pending human response. 0 open support packets still need closure follow-through."
     },
     "adoption_health": {
       "state": "early",
       "local_release_proof_status": "unknown",
       "proven_journey_count": 0,
       "proven_route_count": 0,
-      "history_snapshot_count": 12,
-      "summary": "Current local edge proof is unknown. Journey-proof evidence is still accumulating. 12 weekly snapshots are on record for the current public trust posture."
+      "history_snapshot_count": 14,
+      "summary": "Current local edge proof is unknown. Journey-proof evidence is still accumulating. 14 weekly snapshots are on record for the current public trust posture."
     },
     "progress_trend": {
-      "state": "moving",
-      "direction": "down",
-      "delta_percent": 1,
-      "from_as_of": "2026-04-05",
-      "to_as_of": "2026-04-11",
-      "summary": "Regression -1% from 2026-04-05 to 2026-04-11. Trend window: 2026-03-29 100% -> 2026-03-31 100% -> 2026-04-01 100% -> 2026-04-02 100% -> 2026-04-03 100% -> 2026-04-04 100% -> 2026-04-05 100% -> 2026-04-11 99%.",
+      "state": "steady",
+      "direction": "flat",
+      "delta_percent": 0,
+      "from_as_of": "2026-04-12",
+      "to_as_of": "2026-04-13",
+      "summary": "Flat trend 0% from 2026-04-12 to 2026-04-13. Trend window: 2026-04-01 100% -> 2026-04-02 100% -> 2026-04-03 100% -> 2026-04-04 100% -> 2026-04-05 100% -> 2026-04-11 99% -> 2026-04-12 99% -> 2026-04-13 99%.",
       "sample_count": 8,
       "samples": [
-        {
-          "as_of": "2026-03-29",
-          "overall_progress_percent": 100
-        },
-        {
-          "as_of": "2026-03-31",
-          "overall_progress_percent": 100
-        },
         {
           "as_of": "2026-04-01",
           "overall_progress_percent": 100
@@ -303,6 +285,14 @@
         },
         {
           "as_of": "2026-04-11",
+          "overall_progress_percent": 99
+        },
+        {
+          "as_of": "2026-04-12",
+          "overall_progress_percent": 99
+        },
+        {
+          "as_of": "2026-04-13",
           "overall_progress_percent": 99
         }
       ]

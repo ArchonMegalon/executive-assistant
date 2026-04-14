@@ -70,10 +70,16 @@ scorecards:
     metrics:
       - name: median_first_human_or_grounded_response_hours
         target: "<=72h"
-        source: Hub case and packet timestamps
+        source: Hub case and packet timestamps plus FEEDBACK_LOOP_RELEASE_GATE.yaml
       - name: fix_available_notifications_sent_from_release_truth
         target: 100%
-        source: Hub case status events plus registry channel truth
+        source: Hub case status events plus registry channel truth plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+      - name: staged_feedback_progress_emails_with_sent_receipt
+        target: 100%
+        source: FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml plus EA delivery receipts plus FEEDBACK_LOOP_RELEASE_GATE.yaml
+      - name: audited_decision_emails_with_reason_eta_and_award
+        target: 100%
+        source: FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml plus Hub case status events plus FEEDBACK_LOOP_RELEASE_GATE.yaml
 
   - id: campaign_middle_health
     owner: chummer6-hub
@@ -125,10 +131,10 @@ scorecards:
     metrics:
       - name: accepted_packets_without_named_owner
         target: 0
-        source: packet review
+        source: packet review plus FEEDBACK_LOOP_RELEASE_GATE.yaml
       - name: closure_claims_without_channel_or_status_change
         target: 0
-        source: Hub case closure review plus release truth
+        source: Hub case closure review plus release truth plus FEEDBACK_LOOP_RELEASE_GATE.yaml
 
 weekly_snapshot:
   required_fields:

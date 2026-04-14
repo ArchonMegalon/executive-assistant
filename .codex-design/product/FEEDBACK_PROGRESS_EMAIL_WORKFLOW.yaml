@@ -1,0 +1,141 @@
+version: 1
+last_reviewed: 2026-04-12
+purpose: Reporter-facing staged progress email contract for support, bug, crash, and feedback cases.
+owner_repos:
+  - chummer6-hub
+  - executive-assistant
+  - chummer6-hub-registry
+delivery_plane:
+  sender_identity:
+    from_email: wageslave@chummer.run
+    from_name: Wageslave
+    reply_to: support@chummer.run
+    required_domain: chummer.run
+  dispatch_contract:
+    owner_repo: executive-assistant
+    tool_name: connector.dispatch
+    action_kind: delivery.send
+    channel: email
+    preferred_provider: emailit
+    required_receipt_state: sent
+    required_receipt_transport: emailit
+    required_receipt_fields:
+      - delivery_id
+      - stage_id
+      - case_id
+      - recipient
+      - from_email
+      - subject
+      - provider
+  user_preference_rules:
+    - Use the claimed-install account email when the user allows support progress mail.
+    - If no verified email preference exists, keep the same state visible in the support timeline and do not fabricate a sent-email receipt.
+decision_awards:
+  accepted:
+    award_id: clad_feedbacker_accepted
+    label: Clad Feedbacker
+    meaning: The report or idea materially improved the product and entered the tracked implementation lane.
+  denied:
+    award_id: feedback_denied
+    label: Denied
+    meaning: The report or idea was reviewed and intentionally declined with a bounded reason.
+stages:
+  - id: request_received
+    trigger_statuses:
+      - received
+    exactly_once_per_case: true
+    required_fields:
+      - case_id
+      - case_kind
+      - reporter_summary
+      - support_url
+    subject_template: We received your Chummer feedback
+    body_must_include:
+      - case_id
+      - what happens next
+      - /account/support
+  - id: audited_decision
+    trigger_statuses:
+      - accepted
+      - rejected
+      - deferred
+      - known_issue
+      - needs_info
+    exactly_once_per_decision_change: true
+    required_fields:
+      - case_id
+      - decision_status
+      - decision_reason
+      - implementation_posture
+      - eta_text
+      - award_label
+      - next_owner
+      - next_lane
+    decision_matrix:
+      accepted:
+        implementation_posture: planned_or_in_progress
+        eta_required: true
+        award_key: accepted
+      known_issue:
+        implementation_posture: linked_to_existing_case
+        eta_required: false
+        award_key: accepted
+      needs_info:
+        implementation_posture: awaiting_reporter_detail
+        eta_required: false
+        award_key: accepted
+      deferred:
+        implementation_posture: not_now
+        eta_required: true
+        award_key: denied
+      rejected:
+        implementation_posture: not_planned
+        eta_required: false
+        award_key: denied
+    body_must_include:
+      - reason
+      - implementation_posture
+      - eta_text
+      - next_owner
+      - next_lane
+  - id: fix_available
+    trigger_statuses:
+      - released_to_reporter_channel
+    exactly_once_per_reporter_channel_release: true
+    required_fields:
+      - case_id
+      - fixed_version
+      - fixed_channel
+      - download_url
+      - please_test_cta
+    preconditions:
+      - registry truth says the fix reached the reporter channel
+      - the current release or updater route is known
+      - request_received and audited_decision are already recorded or intentionally waived for legacy imports
+    subject_template: Your Chummer feedback is in the current release
+    body_must_include:
+      - please test it
+      - /downloads
+      - fixed_version
+      - fixed_channel
+e2e_gate:
+  required: true
+  fail_closed: true
+  local_smoke_mode: controlled_sink_mailbox
+  required_stage_sequence:
+    - request_received
+    - audited_decision
+    - fix_available
+  required_proofs:
+    - Sent receipt exists for each required stage when the reporter has a verified email delivery preference.
+    - Receipt metadata includes stage_id, case_id, recipient, from_email, subject, and provider.
+    - Audited decision email includes a bounded reason plus ETA text or an explicit no-ETA explanation.
+    - Accepted feedback uses the Clad Feedbacker award; rejected or deferred feedback uses the Denied award.
+    - Fix-available email includes a release-truth-backed download or update route and a direct request to test the new release.
+failure_modes:
+  - Request receipt email was never queued or sent.
+  - Audited decision email omitted the reason or ETA posture.
+  - Accepted feedback was marked implemented without a bounded ETA.
+  - Fix-available email was sent before registry truth reached the reporter channel.
+  - Fix-available email omitted the actual download or update route.
+  - Sender identity drifted away from wageslave@chummer.run.

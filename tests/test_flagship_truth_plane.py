@@ -34,6 +34,8 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
 
     conditions = gate["release_claim"]["required_conditions"]
     assert any("browser workflow proof" in condition for condition in conditions)
+    assert any("parity-oracle extraction lane" in condition for condition in conditions)
+    assert any("noise-auditor metrics" in condition for condition in conditions)
     assert any("release asset verification" in condition for condition in conditions)
     assert any("MILESTONE green" in condition or "MILESTONE" in condition for condition in conditions)
 
@@ -41,6 +43,14 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     assert any("Google-first activation" in signal for signal in expected_signals)
     assert any("Morning Memo" in signal for signal in expected_signals)
     assert any("placeholder cards" in signal for signal in expected_signals)
+
+    parity_oracle = gate["chummer5a_parity_oracle"]
+    assert parity_oracle["published_receipt"] == ".codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
+    assert "screenshot_corpora" in parity_oracle["required_outputs"]
+    assert "compare_packs" in parity_oracle["required_outputs"]
+    assert "import_export_fixture_inventory" in parity_oracle["required_outputs"]
+    assert "spacing_padding_budget" in parity_oracle["desktop_noise_auditor"]["metrics"]
+    assert "menu_toolstrip_status_strip_presence" in parity_oracle["desktop_noise_auditor"]["metrics"]
 
 
 def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_oracle() -> None:
