@@ -15,6 +15,7 @@ It is not a second design authority.
 * `Chummer6` must not outrun `products/chummer/HORIZONS.md` or `products/chummer/horizons/*.md`.
 * `Chummer6` must not outrun `products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md`.
 * `Chummer6` must not invent a public feature map that contradicts `PUBLIC_LANDING_MANIFEST.yaml` or `PUBLIC_FEATURE_REGISTRY.yaml`.
+* When a horizon already has preview-proof artifact cards or artifact routes in `PUBLIC_FEATURE_REGISTRY.yaml`, public guide copy should point readers at those first-party proofs before sending them deeper into horizon prose.
 * `Chummer6` must compile page classes from public-safe guide registries instead of scraping implementation scopes for public prose.
 * `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` is the contract for page classes, allowed sources, forbidden sources, and depth limits.
 * `PUBLIC_PART_REGISTRY.yaml` is the source of truth for public part pages.

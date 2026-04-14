@@ -19,6 +19,7 @@ It does not imply that every owned tool must be integrated.
 * `ApproveThis` - approval inbox bridge
 * `MetaSurvey` - structured feedback and future-signal collection, not crash telemetry or ticket truth
 * `Soundmadeseen` - narrated media, recap, and briefing clips
+* `vidBoard` - structured presenter-video and multilingual walkthrough lane
 * `Crezlo Tours` - explorable GM run-site artifacts
 * `First Book ai` - long-form player, GM, and creator authoring lane
 * `MarkupGo` - bounded document rendering and formatted artifact output
@@ -81,14 +82,17 @@ Current rule:
 ## Horizon capability map
 
 * `jackpoint`
+  `vidBoard` is the promoted structured presenter-video lane for dossiers, briefings, explainers, and creator promo clips.
   `Soundmadeseen` is the promoted narration lane for recap and briefing media.
   `Unmixr AI` is bounded candidate voice only.
   `Browserly` is bounded evidence and reference capture only.
 * `runsite`
+  `vidBoard` is the promoted orientation-host clip lane.
   `Crezlo Tours`, `AvoMap`, and `PeekShot` are the promoted explorable/location lanes.
   `Soundmadeseen` is an optional narration layer.
   `Browserly` is bounded capture and reference support only.
 * `runbook-press`
+  `vidBoard` is the promoted campaign primer and module explainer video lane.
   `First Book ai`, `MarkupGo`, and `Documentation.AI` are the promoted authoring/export lanes.
   `Soundmadeseen` is the promoted narrated companion lane.
   `Unmixr AI` and `Browserly` remain bounded helper lanes only.
@@ -103,6 +107,7 @@ Current cluster:
 
 * `Nonverbia`
 * `hedy.ai`
+* bounded `vidBoard`
 * bounded `Soundmadeseen`
 * bounded `Unmixr AI`
 * bounded `MarkupGo`

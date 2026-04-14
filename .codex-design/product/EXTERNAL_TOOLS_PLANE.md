@@ -38,6 +38,7 @@ Current known external-tool inventory includes:
 * Prompting Systems
 * ChatPlayground AI
 * Soundmadeseen
+* vidBoard
 * AI Magicx
 * FastestVPN PRO
 * OneAir
@@ -86,10 +87,10 @@ The horizon docs decide whether a lane is active; this document decides which ki
 
 Current horizon-facing posture:
 
-* `jackpoint` - narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
-* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
-* `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
-* `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
+* `jackpoint` - structured presenter-video and multilingual briefing lanes may use `vidBoard`; narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
+* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
+* `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
+* `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with later bounded player-safe recap / GM-private debrief video from `vidBoard`, plus bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
 
 ## Classification model
 
@@ -697,6 +698,35 @@ Narrated media and explainer adapter.
 * not canon writer
 * not source of briefing truth
 * not archive truth
+
+## vidBoard
+
+### Role
+
+Structured presenter-video and multilingual walkthrough adapter.
+
+### Architectural use
+
+* public release explainers
+* campaign primer videos
+* mission briefing videos
+* runsite orientation clips
+* support closure videos
+* creator promo videos
+* later bounded player-safe recap or GM-private debrief videos
+
+### Owner
+
+* execution: `chummer6-media-factory`
+* orchestration, approvals, locale routing, and publication shaping: `chummer6-hub`
+
+### Hard boundary
+
+* not canonical rules truth
+* not canonical support truth
+* not canonical session truth
+* not direct-to-client vendor coupling
+* not unapproved public publication
 
 ## PeekShot
 

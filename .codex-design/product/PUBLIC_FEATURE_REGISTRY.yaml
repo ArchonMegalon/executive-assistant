@@ -43,14 +43,14 @@ cards:
   - id: publish_grounded_artifacts
     bucket: start_here
     title: Publish
-    summary: Turn grounded dossiers, packets, and primers into finished artifacts with provenance.
+    summary: Turn grounded dossiers, packets, videos, and primers into finished artifacts with provenance.
     href: /artifacts
     badge: Workflow
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
     action_label: See creator outputs
-    proof_note: "Proof: publication and artifact lanes are defined around manifests, previews, and provenance rather than copy-paste folklore."
+    proof_note: "Proof: publication now has first-party packet and video artifact families, preview routes, and provenance rules instead of only horizon prose."
     pain: Mission packets and creator outputs are usually manual, fragile, and hard to trust.
     payoff: Finished artifacts stay tied to manifests, previews, and receipts.
   - id: improve_the_product
@@ -121,9 +121,9 @@ cards:
   - id: lane_creator
     bucket: choose_your_lane
     title: Creator
-    summary: Publish primers, packs, and artifacts with provenance.
+    summary: Publish primers, briefing reels, and artifact bundles with provenance.
     href: /artifacts
-    badge: Coming next
+    badge: Preview lane
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
@@ -245,7 +245,7 @@ cards:
     title: JACKPOINT
     summary: Dossiers, recaps, and briefings that feel finished without severing provenance.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
-    badge: Designing
+    badge: Preview lane
     audience: public
     image_family: dossier_desk
     detail_route: /roadmap/jackpoint
@@ -258,12 +258,14 @@ cards:
     external_ok: true
     pain: I want mission packets that do not feel like a copy-paste graveyard.
     payoff: Grounded artifacts can feel polished without becoming fictional truth.
+    proof_note: "Proof: JACKPOINT already points at first-party dossier and mission-brief artifact previews instead of reading like an empty teaser."
+    microproof: Dossier preview|Mission-brief lane|First-party detail page
   - id: horizon_runsite
     bucket: coming_next
     title: RUNSITE
     summary: Walk the job before the team walks into it.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
-    badge: Preparing
+    badge: Preview lane
     audience: public
     image_family: facility_exterior
     detail_route: /roadmap/runsite
@@ -283,7 +285,7 @@ cards:
     title: RUNBOOK PRESS
     summary: Bring new players in without the two-hour lecture.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
-    badge: Designing
+    badge: Preview lane
     audience: public
     image_family: prop_cluster
     detail_route: /roadmap/runbook-press
@@ -296,6 +298,8 @@ cards:
     external_ok: true
     pain: Table onboarding still depends on heroic patience.
     payoff: Grounded primers become first-class artifacts instead of random PDFs.
+    proof_note: "Proof: RUNBOOK PRESS already points at first-party primer packet and primer-video previews instead of only future-facing copy."
+    microproof: Primer packet|Primer-video lane|First-party detail page
   - id: horizon_ghostwire
     bucket: coming_next
     title: GHOSTWIRE
@@ -416,6 +420,30 @@ cards:
     detail_route: /artifacts/campaign-primer
     action_label: Inspect the campaign primer
     detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
+  - id: artifact_campaign_primer_video
+    bucket: featured_artifacts
+    title: Campaign primer video
+    summary: Pair the written primer with a short multilingual walkthrough that gets players oriented fast.
+    href: /roadmap/runbook-press
+    badge: Preview
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /artifacts/campaign-primer-video
+    action_label: Inspect the primer-video lane
+    detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
+  - id: artifact_mission_brief_video
+    bucket: featured_artifacts
+    title: Mission briefing video
+    summary: Turn approved run packets into a short host-led briefing instead of relying on a cold PDF alone.
+    href: /roadmap/jackpoint
+    badge: Preview
+    audience: public
+    image_family: dossier_desk
+    detail_route: /artifacts/mission-brief-video
+    action_label: Inspect the mission-brief lane
+    detail_primary_href: /roadmap/jackpoint
     detail_primary_label: See related roadmap item
   - id: artifact_after_action
     bucket: featured_artifacts

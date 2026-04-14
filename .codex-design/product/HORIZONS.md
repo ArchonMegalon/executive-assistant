@@ -9,6 +9,7 @@ They exist so future product intent lives in `chummer6-design`, not only in down
 * Horizon docs are canon for future-capability posture, not promises of shipment.
 * Horizon docs must stay consistent with `VISION.md`, `ARCHITECTURE.md`, `EXTERNAL_TOOLS_PLANE.md`, and `PROGRAM_MILESTONES.yaml`.
 * The public `Chummer6` guide may explain Horizons in human language, but it may not outrun this directory.
+* When a horizon already has first-party preview artifacts or detail routes in the public registry, downstream public surfaces should point at that proof instead of presenting the horizon as an empty teaser.
 * Public votes, surveys, Discord chatter, and guide feedback are advisory inputs only.
 * A horizon becomes implementation work only when the owning repos, bounded tool posture, milestone ties, and build path are explicit.
 * Horizons that analyze human session behavior must define consent, privacy, and non-truth boundaries explicitly.

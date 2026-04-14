@@ -21,6 +21,7 @@ It complements JACKPOINT instead of duplicating it.
 * `Paperguide` - cited research support
 * `Documentation.AI` - downstream help/docs projection
 * `MarkupGo` - formatted document rendering
+* `vidBoard` - campaign primer and module explainer video lane
 * `Soundmadeseen` - optional narrated companion assets
 * `Unmixr AI` - candidate voice lane until proven
 
@@ -30,6 +31,11 @@ It complements JACKPOINT instead of duplicating it.
 * publication manifests
 * format and render adapters
 * editorial approval flows
+
+## Current proof posture
+
+RUNBOOK PRESS is still a horizon, but it already has first-party preview proof in the public artifact registry through campaign-primer packet and campaign-primer video lanes.
+The publication move should now read as a staged artifact factory, not only as long-range aspiration.
 
 ## Why it is not ready yet
 

@@ -18,6 +18,7 @@ It is for reflection after play, not live surveillance, player scoring, or moder
 
 * `Nonverbia` - primary coaching and social-dynamics analysis lane
 * `hedy.ai` - bounded transcript structure, highlight digest, and GM debrief prompt lane
+* `vidBoard` - later bounded player-safe recap and GM-private debrief video lane
 * `Soundmadeseen` - optional narrated coaching summary
 * `Unmixr AI` - bounded candidate voice lane until proven
 * `MarkupGo` - coaching packet render support

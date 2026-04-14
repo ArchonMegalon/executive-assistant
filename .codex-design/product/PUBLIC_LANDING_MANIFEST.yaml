@@ -526,15 +526,15 @@ sections:
     audience: public
     route: /now
   - id: coming_next
-    eyebrow: Coming next
-    title: Coming next
-    intro: Each horizon names the pain, the payoff, and the next place to read deeper.
+    eyebrow: Opening next
+    title: Opening next
+    intro: Each horizon names the pain, the payoff, and the preview artifact or detail page that already makes the next wave inspectable.
     audience: public
     route: /horizons
   - id: featured_artifacts
     eyebrow: Proof, not promises
     title: Artifacts that make the product tangible
-    intro: The gallery starts with live proof, then shows which artifacts are preview-only and which ones are still opening next.
+    intro: The gallery starts with live proof, then shows preview packets, briefing reels, primers, and run-prep artifacts that already make the factory visible.
     audience: public
     route: /artifacts
 registered_overlays:
