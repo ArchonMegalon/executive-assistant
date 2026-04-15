@@ -75,6 +75,11 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     milestone = _find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106)
     guardrails = dict(pack.get("proof_guardrails") or {})
     verification = dict(guardrails.get("canonical_package_verification") or {})
+    registry_task = next(
+        dict(task)
+        for task in milestone.get("work_tasks") or []
+        if dict(task).get("id") == verification.get("registry_work_task_id")
+    )
 
     assert verification.get("queue_package_id") == pack.get("package_id") == queue_item.get("package_id")
     assert verification.get("queue_repo") == queue_item.get("repo") == "executive-assistant"
@@ -83,7 +88,20 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     assert {int(item) for item in verification.get("registry_dependencies") or []} == {
         int(item) for item in milestone.get("dependencies") or []
     }
-    assert any(dict(task).get("id") == verification.get("registry_work_task_id") for task in milestone.get("work_tasks") or [])
+    assert registry_task.get("owner") == "executive-assistant"
+    assert registry_task.get("status") == "complete"
+    assert "Synthesize support, parity, and release signals" in str(registry_task.get("title") or "")
+    registry_evidence = {str(item) for item in registry_task.get("evidence") or []}
+    assert all(
+        any(expected in evidence for evidence in registry_evidence)
+        for expected in {
+            "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+            "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+            "/docker/EA/tests/test_chummer_governor_packet_pack.py",
+            "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
+            "python tests/test_chummer_governor_packet_pack.py exits 0 with 14 tests.",
+        }
+    )
 
     drift_policy = [str(item) for item in guardrails.get("drift_policy") or []]
     assert any("successor queue" in item and "owned surfaces" in item for item in drift_policy)
