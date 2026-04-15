@@ -338,6 +338,24 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     )
     assert str(terminal_policy.get("proof_note") or "") in completed_outputs
     assert str(terminal_policy.get("proof_note") or "") in proof_artifacts
+    ignored_signals = [
+        dict(item) for item in terminal_policy.get("ignored_assignment_signals_after_terminal") or []
+    ]
+    assert ignored_signals == [
+        {
+            "active_run_handoff_generated_at": "2026-04-15T16:18:44Z",
+            "active_run_handoff_prompt_path": (
+                "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+                "20260415T161733Z-shard-12/prompt.txt"
+            ),
+            "reason": (
+                "Current shard assignment repeated the same closed package and frontier after terminal closeout; "
+                "it is not EA-owned implementation evidence and must not append another successor-wave proof note."
+            ),
+            "active_run_helper_commands_invoked": [],
+            "operator_telemetry_commands_invoked": [],
+        }
+    ]
 
     runtime_safety = dict(handoff.get("runtime_safety") or {})
     assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
@@ -516,6 +534,39 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         note_time and note_time > terminal_note_time
         for note_time in (_timestamp_suffix_from_repeat_note(note) for note in manifest_repeat_notes)
     )
+
+    ignored_signals = [
+        dict(item) for item in terminal_policy.get("ignored_assignment_signals_after_terminal") or []
+    ]
+    verification_history = [
+        dict(handoff.get("latest_successor_wave_verification") or {}),
+        *[dict(item) for item in handoff.get("additional_successor_wave_verifications") or []],
+    ]
+    completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
+    queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
+    registry_task = _find_registry_task(_find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106), 106.2)
+    canonical_evidence = [
+        *[str(item) for item in queue_item.get("proof") or []],
+        *[str(item) for item in design_queue_item.get("proof") or []],
+        *[str(item) for item in registry_task.get("evidence") or []],
+    ]
+
+    assert ignored_signals, "terminal policy should record reviewed repeat assignments without making proof notes"
+    ignored_prompt_paths = {str(item.get("active_run_handoff_prompt_path") or "") for item in ignored_signals}
+    ignored_times = {str(item.get("active_run_handoff_generated_at") or "") for item in ignored_signals}
+    history_prompt_paths = {str(item.get("active_run_handoff_prompt_path") or "") for item in verification_history}
+    history_times = {str(item.get("active_run_handoff_generated_at") or "") for item in verification_history}
+
+    assert ignored_prompt_paths.isdisjoint(history_prompt_paths)
+    assert ignored_times.isdisjoint(history_times)
+    assert all(str(item.get("reason") or "").endswith("must not append another successor-wave proof note.") for item in ignored_signals)
+    assert all(item.get("active_run_helper_commands_invoked") == [] for item in ignored_signals)
+    assert all(item.get("operator_telemetry_commands_invoked") == [] for item in ignored_signals)
+    assert not any("161733Z-shard-12" in item for item in completed_outputs)
+    assert not any("161733Z-shard-12" in item for item in proof_artifacts)
+    assert not any("161733Z-shard-12" in item for item in canonical_evidence)
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:

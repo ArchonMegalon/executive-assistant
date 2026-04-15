@@ -159,6 +159,12 @@ terminal_verification_policy:
     - docs/chummer_governor_packets packet artifacts or tests fail the proof command
     - mirrored progress email workflow, feedback release gate, parity pack, or weekly pulse anchors disappear or drift from the guarded contract
   proof_note: feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
+  ignored_assignment_signals_after_terminal:
+    - active_run_handoff_generated_at: "2026-04-15T16:18:44Z"
+      active_run_handoff_prompt_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/20260415T161733Z-shard-12/prompt.txt
+      reason: Current shard assignment repeated the same closed package and frontier after terminal closeout; it is not EA-owned implementation evidence and must not append another successor-wave proof note.
+      active_run_helper_commands_invoked: []
+      operator_telemetry_commands_invoked: []
 runtime_safety:
   do_not_invoke_operator_telemetry_or_active_run_helpers: true
   active_run_helper_commands_invoked: []
