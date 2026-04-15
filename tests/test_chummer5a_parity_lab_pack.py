@@ -12,6 +12,7 @@ WORKFLOW_PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "veteran_workflow_
 COMPARE_PACKS_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "compare_packs.yaml"
 FIXTURE_INVENTORY_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "import_export_fixture_inventory.yaml"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
+PUBLISHED_PACK_PATH = ROOT / ".codex-studio" / "published" / "CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
@@ -78,6 +79,28 @@ def test_pack_required_outputs_exist_on_disk() -> None:
         assert row.get("proof_level")
 
 
+def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
+    pack = _yaml(PACK_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
+
+    assert receipt.get("contract_name") == "ea.chummer5a_parity_oracle_pack"
+    assert receipt.get("package_id") == pack.get("package_id") == "next90-m103-ea-parity-lab"
+    assert int(receipt.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0) == 103
+    assert receipt.get("status") == pack.get("status") == "task_proven"
+    assert list(receipt.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
+
+    outputs = dict(receipt.get("outputs") or {})
+    assert outputs == {
+        "screenshot_corpora": True,
+        "workflow_maps": True,
+        "compare_packs": True,
+        "import_export_fixture_inventory": True,
+    }
+    assert receipt.get("blocking_reasons") == []
+    assert receipt.get("current_limitations") == []
+    assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
+
+
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     pack = _yaml(PACK_PATH)
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
@@ -95,13 +118,14 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         WORKFLOW_PACK_PATH,
         COMPARE_PACKS_PATH,
         FIXTURE_INVENTORY_PATH,
+        PUBLISHED_PACK_PATH,
     } <= completed_outputs
     for path in completed_outputs:
         assert path.exists(), str(path)
 
     proof = dict(closeout.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=12 failed=0"
+    assert proof.get("result") == "ran=13 failed=0"
 
     remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
     assert "executive-assistant" not in remaining

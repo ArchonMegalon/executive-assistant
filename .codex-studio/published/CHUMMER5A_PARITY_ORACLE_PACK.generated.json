@@ -2,19 +2,34 @@
   "contract_name": "ea.chummer5a_parity_oracle_pack",
   "product": "executive-assistant",
   "surface": "desktop_parity_oracle",
+  "package_id": "next90-m103-ea-parity-lab",
+  "milestone_id": 103,
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-04-11T20:28:11Z",
-  "status": "preview_only",
-  "operator_summary": "Chummer5a parity-oracle extraction lane is defined and publishing, but remains preview_only until screenshot corpus, workflow maps, compare packs, and fixture inventory are complete.",
+  "generated_at": "2026-04-15T09:40:00Z",
+  "status": "task_proven",
+  "operator_summary": "Chummer5a parity-lab extraction is task_proven for the EA-owned surfaces; promoted-head certification remains delegated to next90-m103-ui-veteran-certification.",
+  "owned_surfaces": [
+    "parity_lab:capture",
+    "veteran_compare_packs"
+  ],
   "outputs": {
-    "screenshot_corpora": false,
-    "workflow_maps": false,
-    "compare_packs": false,
-    "import_export_fixture_inventory": false
+    "screenshot_corpora": true,
+    "workflow_maps": true,
+    "compare_packs": true,
+    "import_export_fixture_inventory": true
+  },
+  "output_paths": {
+    "screenshot_corpora": "docs/chummer5a_parity_lab/oracle_baselines.yaml",
+    "workflow_maps": "docs/chummer5a_parity_lab/veteran_workflow_pack.yaml",
+    "compare_packs": "docs/chummer5a_parity_lab/compare_packs.yaml",
+    "import_export_fixture_inventory": "docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml",
+    "handoff_closeout": "docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
   },
   "desktop_noise_auditor": {
     "target_surface": "Avalonia screenshots",
+    "owner_package": "next90-m103-ui-veteran-certification",
+    "status": "delegated",
     "metrics": {
       "spacing_padding_budget": null,
       "visible_row_count": null,
@@ -24,11 +39,9 @@
     }
   },
   "blocking_reasons": [],
-  "current_limitations": [
-    "screenshot corpora for core forms and dialogs are not published yet",
-    "workflow maps for veteran first-minute tasks are not published yet",
-    "compare packs for Avalonia review are not published yet",
-    "import/export fixture inventory is not published yet",
-    "desktop noise-auditor metrics are not measured yet"
-  ]
+  "current_limitations": [],
+  "proof": {
+    "command": "python tests/test_chummer5a_parity_lab_pack.py",
+    "result": "ran=13 failed=0"
+  }
 }

@@ -12,10 +12,11 @@ completed_outputs:
   - docs/chummer5a_parity_lab/veteran_workflow_pack.yaml
   - docs/chummer5a_parity_lab/compare_packs.yaml
   - docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml
+  - .codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json
 proof:
   command: python tests/test_chummer5a_parity_lab_pack.py
-  result: ran=12 failed=0
-  verified_at: "2026-04-15T09:31:00Z"
+  result: ran=13 failed=0
+  verified_at: "2026-04-15T09:40:00Z"
 canonical_successor_sources:
   registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml

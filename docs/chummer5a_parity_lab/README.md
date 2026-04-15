@@ -19,6 +19,7 @@ Canonical outputs:
 - `compare_packs.yaml` maps every flagship parity family to extracted compare artifacts.
 - `import_export_fixture_inventory.yaml` records the import/export fixture universe from the Chummer5a oracle.
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` records that the EA-owned successor slice is complete and names the remaining non-EA followups.
+- `.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json` is the published task-proven proof receipt for this EA package.
 
 Proof boundary:
 
