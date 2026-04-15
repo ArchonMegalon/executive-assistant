@@ -1,0 +1,53 @@
+contract_name: ea.chummer5a_veteran_workflow_pack
+schema_version: 1
+generated_at: "2026-04-14T19:20:00Z"
+milestone:
+  id: 103
+  package_id: next90-m103-ea-parity-lab
+  owned_surfaces:
+    - veteran_compare_packs
+source_of_truth:
+  veteran_gate: /docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml
+  flagship_parity_registry: /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml
+  chummer5a_oracle:
+    - /docker/chummer5a/docs/PARITY_ORACLE.json
+    - /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+    - /docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs
+    - /docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs
+required_landmarks:
+  - File menu
+  - Tools menu
+  - Windows menu
+  - Help menu
+  - Immediate toolstrip
+  - Save or open route
+  - Import route
+  - Settings route
+  - Master index route
+  - Character roster route
+  - Bottom status strip
+required_first_minute_tasks:
+  - id: reach_real_workbench
+    description: The first launch reaches a workbench or restore continuation, not a decorative landing surface.
+    time_budget_seconds: 10
+  - id: locate_save_import_settings
+    description: Save, import/open, and settings are visible without hunting.
+    time_budget_seconds: 15
+  - id: locate_master_index_and_roster
+    description: Veteran users can reach master index and roster from the promoted desktop route.
+    time_budget_seconds: 20
+  - id: recover_section_rhythm
+    description: The user can tell where sections live and return to the current section after a distraction.
+    time_budget_seconds: 20
+desktop_non_negotiables_asserted:
+  no_generic_shell_or_dashboard_first: true
+  startup_is_workbench_or_restore: true
+  file_menu_live: true
+  master_index_first_class: true
+  character_roster_first_class: true
+  claim_restore_in_installer_or_in_app: true
+  no_browser_only_claim_code_ritual: true
+  guided_product_installer_happy_path: true
+notes:
+  - This workflow pack is extraction and compare-map truth only.
+  - Desktop tuple host-proof ingestion remains a fleet and promoted-head release lane.

@@ -1,0 +1,86 @@
+contract_name: ea.chummer5a_compare_packs
+schema_version: 1
+generated_at: "2026-04-15T08:22:00Z"
+milestone:
+  id: 103
+  package_id: next90-m103-ea-parity-lab
+  owned_surfaces:
+    - veteran_compare_packs
+families:
+  - id: shell_workbench_orientation
+    compare_artifacts:
+      - baseline:first_launch_workbench_or_restore
+      - baseline:menu_windows_help_liveness
+    expected_readiness_floor: task_proven
+  - id: dense_builder_and_career_workflows
+    compare_artifacts:
+      - oracle:tabs
+      - oracle:workspace_actions
+      - workflow:build_explain_publish
+    expected_readiness_floor: task_proven
+  - id: identity_contacts_lifestyles_history
+    compare_artifacts:
+      - workflow:contacts
+      - workflow:lifestyles
+      - workflow:notes
+    expected_readiness_floor: implemented
+  - id: sourcebooks_reference_and_master_index
+    compare_artifacts:
+      - baseline:master_index_dense_reference_flow
+      - workflow:sources
+    expected_readiness_floor: implemented
+  - id: settings_and_rules_environment_authoring
+    compare_artifacts:
+      - workflow:rules
+      - workflow:sources
+      - baseline:menu_tools_settings_masterindex_roster
+    expected_readiness_floor: implemented
+  - id: custom_data_xml_and_translator_bridge
+    compare_artifacts:
+      - menu:translator
+      - menu:xml_editor
+    expected_readiness_floor: implemented
+  - id: dice_initiative_and_table_utilities
+    compare_artifacts:
+      - menu:dice_roller
+      - workflow:initiative
+    expected_readiness_floor: task_proven
+  - id: roster_dashboards_and_multi_character_ops
+    compare_artifacts:
+      - baseline:character_roster_multi_character_flow
+      - workflow:multi_character
+    expected_readiness_floor: implemented
+  - id: sheet_export_print_viewer_and_exchange
+    compare_artifacts:
+      - menu:open_for_printing
+      - menu:open_for_export
+      - menu:file_print_multiple
+    expected_readiness_floor: implemented
+  - id: legacy_and_adjacent_import_oracles
+    compare_artifacts:
+      - menu:hero_lab_importer
+      - workflow:import_oracle
+    expected_readiness_floor: implemented
+  - id: sr6_supplements_designers_and_house_rules
+    compare_artifacts:
+      - workflow:sr6_supplements
+      - workflow:house_rules
+    expected_readiness_floor: documented
+source_of_truth:
+  flagship_parity_registry: /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml
+  chummer5a_oracle: /docker/chummer5a/docs/PARITY_ORACLE.json
+exit_readiness:
+  status: successor_handoff_ready
+  current_flagship_readiness:
+    path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    status: pass
+    coverage_planes:
+      desktop_client: ready
+      rules_engine_and_import: ready
+      fleet_and_operator_loop: ready
+  delegated_followups:
+    - package_id: next90-m103-ui-veteran-certification
+      reason: Capture promoted-head master-index and character-roster screenshots and run the desktop visual compare review.
+  notes:
+    - Compare packs are extracted and source-backed for every flagship parity family.
+    - EA no longer carries stale desktop tuple blockers; promoted-head proof now belongs to the current readiness packet and UI veteran-certification package.

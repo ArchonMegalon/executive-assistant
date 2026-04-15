@@ -1,0 +1,67 @@
+contract_name: ea.chummer5a_oracle_baselines
+source:
+  parity_oracle_json: /docker/chummer5a/docs/PARITY_ORACLE.json
+  parity_checklist_md: /docker/chummer5a/docs/PARITY_CHECKLIST.md
+  parity_audit_md: /docker/chummer5a/docs/PARITY_AUDIT.md
+surface_counts:
+  tabs: 17
+  workspace_actions: 47
+  desktop_controls: 29
+tab_ids:
+  - tab-adept
+  - tab-armor
+  - tab-attributes
+  - tab-calendar
+  - tab-combat
+  - tab-contacts
+  - tab-cyberware
+  - tab-gear
+  - tab-improvements
+  - tab-info
+  - tab-lifestyle
+  - tab-magician
+  - tab-notes
+  - tab-qualities
+  - tab-skills
+  - tab-technomancer
+  - tab-vehicles
+desktop_non_negotiable_anchors:
+  file_menu:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locator: data-command="file"
+  master_index:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locator: data-command="master_index"
+  character_roster:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locator: data-command="character_roster"
+  print_export:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locators:
+      - data-command="print_character"
+      - data-command="export_character"
+screenshot_corpora:
+  promoted_ui_screenshot_root: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots
+  captured_screenshots:
+    - 01-initial-shell-light.png
+    - 02-menu-open-light.png
+    - 03-settings-open-light.png
+    - 04-loaded-runner-light.png
+    - 05-dense-section-light.png
+    - 06-dense-section-dark.png
+    - 07-loaded-runner-tabs-light.png
+    - 08-cyberware-dialog-light.png
+    - 09-vehicles-section-light.png
+    - 10-contacts-section-light.png
+    - 11-diary-dialog-light.png
+    - 12-magic-dialog-light.png
+    - 13-matrix-dialog-light.png
+    - 14-advancement-dialog-light.png
+    - 15-creation-section-light.png
+  supplemental_finished_wave_screenshot_root: /docker/chummercomplete/chummer6-ui-finish/.codex-studio/published/ui-flagship-release-gate-screenshots
+  supplemental_finished_wave_screenshots:
+    - 16-master-index-dialog-light.png
+    - 17-character-roster-dialog-light.png
+  supplemental_scope_note: These two PNGs come from the closed flagship proof worktree and are cited as evidence only; this package does not reopen the closed flagship wave.
+  successor_ui_certification_package: next90-m103-ui-veteran-certification
+  capture_status: captured_with_closed_flagship_supplement
