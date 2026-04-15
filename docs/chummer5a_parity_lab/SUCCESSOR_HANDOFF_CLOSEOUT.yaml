@@ -166,6 +166,14 @@ local_proof_commits:
     committed_at: "2026-04-15T16:43:54Z"
     subject: Tighten M103 parity lab terminal policy guard
     purpose: Tightens the terminal-policy guard so newer handoffs remain context only while canonical registry, queue, outputs, and direct proof stay green.
+  - commit: 08fc645
+    committed_at: "2026-04-15T16:45:52Z"
+    subject: Pin M103 parity lab terminal proof floor
+    purpose: Pins the terminal proof-floor commit into the published receipt, closeout, and direct guard so successor shards verify the closed EA package instead of chasing newer handoff timestamps.
+  - commit: 24a16a4
+    committed_at: "2026-04-15T16:49:38Z"
+    subject: Tighten M103 parity lab design queue proof
+    purpose: Tightens the completed-package guard so the design-owned queue row must remain complete, matching the canonical registry and Fleet queue mirror.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
