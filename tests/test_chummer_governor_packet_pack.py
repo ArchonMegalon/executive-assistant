@@ -131,6 +131,7 @@ def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
 def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
     milestone = _find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106)
     guardrails = dict(pack.get("proof_guardrails") or {})
     verification = dict(guardrails.get("canonical_package_verification") or {})
@@ -181,6 +182,27 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     assert any(
         item == f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}."
         for item in registry_evidence_items
+    )
+    all_canonical_evidence_items = [
+        *[str(item) for item in queue_item.get("proof") or []],
+        *[str(item) for item in design_queue_item.get("proof") or []],
+        *registry_evidence_items,
+    ]
+    forbidden_worker_proof_markers = {
+        "task_local_telemetry.generated.json",
+        "operator telemetry stdout",
+        "operator telemetry stderr",
+        "active-run helper stdout",
+        "active-run helper stderr",
+        "active-run helper command output",
+        "run-helper output",
+        "helper command receipt",
+        "telemetry command receipt",
+    }
+    assert not any(
+        marker in evidence.lower()
+        for evidence in all_canonical_evidence_items
+        for marker in forbidden_worker_proof_markers
     )
 
     drift_policy = [str(item) for item in guardrails.get("drift_policy") or []]
