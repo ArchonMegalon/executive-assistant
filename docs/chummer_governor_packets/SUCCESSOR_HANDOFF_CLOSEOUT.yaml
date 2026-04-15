@@ -172,6 +172,7 @@ terminal_verification_policy:
       - canonical registry evidence
       - design queue proof
       - fleet queue proof
+      - ignored_assignment_signals_after_terminal
     active_run_helper_commands_invoked: []
     operator_telemetry_commands_invoked: []
   allowed_reopen_triggers:

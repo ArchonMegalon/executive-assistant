@@ -384,6 +384,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "canonical registry evidence",
         "design queue proof",
         "fleet queue proof",
+        "ignored_assignment_signals_after_terminal",
     } == {str(item) for item in ignored_assignment_rule.get("do_not_add_to") or []}
     assert ignored_assignment_rule.get("active_run_helper_commands_invoked") == []
     assert ignored_assignment_rule.get("operator_telemetry_commands_invoked") == []
@@ -594,6 +595,9 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert ignored_assignment_rule.get("generated_after") == latest_allowed_timestamp_only
     assert "completed_outputs" in set(ignored_assignment_rule.get("do_not_add_to") or [])
     assert "additional_successor_wave_verifications" in set(ignored_assignment_rule.get("do_not_add_to") or [])
+    assert "ignored_assignment_signals_after_terminal" in set(
+        ignored_assignment_rule.get("do_not_add_to") or []
+    )
 
     for verification in history:
         assert str(verification.get("verified_at") or "") <= latest_allowed_timestamp_only
