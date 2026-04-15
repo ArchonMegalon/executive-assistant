@@ -49,16 +49,30 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert "executive-assistant" in set(milestone.get("owners") or [])
     assert 101 in set(milestone.get("dependencies") or [])
     assert 102 in set(milestone.get("dependencies") or [])
-    assert any(dict(task).get("id") == 103.1 for task in (milestone.get("work_tasks") or []))
+    task_103_1 = next(dict(task) for task in (milestone.get("work_tasks") or []) if dict(task).get("id") == 103.1)
+    assert task_103_1.get("owner") == "executive-assistant"
+    assert task_103_1.get("status") == "complete"
+    task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
+    assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
+    assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
+    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=13 failed=0" in task_evidence
 
     queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
     queue_item = queue_items["next90-m103-ea-parity-lab"]
     assert queue_item.get("repo") == "executive-assistant"
+    assert queue_item.get("status") == "complete"
     assert int(queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
     assert queue_item.get("wave") == milestone.get("wave")
     assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
     assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
     assert queue_item.get("title") == "Extract Chummer5a oracle baselines and veteran workflow packs"
+    proof = set(str(item) for item in (queue_item.get("proof") or []))
+    assert {
+        "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
+        "python tests/test_chummer5a_parity_lab_pack.py",
+    } <= proof
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
@@ -126,6 +140,11 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     proof = dict(closeout.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
     assert proof.get("result") == "ran=13 failed=0"
+
+    closure_markers = dict(closeout.get("canonical_closure_markers") or {})
+    assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
+    assert closure_markers.get("queue_package") == "next90-m103-ea-parity-lab status=complete"
+    assert closure_markers.get("queue_proof_command") == "python tests/test_chummer5a_parity_lab_pack.py"
 
     remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
     assert "executive-assistant" not in remaining
