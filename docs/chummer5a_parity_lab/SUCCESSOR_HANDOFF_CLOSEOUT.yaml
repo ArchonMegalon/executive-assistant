@@ -28,7 +28,7 @@ completed_outputs:
 proof:
   command: python tests/test_chummer5a_parity_lab_pack.py
   result: ran=15 failed=0
-  verified_at: "2026-04-15T12:05:34Z"
+  verified_at: "2026-04-15T12:08:18Z"
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
@@ -144,26 +144,35 @@ repeat_verifications:
     package_id: next90-m103-ea-parity-lab
     result: "registry=complete queue=complete proof=ran=15 failed=0"
     worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff and prompt path; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T12:08:18Z"
+    active_handoff_generated_at: "2026-04-15T12:07:24Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff, canonical registry, design-owned queue assignment, and Fleet completed queue mirror; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, or reopen flagship closeout while these closure anchors remain green.
 canonical_successor_sources:
   registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  design_queue: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
   queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
   readiness: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
   active_run_handoff: /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md
 canonical_closure_markers:
   successor_registry_work_task: "103.1 status=complete"
+  design_queue_assignment: "next90-m103-ea-parity-lab frontier=4287684466"
   queue_package: "next90-m103-ea-parity-lab status=complete"
   queue_proof_command: python tests/test_chummer5a_parity_lab_pack.py
   active_handoff_frontier: "4287684466 focused_package=next90-m103-ea-parity-lab"
 repeat_prevention:
   successor_frontier_id: 4287684466
   already_closed_when_seen_at: "2026-04-15T09:52:00Z"
-  active_handoff_verified_at: "2026-04-15T12:05:34Z"
-  active_handoff_min_generated_at: "2026-04-15T12:05:00Z"
+  active_handoff_verified_at: "2026-04-15T12:08:18Z"
+  active_handoff_min_generated_at: "2026-04-15T12:07:24Z"
   active_handoff_focus_required: next90-m103-ea-parity-lab
   active_handoff_owned_surfaces_required:
     - parity_lab:capture
     - veteran_compare_packs
   registry_task_status_required: complete
+  design_queue_assignment_required: "next90-m103-ea-parity-lab frontier=4287684466"
   queue_package_status_required: complete
   worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging packet, completed outputs, and proof command all still pass; advance only delegated non-EA follow-up packages from here.
   repeat_guard_test: test_successor_handoff_closeout_prevents_repeating_ea_scope

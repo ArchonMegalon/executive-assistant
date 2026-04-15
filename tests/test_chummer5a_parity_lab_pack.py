@@ -19,6 +19,7 @@ ACTIVE_RUN_HANDOFF_PATH = Path("/var/lib/codex-fleet/chummer_design_supervisor/s
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+DESIGN_SUCCESSOR_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 SUCCESSOR_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 FLAGSHIP_READINESS_PATH = Path("/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json")
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-14-chummer5a-parity-lab-package-closeout.md"
@@ -58,6 +59,7 @@ def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
 def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     pack = _yaml(PACK_PATH)
     registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
@@ -77,6 +79,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
 
     queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
     queue_item = queue_items["next90-m103-ea-parity-lab"]
+    assert queue.get("source_design_queue_path") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
     assert int(queue_item.get("frontier_id") or 0) == 4287684466
@@ -95,6 +98,15 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     for proof_anchor in proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
+
+    design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
+    design_queue_item = design_queue_items["next90-m103-ea-parity-lab"]
+    assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
+    assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
+    assert int(design_queue_item.get("milestone_id") or 0) == int(queue_item.get("milestone_id") or 0) == 103
+    assert design_queue_item.get("wave") == queue_item.get("wave") == "W7"
+    assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
+    assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
@@ -195,17 +207,19 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
     assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
     assert latest_repeat.get("package_id") == pack.get("package_id")
-    assert latest_repeat.get("result") == "registry=complete queue=complete proof=ran=15 failed=0"
+    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
 
     closure_markers = dict(closeout.get("canonical_closure_markers") or {})
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
+    assert closure_markers.get("design_queue_assignment") == "next90-m103-ea-parity-lab frontier=4287684466"
     assert closure_markers.get("queue_package") == "next90-m103-ea-parity-lab status=complete"
     assert closure_markers.get("queue_proof_command") == "python tests/test_chummer5a_parity_lab_pack.py"
     assert closure_markers.get("active_handoff_frontier") == "4287684466 focused_package=next90-m103-ea-parity-lab"
 
     canonical_sources = dict(closeout.get("canonical_successor_sources") or {})
+    assert canonical_sources.get("design_queue") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
     assert canonical_sources.get("active_run_handoff") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     active_prompt_text = _active_handoff_prompt_text()
@@ -229,6 +243,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         "veteran_compare_packs",
     ]
     assert repeat_prevention.get("registry_task_status_required") == "complete"
+    assert repeat_prevention.get("design_queue_assignment_required") == "next90-m103-ea-parity-lab frontier=4287684466"
     assert repeat_prevention.get("queue_package_status_required") == "complete"
     assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
     assert repeat_prevention.get("blocked_helper_guard_test") == "test_successor_closeout_does_not_use_active_run_helper_commands"
