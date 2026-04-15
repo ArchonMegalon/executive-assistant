@@ -83,6 +83,21 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     assert any("docs, tests, feedback, or skills" in item for item in drift_policy)
 
 
+def test_successor_frontier_closeout_prevents_reopening_completed_ea_slice() -> None:
+    pack = _yaml(PACK_PATH)
+    frontier = dict(dict(pack.get("proof_guardrails") or {}).get("successor_frontier") or {})
+    readme = (ROOT / "docs" / "chummer_governor_packets" / "README.md").read_text(encoding="utf-8")
+
+    assert int(frontier.get("frontier_id") or 0) == 1758984842
+    assert frontier.get("local_package_state") == "ea_slice_complete"
+    assert "Sibling Fleet, Hub, Registry, and design-owned milestone 106 packages remain" in str(
+        frontier.get("remaining_work_boundary") or ""
+    )
+    assert "verify this pack and its tests before reopening" in str(frontier.get("repeat_prevention_rule") or "")
+    assert "1758984842" in readme
+    assert "complete for the EA-owned surfaces" in readme
+
+
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
     registry = _yaml(CANONICAL_REGISTRY_PATH)
     milestone = _find_milestone(registry, 106)
