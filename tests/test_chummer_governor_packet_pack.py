@@ -321,6 +321,17 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     ]
     assert verification_history, "closeout manifest should retain successor-wave verification history"
     assert len({str(item.get("note_path") or "") for item in verification_history}) == len(verification_history)
+    forbidden_proof_output_markers = {
+        "TASK_LOCAL_TELEMETRY.generated.json",
+        "operator telemetry stdout",
+        "operator telemetry stderr",
+        "active-run helper stdout",
+        "active-run helper stderr",
+        "active-run helper command output",
+        "run-helper output",
+        "helper command receipt",
+        "telemetry command receipt",
+    }
     for verification in verification_history:
         note_path = ROOT / str(verification.get("note_path") or "")
         assert verification.get("verified_package_id") == "next90-m106-ea-governor-packets"
@@ -329,6 +340,8 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert verification.get("active_run_helper_commands_invoked") == []
         assert verification.get("operator_telemetry_commands_invoked") == []
         assert note_path.exists()
+        note_text = note_path.read_text(encoding="utf-8")
+        assert not any(marker in note_text for marker in forbidden_proof_output_markers), note_path
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
