@@ -178,6 +178,17 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
     assert proof.get("result") == "ran=14 failed=0"
 
+    repeat_verifications = [dict(item) for item in (closeout.get("repeat_verifications") or [])]
+    assert repeat_verifications
+    latest_repeat = repeat_verifications[-1]
+    assert latest_repeat.get("verified_at") >= proof.get("verified_at")
+    assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
+    assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
+    assert latest_repeat.get("package_id") == pack.get("package_id")
+    assert latest_repeat.get("result") == "registry=complete queue=complete proof=ran=14 failed=0"
+    assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
+    assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
+
     closure_markers = dict(closeout.get("canonical_closure_markers") or {})
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
     assert closure_markers.get("queue_package") == "next90-m103-ea-parity-lab status=complete"

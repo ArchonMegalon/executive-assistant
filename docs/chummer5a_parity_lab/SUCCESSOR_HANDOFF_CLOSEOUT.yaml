@@ -29,6 +29,13 @@ proof:
   command: python tests/test_chummer5a_parity_lab_pack.py
   result: ran=14 failed=0
   verified_at: "2026-04-15T10:36:08Z"
+repeat_verifications:
+  - verified_at: "2026-04-15T10:46:45Z"
+    active_handoff_generated_at: "2026-04-15T10:45:43Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Repeated successor-wave assignment verified closed EA scope; do not recapture parity-lab artifacts while canonical registry, queue, proof, and at-least-this-new active handoff remain green.
 canonical_successor_sources:
   registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
