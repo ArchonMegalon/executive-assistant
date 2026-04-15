@@ -55,7 +55,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
     assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
-    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=13 failed=0" in task_evidence
+    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=14 failed=0" in task_evidence
 
     queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
     queue_item = queue_items["next90-m103-ea-parity-lab"]
