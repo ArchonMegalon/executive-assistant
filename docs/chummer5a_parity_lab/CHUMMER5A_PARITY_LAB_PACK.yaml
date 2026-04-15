@@ -33,6 +33,9 @@ oracle_sources:
 readiness_evidence:
   flagship_readiness: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
   flagship_readiness_status: pass
+  flagship_readiness_generated_at: "2026-04-15T08:32:22Z"
+  external_host_proof_status: pass
+  unresolved_external_host_proof_requests: 0
   successor_registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   successor_queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
 notes:

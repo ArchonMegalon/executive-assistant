@@ -16,6 +16,8 @@ VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chumme
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 SUCCESSOR_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+FLAGSHIP_READINESS_PATH = Path("/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json")
+FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-14-chummer5a-parity-lab-package-closeout.md"
 
 
 def _yaml(path: Path) -> dict:
@@ -72,6 +74,32 @@ def test_pack_required_outputs_exist_on_disk() -> None:
         assert row.get("path") == path.relative_to(ROOT).as_posix()
         assert path.exists(), str(path)
         assert row.get("proof_level")
+
+
+def test_pack_readiness_evidence_tracks_green_flagship_packet_without_reopening_closeout() -> None:
+    pack = _yaml(PACK_PATH)
+    readiness = _yaml(FLAGSHIP_READINESS_PATH)
+    evidence = dict(pack.get("readiness_evidence") or {})
+    completion_audit = dict(readiness.get("completion_audit") or {})
+    external_host_proof = dict(readiness.get("external_host_proof") or {})
+
+    assert evidence.get("flagship_readiness") == FLAGSHIP_READINESS_PATH.as_posix()
+    assert evidence.get("flagship_readiness_status") == readiness.get("status") == "pass"
+    assert evidence.get("flagship_readiness_generated_at") == readiness.get("generated_at")
+    assert completion_audit.get("status") == "pass"
+    assert int(completion_audit.get("unresolved_external_proof_request_count") or 0) == 0
+    assert evidence.get("external_host_proof_status") == external_host_proof.get("status") == "pass"
+    assert int(evidence.get("unresolved_external_host_proof_requests", -1)) == int(
+        external_host_proof.get("unresolved_request_count", -1)
+    ) == 0
+
+
+def test_feedback_closeout_no_longer_carries_stale_host_proof_blocker() -> None:
+    text = FEEDBACK_CLOSEOUT_PATH.read_text(encoding="utf-8")
+
+    assert "still required before full `desktop_client` readiness can turn green" not in text
+    assert "must not reopen the closed flagship wave" in text
+    assert "zero unresolved external host-proof requests" in text
 
 
 def test_screenshot_corpus_only_claims_files_that_exist() -> None:
