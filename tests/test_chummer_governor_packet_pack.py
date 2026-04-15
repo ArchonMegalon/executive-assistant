@@ -312,9 +312,9 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert int(latest_verification.get("verified_frontier_id") or 0) == 1758984842
     assert latest_verification.get("result") == "no_ea_owned_work_remaining"
     assert latest_verification.get("proof_command_result") == expected_result
-    assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T14:50:11Z"
+    assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T14:53:54Z"
     assert str(latest_verification.get("active_run_handoff_prompt_path") or "").endswith(
-        "/runs/20260415T144904Z-shard-12/prompt.txt"
+        "/runs/20260415T145245Z-shard-12/prompt.txt"
     )
     assert set(latest_verification.get("checked_authorities") or []) == {
         "canonical successor registry milestone 106 work task 106.2",
