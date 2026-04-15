@@ -113,6 +113,9 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert receipt.get("blocking_reasons") == []
     assert receipt.get("current_limitations") == []
     assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
+    proof = dict(receipt.get("proof") or {})
+    assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
+    assert proof.get("result") == "ran=14 failed=0"
 
 
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
@@ -150,7 +153,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     proof = dict(closeout.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=13 failed=0"
+    assert proof.get("result") == "ran=14 failed=0"
 
     closure_markers = dict(closeout.get("canonical_closure_markers") or {})
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
@@ -180,6 +183,20 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     anti_reopen_rules = "\n".join(str(item) for item in (closeout.get("anti_reopen_rules") or []))
     assert "Do not reopen the closed flagship closeout wave" in anti_reopen_rules
     assert "promoted-head screenshot certification" in anti_reopen_rules
+
+
+def test_successor_handoff_closeout_outputs_stay_inside_assigned_scope() -> None:
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    closure_scope = dict(closeout.get("closure_scope") or {})
+    allowed_roots = tuple(f"{root}/" for root in (closure_scope.get("allowed_paths") or []))
+
+    assert allowed_roots == ("skills/", "tests/", "feedback/", "docs/")
+    for output in closeout.get("completed_outputs") or []:
+        output_path = str(output)
+        assert (
+            output_path.startswith(allowed_roots)
+            or output_path == PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix()
+        ), output_path
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:

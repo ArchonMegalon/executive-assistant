@@ -13,7 +13,7 @@ Frontier: `4287684466`
 
 ## Repo-local proof
 
-- `python tests/test_chummer5a_parity_lab_pack.py` exits `0` with `ran=13 failed=0`.
+- `python tests/test_chummer5a_parity_lab_pack.py` exits `0` with `ran=14 failed=0`.
 - The package manifest, oracle baselines, veteran workflow pack, compare packs, import/export fixture inventory, handoff closeout, and published receipt all remain present under the allowed package paths.
 - Current proof should not reopen the closed flagship wave. Promoted-head veteran certification remains delegated to `next90-m103-ui-veteran-certification`, and design/fleet readiness consumption remains outside this EA package.
 
