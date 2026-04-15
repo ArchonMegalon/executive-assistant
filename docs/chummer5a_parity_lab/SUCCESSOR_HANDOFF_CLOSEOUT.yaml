@@ -182,6 +182,10 @@ local_proof_commits:
     committed_at: "2026-04-15T19:00:48Z"
     subject: Pin M103 EA parity lab proof floor
     purpose: Pins the latest completed-package proof floor into the receipt, handoff closeout, and direct guard so future successor shards verify the closed EA package instead of repeating it.
+  - commit: f252c02
+    committed_at: "2026-04-15T19:05:41Z"
+    subject: Pin M103 latest parity lab proof floor
+    purpose: Pins the latest completed-package proof floor into the receipt, handoff closeout, and direct guard so future successor shards verify the closed EA package instead of repeating it.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
