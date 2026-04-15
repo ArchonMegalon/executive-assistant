@@ -8,6 +8,7 @@ What shipped:
 - Grounded the operator and reporter outputs in the same evidence anchors: weekly pulse, Chummer5a parity-lab pack, feedback release gate, and reporter progress email workflow.
 - Kept reporter `fix_available` fail-closed on `released_to_reporter_channel` plus Registry truth, so EA cannot notify from reproduced bugs, drafted patches, merged PRs, or preview builds.
 - Added package tests that verify the canonical successor registry, staging queue, source files, runtime-safety posture, and EA boundary rules.
+- Tightened the packet with explicit fail-closed posture gates for launch, canary, freeze, rollback, and focus-shift decisions plus reporter stage gates for request receipt, audited decision, and fix-available mail.
 
 What remains:
 - Fleet still owns the landed weekly governor packet runtime and publication surface.

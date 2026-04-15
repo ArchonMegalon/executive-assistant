@@ -75,6 +75,51 @@ operator_packet:
     - feedback_release_gate
     - progress_email_workflow
   output_rule: Operator copy may recommend a governor posture, but Fleet and design remain the decision and canon authorities.
+  posture_gates:
+    launch:
+      required_states:
+        release_health_state:
+          - ready
+        flagship_readiness_state:
+          - ready
+        journey_gate_state:
+          - ready
+        support_closure_state:
+          - clear
+      required_receipts:
+        - registry promotion truth
+        - reporter followthrough gate is satisfied or explicitly not applicable
+      fail_closed_reason: Missing release, readiness, journey, or support truth must downgrade launch to canary, freeze, rollback, or focus_shift.
+    canary:
+      required_states:
+        journey_gate_state:
+          - ready
+          - watch
+        support_closure_state:
+          - clear
+          - monitored
+      required_receipts:
+        - bounded rollout cohort
+        - cited rollback trigger
+      fail_closed_reason: Canary is unavailable when rollout cohort, rollback trigger, or support closure posture is not cited.
+    freeze:
+      required_states: {}
+      required_receipts:
+        - cited blocking signal
+        - next evidence needed
+      fail_closed_reason: Freeze copy must name the blocking signal and the next evidence needed instead of pausing from vague concern.
+    rollback:
+      required_states: {}
+      required_receipts:
+        - promoted tuple or channel affected
+        - rollback or revoke route
+      fail_closed_reason: Rollback copy must cite the affected release truth and the recovery route owned by Registry, Fleet, or Hub.
+    focus_shift:
+      required_states: {}
+      required_receipts:
+        - successor milestone or risk cluster
+        - owner repo and next lane
+      fail_closed_reason: Focus-shift copy must name the successor milestone or risk cluster plus the owner repo that can act.
 reporter_followthrough:
   packet_id: ea-reporter-followthrough-release-truth-2026-04-15
   purpose: Compile reporter-facing progress mail readiness from the same evidence anchors as the operator packet.
@@ -109,6 +154,27 @@ reporter_followthrough:
     - feedback_release_gate
     - progress_email_workflow
   output_rule: Reporter mail can be queued only when Hub-owned case truth and Registry release truth satisfy the mirrored workflow preconditions.
+  stage_gates:
+    request_received:
+      exactly_once_rule: exactly_once_per_case
+      requires_verified_delivery_preference: false
+      required_truth_planes:
+        - Hub support case truth
+      fail_closed_reason: Without case id, kind, reporter summary, and support URL, EA may not fabricate a receipt email.
+    audited_decision:
+      exactly_once_rule: exactly_once_per_decision_change
+      requires_verified_delivery_preference: true
+      required_truth_planes:
+        - Hub support decision truth
+        - design feedback decision award rules
+      fail_closed_reason: Decision mail must include bounded reason, ETA posture, next owner, next lane, and Clad Feedbacker or Denied award state.
+    fix_available:
+      exactly_once_rule: exactly_once_per_reporter_channel_release
+      requires_verified_delivery_preference: true
+      required_truth_planes:
+        - Registry release-channel truth
+        - Hub reporter-channel linkage
+      fail_closed_reason: Fix mail stays blocked until release truth says the fix reached the reporter channel and download or updater route is known.
 runtime_safety:
   do_not_invoke_operator_telemetry_or_active_run_helpers: true
   active_run_helper_commands_invoked: []

@@ -103,6 +103,27 @@ def test_operator_packet_can_explain_all_governor_postures_without_claiming_auth
     assert "Fleet and design remain the decision and canon authorities" in str(operator_packet.get("output_rule") or "")
 
 
+def test_operator_posture_gates_fail_closed_before_launch_or_rollout_claims() -> None:
+    pack = _yaml(PACK_PATH)
+    operator_packet = dict(pack.get("operator_packet") or {})
+    posture_gates = {str(key): dict(value) for key, value in dict(operator_packet.get("posture_gates") or {}).items()}
+
+    assert set(posture_gates) == set(operator_packet.get("decision_postures") or [])
+    launch_gate = posture_gates["launch"]
+    assert launch_gate["required_states"]["release_health_state"] == ["ready"]
+    assert launch_gate["required_states"]["flagship_readiness_state"] == ["ready"]
+    assert launch_gate["required_states"]["journey_gate_state"] == ["ready"]
+    assert launch_gate["required_states"]["support_closure_state"] == ["clear"]
+    assert any("reporter followthrough gate" in item for item in launch_gate["required_receipts"])
+
+    canary_gate = posture_gates["canary"]
+    assert "bounded rollout cohort" in canary_gate["required_receipts"]
+    assert "cited rollback trigger" in canary_gate["required_receipts"]
+    assert "successor milestone or risk cluster" in posture_gates["focus_shift"]["required_receipts"]
+    for gate in posture_gates.values():
+        assert str(gate.get("fail_closed_reason") or "").strip()
+
+
 def test_reporter_followthrough_matches_progress_mail_and_release_gate_contracts() -> None:
     pack = _yaml(PACK_PATH)
     reporter = dict(pack.get("reporter_followthrough") or {})
@@ -124,6 +145,28 @@ def test_reporter_followthrough_matches_progress_mail_and_release_gate_contracts
     assert "no_closure_without_release_truth" in {
         str(dict(item).get("id") or "") for item in release_gate.get("requirements") or []
     }
+
+
+def test_reporter_stage_gates_match_workflow_exactly_once_rules_and_truth_planes() -> None:
+    pack = _yaml(PACK_PATH)
+    reporter = dict(pack.get("reporter_followthrough") or {})
+    workflow = _yaml(PROGRESS_EMAIL_WORKFLOW_PATH)
+    stages = {str(dict(stage).get("id")): dict(stage) for stage in workflow.get("stages") or []}
+    stage_gates = {str(key): dict(value) for key, value in dict(reporter.get("stage_gates") or {}).items()}
+
+    assert set(stage_gates) == set(reporter.get("required_stage_sequence") or [])
+    assert stage_gates["request_received"]["exactly_once_rule"] == "exactly_once_per_case"
+    assert stages["request_received"]["exactly_once_per_case"] is True
+    assert stage_gates["audited_decision"]["exactly_once_rule"] == "exactly_once_per_decision_change"
+    assert stages["audited_decision"]["exactly_once_per_decision_change"] is True
+    assert stage_gates["fix_available"]["exactly_once_rule"] == "exactly_once_per_reporter_channel_release"
+    assert stages["fix_available"]["exactly_once_per_reporter_channel_release"] is True
+
+    assert "Registry release-channel truth" in stage_gates["fix_available"]["required_truth_planes"]
+    assert "Hub reporter-channel linkage" in stage_gates["fix_available"]["required_truth_planes"]
+    assert "download or updater route is known" in stage_gates["fix_available"]["fail_closed_reason"]
+    for gate in stage_gates.values():
+        assert str(gate.get("fail_closed_reason") or "").strip()
 
 
 def test_runtime_safety_records_no_worker_side_telemetry_or_active_run_helpers() -> None:

@@ -16,3 +16,5 @@ The shared evidence anchors are:
 * reporter progress email workflow
 
 Reporter `fix_available` output stays fail-closed until Registry truth says the fix reached the reporter channel. Operator packet copy may recommend launch, freeze, canary, rollback, or focus-shift posture, but Fleet and design retain decision and canon authority.
+
+The packet now carries explicit gates for every operator posture and reporter mail stage. That keeps EA from producing launch, canary, rollback, or fix-available copy from incomplete support, readiness, parity, or release evidence.
