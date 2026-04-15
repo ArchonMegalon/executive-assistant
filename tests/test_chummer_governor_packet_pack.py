@@ -70,6 +70,7 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert pack.get("package_id") == "next90-m106-ea-governor-packets"
     assert int(pack.get("milestone_id") or 0) == 106
     assert pack.get("wave") == "W8"
+    assert pack.get("status") == "task_proven"
     assert list(pack.get("owned_surfaces") or []) == [
         "operator_packets:weekly_governor",
         "reporter_followthrough:release_truth",
@@ -83,6 +84,8 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert queue_item.get("task") == (
         "Produce operator packets and reporter followthrough from the same readiness and parity truth used by the governor loop."
     )
+    assert _yaml(SPECIMENS_PATH).get("status") == pack.get("status")
+    assert _yaml(HANDOFF_CLOSEOUT_PATH).get("status") == "ea_scope_complete"
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 1758984842
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
