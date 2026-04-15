@@ -6,6 +6,17 @@ closed_at: "2026-04-15T09:32:00Z"
 closed_surfaces:
   - parity_lab:capture
   - veteran_compare_packs
+closure_scope:
+  allowed_paths:
+    - skills
+    - tests
+    - feedback
+    - docs
+  package_only: true
+  closed_package_only: next90-m103-ea-parity-lab
+  forbidden_reopen_targets:
+    - flagship_closeout_wave
+    - promoted_head_veteran_certification
 completed_outputs:
   - docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml
   - docs/chummer5a_parity_lab/oracle_baselines.yaml

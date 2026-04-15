@@ -127,6 +127,15 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert closeout.get("status") == "ea_scope_complete"
     assert set(closeout.get("closed_surfaces") or []) == set(pack.get("owned_surfaces") or [])
 
+    closure_scope = dict(closeout.get("closure_scope") or {})
+    assert closure_scope.get("allowed_paths") == ["skills", "tests", "feedback", "docs"]
+    assert closure_scope.get("package_only") is True
+    assert closure_scope.get("closed_package_only") == "next90-m103-ea-parity-lab"
+    assert set(closure_scope.get("forbidden_reopen_targets") or []) == {
+        "flagship_closeout_wave",
+        "promoted_head_veteran_certification",
+    }
+
     completed_outputs = {ROOT / str(path) for path in (closeout.get("completed_outputs") or [])}
     assert {
         PACK_PATH,
