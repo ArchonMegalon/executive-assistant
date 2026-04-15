@@ -146,6 +146,10 @@ local_proof_commits:
     committed_at: "2026-04-15T16:14:52Z"
     subject: Pin M103 parity lab current handoff floor
     purpose: Pins the completed-package proof receipt, handoff closeout, and repeat-prevention test to the 16:10Z handoff proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 1783ee6
+    committed_at: "2026-04-15T16:33:13Z"
+    subject: Tighten M103 parity lab terminal repeat guard
+    purpose: Adds the terminal no-timestamp-chasing policy so newer successor handoffs are assignment context only while canonical registry, queue, completed outputs, and direct proof stay green.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"

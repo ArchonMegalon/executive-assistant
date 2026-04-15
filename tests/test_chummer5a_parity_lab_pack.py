@@ -207,6 +207,7 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         "87ad539",
         "4d186b6",
         "d274b66",
+        "1783ee6",
     } <= set(receipt_proof_commits)
     for commit in receipt_proof_commits:
         subprocess.run(
@@ -219,6 +220,22 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     proof_hygiene = dict(successor_closure.get("proof_hygiene") or {})
     assert proof_hygiene.get("operator_owned_run_helpers_invoked") is False
     assert proof_hygiene.get("operator_owned_helper_output_cited") is False
+
+    terminal_policy = dict(successor_closure.get("terminal_verification_policy") or {})
+    assert terminal_policy.get("status") == "terminal_for_ea_scope"
+    assert terminal_policy.get("latest_required_handoff_floor") == "2026-04-15T16:20:33Z"
+    assert terminal_policy.get("no_timestamp_chasing_required") is True
+    assert terminal_policy.get("no_operator_helper_evidence_allowed") is True
+    assert terminal_policy.get("closed_scope_guard_test") == "test_terminal_verification_policy_stops_timestamp_chasing"
+    assert set(str(item) for item in (terminal_policy.get("allowed_next_work") or [])) == {
+        "next90-m103-ui-veteran-certification",
+        "next90-m103-design-parity-ladder",
+        "next90-m103-fleet-readiness-consumption",
+    }
+    current_or_newer_rule = str(terminal_policy.get("current_or_newer_handoff_rule") or "")
+    assert "assignment context only" in current_or_newer_rule
+    assert "not a reason to edit this EA package" in current_or_newer_rule
+    assert "direct proof command" in current_or_newer_rule
 
 
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:

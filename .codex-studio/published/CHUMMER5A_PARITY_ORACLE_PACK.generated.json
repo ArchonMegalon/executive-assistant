@@ -73,8 +73,22 @@
       "e706014",
       "87ad539",
       "4d186b6",
-      "d274b66"
+      "d274b66",
+      "1783ee6"
     ],
+    "terminal_verification_policy": {
+      "status": "terminal_for_ea_scope",
+      "latest_required_handoff_floor": "2026-04-15T16:20:33Z",
+      "current_or_newer_handoff_rule": "A newer active-run handoff for the same frontier and package is assignment context only; it is not a reason to edit this EA package while canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.",
+      "no_timestamp_chasing_required": true,
+      "no_operator_helper_evidence_allowed": true,
+      "closed_scope_guard_test": "test_terminal_verification_policy_stops_timestamp_chasing",
+      "allowed_next_work": [
+        "next90-m103-ui-veteran-certification",
+        "next90-m103-design-parity-ladder",
+        "next90-m103-fleet-readiness-consumption"
+      ]
+    },
     "proof_hygiene": {
       "operator_owned_run_helpers_invoked": false,
       "operator_owned_helper_output_cited": false
