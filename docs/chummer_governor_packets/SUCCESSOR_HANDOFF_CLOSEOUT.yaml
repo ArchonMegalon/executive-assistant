@@ -30,6 +30,7 @@ completed_outputs:
   - feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md
   - feedback/2026-04-15-ea-governor-packets-dual-queue-proof-guard.md
   - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-111728z.md
+  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md
 proof_command:
   command: python tests/test_chummer_governor_packet_pack.py
   expected_result: ran=17 failed=0
@@ -47,6 +48,7 @@ proof_artifacts:
   - feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md
   - feedback/2026-04-15-ea-governor-packets-dual-queue-proof-guard.md
   - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-111728z.md
+  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md
 canonical_authority:
   successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
@@ -94,3 +96,18 @@ latest_successor_wave_verification:
   note_path: feedback/2026-04-15-ea-governor-packets-successor-wave-pass-1124z.md
   active_run_helper_commands_invoked: []
   operator_telemetry_commands_invoked: []
+additional_successor_wave_verifications:
+  - verified_at: "2026-04-15T11:20:01Z"
+    verified_package_id: next90-m106-ea-governor-packets
+    verified_frontier_id: 1758984842
+    checked_authorities:
+      - canonical successor registry milestone 106 work task 106.2
+      - design successor queue staging row
+      - fleet successor queue staging mirror row
+      - active-run handoff successor frontier assignment
+    result: no_ea_owned_work_remaining
+    proof_command_result: ran=17 failed=0
+    compile_result: pass
+    note_path: feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md
+    active_run_helper_commands_invoked: []
+    operator_telemetry_commands_invoked: []
