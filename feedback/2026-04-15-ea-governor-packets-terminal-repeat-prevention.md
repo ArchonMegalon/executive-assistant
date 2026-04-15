@@ -16,6 +16,7 @@ The closeout gap was not missing packet implementation. It was repeat behavior: 
 Future reopen triggers are limited to real authority or proof drift: registry/queue package changes, packet artifact/test failure, or disappearance/drift of the guarded readiness, parity, feedback, or progress-mail anchors.
 
 The 2026-04-15T16:18:44Z and 2026-04-15T16:22:46Z active-run handoffs were reviewed as the same closed package and frontier. They are recorded only as ignored assignment signals after terminal closeout, not as successor-wave verification history or package proof.
+Later handoffs with the same package id and frontier id are handled the same way by policy without appending per-handoff manifest rows.
 
 Proof:
 

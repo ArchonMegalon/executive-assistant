@@ -333,6 +333,14 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
+    assert (
+        terminal_policy.get("repeated_assignment_handling")
+        == (
+            "Treat later active-run handoffs for the same package id and frontier id as ignored by this "
+            "terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger "
+            "below fires."
+        )
+    )
     assert {
         "canonical successor registry reopens or changes work task 106.2",
         "docs/chummer_governor_packets packet artifacts or tests fail the proof command",
@@ -524,6 +532,9 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert "newer `ACTIVE_RUN_HANDOFF.generated.md` timestamp alone is not a reason" in (
         ROOT / str(terminal_policy.get("proof_note") or "")
     ).read_text(encoding="utf-8")
+    assert "without appending per-handoff manifest rows" in str(
+        terminal_policy.get("repeated_assignment_handling") or ""
+    )
 
     for verification in history:
         assert str(verification.get("verified_at") or "") <= latest_allowed_timestamp_only
