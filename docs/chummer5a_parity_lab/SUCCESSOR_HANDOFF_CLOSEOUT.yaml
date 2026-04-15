@@ -190,6 +190,14 @@ local_proof_commits:
     committed_at: "2026-04-15T19:25:39Z"
     subject: Tighten M103 append-free terminal guard
     purpose: Adds the append-free terminal policy so newer same-package successor assignments verify closure instead of adding more repeat-verification rows while canonical anchors and direct proof stay green.
+  - commit: 4d07436
+    committed_at: "2026-04-15T19:29:05Z"
+    subject: Pin M103 append-free guard proof floor
+    purpose: Pins the append-free terminal guard into the published receipt, closeout, and direct guard so future shards verify the closed EA package instead of repeating it.
+  - commit: a2ae08f
+    committed_at: "2026-04-15T19:35:57Z"
+    subject: Tighten M103 append-free proof floor guard
+    purpose: Tightens the append-free proof floor guard so successor shards require the latest closed-package guard before treating newer same-package assignments as context only.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"

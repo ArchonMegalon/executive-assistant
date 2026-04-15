@@ -229,6 +229,8 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         "94be27c",
         "f252c02",
         "03da40e",
+        "4d07436",
+        "a2ae08f",
     } <= set(receipt_proof_commits)
     for commit in receipt_proof_commits:
         subprocess.run(
@@ -462,9 +464,12 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "do not edit completed EA outputs only to record a newer assignment timestamp" in append_action
 
     local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
-    assert local_proof_commits[-1].get("commit") == "03da40e"
-    assert local_proof_commits[-1].get("subject") == "Tighten M103 append-free terminal guard"
-    assert "append-free terminal policy" in str(local_proof_commits[-1].get("purpose") or "")
+    assert local_proof_commits[-2].get("commit") == "4d07436"
+    assert local_proof_commits[-2].get("subject") == "Pin M103 append-free guard proof floor"
+    assert "append-free terminal guard" in str(local_proof_commits[-2].get("purpose") or "")
+    assert local_proof_commits[-1].get("commit") == "a2ae08f"
+    assert local_proof_commits[-1].get("subject") == "Tighten M103 append-free proof floor guard"
+    assert "append-free proof floor guard" in str(local_proof_commits[-1].get("purpose") or "")
 
     receipt_proof_commits = [
         str(commit)
@@ -472,7 +477,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
             dict(receipt.get("successor_closure") or {}).get("local_proof_commits") or []
         )
     ]
-    assert receipt_proof_commits[-1] == "03da40e"
+    assert receipt_proof_commits[-2:] == ["4d07436", "a2ae08f"]
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
