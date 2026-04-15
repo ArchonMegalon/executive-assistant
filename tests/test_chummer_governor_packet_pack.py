@@ -53,12 +53,20 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
         "reporter_followthrough:release_truth",
     ]
     assert queue_item.get("repo") == "executive-assistant"
+    assert queue_item.get("status") == "complete"
     assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
     assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
     assert queue_item.get("title") == "Synthesize parity, support, and release signals into operator-ready and reporter-ready packets"
     assert queue_item.get("task") == (
         "Produce operator packets and reporter followthrough from the same readiness and parity truth used by the governor loop."
     )
+    assert {
+        "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+        "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+        "/docker/EA/tests/test_chummer_governor_packet_pack.py",
+        "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
+        "python tests/test_chummer_governor_packet_pack.py",
+    } <= {str(item) for item in queue_item.get("proof") or []}
 
 
 def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
