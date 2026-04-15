@@ -7,6 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK_PATH = ROOT / "docs" / "chummer_governor_packets" / "CHUMMER_GOVERNOR_PACKET_PACK.yaml"
+SPECIMENS_PATH = ROOT / "docs" / "chummer_governor_packets" / "OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml"
 CANONICAL_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 PROGRESS_EMAIL_WORKFLOW_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml"
@@ -176,3 +177,38 @@ def test_runtime_safety_records_no_worker_side_telemetry_or_active_run_helpers()
     assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
     assert runtime_safety.get("active_run_helper_commands_invoked") == []
     assert runtime_safety.get("operator_telemetry_commands_invoked") == []
+
+
+def test_specimens_project_operator_and_reporter_packets_from_same_anchors() -> None:
+    pack = _yaml(PACK_PATH)
+    specimens = _yaml(SPECIMENS_PATH)
+
+    shared_anchors = set(pack.get("shared_evidence_anchor_ids") or [])
+    assert specimens.get("package_id") == pack.get("package_id")
+    assert int(specimens.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
+    assert set(specimens.get("shared_evidence_anchor_ids") or []) == shared_anchors
+    assert set(dict(specimens.get("shared_evidence_bindings") or {})) == shared_anchors
+    assert specimens["operator_packet_specimen"]["packet_kind"] == "operator_packets:weekly_governor"
+    assert specimens["reporter_followthrough_specimen"]["packet_kind"] == "reporter_followthrough:release_truth"
+    assert set(specimens["operator_packet_specimen"]["specimen_payload"]["cited_signal_ids"]) == shared_anchors
+
+
+def test_specimens_keep_reporter_fix_available_release_truth_fail_closed() -> None:
+    specimens = _yaml(SPECIMENS_PATH)
+    reporter = dict(specimens.get("reporter_followthrough_specimen") or {})
+    stages = {str(key): dict(value) for key, value in dict(reporter.get("specimen_stage_payloads") or {}).items()}
+    fix_available = stages["fix_available"]
+
+    assert list(reporter.get("required_stage_sequence") or []) == ["request_received", "audited_decision", "fix_available"]
+    assert reporter["sender_identity"]["from_email"] == "wageslave@chummer.run"
+    assert reporter["sender_identity"]["reply_to"] == "support@chummer.run"
+    assert fix_available["allowed_trigger_statuses"] == ["released_to_reporter_channel"]
+    assert fix_available["release_truth_required"] is True
+    assert "Registry release-channel truth" in fix_available["required_truth_planes"]
+    assert "Hub reporter-channel linkage" in fix_available["required_truth_planes"]
+    assert set(fix_available["forbidden_resolution_sources"]) == {
+        "reproduced_bug",
+        "drafted_patch",
+        "merged_pr",
+        "preview_build",
+    }

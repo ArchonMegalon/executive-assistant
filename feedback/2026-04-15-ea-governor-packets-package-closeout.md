@@ -9,6 +9,7 @@ What shipped:
 - Kept reporter `fix_available` fail-closed on `released_to_reporter_channel` plus Registry truth, so EA cannot notify from reproduced bugs, drafted patches, merged PRs, or preview builds.
 - Added package tests that verify the canonical successor registry, staging queue, source files, runtime-safety posture, and EA boundary rules.
 - Tightened the packet with explicit fail-closed posture gates for launch, canary, freeze, rollback, and focus-shift decisions plus reporter stage gates for request receipt, audited decision, and fix-available mail.
+- Added `docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml` so future shards can see the handoff-ready operator and reporter packet shapes compiled from the same evidence anchors instead of repeating the synthesis work.
 
 What remains:
 - Fleet still owns the landed weekly governor packet runtime and publication surface.

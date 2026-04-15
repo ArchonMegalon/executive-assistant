@@ -7,6 +7,7 @@ The pack does not make EA a release authority or support-case database. It defin
 Current contract artifact:
 
 * `CHUMMER_GOVERNOR_PACKET_PACK.yaml`
+* `OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml`
 
 The shared evidence anchors are:
 
@@ -18,3 +19,5 @@ The shared evidence anchors are:
 Reporter `fix_available` output stays fail-closed until Registry truth says the fix reached the reporter channel. Operator packet copy may recommend launch, freeze, canary, rollback, or focus-shift posture, but Fleet and design retain decision and canon authority.
 
 The packet now carries explicit gates for every operator posture and reporter mail stage. That keeps EA from producing launch, canary, rollback, or fix-available copy from incomplete support, readiness, parity, or release evidence.
+
+`OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml` is the handoff-ready projection shape: it shows the operator packet and reporter followthrough payloads using the same evidence anchors, while keeping Fleet, Hub, Registry, and design as the owning truth planes.
