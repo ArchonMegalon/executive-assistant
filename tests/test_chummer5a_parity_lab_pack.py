@@ -14,6 +14,8 @@ FIXTURE_INVENTORY_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "import_export
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
+SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+SUCCESSOR_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 
 
 def _yaml(path: Path) -> dict:
@@ -28,6 +30,30 @@ def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     assert pack.get("package_id") == "next90-m103-ea-parity-lab"
     assert int(pack.get("milestone_id") or 0) == 103
     assert list(pack.get("owned_surfaces") or []) == ["parity_lab:capture", "veteran_compare_packs"]
+
+
+def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
+    pack = _yaml(PACK_PATH)
+    registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
+
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    milestone = milestones[103]
+    assert milestone.get("title") == "Chummer5a parity lab and veteran migration certification"
+    assert milestone.get("wave") == "W7"
+    assert "executive-assistant" in set(milestone.get("owners") or [])
+    assert 101 in set(milestone.get("dependencies") or [])
+    assert 102 in set(milestone.get("dependencies") or [])
+    assert any(dict(task).get("id") == 103.1 for task in (milestone.get("work_tasks") or []))
+
+    queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
+    queue_item = queue_items["next90-m103-ea-parity-lab"]
+    assert queue_item.get("repo") == "executive-assistant"
+    assert int(queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
+    assert queue_item.get("wave") == milestone.get("wave")
+    assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+    assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
+    assert queue_item.get("title") == "Extract Chummer5a oracle baselines and veteran workflow packs"
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
