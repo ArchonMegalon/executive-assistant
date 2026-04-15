@@ -29,6 +29,7 @@ Proof boundary:
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` carries repeat-prevention markers for successor frontier `4287684466`; future workers should treat the EA slice as closed while the canonical registry, queue staging packet, completed outputs, and proof command still agree.
 - The closeout is also bound to the active run handoff focus for frontier `4287684466` and package `next90-m103-ea-parity-lab`, so a repeated worker should verify that evidence plus canonical registry and queue closure before moving on to delegated non-EA M103 work instead of recapturing EA artifacts.
 - The active handoff timestamp guard is a minimum generated-at value, not an exact-value trap; a newer handoff stays valid, while an older handoff cannot be used to justify repeating the EA extraction work.
+- Newer same-package assignments should not add more repeat-verification rows while the canonical registry, design queue, Fleet queue, completed outputs, terminal policy, and direct proof command remain green.
 
 Verification:
 

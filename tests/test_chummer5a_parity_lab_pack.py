@@ -437,6 +437,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "minimum generated-at value" in readme_text
     assert "not an exact-value trap" in readme_text
     assert "newer handoff stays valid" in readme_text
+    assert "should not add more repeat-verification rows" in readme_text
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
     assert allowed_next_work == {
@@ -444,6 +445,20 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
         "next90-m103-design-parity-ladder",
         "next90-m103-fleet-readiness-consumption",
     }
+
+    append_policy = dict(closeout.get("repeat_row_append_policy") or {})
+    assert append_policy.get("status") == "closed_append_free"
+    assert append_policy.get("do_not_append_for_newer_same_package_handoffs") is True
+    assert set(str(item) for item in (append_policy.get("append_only_when") or [])) == {
+        "canonical_successor_registry_task_103_1_stops_reporting_complete",
+        "design_or_fleet_queue_row_stops_reporting_complete_for_frontier_4287684466",
+        "completed_output_or_source_pointer_missing",
+        "direct_proof_command_fails",
+        "terminal_verification_policy_removed_or_weakened",
+    }
+    append_action = str(append_policy.get("worker_action") or "")
+    assert "move to allowed_next_work" in append_action
+    assert "do not edit completed EA outputs only to record a newer assignment timestamp" in append_action
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:

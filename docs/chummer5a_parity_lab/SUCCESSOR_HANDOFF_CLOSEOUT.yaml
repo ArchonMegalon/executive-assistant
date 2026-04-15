@@ -556,6 +556,16 @@ terminal_verification_policy:
     - next90-m103-ui-veteran-certification
     - next90-m103-design-parity-ladder
     - next90-m103-fleet-readiness-consumption
+repeat_row_append_policy:
+  status: closed_append_free
+  do_not_append_for_newer_same_package_handoffs: true
+  append_only_when:
+    - canonical_successor_registry_task_103_1_stops_reporting_complete
+    - design_or_fleet_queue_row_stops_reporting_complete_for_frontier_4287684466
+    - completed_output_or_source_pointer_missing
+    - direct_proof_command_fails
+    - terminal_verification_policy_removed_or_weakened
+  worker_action: Verify the canonical anchors and direct proof, then move to allowed_next_work; do not edit completed EA outputs only to record a newer assignment timestamp.
 remaining_non_ea_work:
   - package_id: next90-m103-ui-veteran-certification
     owner: chummer6-ui
