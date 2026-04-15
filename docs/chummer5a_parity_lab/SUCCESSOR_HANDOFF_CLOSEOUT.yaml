@@ -43,6 +43,10 @@ repeat_prevention:
   successor_frontier_id: 4287684466
   already_closed_when_seen_at: "2026-04-15T09:52:00Z"
   active_handoff_verified_at: "2026-04-15T10:23:10Z"
+  active_handoff_status_required: complete
+  active_handoff_owned_surfaces_required:
+    - parity_lab:capture
+    - veteran_compare_packs
   registry_task_status_required: complete
   queue_package_status_required: complete
   worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging packet, completed outputs, and proof command all still pass; advance only delegated non-EA follow-up packages from here.

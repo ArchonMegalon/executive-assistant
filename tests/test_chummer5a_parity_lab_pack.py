@@ -169,10 +169,17 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert "Mode: successor_wave" in active_handoff_text
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "next90-m103-ea-parity-lab" in active_handoff_text
+    assert "Extract Chummer5a oracle baselines and veteran workflow packs (status: complete;" in active_handoff_text
+    assert "Own and prove the surface slice(s): parity_lab:capture, veteran_compare_packs" in active_handoff_text
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
     assert repeat_prevention.get("active_handoff_verified_at") == "2026-04-15T10:23:10Z"
+    assert repeat_prevention.get("active_handoff_status_required") == "complete"
+    assert repeat_prevention.get("active_handoff_owned_surfaces_required") == [
+        "parity_lab:capture",
+        "veteran_compare_packs",
+    ]
     assert repeat_prevention.get("registry_task_status_required") == "complete"
     assert repeat_prevention.get("queue_package_status_required") == "complete"
     assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
