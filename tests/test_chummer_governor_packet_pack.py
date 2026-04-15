@@ -12,6 +12,7 @@ CANONICAL_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/
 QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 PROGRESS_EMAIL_WORKFLOW_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml"
 FEEDBACK_RELEASE_GATE_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_LOOP_RELEASE_GATE.yaml"
+FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-15-ea-governor-packets-package-closeout.md"
 
 
 def _yaml(path: Path) -> dict:
@@ -205,6 +206,16 @@ def test_runtime_safety_records_no_worker_side_telemetry_or_active_run_helpers()
     assert runtime_safety.get("operator_telemetry_commands_invoked") == []
 
 
+def test_feedback_closeout_marks_ea_slice_complete_without_closing_sibling_work() -> None:
+    closeout = FEEDBACK_CLOSEOUT_PATH.read_text(encoding="utf-8")
+
+    assert "Package: next90-m106-ea-governor-packets" in closeout
+    assert "operator_packets:weekly_governor" in closeout
+    assert "reporter_followthrough:release_truth" in closeout
+    assert "None inside the EA-owned package surfaces" in closeout
+    assert "Sibling milestone 106 work remains" in closeout
+
+
 def test_specimens_project_operator_and_reporter_packets_from_same_anchors() -> None:
     pack = _yaml(PACK_PATH)
     specimens = _yaml(SPECIMENS_PATH)
@@ -268,3 +279,23 @@ def test_specimens_keep_reporter_fix_available_release_truth_fail_closed() -> No
         "merged_pr",
         "preview_build",
     }
+
+
+def _run_direct() -> int:
+    failed = 0
+    ran = 0
+    for name, func in sorted(globals().items()):
+        if not name.startswith("test_") or not callable(func):
+            continue
+        ran += 1
+        try:
+            func()
+        except Exception as exc:
+            failed += 1
+            print(f"FAIL {name}: {exc}")
+    print(f"ran={ran} failed={failed}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_direct())
