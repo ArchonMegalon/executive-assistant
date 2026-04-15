@@ -34,6 +34,10 @@ local_proof_commits:
     committed_at: "2026-04-15T14:04:20Z"
     subject: Tighten M103 parity lab repeat guard
     purpose: Pins the completed EA package against canonical registry, design queue, Fleet queue, direct proof, and blocked operator-helper proof hygiene.
+  - commit: 528c278
+    committed_at: "2026-04-15T14:11:07Z"
+    subject: Tighten M103 parity lab proof hygiene guard
+    purpose: Extends the blocked-helper guard to the canonical M103 registry, design queue, and Fleet queue proof rows so the closed EA package cannot be re-proven with operator-owned helper output.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
