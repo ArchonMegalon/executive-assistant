@@ -122,6 +122,16 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         "compare_packs": True,
         "import_export_fixture_inventory": True,
     }
+    output_paths = dict(receipt.get("output_paths") or {})
+    assert output_paths == {
+        "screenshot_corpora": ORACLE_BASELINES_PATH.relative_to(ROOT).as_posix(),
+        "workflow_maps": WORKFLOW_PACK_PATH.relative_to(ROOT).as_posix(),
+        "compare_packs": COMPARE_PACKS_PATH.relative_to(ROOT).as_posix(),
+        "import_export_fixture_inventory": FIXTURE_INVENTORY_PATH.relative_to(ROOT).as_posix(),
+        "handoff_closeout": HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
+    }
+    for output_path in output_paths.values():
+        assert (ROOT / str(output_path)).exists(), output_path
     assert receipt.get("blocking_reasons") == []
     assert receipt.get("current_limitations") == []
     assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
@@ -184,8 +194,8 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
-    assert repeat_prevention.get("active_handoff_verified_at") == "2026-04-15T10:29:24Z"
-    assert repeat_prevention.get("active_handoff_min_generated_at") == "2026-04-15T10:29:24Z"
+    assert repeat_prevention.get("active_handoff_verified_at") == "2026-04-15T10:36:08Z"
+    assert repeat_prevention.get("active_handoff_min_generated_at") == "2026-04-15T10:36:08Z"
     assert _active_handoff_generated_at() >= str(repeat_prevention.get("active_handoff_min_generated_at") or "")
     assert repeat_prevention.get("active_handoff_focus_required") == "next90-m103-ea-parity-lab"
     assert repeat_prevention.get("active_handoff_owned_surfaces_required") == [
