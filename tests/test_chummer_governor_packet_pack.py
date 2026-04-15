@@ -312,9 +312,9 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert int(latest_verification.get("verified_frontier_id") or 0) == 1758984842
     assert latest_verification.get("result") == "no_ea_owned_work_remaining"
     assert latest_verification.get("proof_command_result") == expected_result
-    assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T15:05:54Z"
+    assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T15:13:15Z"
     assert str(latest_verification.get("active_run_handoff_prompt_path") or "").endswith(
-        "/runs/20260415T150442Z-shard-12/prompt.txt"
+        "/runs/20260415T151205Z-shard-12/prompt.txt"
     )
     assert set(latest_verification.get("checked_authorities") or []) == {
         "canonical successor registry milestone 106 work task 106.2",
@@ -336,6 +336,11 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     ]
     assert verification_history, "closeout manifest should retain successor-wave verification history"
     assert len({str(item.get("note_path") or "") for item in verification_history}) == len(verification_history)
+    assert verification_history == sorted(
+        verification_history,
+        key=lambda item: str(item.get("verified_at") or ""),
+        reverse=True,
+    )
     forbidden_proof_output_markers = {
         "TASK_LOCAL_TELEMETRY.generated.json",
         "operator telemetry stdout",
@@ -356,6 +361,8 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert verification.get("active_run_helper_commands_invoked") == []
         assert verification.get("operator_telemetry_commands_invoked") == []
         assert note_path.exists()
+        assert str(verification.get("note_path") or "") in completed_outputs
+        assert str(verification.get("note_path") or "") in proof_artifacts
         note_text = note_path.read_text(encoding="utf-8")
         assert not any(marker in note_text for marker in forbidden_proof_output_markers), note_path
 
