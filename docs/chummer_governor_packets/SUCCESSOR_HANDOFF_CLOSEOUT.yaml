@@ -153,6 +153,7 @@ terminal_verification_policy:
   timestamp_only_handoff_refreshes_are_proof: false
   successor_wave_verification_history_closed: true
   latest_allowed_timestamp_only_verification_at: "2026-04-15T15:13:15Z"
+  post_terminal_proof_command_result_required: ran=19 failed=0
   current_worker_rule: Do not append a new successor-wave verification note solely because ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp for the same closed frontier; run the proof command and cite the terminal closeout instead.
   repeated_assignment_handling: Treat later active-run handoffs for the same package id and frontier id as ignored by this terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger below fires.
   ignored_assignment_rule:

@@ -346,6 +346,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert terminal_policy.get("timestamp_only_handoff_refreshes_are_proof") is False
     assert terminal_policy.get("successor_wave_verification_history_closed") is True
     assert terminal_policy.get("latest_allowed_timestamp_only_verification_at") == "2026-04-15T15:13:15Z"
+    assert terminal_policy.get("post_terminal_proof_command_result_required") == _expected_direct_runner_result()
     assert "Do not append a new successor-wave verification note solely because" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
@@ -500,10 +501,12 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     ]
     terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
     latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
+    post_terminal_result = str(terminal_policy.get("post_terminal_proof_command_result_required") or "")
     successor_wave_pass_notes = sorted(
         (ROOT / "feedback").glob("2026-04-15-ea-governor-packets-successor-wave-pass-*.md")
     )
     assert verification_history, "closeout manifest should retain successor-wave verification history"
+    assert post_terminal_result == expected_result
     assert len({str(item.get("note_path") or "") for item in verification_history}) == len(verification_history)
     assert verification_history == sorted(
         verification_history,
@@ -549,6 +552,8 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert int(verification.get("verified_frontier_id") or 0) == 1758984842
         assert verification.get("result") == "no_ea_owned_work_remaining"
         assert verification.get("proof_command_result") in historical_results
+        if str(verification.get("verified_at") or "") > latest_allowed_timestamp_only:
+            assert verification.get("proof_command_result") == post_terminal_result
         assert verification.get("active_run_helper_commands_invoked") == []
         assert verification.get("operator_telemetry_commands_invoked") == []
         assert note_path.exists()
