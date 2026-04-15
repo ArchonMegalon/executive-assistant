@@ -341,21 +341,39 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     ignored_signals = [
         dict(item) for item in terminal_policy.get("ignored_assignment_signals_after_terminal") or []
     ]
-    assert ignored_signals == [
-        {
-            "active_run_handoff_generated_at": "2026-04-15T16:18:44Z",
-            "active_run_handoff_prompt_path": (
+    ignored_signal_keys = {
+        (
+            str(item.get("active_run_handoff_generated_at") or ""),
+            str(item.get("active_run_handoff_prompt_path") or ""),
+        )
+        for item in ignored_signals
+    }
+    assert {
+        (
+            "2026-04-15T16:18:44Z",
+            (
                 "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
                 "20260415T161733Z-shard-12/prompt.txt"
             ),
-            "reason": (
-                "Current shard assignment repeated the same closed package and frontier after terminal closeout; "
-                "it is not EA-owned implementation evidence and must not append another successor-wave proof note."
+        ),
+        (
+            "2026-04-15T16:22:46Z",
+            (
+                "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+                "20260415T162141Z-shard-12/prompt.txt"
             ),
-            "active_run_helper_commands_invoked": [],
-            "operator_telemetry_commands_invoked": [],
-        }
-    ]
+        ),
+    } <= ignored_signal_keys
+    assert all(
+        str(item.get("reason") or "")
+        == (
+            "Current shard assignment repeated the same closed package and frontier after terminal closeout; "
+            "it is not EA-owned implementation evidence and must not append another successor-wave proof note."
+        )
+        for item in ignored_signals
+    )
+    assert all(item.get("active_run_helper_commands_invoked") == [] for item in ignored_signals)
+    assert all(item.get("operator_telemetry_commands_invoked") == [] for item in ignored_signals)
 
     runtime_safety = dict(handoff.get("runtime_safety") or {})
     assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
@@ -564,9 +582,11 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert all(str(item.get("reason") or "").endswith("must not append another successor-wave proof note.") for item in ignored_signals)
     assert all(item.get("active_run_helper_commands_invoked") == [] for item in ignored_signals)
     assert all(item.get("operator_telemetry_commands_invoked") == [] for item in ignored_signals)
-    assert not any("161733Z-shard-12" in item for item in completed_outputs)
-    assert not any("161733Z-shard-12" in item for item in proof_artifacts)
-    assert not any("161733Z-shard-12" in item for item in canonical_evidence)
+    for ignored_prompt_path in ignored_prompt_paths:
+        run_id = Path(ignored_prompt_path).parts[-2]
+        assert not any(run_id in item for item in completed_outputs)
+        assert not any(run_id in item for item in proof_artifacts)
+        assert not any(run_id in item for item in canonical_evidence)
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
