@@ -36,6 +36,15 @@ def _active_handoff_generated_at() -> str:
     return match.group(1)
 
 
+def _active_handoff_prompt_text() -> str:
+    text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    match = re.search(r"^- Prompt path:\s*(\S+)", text, re.MULTILINE)
+    assert match, "active handoff missing prompt path"
+    prompt_path = Path(match.group(1))
+    assert prompt_path.exists(), str(prompt_path)
+    return prompt_path.read_text(encoding="utf-8")
+
+
 def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
 
@@ -198,13 +207,15 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     canonical_sources = dict(closeout.get("canonical_successor_sources") or {})
     assert canonical_sources.get("active_run_handoff") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    active_prompt_text = _active_handoff_prompt_text()
     assert "Mode: successor_wave" in active_handoff_text
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "next90-m103-ea-parity-lab" in active_handoff_text
-    assert '"package_id": "next90-m103-ea-parity-lab"' in active_handoff_text
-    assert '"parity_lab:capture"' in active_handoff_text
-    assert '"veteran_compare_packs"' in active_handoff_text
     assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_handoff_text
+    assert '"package_id": "next90-m103-ea-parity-lab"' in active_prompt_text
+    assert '"parity_lab:capture"' in active_prompt_text
+    assert '"veteran_compare_packs"' in active_prompt_text
+    assert "do not reopen the closed flagship wave" in active_prompt_text
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
