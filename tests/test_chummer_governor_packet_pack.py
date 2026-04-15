@@ -281,6 +281,8 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     handoff_review = dict(handoff.get("active_run_handoff_review") or {})
     latest_verification = dict(handoff.get("latest_successor_wave_verification") or {})
     latest_note_path = ROOT / str(latest_verification.get("note_path") or "")
+    completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
 
     assert handoff_review.get("reviewed_package_id") == "next90-m106-ea-governor-packets"
     assert handoff_review.get("worker_safety_instruction_seen") is True
@@ -304,9 +306,25 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert latest_verification.get("active_run_helper_commands_invoked") == []
     assert latest_verification.get("operator_telemetry_commands_invoked") == []
     assert latest_note_path.exists()
+    assert str(latest_verification.get("note_path") or "") in completed_outputs
+    assert str(latest_verification.get("note_path") or "") in proof_artifacts
     latest_note = latest_note_path.read_text(encoding="utf-8")
     assert "No operator telemetry or active-run helper commands were invoked" in latest_note
     assert "No EA-owned work remains" in latest_note
+
+    verification_history = [latest_verification] + [
+        dict(item) for item in handoff.get("additional_successor_wave_verifications") or []
+    ]
+    assert verification_history, "closeout manifest should retain successor-wave verification history"
+    assert len({str(item.get("note_path") or "") for item in verification_history}) == len(verification_history)
+    for verification in verification_history:
+        note_path = ROOT / str(verification.get("note_path") or "")
+        assert verification.get("verified_package_id") == "next90-m106-ea-governor-packets"
+        assert int(verification.get("verified_frontier_id") or 0) == 1758984842
+        assert verification.get("result") == "no_ea_owned_work_remaining"
+        assert verification.get("active_run_helper_commands_invoked") == []
+        assert verification.get("operator_telemetry_commands_invoked") == []
+        assert note_path.exists()
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
