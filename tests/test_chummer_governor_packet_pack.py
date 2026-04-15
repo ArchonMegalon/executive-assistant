@@ -70,6 +70,16 @@ def _timestamp_suffix_from_repeat_note(note_path: str) -> str:
     return suffix if suffix.isdigit() else ""
 
 
+def _strings(value: object) -> list[str]:
+    if isinstance(value, dict):
+        return [item for child in value.values() for item in _strings(child)]
+    if isinstance(value, list):
+        return [item for child in value for item in _strings(child)]
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
@@ -750,11 +760,45 @@ def test_reporter_stage_gates_match_workflow_exactly_once_rules_and_truth_planes
 
 def test_runtime_safety_records_no_worker_side_telemetry_or_active_run_helpers() -> None:
     pack = _yaml(PACK_PATH)
+    specimens = _yaml(SPECIMENS_PATH)
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
+    registry_task = _find_registry_task(_find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106), 106.2)
     runtime_safety = dict(pack.get("runtime_safety") or {})
+    forbidden_proof_output_markers = {
+        "task_local_telemetry.generated.json",
+        "operator telemetry stdout",
+        "operator telemetry stderr",
+        "active-run helper stdout",
+        "active-run helper stderr",
+        "active-run helper command output",
+        "run-helper output",
+        "helper command receipt",
+        "telemetry command receipt",
+    }
 
     assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
     assert runtime_safety.get("active_run_helper_commands_invoked") == []
     assert runtime_safety.get("operator_telemetry_commands_invoked") == []
+    assert dict(specimens.get("runtime_safety") or {}).get("active_run_helper_commands_invoked") == []
+    assert dict(specimens.get("runtime_safety") or {}).get("operator_telemetry_commands_invoked") == []
+    assert dict(handoff.get("runtime_safety") or {}).get("active_run_helper_commands_invoked") == []
+    assert dict(handoff.get("runtime_safety") or {}).get("operator_telemetry_commands_invoked") == []
+
+    canonical_and_local_proof_strings = [
+        *_strings(pack),
+        *_strings(specimens),
+        *_strings(handoff),
+        *[str(item) for item in queue_item.get("proof") or []],
+        *[str(item) for item in design_queue_item.get("proof") or []],
+        *[str(item) for item in registry_task.get("evidence") or []],
+    ]
+    assert not any(
+        marker in item.lower()
+        for item in canonical_and_local_proof_strings
+        for marker in forbidden_proof_output_markers
+    )
 
 
 def test_feedback_closeout_marks_ea_slice_complete_without_closing_sibling_work() -> None:
