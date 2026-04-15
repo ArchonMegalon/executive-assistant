@@ -375,10 +375,14 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     } == {str(item) for item in ignored_assignment_rule.get("do_not_add_to") or []}
     assert ignored_assignment_rule.get("active_run_helper_commands_invoked") == []
     assert ignored_assignment_rule.get("operator_telemetry_commands_invoked") == []
+    allowed_reopen_triggers = {str(item) for item in terminal_policy.get("allowed_reopen_triggers") or []}
     assert {
         "canonical successor registry reopens or changes work task 106.2",
+        "design or Fleet successor queue row changes package id, frontier id, repo, allowed paths, owned surfaces, status, or required proof entries",
         "docs/chummer_governor_packets packet artifacts or tests fail the proof command",
-    } <= {str(item) for item in terminal_policy.get("allowed_reopen_triggers") or []}
+        "mirrored progress email workflow, feedback release gate, parity pack, or weekly pulse anchors disappear or drift from the guarded contract",
+    } <= allowed_reopen_triggers
+    assert not any("active-run" in item.lower() and "timestamp" in item.lower() for item in allowed_reopen_triggers)
     assert terminal_policy.get("proof_note") == (
         "feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md"
     )
