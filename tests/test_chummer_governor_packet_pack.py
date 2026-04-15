@@ -376,7 +376,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         for item in verification_history
     )
     forbidden_proof_output_markers = {
-        "TASK_LOCAL_TELEMETRY.generated.json",
+        "task_local_telemetry.generated.json",
         "operator telemetry stdout",
         "operator telemetry stderr",
         "active-run helper stdout",
@@ -397,7 +397,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert note_path.exists()
         assert str(verification.get("note_path") or "") in completed_outputs
         assert str(verification.get("note_path") or "") in proof_artifacts
-        note_text = note_path.read_text(encoding="utf-8")
+        note_text = note_path.read_text(encoding="utf-8").lower()
         assert not any(marker in note_text for marker in forbidden_proof_output_markers), note_path
 
 
