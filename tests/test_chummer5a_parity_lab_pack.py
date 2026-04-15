@@ -79,6 +79,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     queue_item = queue_items["next90-m103-ea-parity-lab"]
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
+    assert int(queue_item.get("frontier_id") or 0) == 4287684466
     assert int(queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
     assert queue_item.get("wave") == milestone.get("wave")
     assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
@@ -237,9 +238,9 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert task_103_1.get("status") == repeat_prevention.get("registry_task_status_required") == "complete"
 
     queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
-    assert queue_items["next90-m103-ea-parity-lab"].get("status") == repeat_prevention.get(
-        "queue_package_status_required"
-    ) == "complete"
+    queue_item = queue_items["next90-m103-ea-parity-lab"]
+    assert int(queue_item.get("frontier_id") or 0) == int(repeat_prevention.get("successor_frontier_id") or 0)
+    assert queue_item.get("status") == repeat_prevention.get("queue_package_status_required") == "complete"
 
     remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
     assert "executive-assistant" not in remaining
