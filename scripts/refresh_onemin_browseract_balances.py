@@ -15,13 +15,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = ROOT / "ea"
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
+
 from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 from app.services import responses_upstream as upstream
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_execution_common import ToolExecutionError
 
 
-ROOT = Path(__file__).resolve().parents[1]
 LEDGER_CANDIDATES = (
     ROOT / "config" / "onemin_slot_owners.local.json",
     ROOT / "config" / "onemin_slot_owners.json",
@@ -172,12 +176,94 @@ def _effective_worker_env() -> dict[str, str]:
 
 def _failure_code_from_exception(exc: Exception) -> str:
     lowered = str(exc or "").strip().lower()
+    if "unable to find image" in lowered and "chummer-playwright" in lowered:
+        return "playwright_image_missing"
+    if "pull access denied" in lowered and "chummer-playwright" in lowered:
+        return "playwright_image_missing"
+    if "cannot find module 'playwright'" in lowered or 'cannot find module "playwright"' in lowered:
+        return "playwright_module_missing"
+    if "cannot connect to the docker daemon" in lowered:
+        return "docker_unavailable"
+    if "no space left on device" in lowered:
+        return "disk_full"
     marker = "ui_lane_failure:"
     if marker in lowered:
         parts = [part for part in lowered.split(marker, 1)[1].split(":") if part]
         if parts:
             return parts[-1]
     return lowered or "worker_failed"
+
+
+def _response_failure_detail(response: dict[str, Any]) -> str:
+    structured = response.get("structured_output_json") if isinstance(response, dict) else {}
+    structured = structured if isinstance(structured, dict) else {}
+    fragments: list[str] = []
+    for key in ("error", "body_text", "raw_text", "stderr_tail", "stdout_tail"):
+        value = str(response.get(key) or "").strip()
+        if value:
+            fragments.append(value)
+    for key in ("errors", "warnings"):
+        values = response.get(key)
+        if isinstance(values, list):
+            fragments.extend(str(value or "").strip() for value in values if str(value or "").strip())
+    for key in ("errors", "warnings"):
+        values = structured.get(key)
+        if isinstance(values, list):
+            fragments.extend(str(value or "").strip() for value in values if str(value or "").strip())
+    return "\n".join(fragments).strip()
+
+
+def _failure_code_from_response(response: dict[str, Any]) -> str:
+    structured = response.get("structured_output_json") if isinstance(response, dict) else {}
+    structured = structured if isinstance(structured, dict) else {}
+    explicit = str(
+        response.get("ui_failure_code")
+        or response.get("failure_code")
+        or structured.get("ui_failure_code")
+        or structured.get("failure_code")
+        or ""
+    ).strip().lower()
+    if explicit:
+        return explicit
+    detail = _response_failure_detail(response)
+    if detail:
+        return _failure_code_from_exception(Exception(detail))
+    return "worker_failed"
+
+
+def _failed_worker_response_result(
+    record: AccountRecord,
+    *,
+    response: dict[str, Any],
+    duration_seconds: float,
+    worker_returncode: int,
+) -> dict[str, Any] | None:
+    structured = response.get("structured_output_json") if isinstance(response, dict) else {}
+    structured = structured if isinstance(structured, dict) else {}
+    render_status = str(response.get("render_status") or structured.get("render_status") or "").strip().lower()
+    if render_status not in {"failed", "worker_failed"}:
+        return None
+    failure_code = _failure_code_from_response(response)
+    ui_failure_codes = {
+        "auth_request_failed",
+        "challenge_required",
+        "challenge_loop",
+        "invalid_credentials",
+        "session_expired",
+        "timeout",
+    }
+    return {
+        "account_label": record.account_label,
+        "owner_email": record.owner_email,
+        "status": "ui_lane_failure" if failure_code in ui_failure_codes else "worker_failed",
+        "failure_code": failure_code or "worker_failed",
+        "duration_seconds": duration_seconds,
+        "worker_returncode": worker_returncode,
+        "error": _response_failure_detail(response)[:4000],
+        "asset_path": str(response.get("asset_path") or ""),
+        "screenshot_path": str(response.get("screenshot_path") or ""),
+        "warnings": list(response.get("warnings") or []),
+    }
 
 
 def _ea_api_base_url() -> str:
@@ -348,6 +434,14 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
             "stdout_tail": completed.stdout[-4000:],
             "stderr_tail": completed.stderr[-4000:],
         }
+    failed_response = _failed_worker_response_result(
+        record,
+        response=response,
+        duration_seconds=duration_seconds,
+        worker_returncode=completed.returncode,
+    )
+    if failed_response is not None:
+        return failed_response
     try:
         BrowserActToolAdapter._raise_for_ui_lane_failure(
             payload=dict(response or {}),
@@ -582,7 +676,7 @@ def main() -> int:
         ),
         flush=True,
     )
-    return 0 if not failures else 2
+    return 0 if int(summary.get("failure_count") or 0) == 0 else 2
 
 
 if __name__ == "__main__":

@@ -1051,6 +1051,9 @@ if isinstance(_response_request_required, list):
         str(key) for key in _response_request_required if str(key) in _RESPONSES_PUBLIC_REQUEST_FIELDS
     ]
 
+_RESPONSES_DEBUG_CAPTURE_PRUNE_LOCK = threading.Lock()
+_RESPONSES_DEBUG_CAPTURE_LAST_PRUNE = 0.0
+
 
 def _responses_debug_capture_dir() -> Path | None:
     raw = str(os.environ.get("EA_RESPONSES_DEBUG_CAPTURE_DIR") or "").strip()
@@ -1064,6 +1067,76 @@ def _responses_debug_capture_dir() -> Path | None:
         return None
 
 
+def _responses_debug_capture_limit(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = str(os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, int(raw))
+    except Exception:
+        return default
+
+
+def _prune_responses_debug_capture(target_dir: Path) -> None:
+    global _RESPONSES_DEBUG_CAPTURE_LAST_PRUNE
+
+    interval_seconds = _responses_debug_capture_limit(
+        "EA_RESPONSES_DEBUG_CAPTURE_PRUNE_EVERY_SECONDS",
+        60,
+        minimum=0,
+    )
+    now = time.time()
+    with _RESPONSES_DEBUG_CAPTURE_PRUNE_LOCK:
+        if interval_seconds > 0 and now - _RESPONSES_DEBUG_CAPTURE_LAST_PRUNE < interval_seconds:
+            return
+        _RESPONSES_DEBUG_CAPTURE_LAST_PRUNE = now
+
+    max_files = _responses_debug_capture_limit("EA_RESPONSES_DEBUG_CAPTURE_MAX_FILES", 500, minimum=1)
+    max_bytes = _responses_debug_capture_limit(
+        "EA_RESPONSES_DEBUG_CAPTURE_MAX_BYTES",
+        512 * 1024 * 1024,
+        minimum=1024 * 1024,
+    )
+    max_age_seconds = _responses_debug_capture_limit(
+        "EA_RESPONSES_DEBUG_CAPTURE_MAX_AGE_SECONDS",
+        24 * 60 * 60,
+        minimum=0,
+    )
+    files: list[tuple[float, int, Path]] = []
+    try:
+        for path in target_dir.glob("*.json"):
+            if path.name.startswith("latest_"):
+                continue
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            if max_age_seconds > 0 and now - stat.st_mtime > max_age_seconds:
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                except Exception:
+                    continue
+                continue
+            files.append((stat.st_mtime, int(stat.st_size), path))
+    except Exception:
+        return
+
+    files.sort(key=lambda row: row[0], reverse=True)
+    total_bytes = 0
+    for index, (_, size, path) in enumerate(files, start=1):
+        total_bytes += size
+        if index <= max_files and total_bytes <= max_bytes:
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        except Exception:
+            continue
+
+
 def _capture_responses_debug(*, name: str, payload: object) -> None:
     target_dir = _responses_debug_capture_dir()
     if target_dir is None:
@@ -1074,6 +1147,7 @@ def _capture_responses_debug(*, name: str, payload: object) -> None:
         target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
         latest = target_dir / f"latest_{name}.json"
         latest.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+        _prune_responses_debug_capture(target_dir)
     except Exception:
         return
 

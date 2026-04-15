@@ -160,3 +160,62 @@ def test_run_account_marks_unparsed_billing_page_as_failure(monkeypatch, tmp_pat
     assert result["failure_code"] == "page_seen_but_unparsed"
     assert result["daily_bonus_available"] is True
     assert result["daily_bonus_credits"] == 15000
+
+
+def test_run_account_reports_missing_playwright_image_before_normalization(monkeypatch, tmp_path):
+    module = _load_module()
+    monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "secret")
+    monkeypatch.setattr(module, "_effective_proxy_settings", lambda: {})
+    monkeypatch.setattr(module, "_effective_worker_env", lambda: {})
+
+    output_path = tmp_path / "output.json"
+
+    def fake_tempdir(prefix=""):
+        return str(tmp_path)
+
+    class _Completed:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        output_path.write_text(
+            json.dumps(
+                {
+                    "render_status": "failed",
+                    "asset_path": "",
+                    "error": (
+                        "template_worker_empty_output:Unable to find image "
+                        "'chummer-playwright:local' locally"
+                    ),
+                    "structured_output_json": {
+                        "render_status": "failed",
+                        "errors": [
+                            "docker: Error response from daemon: pull access denied for chummer-playwright"
+                        ],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return _Completed()
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("normalization should not run for failed workers")
+
+    monkeypatch.setattr(module.tempfile, "mkdtemp", fake_tempdir)
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    monkeypatch.setattr(module.BrowserActToolAdapter, "_raise_for_ui_lane_failure", fail_if_called)
+    monkeypatch.setattr(module.BrowserActToolAdapter, "_normalize_onemin_billing_payload", fail_if_called)
+
+    record = module.AccountRecord(
+        slot="fallback_58",
+        account_label="ONEMIN_AI_API_KEY_FALLBACK_58",
+        owner_email="Valmai.Johnston@myexternalbrain.com",
+        owner_name="Valmai Johnston",
+    )
+
+    result = module._run_account(record, timeout_seconds=60)
+
+    assert result["status"] == "worker_failed"
+    assert result["failure_code"] == "playwright_image_missing"
