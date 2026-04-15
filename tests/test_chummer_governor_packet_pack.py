@@ -10,6 +10,7 @@ PACK_PATH = ROOT / "docs" / "chummer_governor_packets" / "CHUMMER_GOVERNOR_PACKE
 SPECIMENS_PATH = ROOT / "docs" / "chummer_governor_packets" / "OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml"
 CANONICAL_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 PROGRESS_EMAIL_WORKFLOW_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml"
 FEEDBACK_RELEASE_GATE_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_LOOP_RELEASE_GATE.yaml"
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-15-ea-governor-packets-package-closeout.md"
@@ -44,6 +45,7 @@ def _find_milestone(registry: dict, milestone_id: int) -> dict:
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
 
     assert pack.get("contract_name") == "ea.chummer_governor_packet_pack"
     assert pack.get("package_id") == "next90-m106-ea-governor-packets"
@@ -61,6 +63,13 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert queue_item.get("task") == (
         "Produce operator packets and reporter followthrough from the same readiness and parity truth used by the governor loop."
     )
+    assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
+    assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
+    assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
+    assert set(str(item) for item in design_queue_item.get("proof") or []) == {
+        str(item) for item in queue_item.get("proof") or []
+    }
     assert {
         "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
         "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
@@ -75,6 +84,10 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
 
 def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
+    assert set(str(item) for item in design_queue_item.get("proof") or []) == {
+        str(item) for item in queue_item.get("proof") or []
+    }
     proof_items = [str(item) for item in queue_item.get("proof") or []]
     ea_file_proofs = [Path(item) for item in proof_items if item.startswith("/docker/EA/")]
 
@@ -215,10 +228,14 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     authority = dict(handoff.get("canonical_authority") or {})
     assert authority.get("successor_registry_path") == str(CANONICAL_REGISTRY_PATH)
     assert authority.get("successor_queue_path") == str(QUEUE_STAGING_PATH)
+    assert authority.get("design_successor_queue_path") == str(DESIGN_QUEUE_STAGING_PATH)
     assert authority.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
     assert authority.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
     assert set(authority.get("queue_proof_required_entries") or []) <= {
         str(item) for item in queue_item.get("proof") or []
+    }
+    assert set(authority.get("queue_proof_required_entries") or []) <= {
+        str(item) for item in _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH)).get("proof") or []
     }
 
     repeat_prevention = dict(handoff.get("repeat_prevention") or {})
