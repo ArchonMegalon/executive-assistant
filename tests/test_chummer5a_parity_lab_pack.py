@@ -461,6 +461,19 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "move to allowed_next_work" in append_action
     assert "do not edit completed EA outputs only to record a newer assignment timestamp" in append_action
 
+    local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
+    assert local_proof_commits[-1].get("commit") == "03da40e"
+    assert local_proof_commits[-1].get("subject") == "Tighten M103 append-free terminal guard"
+    assert "append-free terminal policy" in str(local_proof_commits[-1].get("purpose") or "")
+
+    receipt_proof_commits = [
+        str(commit)
+        for commit in (
+            dict(receipt.get("successor_closure") or {}).get("local_proof_commits") or []
+        )
+    ]
+    assert receipt_proof_commits[-1] == "03da40e"
+
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
