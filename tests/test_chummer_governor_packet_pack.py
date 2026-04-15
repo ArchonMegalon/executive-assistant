@@ -307,6 +307,10 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert set(authority.get("queue_proof_required_entries") or []) <= {
         str(item) for item in _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH)).get("proof") or []
     }
+    assert (
+        "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md"
+        in set(authority.get("queue_proof_required_entries") or [])
+    )
 
     repeat_prevention = dict(handoff.get("repeat_prevention") or {})
     assert "Treat this EA-owned package as closed" in str(repeat_prevention.get("worker_rule") or "")
