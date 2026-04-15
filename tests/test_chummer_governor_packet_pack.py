@@ -701,24 +701,26 @@ def test_terminal_policy_ignores_later_same_package_assignments_without_enumerat
     assert not any(run_id in item for item in proof_artifacts)
 
 
-def test_current_repeated_assignment_is_covered_by_terminal_policy_without_new_note() -> None:
+def test_any_post_terminal_same_package_assignment_is_covered_without_new_note() -> None:
     handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
     terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
     ignored_assignment_rule = dict(terminal_policy.get("ignored_assignment_rule") or {})
     latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
-    current_same_package_assignment = {
+    same_package_assignment_after_terminal_closeout = {
         "package_id": "next90-m106-ea-governor-packets",
         "frontier_id": 1758984842,
-        "generated_at": "2026-04-15T19:20:34Z",
+        "generated_at": "2026-04-16T00:00:00Z",
         "prompt_path": (
             "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
-            "20260415T191928Z-shard-12/prompt.txt"
+            "20260415T235900Z-shard-12/prompt.txt"
         ),
     }
 
-    assert current_same_package_assignment["generated_at"] > latest_allowed_timestamp_only
-    assert current_same_package_assignment["package_id"] == ignored_assignment_rule.get("package_id")
-    assert current_same_package_assignment["frontier_id"] == int(ignored_assignment_rule.get("frontier_id") or 0)
+    assert same_package_assignment_after_terminal_closeout["generated_at"] > latest_allowed_timestamp_only
+    assert same_package_assignment_after_terminal_closeout["package_id"] == ignored_assignment_rule.get("package_id")
+    assert same_package_assignment_after_terminal_closeout["frontier_id"] == int(
+        ignored_assignment_rule.get("frontier_id") or 0
+    )
     assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
     assert ignored_assignment_rule.get("worker_safety_instruction_required") is True
 
@@ -732,7 +734,7 @@ def test_current_repeated_assignment_is_covered_by_terminal_policy_without_new_n
         *[str(item) for item in design_queue_item.get("proof") or []],
         *[str(item) for item in registry_task.get("evidence") or []],
     ]
-    run_id = Path(current_same_package_assignment["prompt_path"]).parts[-2]
+    run_id = Path(same_package_assignment_after_terminal_closeout["prompt_path"]).parts[-2]
 
     assert not any(run_id in item for item in completed_outputs)
     assert not any(run_id in item for item in proof_artifacts)
