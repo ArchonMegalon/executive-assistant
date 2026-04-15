@@ -55,10 +55,16 @@ def _find_registry_task(milestone: dict, task_id: float) -> dict:
     return matches[0]
 
 
+def _expected_direct_runner_result() -> str:
+    ran = sum(1 for name, func in globals().items() if name.startswith("test_") and callable(func))
+    return f"ran={ran} failed=0"
+
+
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
     design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
+    expected_result = _expected_direct_runner_result()
 
     assert pack.get("contract_name") == "ea.chummer_governor_packet_pack"
     assert pack.get("package_id") == "next90-m106-ea-governor-packets"
@@ -93,7 +99,7 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
         "/docker/EA/tests/test_chummer_governor_packet_pack.py",
         "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
         "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
-        "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0",
+        f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}",
     } <= {str(item) for item in queue_item.get("proof") or []}
 
 
@@ -121,6 +127,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     guardrails = dict(pack.get("proof_guardrails") or {})
     verification = dict(guardrails.get("canonical_package_verification") or {})
     registry_task = _find_registry_task(milestone, verification.get("registry_work_task_id"))
+    expected_result = _expected_direct_runner_result()
 
     assert verification.get("queue_package_id") == pack.get("package_id") == queue_item.get("package_id")
     assert int(verification.get("queue_frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 1758984842
@@ -143,7 +150,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
             "/docker/EA/tests/test_chummer_governor_packet_pack.py",
             "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
             "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
-            "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0.",
+            f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}.",
         }
     )
     registry_evidence_items = [str(item) for item in registry_task.get("evidence") or []]
@@ -159,7 +166,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         for path in registry_ea_file_proofs
     )
     assert any(
-        item == "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0."
+        item == f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}."
         for item in registry_evidence_items
     )
 
@@ -233,7 +240,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
 
     proof = dict(handoff.get("proof_command") or {})
     assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
-    assert proof.get("expected_result") == "ran=17 failed=0"
+    assert proof.get("expected_result") == _expected_direct_runner_result()
 
     proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
     assert proof_artifacts, "handoff closeout should name the proof artifacts future shards must verify"
@@ -284,6 +291,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     )
     handoff_review = dict(handoff.get("active_run_handoff_review") or {})
     latest_verification = dict(handoff.get("latest_successor_wave_verification") or {})
+    expected_result = _expected_direct_runner_result()
     latest_note_path = ROOT / str(latest_verification.get("note_path") or "")
     completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
     proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
@@ -300,7 +308,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert latest_verification.get("verified_package_id") == "next90-m106-ea-governor-packets"
     assert int(latest_verification.get("verified_frontier_id") or 0) == 1758984842
     assert latest_verification.get("result") == "no_ea_owned_work_remaining"
-    assert latest_verification.get("proof_command_result") == "ran=17 failed=0"
+    assert latest_verification.get("proof_command_result") == expected_result
     assert set(latest_verification.get("checked_authorities") or []) == {
         "canonical successor registry milestone 106 work task 106.2",
         "design successor queue staging row",
@@ -337,6 +345,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert verification.get("verified_package_id") == "next90-m106-ea-governor-packets"
         assert int(verification.get("verified_frontier_id") or 0) == 1758984842
         assert verification.get("result") == "no_ea_owned_work_remaining"
+        assert verification.get("proof_command_result") == expected_result
         assert verification.get("active_run_helper_commands_invoked") == []
         assert verification.get("operator_telemetry_commands_invoked") == []
         assert note_path.exists()
