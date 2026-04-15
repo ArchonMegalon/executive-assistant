@@ -186,6 +186,10 @@ local_proof_commits:
     committed_at: "2026-04-15T19:05:41Z"
     subject: Pin M103 latest parity lab proof floor
     purpose: Pins the latest completed-package proof floor into the receipt, handoff closeout, and direct guard so future successor shards verify the closed EA package instead of repeating it.
+  - commit: 03da40e
+    committed_at: "2026-04-15T19:25:39Z"
+    subject: Tighten M103 append-free terminal guard
+    purpose: Adds the append-free terminal policy so newer same-package successor assignments verify closure instead of adding more repeat-verification rows while canonical anchors and direct proof stay green.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
