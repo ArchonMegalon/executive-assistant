@@ -114,7 +114,7 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert set(str(item) for item in design_queue_item.get("proof") or []) == {
         str(item) for item in queue_item.get("proof") or []
     }
-    assert {
+    expected_queue_proof = {
         "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
         "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
         "/docker/EA/docs/chummer_governor_packets/README.md",
@@ -124,7 +124,9 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
         "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
         "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md",
         f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}",
-    } <= {str(item) for item in queue_item.get("proof") or []}
+    }
+    assert {str(item) for item in queue_item.get("proof") or []} == expected_queue_proof
+    assert {str(item) for item in design_queue_item.get("proof") or []} == expected_queue_proof
     assert not any(
         "ea-governor-packets-successor-wave-pass-" in str(item)
         for item in queue_item.get("proof") or []
@@ -320,10 +322,10 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert authority.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
     assert authority.get("queue_frontier") == "1758984842"
     assert authority.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
-    assert set(authority.get("queue_proof_required_entries") or []) <= {
+    assert set(authority.get("queue_proof_required_entries") or []) == {
         str(item) for item in queue_item.get("proof") or []
     }
-    assert set(authority.get("queue_proof_required_entries") or []) <= {
+    assert set(authority.get("queue_proof_required_entries") or []) == {
         str(item) for item in _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH)).get("proof") or []
     }
     assert (
