@@ -219,6 +219,10 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         "4d186b6",
         "d274b66",
         "1783ee6",
+        "0284b0a",
+        "a8a8f72",
+        "04408e3",
+        "1a71457",
     } <= set(receipt_proof_commits)
     for commit in receipt_proof_commits:
         subprocess.run(

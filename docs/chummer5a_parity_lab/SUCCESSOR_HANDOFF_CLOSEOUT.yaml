@@ -150,6 +150,22 @@ local_proof_commits:
     committed_at: "2026-04-15T16:33:13Z"
     subject: Tighten M103 parity lab terminal repeat guard
     purpose: Adds the terminal no-timestamp-chasing policy so newer successor handoffs are assignment context only while canonical registry, queue, completed outputs, and direct proof stay green.
+  - commit: 0284b0a
+    committed_at: "2026-04-15T16:18:39Z"
+    subject: Pin M103 parity lab current successor handoff
+    purpose: Pins the completed-package proof floor immediately before the terminal policy so successor shards verify closure instead of recapturing Chummer5a oracle artifacts.
+  - commit: a8a8f72
+    committed_at: "2026-04-15T16:37:38Z"
+    subject: Publish M103 parity lab terminal policy
+    purpose: Publishes the terminal no-timestamp-chasing policy into the package receipt and handoff closeout.
+  - commit: 04408e3
+    committed_at: "2026-04-15T16:41:00Z"
+    subject: Tighten M103 parity lab proof count guard
+    purpose: Pins the direct proof-count guard so the package cannot be reclosed with stale ran/failed evidence.
+  - commit: 1a71457
+    committed_at: "2026-04-15T16:43:54Z"
+    subject: Tighten M103 parity lab terminal policy guard
+    purpose: Tightens the terminal-policy guard so newer handoffs remain context only while canonical registry, queue, outputs, and direct proof stay green.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
