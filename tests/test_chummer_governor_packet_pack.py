@@ -205,6 +205,13 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
     assert proof.get("expected_result") == "ran=17 failed=0"
 
+    proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
+    assert proof_artifacts, "handoff closeout should name the proof artifacts future shards must verify"
+    assert all((ROOT / item).exists() for item in proof_artifacts)
+    assert all(Path(item).parts[0] in allowed_output_roots for item in proof_artifacts)
+    assert completed_outputs <= proof_artifacts
+    assert "tests/test_chummer_governor_packet_pack.py" in proof_artifacts
+
     authority = dict(handoff.get("canonical_authority") or {})
     assert authority.get("successor_registry_path") == str(CANONICAL_REGISTRY_PATH)
     assert authority.get("successor_queue_path") == str(QUEUE_STAGING_PATH)

@@ -23,7 +23,7 @@ The packet now carries explicit gates for every operator posture and reporter ma
 
 `OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml` is the handoff-ready projection shape: it shows the operator packet and reporter followthrough payloads using the same evidence anchors, while keeping Fleet, Hub, Registry, and design as the owning truth planes.
 
-`SUCCESSOR_HANDOFF_CLOSEOUT.yaml` is the machine-readable repeat-prevention manifest for successor frontier `1758984842`. It names the completed outputs, proof command, canonical registry and queue authority, runtime-safety posture, active-run handoff review, and the sibling owner lanes that must not be treated as EA-owned work.
+`SUCCESSOR_HANDOFF_CLOSEOUT.yaml` is the machine-readable repeat-prevention manifest for successor frontier `1758984842`. It names the completed outputs, proof artifacts, proof command, canonical registry and queue authority, runtime-safety posture, active-run handoff review, and the sibling owner lanes that must not be treated as EA-owned work.
 
 `tests/test_chummer_governor_packet_pack.py` now fails closed when the package drifts from the successor queue, milestone `106` work task `106.2`, mirrored progress-mail workflow stages, shared evidence bindings, the EA closeout feedback note, the handoff closeout manifest, or the recorded active-run handoff review for frontier `1758984842`. It can run directly with `python tests/test_chummer_governor_packet_pack.py` in worker runtimes where `pytest` is not installed. That is the local proof boundary for this EA-owned successor slice; sibling Fleet, Hub, Registry, and design packages remain open under their own queue rows.
 

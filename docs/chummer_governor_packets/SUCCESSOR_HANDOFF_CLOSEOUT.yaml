@@ -31,6 +31,18 @@ completed_outputs:
 proof_command:
   command: python tests/test_chummer_governor_packet_pack.py
   expected_result: ran=17 failed=0
+proof_artifacts:
+  - docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+  - docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
+  - docs/chummer_governor_packets/README.md
+  - docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - tests/test_chummer_governor_packet_pack.py
+  - feedback/2026-04-15-ea-governor-packets-package-closeout.md
+  - feedback/2026-04-15-chummer-governor-packets-successor-guard.md
+  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md
+  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-verified.md
+  - feedback/2026-04-15-ea-governor-packets-registry-evidence-guard.md
+  - feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md
 canonical_authority:
   successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
