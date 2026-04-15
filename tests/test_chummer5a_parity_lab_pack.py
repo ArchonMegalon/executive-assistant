@@ -59,9 +59,11 @@ def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
 
 def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     pack = _yaml(PACK_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
     registry = _yaml(SUCCESSOR_REGISTRY_PATH)
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
+    proof_result = str(dict(receipt.get("proof") or {}).get("result") or "")
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
     milestone = milestones[103]
@@ -76,7 +78,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
     assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
-    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=15 failed=0" in task_evidence
+    assert f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result}" in task_evidence
 
     queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
     queue_item = queue_items["next90-m103-ea-parity-lab"]
@@ -96,6 +98,10 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
     } <= proof
+    assert (
+        f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
+        "and blocks operator-owned run-helper proof for the closed EA package."
+    ) in proof
     for proof_anchor in proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
@@ -116,6 +122,10 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
     } <= design_proof
+    assert (
+        f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
+        "and blocks operator-owned run-helper proof for the closed EA package."
+    ) in design_proof
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
