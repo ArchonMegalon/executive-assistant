@@ -201,6 +201,9 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert "Mode: successor_wave" in active_handoff_text
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "next90-m103-ea-parity-lab" in active_handoff_text
+    assert '"package_id": "next90-m103-ea-parity-lab"' in active_handoff_text
+    assert '"parity_lab:capture"' in active_handoff_text
+    assert '"veteran_compare_packs"' in active_handoff_text
     assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_handoff_text
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
