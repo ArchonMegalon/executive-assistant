@@ -43,7 +43,7 @@
     "registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
     "design_queue": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     "fleet_queue": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
-        "active_handoff_min_generated_at": "2026-04-15T14:55:10Z",
+        "active_handoff_min_generated_at": "2026-04-15T14:58:43Z",
     "local_proof_commits": [
       "f3a3649",
       "528c278",
