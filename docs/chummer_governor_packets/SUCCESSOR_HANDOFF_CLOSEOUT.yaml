@@ -155,6 +155,24 @@ terminal_verification_policy:
   latest_allowed_timestamp_only_verification_at: "2026-04-15T15:13:15Z"
   current_worker_rule: Do not append a new successor-wave verification note solely because ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp for the same closed frontier; run the proof command and cite the terminal closeout instead.
   repeated_assignment_handling: Treat later active-run handoffs for the same package id and frontier id as ignored by this terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger below fires.
+  ignored_assignment_rule:
+    package_id: next90-m106-ea-governor-packets
+    frontier_id: 1758984842
+    active_run_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+    generated_after: "2026-04-15T15:13:15Z"
+    prompt_path_pattern: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt
+    action: ignore_without_manifest_append
+    worker_safety_instruction_required: true
+    do_not_add_to:
+      - completed_outputs
+      - proof_artifacts
+      - latest_successor_wave_verification
+      - additional_successor_wave_verifications
+      - canonical registry evidence
+      - design queue proof
+      - fleet queue proof
+    active_run_helper_commands_invoked: []
+    operator_telemetry_commands_invoked: []
   allowed_reopen_triggers:
     - canonical successor registry reopens or changes work task 106.2
     - design or Fleet successor queue row changes package id, frontier id, repo, allowed paths, owned surfaces, status, or required proof entries

@@ -333,6 +333,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
+    latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
     assert (
         terminal_policy.get("repeated_assignment_handling")
         == (
@@ -341,6 +342,29 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
             "below fires."
         )
     )
+    ignored_assignment_rule = dict(terminal_policy.get("ignored_assignment_rule") or {})
+    assert ignored_assignment_rule.get("package_id") == "next90-m106-ea-governor-packets"
+    assert int(ignored_assignment_rule.get("frontier_id") or 0) == 1758984842
+    assert ignored_assignment_rule.get("active_run_handoff_path") == (
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
+    )
+    assert ignored_assignment_rule.get("generated_after") == latest_allowed_timestamp_only
+    assert ignored_assignment_rule.get("prompt_path_pattern") == (
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt"
+    )
+    assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
+    assert ignored_assignment_rule.get("worker_safety_instruction_required") is True
+    assert {
+        "completed_outputs",
+        "proof_artifacts",
+        "latest_successor_wave_verification",
+        "additional_successor_wave_verifications",
+        "canonical registry evidence",
+        "design queue proof",
+        "fleet queue proof",
+    } == {str(item) for item in ignored_assignment_rule.get("do_not_add_to") or []}
+    assert ignored_assignment_rule.get("active_run_helper_commands_invoked") == []
+    assert ignored_assignment_rule.get("operator_telemetry_commands_invoked") == []
     assert {
         "canonical successor registry reopens or changes work task 106.2",
         "docs/chummer_governor_packets packet artifacts or tests fail the proof command",
@@ -535,6 +559,11 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert "without appending per-handoff manifest rows" in str(
         terminal_policy.get("repeated_assignment_handling") or ""
     )
+    ignored_assignment_rule = dict(terminal_policy.get("ignored_assignment_rule") or {})
+    assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
+    assert ignored_assignment_rule.get("generated_after") == latest_allowed_timestamp_only
+    assert "completed_outputs" in set(ignored_assignment_rule.get("do_not_add_to") or [])
+    assert "additional_successor_wave_verifications" in set(ignored_assignment_rule.get("do_not_add_to") or [])
 
     for verification in history:
         assert str(verification.get("verified_at") or "") <= latest_allowed_timestamp_only
