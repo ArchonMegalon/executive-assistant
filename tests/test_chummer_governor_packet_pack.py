@@ -64,10 +64,26 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert {
         "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
         "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+        "/docker/EA/docs/chummer_governor_packets/README.md",
+        "/docker/EA/docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
         "/docker/EA/tests/test_chummer_governor_packet_pack.py",
         "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
-        "python tests/test_chummer_governor_packet_pack.py",
+        "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+        "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0",
     } <= {str(item) for item in queue_item.get("proof") or []}
+
+
+def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
+    queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    proof_items = [str(item) for item in queue_item.get("proof") or []]
+    ea_file_proofs = [Path(item) for item in proof_items if item.startswith("/docker/EA/")]
+
+    assert ea_file_proofs, "queue row should cite EA-local proof artifacts"
+    assert all(path.exists() for path in ea_file_proofs)
+    assert all(
+        path.relative_to(ROOT).parts[0] in {"docs", "tests", "feedback", "skills"}
+        for path in ea_file_proofs
+    )
 
 
 def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
@@ -98,9 +114,11 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         for expected in {
             "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
             "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+            "/docker/EA/docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
             "/docker/EA/tests/test_chummer_governor_packet_pack.py",
             "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
-            "python tests/test_chummer_governor_packet_pack.py exits 0 with 14 tests.",
+            "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+            "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0.",
         }
     )
 
@@ -161,7 +179,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
 
     proof = dict(handoff.get("proof_command") or {})
     assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
-    assert proof.get("expected_result") == "ran=15 failed=0"
+    assert proof.get("expected_result") == "ran=16 failed=0"
 
     authority = dict(handoff.get("canonical_authority") or {})
     assert authority.get("successor_registry_path") == str(CANONICAL_REGISTRY_PATH)

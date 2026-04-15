@@ -26,7 +26,7 @@ completed_outputs:
   - feedback/2026-04-15-chummer-governor-packets-successor-guard.md
 proof_command:
   command: python tests/test_chummer_governor_packet_pack.py
-  expected_result: ran=15 failed=0
+  expected_result: ran=16 failed=0
 canonical_authority:
   successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
