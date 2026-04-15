@@ -1,0 +1,133 @@
+contract_name: ea.chummer_governor_packet_pack
+package_id: next90-m106-ea-governor-packets
+milestone_id: 106
+wave: W8
+generated_at: "2026-04-15T08:38:00Z"
+status: task_proven
+title: Synthesize parity, support, and release signals into operator-ready and reporter-ready packets
+owned_surfaces:
+  - operator_packets:weekly_governor
+  - reporter_followthrough:release_truth
+source_truth:
+  canonical_successor_registry:
+    id: successor_registry
+    path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    required: true
+  canonical_successor_queue:
+    id: successor_queue
+    path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    required: true
+  weekly_product_pulse:
+    id: weekly_pulse
+    path: .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json
+    required: true
+    input_status: mirrored_pre_successor_activation_snapshot
+    use_rule: Use as measured pulse evidence, not as authority to reopen the closed flagship wave.
+  parity_lab_pack:
+    id: parity_lab_pack
+    path: docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml
+    required: true
+    use_rule: Use as EA-local parity evidence; desktop publishability remains owned by UI, Registry, and Fleet.
+  feedback_release_gate:
+    id: feedback_release_gate
+    path: .codex-design/product/FEEDBACK_LOOP_RELEASE_GATE.yaml
+    required: true
+  progress_email_workflow:
+    id: progress_email_workflow
+    path: .codex-design/product/FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml
+    required: true
+  feedback_status_model:
+    id: feedback_status_model
+    path: .codex-design/product/FEEDBACK_AND_CRASH_STATUS_MODEL.md
+    required: true
+  governor_loop:
+    id: governor_loop
+    path: .codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md
+    required: true
+shared_evidence_anchor_ids:
+  - weekly_pulse
+  - parity_lab_pack
+  - feedback_release_gate
+  - progress_email_workflow
+operator_packet:
+  packet_id: ea-weekly-governor-synthesis-2026-04-15
+  purpose: Condense readiness, parity, support, and release signals into an operator packet downstream of the Fleet governor loop.
+  decision_postures:
+    - launch
+    - freeze
+    - canary
+    - rollback
+    - focus_shift
+  minimum_fields:
+    - release_health_state
+    - flagship_readiness_state
+    - journey_gate_state
+    - support_closure_state
+    - parity_evidence_status
+    - reporter_followthrough_gate
+    - cited_signal_ids
+    - recommended_decision
+    - exit_condition
+    - downstream_action
+  evidence_anchor_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - feedback_release_gate
+    - progress_email_workflow
+  output_rule: Operator copy may recommend a governor posture, but Fleet and design remain the decision and canon authorities.
+reporter_followthrough:
+  packet_id: ea-reporter-followthrough-release-truth-2026-04-15
+  purpose: Compile reporter-facing progress mail readiness from the same evidence anchors as the operator packet.
+  sender_identity:
+    from_email: wageslave@chummer.run
+    reply_to: support@chummer.run
+    provider: emailit
+    dispatch_tool: connector.dispatch
+  required_stage_sequence:
+    - request_received
+    - audited_decision
+    - fix_available
+  release_truth_guard:
+    fix_available_requires_status: released_to_reporter_channel
+    fix_available_requires_registry_truth: true
+    forbidden_resolution_sources:
+      - reproduced_bug
+      - drafted_patch
+      - merged_pr
+      - preview_build
+  required_receipt_fields:
+    - delivery_id
+    - stage_id
+    - case_id
+    - recipient
+    - from_email
+    - subject
+    - provider
+  evidence_anchor_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - feedback_release_gate
+    - progress_email_workflow
+  output_rule: Reporter mail can be queued only when Hub-owned case truth and Registry release truth satisfy the mirrored workflow preconditions.
+runtime_safety:
+  do_not_invoke_operator_telemetry_or_active_run_helpers: true
+  active_run_helper_commands_invoked: []
+  operator_telemetry_commands_invoked: []
+boundary_fit:
+  ea_is_release_authority: false
+  ea_is_support_case_database: false
+  ea_is_canonical_product_truth: false
+  owning_truth_planes:
+    hub:
+      - raw support case truth
+      - install and reporter linkage
+    fleet:
+      - governor loop runtime
+      - weekly packet landing
+    chummer6_design:
+      - product canon
+      - successor registry meaning
+    chummer6_hub_registry:
+      - release channel truth
+      - reporter channel availability
+closeout_note: This package proves the EA synthesis contract for milestone 106 without closing Fleet, Hub, Registry, or design-owned sibling work.
