@@ -399,6 +399,11 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         "timestamp-only" in str(item.get("hardening_added") or "").lower()
         for item in verification_history
     )
+    terminal_note_path = ROOT / str(terminal_policy.get("proof_note") or "")
+    terminal_note = terminal_note_path.read_text(encoding="utf-8")
+    assert "a newer `ACTIVE_RUN_HANDOFF.generated.md` timestamp alone is not a reason" in terminal_note
+    assert "Future reopen triggers are limited to real authority or proof drift" in terminal_note
+    assert "Proof:" in terminal_note
     forbidden_proof_output_markers = {
         "task_local_telemetry.generated.json",
         "operator telemetry stdout",
