@@ -121,6 +121,22 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
             "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0.",
         }
     )
+    registry_evidence_items = [str(item) for item in registry_task.get("evidence") or []]
+    registry_ea_file_proofs = [
+        Path(item.split(" ", 1)[0])
+        for item in registry_evidence_items
+        if item.startswith("/docker/EA/")
+    ]
+    assert registry_ea_file_proofs, "registry work task should cite EA-local proof artifacts"
+    assert all(path.exists() for path in registry_ea_file_proofs)
+    assert all(
+        path.relative_to(ROOT).parts[0] in {"docs", "tests", "feedback", "skills"}
+        for path in registry_ea_file_proofs
+    )
+    assert any(
+        item == "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0."
+        for item in registry_evidence_items
+    )
 
     drift_policy = [str(item) for item in guardrails.get("drift_policy") or []]
     assert any("successor queue" in item and "owned surfaces" in item for item in drift_policy)
@@ -175,6 +191,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md",
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-verified.md",
+        "feedback/2026-04-15-ea-governor-packets-registry-evidence-guard.md",
     }:
         assert expected in completed_outputs
         assert (ROOT / expected).exists()
