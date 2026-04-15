@@ -64,6 +64,12 @@ def _allowed_historical_runner_results() -> set[str]:
     return {"ran=17 failed=0", _expected_direct_runner_result()}
 
 
+def _timestamp_suffix_from_repeat_note(note_path: str) -> str:
+    stem = Path(note_path).stem
+    suffix = stem.rsplit("-", 1)[-1].removesuffix("z")
+    return suffix if suffix.isdigit() else ""
+
+
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
@@ -493,6 +499,22 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         note.rsplit("-", 1)[-1].removesuffix(".md").removesuffix("z") > "151315"
         for note in successor_wave_pass_notes
         if note.rsplit("-", 1)[-1].removesuffix(".md").endswith("z")
+    )
+    terminal_note_time = latest_allowed_timestamp_only.split("T", 1)[1].removesuffix("Z").replace(":", "")
+    repeat_note_prefixes = (
+        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-",
+        "feedback/2026-04-15-ea-governor-packets-active-run-handoff-",
+        "feedback/2026-04-15-ea-governor-packets-repeat-verification-",
+        "feedback/2026-04-15-ea-governor-packets-current-handoff-",
+    )
+    manifest_repeat_notes = {
+        note
+        for note in completed_outputs | proof_artifacts
+        if note.startswith(repeat_note_prefixes)
+    }
+    assert not any(
+        note_time and note_time > terminal_note_time
+        for note_time in (_timestamp_suffix_from_repeat_note(note) for note in manifest_repeat_notes)
     )
 
 
