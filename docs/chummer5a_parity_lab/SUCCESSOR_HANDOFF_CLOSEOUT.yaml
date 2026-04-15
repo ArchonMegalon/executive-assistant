@@ -28,7 +28,7 @@ completed_outputs:
 proof:
   command: python tests/test_chummer5a_parity_lab_pack.py
   result: ran=14 failed=0
-  verified_at: "2026-04-15T10:16:00Z"
+  verified_at: "2026-04-15T10:31:18Z"
 canonical_successor_sources:
   registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
@@ -42,8 +42,9 @@ canonical_closure_markers:
 repeat_prevention:
   successor_frontier_id: 4287684466
   already_closed_when_seen_at: "2026-04-15T09:52:00Z"
-  active_handoff_verified_at: "2026-04-15T10:23:10Z"
-  active_handoff_status_required: complete
+  active_handoff_verified_at: "2026-04-15T10:29:24Z"
+  active_handoff_min_generated_at: "2026-04-15T10:29:24Z"
+  active_handoff_focus_required: next90-m103-ea-parity-lab
   active_handoff_owned_surfaces_required:
     - parity_lab:capture
     - veteran_compare_packs

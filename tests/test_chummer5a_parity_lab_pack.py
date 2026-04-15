@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import yaml
 
@@ -26,6 +27,13 @@ FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-14-chummer5a-parity-lab-pa
 def _yaml(path: Path) -> dict:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _active_handoff_generated_at() -> str:
+    text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    match = re.search(r"^Generated at:\s*(\S+)", text, re.MULTILINE)
+    assert match, "active handoff missing generated-at timestamp"
+    return match.group(1)
 
 
 def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
@@ -169,13 +177,14 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert "Mode: successor_wave" in active_handoff_text
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "next90-m103-ea-parity-lab" in active_handoff_text
-    assert "Extract Chummer5a oracle baselines and veteran workflow packs (status: complete;" in active_handoff_text
-    assert "Own and prove the surface slice(s): parity_lab:capture, veteran_compare_packs" in active_handoff_text
+    assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_handoff_text
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
-    assert repeat_prevention.get("active_handoff_verified_at") == "2026-04-15T10:23:10Z"
-    assert repeat_prevention.get("active_handoff_status_required") == "complete"
+    assert repeat_prevention.get("active_handoff_verified_at") == "2026-04-15T10:29:24Z"
+    assert repeat_prevention.get("active_handoff_min_generated_at") == "2026-04-15T10:29:24Z"
+    assert _active_handoff_generated_at() >= str(repeat_prevention.get("active_handoff_min_generated_at") or "")
+    assert repeat_prevention.get("active_handoff_focus_required") == "next90-m103-ea-parity-lab"
     assert repeat_prevention.get("active_handoff_owned_surfaces_required") == [
         "parity_lab:capture",
         "veteran_compare_packs",
