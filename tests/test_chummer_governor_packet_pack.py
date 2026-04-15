@@ -278,6 +278,9 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert policy_inputs.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
     assert policy_inputs.get("proof_command_result") == _expected_direct_runner_result()
     assert terminal_policy.get("active_run_handoff_refresh_required") is False
+    assert terminal_policy.get("timestamp_only_handoff_refreshes_are_proof") is False
+    assert terminal_policy.get("successor_wave_verification_history_closed") is True
+    assert terminal_policy.get("latest_allowed_timestamp_only_verification_at") == "2026-04-15T15:13:15Z"
     assert "Do not append a new successor-wave verification note solely because" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
@@ -357,12 +360,20 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     verification_history = [latest_verification] + [
         dict(item) for item in handoff.get("additional_successor_wave_verifications") or []
     ]
+    terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
+    latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
     assert verification_history, "closeout manifest should retain successor-wave verification history"
     assert len({str(item.get("note_path") or "") for item in verification_history}) == len(verification_history)
     assert verification_history == sorted(
         verification_history,
         key=lambda item: str(item.get("verified_at") or ""),
         reverse=True,
+    )
+    assert terminal_policy.get("successor_wave_verification_history_closed") is True
+    assert all(str(item.get("verified_at") or "") <= latest_allowed_timestamp_only for item in verification_history)
+    assert not any(
+        "timestamp-only" in str(item.get("hardening_added") or "").lower()
+        for item in verification_history
     )
     forbidden_proof_output_markers = {
         "TASK_LOCAL_TELEMETRY.generated.json",
