@@ -191,6 +191,7 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         "466d7e4",
         "6ed29ce",
         "76a3acc",
+        "c83eca2",
     } <= set(receipt_proof_commits)
     for commit in receipt_proof_commits:
         subprocess.run(
@@ -266,13 +267,13 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
     assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
     assert latest_repeat.get("package_id") == pack.get("package_id")
-    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=76a3acc"
+    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=c83eca2"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
     assert "design-owned queue assignment" in str(latest_repeat.get("worker_rule") or "")
     assert "Fleet completed queue mirror" in str(latest_repeat.get("worker_rule") or "")
     assert "direct proof command" in str(latest_repeat.get("worker_rule") or "")
-    assert "resolving local handoff guard commit 76a3acc" in str(latest_repeat.get("worker_rule") or "")
+    assert "resolving local handoff guard commit c83eca2" in str(latest_repeat.get("worker_rule") or "")
     assert "invoke operator-owned run helpers" in str(latest_repeat.get("worker_rule") or "")
     assert "cite operator-owned helper output" in str(latest_repeat.get("worker_rule") or "")
 
