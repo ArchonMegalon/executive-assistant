@@ -14,6 +14,7 @@ WORKFLOW_PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "veteran_workflow_
 COMPARE_PACKS_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "compare_packs.yaml"
 FIXTURE_INVENTORY_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "import_export_fixture_inventory.yaml"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
+README_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "README.md"
 PUBLISHED_PACK_PATH = ROOT / ".codex-studio" / "published" / "CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 ACTIVE_RUN_HANDOFF_PATH = Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md")
@@ -402,10 +403,14 @@ def test_successor_handoff_closeout_outputs_stay_inside_assigned_scope() -> None
 
 def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     terminal_policy = dict(closeout.get("terminal_verification_policy") or {})
+    receipt_policy = dict(dict(receipt.get("successor_closure") or {}).get("terminal_verification_policy") or {})
+    readme_text = README_PATH.read_text(encoding="utf-8")
 
     assert terminal_policy.get("status") == "terminal_for_ea_scope"
+    assert receipt_policy == terminal_policy
     assert terminal_policy.get("latest_required_handoff_floor") == repeat_prevention.get(
         "active_handoff_min_generated_at"
     )
@@ -420,6 +425,9 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "canonical registry" in current_or_newer_rule
     assert "direct proof command" in current_or_newer_rule
     assert "green" in current_or_newer_rule
+    assert "minimum generated-at value" in readme_text
+    assert "not an exact-value trap" in readme_text
+    assert "newer handoff stays valid" in readme_text
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
     assert allowed_next_work == {
