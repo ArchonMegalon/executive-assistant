@@ -11,6 +11,7 @@ ORACLE_BASELINES_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "oracle_baselin
 WORKFLOW_PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "veteran_workflow_pack.yaml"
 COMPARE_PACKS_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "compare_packs.yaml"
 FIXTURE_INVENTORY_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "import_export_fixture_inventory.yaml"
+HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
@@ -75,6 +76,40 @@ def test_pack_required_outputs_exist_on_disk() -> None:
         assert row.get("path") == path.relative_to(ROOT).as_posix()
         assert path.exists(), str(path)
         assert row.get("proof_level")
+
+
+def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
+    pack = _yaml(PACK_PATH)
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+
+    assert closeout.get("contract_name") == "ea.chummer5a_parity_lab_successor_handoff_closeout"
+    assert closeout.get("package_id") == pack.get("package_id") == "next90-m103-ea-parity-lab"
+    assert int(closeout.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0) == 103
+    assert closeout.get("status") == "ea_scope_complete"
+    assert set(closeout.get("closed_surfaces") or []) == set(pack.get("owned_surfaces") or [])
+
+    completed_outputs = {ROOT / str(path) for path in (closeout.get("completed_outputs") or [])}
+    assert {
+        PACK_PATH,
+        ORACLE_BASELINES_PATH,
+        WORKFLOW_PACK_PATH,
+        COMPARE_PACKS_PATH,
+        FIXTURE_INVENTORY_PATH,
+    } <= completed_outputs
+    for path in completed_outputs:
+        assert path.exists(), str(path)
+
+    proof = dict(closeout.get("proof") or {})
+    assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
+    assert proof.get("result") == "ran=12 failed=0"
+
+    remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
+    assert "executive-assistant" not in remaining
+    assert {"chummer6-ui", "chummer6-design", "fleet"} <= remaining
+
+    anti_reopen_rules = "\n".join(str(item) for item in (closeout.get("anti_reopen_rules") or []))
+    assert "Do not reopen the closed flagship closeout wave" in anti_reopen_rules
+    assert "promoted-head screenshot certification" in anti_reopen_rules
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:

@@ -1,0 +1,36 @@
+contract_name: ea.chummer5a_parity_lab_successor_handoff_closeout
+package_id: next90-m103-ea-parity-lab
+milestone_id: 103
+status: ea_scope_complete
+closed_at: "2026-04-15T09:32:00Z"
+closed_surfaces:
+  - parity_lab:capture
+  - veteran_compare_packs
+completed_outputs:
+  - docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml
+  - docs/chummer5a_parity_lab/oracle_baselines.yaml
+  - docs/chummer5a_parity_lab/veteran_workflow_pack.yaml
+  - docs/chummer5a_parity_lab/compare_packs.yaml
+  - docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml
+proof:
+  command: python tests/test_chummer5a_parity_lab_pack.py
+  result: ran=12 failed=0
+  verified_at: "2026-04-15T09:31:00Z"
+canonical_successor_sources:
+  registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  readiness: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+remaining_non_ea_work:
+  - package_id: next90-m103-ui-veteran-certification
+    owner: chummer6-ui
+    reason: Run promoted-head screenshot-backed veteran certification and visual compare review.
+  - package_id: next90-m103-design-parity-ladder
+    owner: chummer6-design
+    reason: Move flagship parity families through stricter release-truth ladder policy when downstream evidence changes.
+  - package_id: next90-m103-fleet-readiness-consumption
+    owner: fleet
+    reason: Consume parity-lab evidence in readiness gating when downstream publication surfaces change.
+anti_reopen_rules:
+  - Do not reopen the closed flagship closeout wave from this EA package.
+  - Do not treat promoted-head screenshot certification as EA-owned work.
+  - Do not mark this EA package incomplete unless one of the completed output files, source pointers, registry links, or proof commands fails.
