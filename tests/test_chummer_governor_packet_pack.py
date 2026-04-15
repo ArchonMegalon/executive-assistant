@@ -219,10 +219,19 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         "helper command receipt",
         "telemetry command receipt",
     }
+    forbidden_mutable_proof_paths = {
+        "/var/lib/codex-fleet/chummer_design_supervisor/",
+        "/var/lib/codex-fleet/",
+    }
     assert not any(
         marker in evidence.lower()
         for evidence in all_canonical_evidence_items
         for marker in forbidden_worker_proof_markers
+    )
+    assert not any(
+        path in evidence
+        for evidence in all_canonical_evidence_items
+        for path in forbidden_mutable_proof_paths
     )
 
     drift_policy = [str(item) for item in guardrails.get("drift_policy") or []]
@@ -645,6 +654,10 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         assert not any(run_id in item for item in completed_outputs)
         assert not any(run_id in item for item in proof_artifacts)
         assert not any(run_id in item for item in canonical_evidence)
+    assert not any(
+        item.startswith("/var/lib/codex-fleet/chummer_design_supervisor/")
+        for item in canonical_evidence
+    )
 
 
 def test_terminal_policy_ignores_later_same_package_assignments_without_enumerating_them() -> None:
