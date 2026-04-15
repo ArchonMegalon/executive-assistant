@@ -51,10 +51,11 @@
       "5d56f66",
       "4e6b1d8",
       "357ee65",
-      "d3f164c",
-      "9cd70ea",
-      "b880b75"
-    ],
+            "d3f164c",
+            "9cd70ea",
+            "b880b75",
+            "4dda75d"
+        ],
     "proof_hygiene": {
       "operator_owned_run_helpers_invoked": false,
       "operator_owned_helper_output_cited": false
