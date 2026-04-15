@@ -68,7 +68,7 @@ completed_outputs:
   - feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
 proof_command:
   command: python tests/test_chummer_governor_packet_pack.py
-  expected_result: ran=19 failed=0
+  expected_result: ran=20 failed=0
 proof_artifacts:
   - docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
   - docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
@@ -135,7 +135,7 @@ canonical_authority:
     - /docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md
     - /docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md
     - /docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
-    - python tests/test_chummer_governor_packet_pack.py exits 0 with ran=19 failed=0
+    - python tests/test_chummer_governor_packet_pack.py exits 0 with ran=20 failed=0
 repeat_prevention:
   worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging row, completed outputs, and proof command still agree; advance only delegated non-EA follow-up packages from here.
   do_not_reopen_for:
@@ -148,12 +148,12 @@ terminal_verification_policy:
   applies_after:
     queue_package: next90-m106-ea-governor-packets status=complete
     registry_work_task: "106.2 status=complete owner=executive-assistant"
-    proof_command_result: ran=19 failed=0
+    proof_command_result: ran=20 failed=0
   active_run_handoff_refresh_required: false
   timestamp_only_handoff_refreshes_are_proof: false
   successor_wave_verification_history_closed: true
   latest_allowed_timestamp_only_verification_at: "2026-04-15T15:13:15Z"
-  post_terminal_proof_command_result_required: ran=19 failed=0
+  post_terminal_proof_command_result_required: ran=20 failed=0
   current_worker_rule: Do not append a new successor-wave verification note solely because ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp for the same closed frontier; run the proof command and cite the terminal closeout instead.
   repeated_assignment_handling: Treat later active-run handoffs for the same package id and frontier id as ignored by this terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger below fires.
   ignored_assignment_rule:

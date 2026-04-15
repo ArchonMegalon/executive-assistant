@@ -701,6 +701,44 @@ def test_terminal_policy_ignores_later_same_package_assignments_without_enumerat
     assert not any(run_id in item for item in proof_artifacts)
 
 
+def test_current_repeated_assignment_is_covered_by_terminal_policy_without_new_note() -> None:
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
+    ignored_assignment_rule = dict(terminal_policy.get("ignored_assignment_rule") or {})
+    latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
+    current_same_package_assignment = {
+        "package_id": "next90-m106-ea-governor-packets",
+        "frontier_id": 1758984842,
+        "generated_at": "2026-04-15T19:20:34Z",
+        "prompt_path": (
+            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+            "20260415T191928Z-shard-12/prompt.txt"
+        ),
+    }
+
+    assert current_same_package_assignment["generated_at"] > latest_allowed_timestamp_only
+    assert current_same_package_assignment["package_id"] == ignored_assignment_rule.get("package_id")
+    assert current_same_package_assignment["frontier_id"] == int(ignored_assignment_rule.get("frontier_id") or 0)
+    assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
+    assert ignored_assignment_rule.get("worker_safety_instruction_required") is True
+
+    completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
+    queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
+    registry_task = _find_registry_task(_find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106), 106.2)
+    canonical_evidence = [
+        *[str(item) for item in queue_item.get("proof") or []],
+        *[str(item) for item in design_queue_item.get("proof") or []],
+        *[str(item) for item in registry_task.get("evidence") or []],
+    ]
+    run_id = Path(current_same_package_assignment["prompt_path"]).parts[-2]
+
+    assert not any(run_id in item for item in completed_outputs)
+    assert not any(run_id in item for item in proof_artifacts)
+    assert not any(run_id in item for item in canonical_evidence)
+
+
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
     registry = _yaml(CANONICAL_REGISTRY_PATH)
     milestone = _find_milestone(registry, 106)
