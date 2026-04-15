@@ -271,6 +271,29 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert any("Fleet weekly governor packet runtime" in item for item in repeat_prevention.get("do_not_reopen_for") or [])
     assert any("Design successor registry meaning" in item for item in repeat_prevention.get("do_not_reopen_for") or [])
 
+    terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
+    policy_inputs = dict(terminal_policy.get("applies_after") or {})
+    assert terminal_policy.get("policy_id") == "ea-governor-packets-terminal-repeat-prevention"
+    assert policy_inputs.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
+    assert policy_inputs.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
+    assert policy_inputs.get("proof_command_result") == _expected_direct_runner_result()
+    assert terminal_policy.get("active_run_handoff_refresh_required") is False
+    assert "Do not append a new successor-wave verification note solely because" in str(
+        terminal_policy.get("current_worker_rule") or ""
+    )
+    assert "ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp" in str(
+        terminal_policy.get("current_worker_rule") or ""
+    )
+    assert {
+        "canonical successor registry reopens or changes work task 106.2",
+        "docs/chummer_governor_packets packet artifacts or tests fail the proof command",
+    } <= {str(item) for item in terminal_policy.get("allowed_reopen_triggers") or []}
+    assert terminal_policy.get("proof_note") == (
+        "feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md"
+    )
+    assert str(terminal_policy.get("proof_note") or "") in completed_outputs
+    assert str(terminal_policy.get("proof_note") or "") in proof_artifacts
+
     runtime_safety = dict(handoff.get("runtime_safety") or {})
     assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
     assert runtime_safety.get("active_run_helper_commands_invoked") == []
