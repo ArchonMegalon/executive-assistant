@@ -17,5 +17,5 @@ Future reopen triggers are limited to real authority or proof drift: registry/qu
 
 Proof:
 
-- `python tests/test_chummer_governor_packet_pack.py` -> `ran=17 failed=0`
+- `python tests/test_chummer_governor_packet_pack.py` -> `ran=18 failed=0`
 - `python -m py_compile tests/test_chummer_governor_packet_pack.py` -> pass

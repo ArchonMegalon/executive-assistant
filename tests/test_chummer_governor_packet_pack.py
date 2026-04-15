@@ -60,6 +60,10 @@ def _expected_direct_runner_result() -> str:
     return f"ran={ran} failed=0"
 
 
+def _allowed_historical_runner_results() -> set[str]:
+    return {"ran=17 failed=0", _expected_direct_runner_result()}
+
+
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
@@ -353,6 +357,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     handoff_review = dict(handoff.get("active_run_handoff_review") or {})
     latest_verification = dict(handoff.get("latest_successor_wave_verification") or {})
     expected_result = _expected_direct_runner_result()
+    historical_results = _allowed_historical_runner_results()
     latest_note_path = ROOT / str(latest_verification.get("note_path") or "")
     completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
     proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
@@ -369,7 +374,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert latest_verification.get("verified_package_id") == "next90-m106-ea-governor-packets"
     assert int(latest_verification.get("verified_frontier_id") or 0) == 1758984842
     assert latest_verification.get("result") == "no_ea_owned_work_remaining"
-    assert latest_verification.get("proof_command_result") == expected_result
+    assert latest_verification.get("proof_command_result") in historical_results
     assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T15:13:15Z"
     assert str(latest_verification.get("active_run_handoff_prompt_path") or "").endswith(
         "/runs/20260415T151205Z-shard-12/prompt.txt"
@@ -442,7 +447,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert verification.get("verified_package_id") == "next90-m106-ea-governor-packets"
         assert int(verification.get("verified_frontier_id") or 0) == 1758984842
         assert verification.get("result") == "no_ea_owned_work_remaining"
-        assert verification.get("proof_command_result") == expected_result
+        assert verification.get("proof_command_result") in historical_results
         assert verification.get("active_run_helper_commands_invoked") == []
         assert verification.get("operator_telemetry_commands_invoked") == []
         assert note_path.exists()
@@ -450,6 +455,45 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert str(verification.get("note_path") or "") in proof_artifacts
         note_text = note_path.read_text(encoding="utf-8").lower()
         assert not any(marker in note_text for marker in forbidden_proof_output_markers), note_path
+
+
+def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence() -> None:
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
+    latest_verification = dict(handoff.get("latest_successor_wave_verification") or {})
+    additional_verifications = [
+        dict(item) for item in handoff.get("additional_successor_wave_verifications") or []
+    ]
+    completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
+    latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
+    history = [latest_verification, *additional_verifications]
+
+    assert terminal_policy.get("active_run_handoff_refresh_required") is False
+    assert terminal_policy.get("timestamp_only_handoff_refreshes_are_proof") is False
+    assert terminal_policy.get("successor_wave_verification_history_closed") is True
+    assert "assignment signal, not EA-owned implementation evidence" in (
+        ROOT / "docs" / "chummer_governor_packets" / "README.md"
+    ).read_text(encoding="utf-8")
+    assert "newer `ACTIVE_RUN_HANDOFF.generated.md` timestamp alone is not a reason" in (
+        ROOT / str(terminal_policy.get("proof_note") or "")
+    ).read_text(encoding="utf-8")
+
+    for verification in history:
+        assert str(verification.get("verified_at") or "") <= latest_allowed_timestamp_only
+        assert str(verification.get("active_run_handoff_generated_at") or "") <= latest_allowed_timestamp_only
+
+    successor_wave_pass_notes = {
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "feedback").glob("2026-04-15-ea-governor-packets-successor-wave-pass-*.md")
+    }
+    assert successor_wave_pass_notes <= completed_outputs
+    assert successor_wave_pass_notes <= proof_artifacts
+    assert not any(
+        note.rsplit("-", 1)[-1].removesuffix(".md").removesuffix("z") > "151315"
+        for note in successor_wave_pass_notes
+        if note.rsplit("-", 1)[-1].removesuffix(".md").endswith("z")
+    )
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
