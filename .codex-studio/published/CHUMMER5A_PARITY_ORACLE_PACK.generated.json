@@ -38,6 +38,20 @@
       "menu_toolstrip_status_strip_presence": null
     }
   },
+  "successor_closure": {
+    "successor_frontier_id": 4287684466,
+    "registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "design_queue": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "fleet_queue": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "active_handoff_min_generated_at": "2026-04-15T14:06:05Z",
+    "local_proof_commits": [
+      "f3a3649"
+    ],
+    "proof_hygiene": {
+      "operator_owned_run_helpers_invoked": false,
+      "operator_owned_helper_output_cited": false
+    }
+  },
   "blocking_reasons": [],
   "current_limitations": [],
   "proof": {

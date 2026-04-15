@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
 
 import yaml
 
@@ -169,6 +170,24 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
     assert proof.get("result") == "ran=15 failed=0"
 
+    successor_closure = dict(receipt.get("successor_closure") or {})
+    assert int(successor_closure.get("successor_frontier_id") or 0) == 4287684466
+    assert successor_closure.get("registry") == SUCCESSOR_REGISTRY_PATH.as_posix()
+    assert successor_closure.get("design_queue") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
+    assert successor_closure.get("fleet_queue") == SUCCESSOR_QUEUE_PATH.as_posix()
+    assert successor_closure.get("active_handoff_min_generated_at") == "2026-04-15T14:06:05Z"
+    for commit in successor_closure.get("local_proof_commits") or []:
+        subprocess.run(
+            ["git", "-C", str(ROOT), "cat-file", "-e", f"{commit}^{{commit}}"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    proof_hygiene = dict(successor_closure.get("proof_hygiene") or {})
+    assert proof_hygiene.get("operator_owned_run_helpers_invoked") is False
+    assert proof_hygiene.get("operator_owned_helper_output_cited") is False
+
 
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     pack = _yaml(PACK_PATH)
@@ -182,6 +201,21 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert int(closeout.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0) == 103
     assert closeout.get("status") == "ea_scope_complete"
     assert set(closeout.get("closed_surfaces") or []) == set(pack.get("owned_surfaces") or [])
+
+    local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
+    assert local_proof_commits
+    for proof_commit in local_proof_commits:
+        commit = str(proof_commit.get("commit") or "")
+        assert re.fullmatch(r"[0-9a-f]{7,40}", commit), commit
+        assert str(proof_commit.get("subject") or "").strip()
+        assert str(proof_commit.get("purpose") or "").strip()
+        subprocess.run(
+            ["git", "-C", str(ROOT), "cat-file", "-e", f"{commit}^{{commit}}"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
 
     closure_scope = dict(closeout.get("closure_scope") or {})
     assert closure_scope.get("allowed_paths") == ["skills", "tests", "feedback", "docs"]
@@ -216,7 +250,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
     assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
     assert latest_repeat.get("package_id") == pack.get("package_id")
-    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=f3a3649"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
     assert "design-owned queue assignment" in str(latest_repeat.get("worker_rule") or "")
@@ -261,6 +295,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert repeat_prevention.get("queue_package_status_required") == "complete"
     assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
     assert repeat_prevention.get("blocked_helper_guard_test") == "test_successor_closeout_does_not_use_active_run_helper_commands"
+    assert repeat_prevention.get("local_proof_commit_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
     assert "delegated non-EA follow-up packages" in str(repeat_prevention.get("worker_rule") or "")
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
