@@ -571,6 +571,11 @@ terminal_verification_policy:
 repeat_row_append_policy:
   status: closed_append_free
   do_not_append_for_newer_same_package_handoffs: true
+  proof_floor_freeze:
+    latest_guard_commit: effb55d
+    latest_guard_subject: Pin M103 append-free proof floor
+    worker_rule: Treat the latest resolved append-free proof floor as sufficient closure for newer same-package handoffs; do not update generated receipts, repeat rows, or closeout timestamps only because ACTIVE_RUN_HANDOFF.generated.md was regenerated for frontier 4287684466.
+    guarded_by: test_terminal_verification_policy_stops_timestamp_chasing
   append_only_when:
     - canonical_successor_registry_task_103_1_stops_reporting_complete
     - design_or_fleet_queue_row_stops_reporting_complete_for_frontier_4287684466

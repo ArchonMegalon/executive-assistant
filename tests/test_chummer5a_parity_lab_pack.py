@@ -463,6 +463,20 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "move to allowed_next_work" in append_action
     assert "do not edit completed EA outputs only to record a newer assignment timestamp" in append_action
 
+    proof_floor_freeze = dict(append_policy.get("proof_floor_freeze") or {})
+    assert proof_floor_freeze.get("latest_guard_commit") == "effb55d"
+    assert proof_floor_freeze.get("latest_guard_subject") == "Pin M103 append-free proof floor"
+    assert proof_floor_freeze.get("guarded_by") == "test_terminal_verification_policy_stops_timestamp_chasing"
+
+    freeze_rule = str(proof_floor_freeze.get("worker_rule") or "")
+    assert "latest resolved append-free proof floor" in freeze_rule
+    assert "sufficient closure for newer same-package handoffs" in freeze_rule
+    assert "do not update generated receipts" in freeze_rule
+    assert "repeat rows" in freeze_rule
+    assert "closeout timestamps" in freeze_rule
+    assert "ACTIVE_RUN_HANDOFF.generated.md" in freeze_rule
+    assert "4287684466" in freeze_rule
+
     local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
     assert local_proof_commits[-2].get("commit") == "4d07436"
     assert local_proof_commits[-2].get("subject") == "Pin M103 append-free guard proof floor"
@@ -478,6 +492,14 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
         )
     ]
     assert receipt_proof_commits[-2:] == ["4d07436", "a2ae08f"]
+
+    subprocess.run(
+        ["git", "-C", str(ROOT), "cat-file", "-e", "effb55d^{commit}"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
