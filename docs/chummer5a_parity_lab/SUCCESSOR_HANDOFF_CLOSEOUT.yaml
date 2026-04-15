@@ -72,6 +72,12 @@ repeat_verifications:
     package_id: next90-m103-ea-parity-lab
     result: "registry=complete queue=complete proof=ran=14 failed=0"
     worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:12:32Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:18:17Z"
+    active_handoff_generated_at: "2026-04-15T11:15:33Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:15:33Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
 canonical_successor_sources:
   registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
@@ -85,8 +91,8 @@ canonical_closure_markers:
 repeat_prevention:
   successor_frontier_id: 4287684466
   already_closed_when_seen_at: "2026-04-15T09:52:00Z"
-  active_handoff_verified_at: "2026-04-15T11:18:00Z"
-  active_handoff_min_generated_at: "2026-04-15T11:12:32Z"
+  active_handoff_verified_at: "2026-04-15T11:18:17Z"
+  active_handoff_min_generated_at: "2026-04-15T11:15:33Z"
   active_handoff_focus_required: next90-m103-ea-parity-lab
   active_handoff_owned_surfaces_required:
     - parity_lab:capture
