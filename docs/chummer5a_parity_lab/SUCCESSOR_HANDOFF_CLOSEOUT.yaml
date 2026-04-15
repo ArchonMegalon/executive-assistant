@@ -23,6 +23,7 @@ completed_outputs:
   - docs/chummer5a_parity_lab/veteran_workflow_pack.yaml
   - docs/chummer5a_parity_lab/compare_packs.yaml
   - docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml
+  - docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
   - .codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json
 proof:
   command: python tests/test_chummer5a_parity_lab_pack.py

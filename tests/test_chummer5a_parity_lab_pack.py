@@ -146,6 +146,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         WORKFLOW_PACK_PATH,
         COMPARE_PACKS_PATH,
         FIXTURE_INVENTORY_PATH,
+        HANDOFF_CLOSEOUT_PATH,
         PUBLISHED_PACK_PATH,
     } <= completed_outputs
     for path in completed_outputs:
