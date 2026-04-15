@@ -77,6 +77,43 @@ def test_pack_required_outputs_exist_on_disk() -> None:
         assert row.get("proof_level")
 
 
+def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
+    pack = _yaml(PACK_PATH)
+    source_repos = dict(pack.get("source_repos") or {})
+    assert Path(str(source_repos.get("chummer5a") or "")).is_dir()
+    assert Path(str(source_repos.get("chummer6_ui") or "")).is_dir()
+
+    oracle_sources = dict(pack.get("oracle_sources") or {})
+    for key in ("parity_oracle_json", "parity_checklist_md", "parity_audit_md"):
+        path = Path(str(oracle_sources.get(key) or ""))
+        assert path.exists(), f"{key}: {path}"
+
+    baselines = _yaml(ORACLE_BASELINES_PATH)
+    baseline_sources = dict(baselines.get("source") or {})
+    assert Path(str(baseline_sources.get("parity_oracle_json") or "")).exists()
+    assert Path(str(baseline_sources.get("parity_checklist_md") or "")).exists()
+    assert Path(str(baseline_sources.get("parity_audit_md") or "")).exists()
+
+    workflow = _yaml(WORKFLOW_PACK_PATH)
+    workflow_sources = dict(workflow.get("source_of_truth") or {})
+    assert Path(str(workflow_sources.get("veteran_gate") or "")).exists()
+    assert Path(str(workflow_sources.get("flagship_parity_registry") or "")).exists()
+    for path_text in workflow_sources.get("chummer5a_oracle") or []:
+        path = Path(str(path_text))
+        assert path.exists(), str(path)
+
+    compare = _yaml(COMPARE_PACKS_PATH)
+    compare_sources = dict(compare.get("source_of_truth") or {})
+    assert Path(str(compare_sources.get("flagship_parity_registry") or "")).exists()
+    assert Path(str(compare_sources.get("chummer5a_oracle") or "")).exists()
+
+    fixture_inventory = _yaml(FIXTURE_INVENTORY_PATH)
+    inventory_sources = dict(fixture_inventory.get("source_of_truth") or {})
+    assert Path(str(inventory_sources.get("parity_oracle_json") or "")).exists()
+    assert Path(str(inventory_sources.get("parity_checklist") or "")).exists()
+    assert Path(str(inventory_sources.get("parity_audit") or "")).exists()
+
+
 def test_pack_readiness_evidence_tracks_green_flagship_packet_without_reopening_closeout() -> None:
     pack = _yaml(PACK_PATH)
     readiness = _yaml(FLAGSHIP_READINESS_PATH)
