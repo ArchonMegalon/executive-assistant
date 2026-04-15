@@ -6,7 +6,7 @@
   "milestone_id": 103,
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-04-15T16:18:00Z",
+  "generated_at": "2026-04-15T16:24:00Z",
   "status": "task_proven",
   "operator_summary": "Chummer5a parity-lab extraction is task_proven for the EA-owned surfaces; promoted-head certification remains delegated to next90-m103-ui-veteran-certification.",
   "owned_surfaces": [
@@ -43,7 +43,7 @@
     "registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
     "design_queue": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     "fleet_queue": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
-    "active_handoff_min_generated_at": "2026-04-15T16:17:16Z",
+    "active_handoff_min_generated_at": "2026-04-15T16:20:33Z",
     "local_proof_commits": [
       "f3a3649",
       "528c278",
@@ -84,6 +84,6 @@
   "current_limitations": [],
   "proof": {
     "command": "python tests/test_chummer5a_parity_lab_pack.py",
-    "result": "ran=15 failed=0"
+    "result": "ran=16 failed=0"
   }
 }

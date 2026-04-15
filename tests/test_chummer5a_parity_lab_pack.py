@@ -168,7 +168,7 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
     proof = dict(receipt.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=15 failed=0"
+    assert proof.get("result") == "ran=16 failed=0"
 
     successor_closure = dict(receipt.get("successor_closure") or {})
     assert int(successor_closure.get("successor_frontier_id") or 0) == 4287684466
@@ -273,7 +273,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     proof = dict(closeout.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=15 failed=0"
+    assert proof.get("result") == "ran=16 failed=0"
 
     repeat_verifications = [dict(item) for item in (closeout.get("repeat_verifications") or [])]
     assert repeat_verifications
@@ -282,7 +282,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
     assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
     assert latest_repeat.get("package_id") == pack.get("package_id")
-    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=d274b66"
+    assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=16 failed=0 local_proof_commit=d274b66"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
     assert "design-owned queue assignment" in str(latest_repeat.get("worker_rule") or "")
@@ -371,6 +371,35 @@ def test_successor_handoff_closeout_outputs_stay_inside_assigned_scope() -> None
             output_path.startswith(allowed_roots)
             or output_path == PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix()
         ), output_path
+
+
+def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    repeat_prevention = dict(closeout.get("repeat_prevention") or {})
+    terminal_policy = dict(closeout.get("terminal_verification_policy") or {})
+
+    assert terminal_policy.get("status") == "terminal_for_ea_scope"
+    assert terminal_policy.get("latest_required_handoff_floor") == repeat_prevention.get(
+        "active_handoff_min_generated_at"
+    )
+    assert _active_handoff_generated_at() >= str(terminal_policy.get("latest_required_handoff_floor") or "")
+    assert terminal_policy.get("no_timestamp_chasing_required") is True
+    assert terminal_policy.get("no_operator_helper_evidence_allowed") is True
+    assert terminal_policy.get("closed_scope_guard_test") == "test_terminal_verification_policy_stops_timestamp_chasing"
+
+    current_or_newer_rule = str(terminal_policy.get("current_or_newer_handoff_rule") or "")
+    assert "assignment context only" in current_or_newer_rule
+    assert "not a reason to edit this EA package" in current_or_newer_rule
+    assert "canonical registry" in current_or_newer_rule
+    assert "direct proof command" in current_or_newer_rule
+    assert "green" in current_or_newer_rule
+
+    allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
+    assert allowed_next_work == {
+        "next90-m103-ui-veteran-certification",
+        "next90-m103-design-parity-ladder",
+        "next90-m103-fleet-readiness-consumption",
+    }
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
