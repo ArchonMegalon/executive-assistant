@@ -70,6 +70,7 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     ]
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
+    assert int(queue_item.get("frontier_id") or 0) == 1758984842
     assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
     assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
     assert queue_item.get("title") == "Synthesize parity, support, and release signals into operator-ready and reporter-ready packets"
@@ -77,6 +78,7 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
         "Produce operator packets and reporter followthrough from the same readiness and parity truth used by the governor loop."
     )
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 1758984842
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
     assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
@@ -121,6 +123,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     registry_task = _find_registry_task(milestone, verification.get("registry_work_task_id"))
 
     assert verification.get("queue_package_id") == pack.get("package_id") == queue_item.get("package_id")
+    assert int(verification.get("queue_frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 1758984842
     assert verification.get("queue_repo") == queue_item.get("repo") == "executive-assistant"
     assert list(verification.get("queue_allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
     assert int(verification.get("registry_milestone_id") or 0) == int(milestone.get("id") or 0)
@@ -244,6 +247,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert authority.get("successor_queue_path") == str(QUEUE_STAGING_PATH)
     assert authority.get("design_successor_queue_path") == str(DESIGN_QUEUE_STAGING_PATH)
     assert authority.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
+    assert authority.get("queue_frontier") == "1758984842"
     assert authority.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
     assert set(authority.get("queue_proof_required_entries") or []) <= {
         str(item) for item in queue_item.get("proof") or []

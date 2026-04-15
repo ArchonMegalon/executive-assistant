@@ -57,6 +57,7 @@ proof_guardrails:
     repeat_prevention_rule: Future EA shards should verify this pack and its tests before reopening governor-packet synthesis work.
   canonical_package_verification:
     queue_package_id: next90-m106-ea-governor-packets
+    queue_frontier_id: 1758984842
     queue_repo: executive-assistant
     queue_allowed_paths:
       - skills
