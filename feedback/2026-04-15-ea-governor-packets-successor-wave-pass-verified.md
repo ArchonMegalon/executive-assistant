@@ -11,7 +11,7 @@ What shipped:
 - Added this repeat-verification note to `docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml` so future shards can see the package was checked again without reopening the closed EA-owned surfaces.
 
 Proof:
-- `python tests/test_chummer_governor_packet_pack.py` exited 0 with `ran=16 failed=0`.
+- `python tests/test_chummer_governor_packet_pack.py` exited 0 with `ran=17 failed=0`.
 - `python -m py_compile tests/test_chummer_governor_packet_pack.py` exited 0.
 
 What remains:

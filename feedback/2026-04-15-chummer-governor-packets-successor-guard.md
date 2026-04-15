@@ -12,7 +12,7 @@ What changed:
 
 Proof:
 - `python -m pytest tests/test_chummer_governor_packet_pack.py` could not run because `pytest` is not installed in the EA environment.
-- Direct Python invocation of every `tests/test_chummer_governor_packet_pack.py::test_*` function passed with `ran=16 failed=0`.
+- Direct Python invocation of every `tests/test_chummer_governor_packet_pack.py::test_*` function passed with `ran=17 failed=0`.
 
 Result:
 - EA's governor-packet slice is guarded against queue, registry, source-binding, and reporter-workflow drift without reopening the closed flagship wave or claiming Fleet, Hub, Registry, or design-owned authority.

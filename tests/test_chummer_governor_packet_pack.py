@@ -69,7 +69,7 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
         "/docker/EA/tests/test_chummer_governor_packet_pack.py",
         "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
         "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
-        "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0",
+        "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0",
     } <= {str(item) for item in queue_item.get("proof") or []}
 
 
@@ -118,7 +118,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
             "/docker/EA/tests/test_chummer_governor_packet_pack.py",
             "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
             "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
-            "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0.",
+            "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0.",
         }
     )
     registry_evidence_items = [str(item) for item in registry_task.get("evidence") or []]
@@ -134,7 +134,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         for path in registry_ea_file_proofs
     )
     assert any(
-        item == "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=16 failed=0."
+        item == "python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0."
         for item in registry_evidence_items
     )
 
@@ -192,13 +192,14 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md",
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-verified.md",
         "feedback/2026-04-15-ea-governor-packets-registry-evidence-guard.md",
+        "feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md",
     }:
         assert expected in completed_outputs
         assert (ROOT / expected).exists()
 
     proof = dict(handoff.get("proof_command") or {})
     assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
-    assert proof.get("expected_result") == "ran=16 failed=0"
+    assert proof.get("expected_result") == "ran=17 failed=0"
 
     authority = dict(handoff.get("canonical_authority") or {})
     assert authority.get("successor_registry_path") == str(CANONICAL_REGISTRY_PATH)
@@ -215,6 +216,33 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
     assert runtime_safety.get("active_run_helper_commands_invoked") == []
     assert runtime_safety.get("operator_telemetry_commands_invoked") == []
+
+    handoff_review = dict(handoff.get("active_run_handoff_review") or {})
+    assert handoff_review.get("reviewed_path") == (
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
+    )
+    assert int(handoff_review.get("reviewed_frontier_id") or 0) == 1758984842
+    assert handoff_review.get("reviewed_package_id") == "next90-m106-ea-governor-packets"
+    assert handoff_review.get("reviewed_mode") == "successor_wave"
+    assert handoff_review.get("worker_safety_instruction_seen") is True
+    assert "mutable operator state" in str(handoff_review.get("stability_rule") or "")
+
+
+def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency() -> None:
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    feedback = (ROOT / "feedback" / "2026-04-15-ea-governor-packets-active-run-handoff-guard.md").read_text(
+        encoding="utf-8"
+    )
+    handoff_review = dict(handoff.get("active_run_handoff_review") or {})
+
+    assert handoff_review.get("reviewed_package_id") == "next90-m106-ea-governor-packets"
+    assert handoff_review.get("worker_safety_instruction_seen") is True
+    assert "tests must not depend on transient handoff tail text" in str(
+        handoff_review.get("stability_rule") or ""
+    )
+    assert "reviewed the active-run handoff" in feedback
+    assert "without making repo tests depend on mutable handoff tail text" in feedback
+    assert "operator telemetry and active-run helper commands" in feedback
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:

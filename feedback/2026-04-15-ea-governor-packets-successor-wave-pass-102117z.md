@@ -11,7 +11,7 @@ What shipped:
 - Re-ran the local proof boundary without operator telemetry or active-run helper commands.
 
 Proof:
-- `python tests/test_chummer_governor_packet_pack.py` exited 0 with `ran=16 failed=0`.
+- `python tests/test_chummer_governor_packet_pack.py` exited 0 with `ran=17 failed=0`.
 - `python -m py_compile tests/test_chummer_governor_packet_pack.py` exited 0.
 
 What remains:
