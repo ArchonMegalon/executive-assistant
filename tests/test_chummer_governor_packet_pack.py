@@ -647,6 +647,40 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         assert not any(run_id in item for item in canonical_evidence)
 
 
+def test_terminal_policy_ignores_later_same_package_assignments_without_enumerating_them() -> None:
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
+    ignored_assignment_rule = dict(terminal_policy.get("ignored_assignment_rule") or {})
+    latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
+    later_same_package_assignment = {
+        "package_id": "next90-m106-ea-governor-packets",
+        "frontier_id": 1758984842,
+        "generated_at": "2026-04-15T18:55:26Z",
+        "prompt_path": (
+            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+            "20260415T185515Z-shard-12/prompt.txt"
+        ),
+    }
+
+    assert later_same_package_assignment["generated_at"] > latest_allowed_timestamp_only
+    assert later_same_package_assignment["package_id"] == ignored_assignment_rule.get("package_id")
+    assert later_same_package_assignment["frontier_id"] == int(ignored_assignment_rule.get("frontier_id") or 0)
+    assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
+    assert "without appending per-handoff manifest rows" in str(
+        terminal_policy.get("repeated_assignment_handling") or ""
+    )
+    assert (
+        "unless an allowed reopen trigger below fires"
+        in str(terminal_policy.get("repeated_assignment_handling") or "")
+    )
+
+    completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
+    run_id = Path(later_same_package_assignment["prompt_path"]).parts[-2]
+    assert not any(run_id in item for item in completed_outputs)
+    assert not any(run_id in item for item in proof_artifacts)
+
+
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
     registry = _yaml(CANONICAL_REGISTRY_PATH)
     milestone = _find_milestone(registry, 106)

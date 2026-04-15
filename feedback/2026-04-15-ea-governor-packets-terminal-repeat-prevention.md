@@ -20,5 +20,5 @@ Later handoffs with the same package id and frontier id are handled the same way
 
 Proof:
 
-- `python tests/test_chummer_governor_packet_pack.py` -> `ran=18 failed=0`
+- `python tests/test_chummer_governor_packet_pack.py` -> `ran=19 failed=0`
 - `python -m py_compile tests/test_chummer_governor_packet_pack.py` -> pass
