@@ -14,6 +14,7 @@ FIXTURE_INVENTORY_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "import_export
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 PUBLISHED_PACK_PATH = ROOT / ".codex-studio" / "published" / "CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
+ACTIVE_RUN_HANDOFF_PATH = Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md")
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
@@ -160,9 +161,18 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
     assert closure_markers.get("queue_package") == "next90-m103-ea-parity-lab status=complete"
     assert closure_markers.get("queue_proof_command") == "python tests/test_chummer5a_parity_lab_pack.py"
+    assert closure_markers.get("active_handoff_frontier") == "4287684466 focused_package=next90-m103-ea-parity-lab"
+
+    canonical_sources = dict(closeout.get("canonical_successor_sources") or {})
+    assert canonical_sources.get("active_run_handoff") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
+    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    assert "Mode: successor_wave" in active_handoff_text
+    assert "Frontier ids: 4287684466" in active_handoff_text
+    assert "next90-m103-ea-parity-lab" in active_handoff_text
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
+    assert repeat_prevention.get("active_handoff_verified_at") == "2026-04-15T10:23:10Z"
     assert repeat_prevention.get("registry_task_status_required") == "complete"
     assert repeat_prevention.get("queue_package_status_required") == "complete"
     assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
