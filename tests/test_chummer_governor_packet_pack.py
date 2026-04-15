@@ -13,6 +13,7 @@ QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUE
 PROGRESS_EMAIL_WORKFLOW_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml"
 FEEDBACK_RELEASE_GATE_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_LOOP_RELEASE_GATE.yaml"
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-15-ea-governor-packets-package-closeout.md"
+HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_governor_packets" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
 
 
 def _yaml(path: Path) -> dict:
@@ -122,6 +123,61 @@ def test_successor_frontier_closeout_prevents_reopening_completed_ea_slice() -> 
     assert "verify this pack and its tests before reopening" in str(frontier.get("repeat_prevention_rule") or "")
     assert "1758984842" in readme
     assert "complete for the EA-owned surfaces" in readme
+    assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in readme
+
+
+def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> None:
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    pack = _yaml(PACK_PATH)
+
+    assert handoff.get("contract_name") == "ea.chummer_governor_packets_successor_handoff_closeout"
+    assert handoff.get("package_id") == pack.get("package_id") == queue_item.get("package_id")
+    assert int(handoff.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
+    assert int(handoff.get("frontier_id") or 0) == 1758984842
+    assert handoff.get("status") == "ea_scope_complete"
+    assert list(handoff.get("closed_surfaces") or []) == list(pack.get("owned_surfaces") or [])
+
+    boundary = dict(handoff.get("scope_boundary") or {})
+    assert boundary.get("closed_package_only") == "next90-m106-ea-governor-packets"
+    assert list(boundary.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
+    assert set(boundary.get("remaining_milestone_work_belongs_to") or []) == {
+        "fleet",
+        "chummer6-hub",
+        "chummer6-hub-registry",
+        "chummer6-design",
+    }
+
+    completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    for expected in {
+        "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+        "docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+        "docs/chummer_governor_packets/README.md",
+        "feedback/2026-04-15-ea-governor-packets-package-closeout.md",
+        "feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+    }:
+        assert expected in completed_outputs
+        assert (ROOT / expected).exists()
+
+    proof = dict(handoff.get("proof_command") or {})
+    assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
+    assert proof.get("expected_result") == "ran=15 failed=0"
+
+    authority = dict(handoff.get("canonical_authority") or {})
+    assert authority.get("successor_registry_path") == str(CANONICAL_REGISTRY_PATH)
+    assert authority.get("successor_queue_path") == str(QUEUE_STAGING_PATH)
+    assert authority.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
+    assert authority.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
+
+    repeat_prevention = dict(handoff.get("repeat_prevention") or {})
+    assert "Treat this EA-owned package as closed" in str(repeat_prevention.get("worker_rule") or "")
+    assert any("Fleet weekly governor packet runtime" in item for item in repeat_prevention.get("do_not_reopen_for") or [])
+    assert any("Design successor registry meaning" in item for item in repeat_prevention.get("do_not_reopen_for") or [])
+
+    runtime_safety = dict(handoff.get("runtime_safety") or {})
+    assert runtime_safety.get("do_not_invoke_operator_telemetry_or_active_run_helpers") is True
+    assert runtime_safety.get("active_run_helper_commands_invoked") == []
+    assert runtime_safety.get("operator_telemetry_commands_invoked") == []
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:

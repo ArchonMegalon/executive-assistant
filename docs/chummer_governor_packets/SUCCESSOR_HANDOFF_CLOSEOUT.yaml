@@ -1,0 +1,45 @@
+contract_name: ea.chummer_governor_packets_successor_handoff_closeout
+package_id: next90-m106-ea-governor-packets
+milestone_id: 106
+frontier_id: 1758984842
+status: ea_scope_complete
+closed_surfaces:
+  - operator_packets:weekly_governor
+  - reporter_followthrough:release_truth
+scope_boundary:
+  closed_package_only: next90-m106-ea-governor-packets
+  allowed_paths:
+    - skills
+    - tests
+    - feedback
+    - docs
+  remaining_milestone_work_belongs_to:
+    - fleet
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-design
+completed_outputs:
+  - docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+  - docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
+  - docs/chummer_governor_packets/README.md
+  - feedback/2026-04-15-ea-governor-packets-package-closeout.md
+  - feedback/2026-04-15-chummer-governor-packets-successor-guard.md
+proof_command:
+  command: python tests/test_chummer_governor_packet_pack.py
+  expected_result: ran=15 failed=0
+canonical_authority:
+  successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue_package: "next90-m106-ea-governor-packets status=complete"
+  registry_work_task: "106.2 status=complete owner=executive-assistant"
+repeat_prevention:
+  worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging row, completed outputs, and proof command still agree; advance only delegated non-EA follow-up packages from here.
+  do_not_reopen_for:
+    - Fleet weekly governor packet runtime or publication work.
+    - Hub install-aware support, status, recovery, raw case truth, or reporter linkage work.
+    - Registry release-channel truth or reporter-channel availability work.
+    - Design successor registry meaning or milestone closeout language.
+runtime_safety:
+  do_not_invoke_operator_telemetry_or_active_run_helpers: true
+  active_run_helper_commands_invoked: []
+  operator_telemetry_commands_invoked: []
