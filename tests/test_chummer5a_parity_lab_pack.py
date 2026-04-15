@@ -344,6 +344,9 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
     receipt = _yaml(PUBLISHED_PACK_PATH)
     pack = _yaml(PACK_PATH)
+    registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
 
     combined = "\n".join(
         [
@@ -367,6 +370,31 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
     assert proof_command == receipt_command == "python tests/test_chummer5a_parity_lab_pack.py"
     assert dict(pack.get("readiness_evidence") or {}).get("flagship_readiness_status") == "pass"
+
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    task_103_1 = next(dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1)
+    design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
+    queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
+
+    canonical_package_proof = "\n".join(
+        str(item)
+        for item in (
+            list(task_103_1.get("evidence") or [])
+            + list(design_queue_items["next90-m103-ea-parity-lab"].get("proof") or [])
+            + list(queue_items["next90-m103-ea-parity-lab"].get("proof") or [])
+        )
+    )
+    blocked_proof_markers = [
+        "TASK_LOCAL_TELEMETRY",
+        "ACTIVE_RUN_HANDOFF.generated.md",
+        "/runs/",
+        "active-run telemetry",
+        "operator telemetry",
+        "telemetry helper output",
+        "operator-owned helper output",
+    ]
+    for marker in blocked_proof_markers:
+        assert marker.lower() not in canonical_package_proof.lower(), marker
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
