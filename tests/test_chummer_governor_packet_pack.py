@@ -312,9 +312,9 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert int(latest_verification.get("verified_frontier_id") or 0) == 1758984842
     assert latest_verification.get("result") == "no_ea_owned_work_remaining"
     assert latest_verification.get("proof_command_result") == expected_result
-    assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T14:25:55Z"
+    assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T14:29:11Z"
     assert str(latest_verification.get("active_run_handoff_prompt_path") or "").endswith(
-        "/runs/20260415T142444Z-shard-12/prompt.txt"
+        "/runs/20260415T142800Z-shard-12/prompt.txt"
     )
     assert set(latest_verification.get("checked_authorities") or []) == {
         "canonical successor registry milestone 106 work task 106.2",
@@ -378,6 +378,10 @@ def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
     shared_anchors = set(pack.get("shared_evidence_anchor_ids") or [])
 
     assert shared_anchors == {"weekly_pulse", "parity_lab_pack", "feedback_release_gate", "progress_email_workflow"}
+    assert _source_path(source_truth["canonical_successor_queue"]).resolve() == QUEUE_STAGING_PATH.resolve()
+    assert _source_path(source_truth["design_successor_queue"]).resolve() == DESIGN_QUEUE_STAGING_PATH.resolve()
+    assert "Fleet-published queue mirror" in str(source_truth["canonical_successor_queue"].get("use_rule") or "")
+    assert "design-owned successor queue source" in str(source_truth["design_successor_queue"].get("use_rule") or "")
     for key, row in source_truth.items():
         if row.get("required") is True:
             assert _source_path(row).exists(), key

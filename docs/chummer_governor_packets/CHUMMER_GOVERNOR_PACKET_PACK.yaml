@@ -17,6 +17,12 @@ source_truth:
     id: successor_queue
     path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
     required: true
+    use_rule: Use as the Fleet-published queue mirror; it must agree with the design-owned successor queue row before this EA package can stay closed.
+  design_successor_queue:
+    id: design_successor_queue
+    path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    required: true
+    use_rule: Use as the design-owned successor queue source; Fleet mirror drift must fail closed instead of reopening EA-owned packet synthesis.
   weekly_product_pulse:
     id: weekly_pulse
     path: .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json
