@@ -174,6 +174,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     pack = _yaml(PACK_PATH)
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
     registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
 
     assert closeout.get("contract_name") == "ea.chummer5a_parity_lab_successor_handoff_closeout"
@@ -218,6 +219,9 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
+    assert "design-owned queue assignment" in str(latest_repeat.get("worker_rule") or "")
+    assert "Fleet completed queue mirror" in str(latest_repeat.get("worker_rule") or "")
+    assert "direct proof command" in str(latest_repeat.get("worker_rule") or "")
     assert "invoke operator-owned run helpers" in str(latest_repeat.get("worker_rule") or "")
     assert "cite operator-owned helper output" in str(latest_repeat.get("worker_rule") or "")
 
@@ -267,6 +271,16 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     queue_item = queue_items["next90-m103-ea-parity-lab"]
     assert int(queue_item.get("frontier_id") or 0) == int(repeat_prevention.get("successor_frontier_id") or 0)
     assert queue_item.get("status") == repeat_prevention.get("queue_package_status_required") == "complete"
+
+    design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
+    design_queue_item = design_queue_items["next90-m103-ea-parity-lab"]
+    assert int(design_queue_item.get("frontier_id") or 0) == int(repeat_prevention.get("successor_frontier_id") or 0)
+    assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert list(design_queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+    assert list(design_queue_item.get("owned_surfaces") or []) == [
+        "parity_lab:capture",
+        "veteran_compare_packs",
+    ]
 
     remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
     assert "executive-assistant" not in remaining
