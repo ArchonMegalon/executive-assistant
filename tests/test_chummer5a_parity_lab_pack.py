@@ -218,6 +218,8 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert latest_repeat.get("result") == "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
+    assert "invoke operator-owned run helpers" in str(latest_repeat.get("worker_rule") or "")
+    assert "cite operator-owned helper output" in str(latest_repeat.get("worker_rule") or "")
 
     closure_markers = dict(closeout.get("canonical_closure_markers") or {})
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
