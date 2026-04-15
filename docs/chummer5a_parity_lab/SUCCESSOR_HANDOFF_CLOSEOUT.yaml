@@ -25,6 +25,13 @@ canonical_closure_markers:
   successor_registry_work_task: "103.1 status=complete"
   queue_package: "next90-m103-ea-parity-lab status=complete"
   queue_proof_command: python tests/test_chummer5a_parity_lab_pack.py
+repeat_prevention:
+  successor_frontier_id: 4287684466
+  already_closed_when_seen_at: "2026-04-15T09:52:00Z"
+  registry_task_status_required: complete
+  queue_package_status_required: complete
+  worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging packet, completed outputs, and proof command all still pass; advance only delegated non-EA follow-up packages from here.
+  repeat_guard_test: test_successor_handoff_closeout_prevents_repeating_ea_scope
 remaining_non_ea_work:
   - package_id: next90-m103-ui-veteran-certification
     owner: chummer6-ui

@@ -118,6 +118,8 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     pack = _yaml(PACK_PATH)
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
 
     assert closeout.get("contract_name") == "ea.chummer5a_parity_lab_successor_handoff_closeout"
     assert closeout.get("package_id") == pack.get("package_id") == "next90-m103-ea-parity-lab"
@@ -145,6 +147,22 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
     assert closure_markers.get("queue_package") == "next90-m103-ea-parity-lab status=complete"
     assert closure_markers.get("queue_proof_command") == "python tests/test_chummer5a_parity_lab_pack.py"
+
+    repeat_prevention = dict(closeout.get("repeat_prevention") or {})
+    assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
+    assert repeat_prevention.get("registry_task_status_required") == "complete"
+    assert repeat_prevention.get("queue_package_status_required") == "complete"
+    assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
+    assert "delegated non-EA follow-up packages" in str(repeat_prevention.get("worker_rule") or "")
+
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    task_103_1 = next(dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1)
+    assert task_103_1.get("status") == repeat_prevention.get("registry_task_status_required") == "complete"
+
+    queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
+    assert queue_items["next90-m103-ea-parity-lab"].get("status") == repeat_prevention.get(
+        "queue_package_status_required"
+    ) == "complete"
 
     remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
     assert "executive-assistant" not in remaining
