@@ -102,8 +102,13 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
         "/docker/EA/tests/test_chummer_governor_packet_pack.py",
         "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
         "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+        "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md",
         f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}",
     } <= {str(item) for item in queue_item.get("proof") or []}
+    assert not any(
+        "ea-governor-packets-successor-wave-pass-" in str(item)
+        for item in queue_item.get("proof") or []
+    )
 
 
 def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
@@ -153,10 +158,15 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
             "/docker/EA/tests/test_chummer_governor_packet_pack.py",
             "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
             "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+            "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md",
             f"python tests/test_chummer_governor_packet_pack.py exits 0 with {expected_result}.",
         }
     )
     registry_evidence_items = [str(item) for item in registry_task.get("evidence") or []]
+    assert not any(
+        "ea-governor-packets-successor-wave-pass-" in item
+        for item in registry_evidence_items
+    )
     registry_ea_file_proofs = [
         Path(item.split(" ", 1)[0])
         for item in registry_evidence_items
