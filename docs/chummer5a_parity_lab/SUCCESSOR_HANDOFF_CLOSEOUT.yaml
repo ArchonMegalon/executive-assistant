@@ -94,6 +94,10 @@ local_proof_commits:
     committed_at: "2026-04-15T15:13:29Z"
     subject: Pin M103 parity lab current proof guard
     purpose: Pins the completed-package repeat guard after the 15:11Z handoff refresh so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 7b7da3e
+    committed_at: "2026-04-15T15:16:22Z"
+    subject: Refresh M103 parity lab current successor guard
+    purpose: Records the completed-package guard after the 15:14Z handoff refresh so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
@@ -341,6 +345,12 @@ repeat_verifications:
     package_id: next90-m103-ea-parity-lab
     result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=f244a62"
     worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:14:53Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof guard commit f244a62; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:18:40Z"
+    active_handoff_generated_at: "2026-04-15T15:17:57Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=7b7da3e"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:17:57Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local successor guard commit 7b7da3e; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
 canonical_successor_sources:
   registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   design_queue: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
@@ -356,8 +366,8 @@ canonical_closure_markers:
 repeat_prevention:
   successor_frontier_id: 4287684466
   already_closed_when_seen_at: "2026-04-15T09:52:00Z"
-  active_handoff_verified_at: "2026-04-15T15:15:41Z"
-  active_handoff_min_generated_at: "2026-04-15T15:14:53Z"
+  active_handoff_verified_at: "2026-04-15T15:18:40Z"
+  active_handoff_min_generated_at: "2026-04-15T15:17:57Z"
   active_handoff_focus_required: next90-m103-ea-parity-lab
   active_handoff_owned_surfaces_required:
     - parity_lab:capture
