@@ -183,6 +183,10 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     }
 
     completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
+    allowed_output_roots = set(queue_item.get("allowed_paths") or [])
+    assert completed_outputs, "handoff closeout should name completed package outputs"
+    assert all((ROOT / item).exists() for item in completed_outputs)
+    assert all(Path(item).parts[0] in allowed_output_roots for item in completed_outputs)
     for expected in {
         "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
         "docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
