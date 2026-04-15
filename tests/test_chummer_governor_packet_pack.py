@@ -173,6 +173,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "docs/chummer_governor_packets/README.md",
         "feedback/2026-04-15-ea-governor-packets-package-closeout.md",
         "feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md",
     }:
         assert expected in completed_outputs
         assert (ROOT / expected).exists()
