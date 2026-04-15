@@ -73,7 +73,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
     assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
-    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=14 failed=0" in task_evidence
+    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=15 failed=0" in task_evidence
 
     queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
     queue_item = queue_items["next90-m103-ea-parity-lab"]
@@ -147,7 +147,7 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
     proof = dict(receipt.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=14 failed=0"
+    assert proof.get("result") == "ran=15 failed=0"
 
 
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
@@ -186,7 +186,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     proof = dict(closeout.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=14 failed=0"
+    assert proof.get("result") == "ran=15 failed=0"
 
     repeat_verifications = [dict(item) for item in (closeout.get("repeat_verifications") or [])]
     assert repeat_verifications
@@ -195,7 +195,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
     assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
     assert latest_repeat.get("package_id") == pack.get("package_id")
-    assert latest_repeat.get("result") == "registry=complete queue=complete proof=ran=14 failed=0"
+    assert latest_repeat.get("result") == "registry=complete queue=complete proof=ran=15 failed=0"
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
 
@@ -231,6 +231,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert repeat_prevention.get("registry_task_status_required") == "complete"
     assert repeat_prevention.get("queue_package_status_required") == "complete"
     assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
+    assert repeat_prevention.get("blocked_helper_guard_test") == "test_successor_closeout_does_not_use_active_run_helper_commands"
     assert "delegated non-EA follow-up packages" in str(repeat_prevention.get("worker_rule") or "")
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
@@ -263,6 +264,35 @@ def test_successor_handoff_closeout_outputs_stay_inside_assigned_scope() -> None
             output_path.startswith(allowed_roots)
             or output_path == PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix()
         ), output_path
+
+
+def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
+    pack = _yaml(PACK_PATH)
+
+    combined = "\n".join(
+        [
+            HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
+            PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            PACK_PATH.read_text(encoding="utf-8"),
+        ]
+    )
+    blocked_markers = [
+        "TASK_LOCAL_TELEMETRY",
+        "operator telemetry",
+        "active-run helper",
+        "active run helper",
+        "ooda",
+        "telemetry helper",
+    ]
+    for marker in blocked_markers:
+        assert marker.lower() not in combined.lower(), marker
+
+    proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
+    receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
+    assert proof_command == receipt_command == "python tests/test_chummer5a_parity_lab_pack.py"
+    assert dict(pack.get("readiness_evidence") or {}).get("flagship_readiness_status") == "pass"
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
