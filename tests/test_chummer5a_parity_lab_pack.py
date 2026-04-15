@@ -102,11 +102,19 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
     design_queue_item = design_queue_items["next90-m103-ea-parity-lab"]
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
+    assert design_queue_item.get("status") == queue_item.get("status") == "complete"
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
     assert int(design_queue_item.get("milestone_id") or 0) == int(queue_item.get("milestone_id") or 0) == 103
     assert design_queue_item.get("wave") == queue_item.get("wave") == "W7"
     assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
+    design_proof = set(str(item) for item in (design_queue_item.get("proof") or []))
+    assert {
+        "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
+        "python tests/test_chummer5a_parity_lab_pack.py",
+    } <= design_proof
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
@@ -213,7 +221,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     closure_markers = dict(closeout.get("canonical_closure_markers") or {})
     assert closure_markers.get("successor_registry_work_task") == "103.1 status=complete"
-    assert closure_markers.get("design_queue_assignment") == "next90-m103-ea-parity-lab frontier=4287684466"
+    assert closure_markers.get("design_queue_completed_package") == "next90-m103-ea-parity-lab status=complete frontier=4287684466"
     assert closure_markers.get("queue_package") == "next90-m103-ea-parity-lab status=complete"
     assert closure_markers.get("queue_proof_command") == "python tests/test_chummer5a_parity_lab_pack.py"
     assert closure_markers.get("active_handoff_frontier") == "4287684466 focused_package=next90-m103-ea-parity-lab"
@@ -243,7 +251,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         "veteran_compare_packs",
     ]
     assert repeat_prevention.get("registry_task_status_required") == "complete"
-    assert repeat_prevention.get("design_queue_assignment_required") == "next90-m103-ea-parity-lab frontier=4287684466"
+    assert repeat_prevention.get("design_queue_completed_package_required") == "next90-m103-ea-parity-lab status=complete frontier=4287684466"
     assert repeat_prevention.get("queue_package_status_required") == "complete"
     assert repeat_prevention.get("repeat_guard_test") == "test_successor_handoff_closeout_prevents_repeating_ea_scope"
     assert repeat_prevention.get("blocked_helper_guard_test") == "test_successor_closeout_does_not_use_active_run_helper_commands"
