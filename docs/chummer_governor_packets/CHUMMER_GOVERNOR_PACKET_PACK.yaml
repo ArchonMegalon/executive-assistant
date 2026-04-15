@@ -49,6 +49,28 @@ shared_evidence_anchor_ids:
   - parity_lab_pack
   - feedback_release_gate
   - progress_email_workflow
+proof_guardrails:
+  canonical_package_verification:
+    queue_package_id: next90-m106-ea-governor-packets
+    queue_repo: executive-assistant
+    queue_allowed_paths:
+      - skills
+      - tests
+      - feedback
+      - docs
+    registry_milestone_id: 106
+    registry_work_task_id: 106.2
+    registry_dependencies:
+      - 101
+      - 102
+      - 103
+      - 104
+      - 105
+  drift_policy:
+    - Fail closed if the successor queue no longer assigns this package to executive-assistant or changes the owned surfaces.
+    - Fail closed if the milestone dependencies or EA work task drift away from the canonical successor registry.
+    - Fail closed if reporter specimens diverge from the mirrored progress email workflow stage order, trigger statuses, required fields, or exactly-once rules.
+    - Keep package proof under docs, tests, feedback, or skills unless a future canonical queue row explicitly changes allowed paths.
 operator_packet:
   packet_id: ea-weekly-governor-synthesis-2026-04-15
   purpose: Condense readiness, parity, support, and release signals into an operator packet downstream of the Fleet governor loop.

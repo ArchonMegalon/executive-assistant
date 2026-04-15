@@ -54,6 +54,32 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert queue_item.get("repo") == "executive-assistant"
     assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
     assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
+    assert queue_item.get("title") == "Synthesize parity, support, and release signals into operator-ready and reporter-ready packets"
+    assert queue_item.get("task") == (
+        "Produce operator packets and reporter followthrough from the same readiness and parity truth used by the governor loop."
+    )
+
+
+def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
+    pack = _yaml(PACK_PATH)
+    queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
+    milestone = _find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106)
+    guardrails = dict(pack.get("proof_guardrails") or {})
+    verification = dict(guardrails.get("canonical_package_verification") or {})
+
+    assert verification.get("queue_package_id") == pack.get("package_id") == queue_item.get("package_id")
+    assert verification.get("queue_repo") == queue_item.get("repo") == "executive-assistant"
+    assert list(verification.get("queue_allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
+    assert int(verification.get("registry_milestone_id") or 0) == int(milestone.get("id") or 0)
+    assert {int(item) for item in verification.get("registry_dependencies") or []} == {
+        int(item) for item in milestone.get("dependencies") or []
+    }
+    assert any(dict(task).get("id") == verification.get("registry_work_task_id") for task in milestone.get("work_tasks") or [])
+
+    drift_policy = [str(item) for item in guardrails.get("drift_policy") or []]
+    assert any("successor queue" in item and "owned surfaces" in item for item in drift_policy)
+    assert any("progress email workflow" in item and "exactly-once" in item for item in drift_policy)
+    assert any("docs, tests, feedback, or skills" in item for item in drift_policy)
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
@@ -191,6 +217,36 @@ def test_specimens_project_operator_and_reporter_packets_from_same_anchors() -> 
     assert specimens["operator_packet_specimen"]["packet_kind"] == "operator_packets:weekly_governor"
     assert specimens["reporter_followthrough_specimen"]["packet_kind"] == "reporter_followthrough:release_truth"
     assert set(specimens["operator_packet_specimen"]["specimen_payload"]["cited_signal_ids"]) == shared_anchors
+    assert _source_path({"path": specimens.get("source_pack")}).resolve() == PACK_PATH.resolve()
+
+    source_truth = {
+        str(dict(row).get("id") or ""): _source_path(dict(row)).resolve()
+        for row in dict(pack.get("source_truth") or {}).values()
+        if dict(row).get("id") in shared_anchors
+    }
+    bindings = {key: _source_path(dict(row)).resolve() for key, row in dict(specimens.get("shared_evidence_bindings") or {}).items()}
+    assert bindings == source_truth
+
+
+def test_specimens_track_progress_workflow_stage_payloads_without_local_drift() -> None:
+    specimens = _yaml(SPECIMENS_PATH)
+    workflow = _yaml(PROGRESS_EMAIL_WORKFLOW_PATH)
+    reporter = dict(specimens.get("reporter_followthrough_specimen") or {})
+    workflow_stages = {str(dict(stage).get("id") or ""): dict(stage) for stage in workflow.get("stages") or []}
+    specimen_stages = {str(key): dict(value) for key, value in dict(reporter.get("specimen_stage_payloads") or {}).items()}
+
+    assert set(specimen_stages) == set(workflow_stages)
+    for stage_id, specimen_stage in specimen_stages.items():
+        workflow_stage = workflow_stages[stage_id]
+        assert specimen_stage.get("allowed_trigger_statuses") == workflow_stage.get("trigger_statuses")
+        assert specimen_stage.get("required_fields") == workflow_stage.get("required_fields")
+
+    assert specimen_stages["request_received"]["exactly_once_rule"] == "exactly_once_per_case"
+    assert workflow_stages["request_received"]["exactly_once_per_case"] is True
+    assert specimen_stages["audited_decision"]["exactly_once_rule"] == "exactly_once_per_decision_change"
+    assert workflow_stages["audited_decision"]["exactly_once_per_decision_change"] is True
+    assert specimen_stages["fix_available"]["exactly_once_rule"] == "exactly_once_per_reporter_channel_release"
+    assert workflow_stages["fix_available"]["exactly_once_per_reporter_channel_release"] is True
 
 
 def test_specimens_keep_reporter_fix_available_release_truth_fail_closed() -> None:
