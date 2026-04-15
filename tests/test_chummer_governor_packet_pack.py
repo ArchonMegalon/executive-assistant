@@ -214,6 +214,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-111728z.md",
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md",
         "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-1124z.md",
+        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-113230z.md",
     }:
         assert expected in completed_outputs
         assert (ROOT / expected).exists()
