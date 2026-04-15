@@ -82,6 +82,9 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
     } <= proof
+    for proof_anchor in proof:
+        if proof_anchor.startswith("/docker/EA/"):
+            assert Path(proof_anchor).exists(), proof_anchor
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
