@@ -28,10 +28,13 @@ def _source_path(row: dict) -> Path:
 
 
 def _find_package(queue: dict) -> dict:
-    for item in queue.get("items") or []:
-        if dict(item).get("package_id") == "next90-m106-ea-governor-packets":
-            return dict(item)
-    raise AssertionError("missing next90-m106-ea-governor-packets in successor queue")
+    matches = [
+        dict(item)
+        for item in queue.get("items") or []
+        if dict(item).get("package_id") == "next90-m106-ea-governor-packets"
+    ]
+    assert len(matches) == 1, "successor queue must contain exactly one next90-m106-ea-governor-packets row"
+    return matches[0]
 
 
 def _find_milestone(registry: dict, milestone_id: int) -> dict:
@@ -40,6 +43,16 @@ def _find_milestone(registry: dict, milestone_id: int) -> dict:
         if int(row.get("id") or 0) == milestone_id:
             return row
     raise AssertionError(f"missing milestone {milestone_id}")
+
+
+def _find_registry_task(milestone: dict, task_id: float) -> dict:
+    matches = [
+        dict(task)
+        for task in milestone.get("work_tasks") or []
+        if dict(task).get("id") == task_id
+    ]
+    assert len(matches) == 1, f"milestone {milestone.get('id')} must contain exactly one work task {task_id}"
+    return matches[0]
 
 
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
@@ -105,11 +118,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     milestone = _find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106)
     guardrails = dict(pack.get("proof_guardrails") or {})
     verification = dict(guardrails.get("canonical_package_verification") or {})
-    registry_task = next(
-        dict(task)
-        for task in milestone.get("work_tasks") or []
-        if dict(task).get("id") == verification.get("registry_work_task_id")
-    )
+    registry_task = _find_registry_task(milestone, verification.get("registry_work_task_id"))
 
     assert verification.get("queue_package_id") == pack.get("package_id") == queue_item.get("package_id")
     assert verification.get("queue_repo") == queue_item.get("repo") == "executive-assistant"
@@ -307,12 +316,9 @@ def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> N
     assert milestone.get("status") == "in_progress"
     assert "executive-assistant" in set(milestone.get("owners") or [])
     assert {int(item) for item in milestone.get("dependencies") or []} == {101, 102, 103, 104, 105}
-    assert any(
-        dict(task).get("owner") == "executive-assistant"
-        and dict(task).get("id") == 106.2
-        and "Synthesize support, parity, and release signals" in str(dict(task).get("title") or "")
-        for task in milestone.get("work_tasks") or []
-    )
+    registry_task = _find_registry_task(milestone, 106.2)
+    assert registry_task.get("owner") == "executive-assistant"
+    assert "Synthesize support, parity, and release signals" in str(registry_task.get("title") or "")
 
 
 def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
