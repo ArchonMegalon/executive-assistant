@@ -372,6 +372,9 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     ]
     terminal_policy = dict(handoff.get("terminal_verification_policy") or {})
     latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
+    successor_wave_pass_notes = sorted(
+        (ROOT / "feedback").glob("2026-04-15-ea-governor-packets-successor-wave-pass-*.md")
+    )
     assert verification_history, "closeout manifest should retain successor-wave verification history"
     assert len({str(item.get("note_path") or "") for item in verification_history}) == len(verification_history)
     assert verification_history == sorted(
@@ -381,6 +384,17 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     )
     assert terminal_policy.get("successor_wave_verification_history_closed") is True
     assert all(str(item.get("verified_at") or "") <= latest_allowed_timestamp_only for item in verification_history)
+    assert all(
+        str(path.relative_to(ROOT)) in completed_outputs
+        for path in successor_wave_pass_notes
+    )
+    terminal_note_time = latest_allowed_timestamp_only.split("T", 1)[1].removesuffix("Z").replace(":", "")
+    timestamped_successor_notes = {
+        path.stem.rsplit("-", 1)[-1].removesuffix("z")
+        for path in successor_wave_pass_notes
+        if path.stem.rsplit("-", 1)[-1].endswith("z")
+    }
+    assert all(note_time <= terminal_note_time for note_time in timestamped_successor_notes)
     assert not any(
         "timestamp-only" in str(item.get("hardening_added") or "").lower()
         for item in verification_history
