@@ -31,6 +31,7 @@ def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     assert pack.get("contract_name") == "ea.chummer5a_parity_lab_pack"
     assert pack.get("package_id") == "next90-m103-ea-parity-lab"
     assert int(pack.get("milestone_id") or 0) == 103
+    assert pack.get("status") == "task_proven"
     assert list(pack.get("owned_surfaces") or []) == ["parity_lab:capture", "veteran_compare_packs"]
 
 
@@ -176,3 +177,23 @@ def test_import_export_inventory_counts_match_parity_oracle() -> None:
     assert int(counts.get("desktop_controls") or 0) == len(list(inventory.get("desktop_control_fixture_ids") or [])) == len(
         list(parity_oracle.get("desktopControls") or [])
     )
+
+
+def _run_direct() -> int:
+    failed = 0
+    ran = 0
+    for name, func in sorted(globals().items()):
+        if not name.startswith("test_") or not callable(func):
+            continue
+        ran += 1
+        try:
+            func()
+        except Exception as exc:
+            failed += 1
+            print(f"FAIL {name}: {exc}")
+    print(f"ran={ran} failed={failed}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_direct())

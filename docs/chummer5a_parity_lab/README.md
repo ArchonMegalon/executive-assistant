@@ -24,3 +24,7 @@ Proof boundary:
 - This package extracts and normalizes oracle evidence only.
 - Promoted-head visual review remains owned by `next90-m103-ui-veteran-certification`.
 - Desktop host-proof ingestion and release promotion remain owned by the release/operator lanes; the current flagship readiness packet is green with zero unresolved external host-proof requests, so this pack must not reopen the closed flagship wave.
+
+Verification:
+
+- `python tests/test_chummer5a_parity_lab_pack.py` runs the parity-lab contract checks directly for worker runtimes where `pytest` is not installed.
