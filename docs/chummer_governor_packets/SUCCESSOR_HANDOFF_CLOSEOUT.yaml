@@ -48,6 +48,15 @@ canonical_authority:
   successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
   queue_package: "next90-m106-ea-governor-packets status=complete"
   registry_work_task: "106.2 status=complete owner=executive-assistant"
+  queue_proof_required_entries:
+    - /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+    - /docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
+    - /docker/EA/docs/chummer_governor_packets/README.md
+    - /docker/EA/docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+    - /docker/EA/tests/test_chummer_governor_packet_pack.py
+    - /docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md
+    - /docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md
+    - python tests/test_chummer_governor_packet_pack.py exits 0 with ran=17 failed=0
 repeat_prevention:
   worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging row, completed outputs, and proof command still agree; advance only delegated non-EA follow-up packages from here.
   do_not_reopen_for:

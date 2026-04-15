@@ -217,6 +217,9 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert authority.get("successor_queue_path") == str(QUEUE_STAGING_PATH)
     assert authority.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
     assert authority.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
+    assert set(authority.get("queue_proof_required_entries") or []) <= {
+        str(item) for item in queue_item.get("proof") or []
+    }
 
     repeat_prevention = dict(handoff.get("repeat_prevention") or {})
     assert "Treat this EA-owned package as closed" in str(repeat_prevention.get("worker_rule") or "")
