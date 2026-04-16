@@ -665,9 +665,20 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "cat TASK_LOCAL_TELEMETRY.generated.json",
         "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
-    assert all("status" not in item.lower() for item in first_commands)
-    assert all("telemetry helper" not in item.lower() for item in first_commands)
-    assert all("supervisor status" not in item.lower() for item in first_commands)
+    forbidden_first_command_fragments = [
+        "status",
+        "telemetry helper",
+        "supervisor status",
+        "run_chummer_design_supervisor",
+        "chummer_design_supervisor.py",
+        "active-run helper",
+        "active run helper",
+        "operator telemetry",
+        "ooda",
+    ]
+    for command in first_commands:
+        for fragment in forbidden_first_command_fragments:
+            assert fragment not in command.lower(), command
     task_queue_item = dict(task_local_telemetry.get("queue_item") or {})
     assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_queue_item.get("repo") == "executive-assistant"
