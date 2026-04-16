@@ -206,6 +206,10 @@ local_proof_commits:
     committed_at: "2026-04-16T05:08:51Z"
     subject: Pin M103 terminal append-free proof floor
     purpose: Pins the terminal append-free proof floor after the handoff guard so successor shards verify the closed EA package instead of repeating it or chasing newer handoff timestamps.
+  - commit: 257a5b7
+    committed_at: "2026-04-16T21:04:00Z"
+    subject: Tighten M103 handoff mode guard
+    purpose: Allows ACTIVE_RUN_HANDOFF Mode unknown as assignment metadata only while frontier/package identity, canonical queue closure, completed outputs, and the direct proof command remain the closure authority.
 repeat_verifications:
   - verified_at: "2026-04-15T10:46:45Z"
     active_handoff_generated_at: "2026-04-15T10:45:43Z"
@@ -581,8 +585,8 @@ repeat_row_append_policy:
   status: closed_append_free
   do_not_append_for_newer_same_package_handoffs: true
   proof_floor_freeze:
-    latest_guard_commit: 1eddb6d
-    latest_guard_subject: Pin M103 terminal append-free proof floor
+    latest_guard_commit: 257a5b7
+    latest_guard_subject: Tighten M103 handoff mode guard
     worker_rule: Treat the latest resolved append-free proof floor as sufficient closure for newer same-package handoffs; do not update generated receipts, repeat rows, or closeout timestamps only because ACTIVE_RUN_HANDOFF.generated.md was regenerated for frontier 4287684466.
     guarded_by: test_terminal_verification_policy_stops_timestamp_chasing
   append_only_when:

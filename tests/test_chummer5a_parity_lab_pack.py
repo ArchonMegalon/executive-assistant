@@ -277,6 +277,7 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         "a2ae08f",
         "3f74d5d",
         "1eddb6d",
+        "257a5b7",
     } <= set(receipt_proof_commits)
     for commit in receipt_proof_commits:
         subprocess.run(
@@ -527,8 +528,8 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "do not edit completed EA outputs only to record a newer assignment timestamp" in append_action
 
     proof_floor_freeze = dict(append_policy.get("proof_floor_freeze") or {})
-    assert proof_floor_freeze.get("latest_guard_commit") == "1eddb6d"
-    assert proof_floor_freeze.get("latest_guard_subject") == "Pin M103 terminal append-free proof floor"
+    assert proof_floor_freeze.get("latest_guard_commit") == "257a5b7"
+    assert proof_floor_freeze.get("latest_guard_subject") == "Tighten M103 handoff mode guard"
     assert proof_floor_freeze.get("guarded_by") == "test_terminal_verification_policy_stops_timestamp_chasing"
 
     freeze_rule = str(proof_floor_freeze.get("worker_rule") or "")
@@ -568,15 +569,18 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     )
 
     local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
-    assert local_proof_commits[-3].get("commit") == "a2ae08f"
-    assert local_proof_commits[-3].get("subject") == "Tighten M103 append-free proof floor guard"
-    assert "append-free proof floor guard" in str(local_proof_commits[-3].get("purpose") or "")
-    assert local_proof_commits[-2].get("commit") == "3f74d5d"
-    assert local_proof_commits[-2].get("subject") == "Keep M103 terminal handoff guard append-free"
-    assert "timestamp-only edits" in str(local_proof_commits[-2].get("purpose") or "")
-    assert local_proof_commits[-1].get("commit") == "1eddb6d"
-    assert local_proof_commits[-1].get("subject") == "Pin M103 terminal append-free proof floor"
-    assert "newer handoff timestamps" in str(local_proof_commits[-1].get("purpose") or "")
+    assert local_proof_commits[-4].get("commit") == "a2ae08f"
+    assert local_proof_commits[-4].get("subject") == "Tighten M103 append-free proof floor guard"
+    assert "append-free proof floor guard" in str(local_proof_commits[-4].get("purpose") or "")
+    assert local_proof_commits[-3].get("commit") == "3f74d5d"
+    assert local_proof_commits[-3].get("subject") == "Keep M103 terminal handoff guard append-free"
+    assert "timestamp-only edits" in str(local_proof_commits[-3].get("purpose") or "")
+    assert local_proof_commits[-2].get("commit") == "1eddb6d"
+    assert local_proof_commits[-2].get("subject") == "Pin M103 terminal append-free proof floor"
+    assert "newer handoff timestamps" in str(local_proof_commits[-2].get("purpose") or "")
+    assert local_proof_commits[-1].get("commit") == "257a5b7"
+    assert local_proof_commits[-1].get("subject") == "Tighten M103 handoff mode guard"
+    assert "assignment metadata only" in str(local_proof_commits[-1].get("purpose") or "")
 
     receipt_proof_commits = [
         str(commit)
@@ -584,10 +588,10 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
             dict(receipt.get("successor_closure") or {}).get("local_proof_commits") or []
         )
     ]
-    assert receipt_proof_commits[-3:] == ["a2ae08f", "3f74d5d", "1eddb6d"]
+    assert receipt_proof_commits[-4:] == ["a2ae08f", "3f74d5d", "1eddb6d", "257a5b7"]
 
     subprocess.run(
-        ["git", "-C", str(ROOT), "cat-file", "-e", "1eddb6d^{commit}"],
+        ["git", "-C", str(ROOT), "cat-file", "-e", "257a5b7^{commit}"],
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -696,7 +700,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     append_policy = dict(closeout.get("repeat_row_append_policy") or {})
     proof_floor_freeze = dict(append_policy.get("proof_floor_freeze") or {})
     frozen_guard_commit = str(proof_floor_freeze.get("latest_guard_commit") or "")
-    assert frozen_guard_commit == "1eddb6d"
+    assert frozen_guard_commit == "257a5b7"
     assert frozen_guard_commit not in canonical_package_proof
 
     head = subprocess.run(
