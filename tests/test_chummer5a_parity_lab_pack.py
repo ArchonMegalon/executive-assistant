@@ -305,6 +305,10 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert "assignment context only" in current_or_newer_rule
     assert "not a reason to edit this EA package" in current_or_newer_rule
     assert "direct proof command" in current_or_newer_rule
+    handoff_mode_rule = str(terminal_policy.get("handoff_mode_rule") or "")
+    assert "assignment metadata only" in handoff_mode_rule
+    assert "Mode: unknown" in handoff_mode_rule
+    assert "frontier/package identity" in handoff_mode_rule
 
 
 def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
@@ -482,9 +486,15 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "canonical registry" in current_or_newer_rule
     assert "direct proof command" in current_or_newer_rule
     assert "green" in current_or_newer_rule
+    handoff_mode_rule = str(terminal_policy.get("handoff_mode_rule") or "")
+    assert "assignment metadata only" in handoff_mode_rule
+    assert "Mode: unknown" in handoff_mode_rule
+    assert "frontier/package identity" in handoff_mode_rule
     assert "minimum generated-at value" in readme_text
     assert "not an exact-value trap" in readme_text
     assert "newer handoff stays valid" in readme_text
+    assert "Mode: unknown" in readme_text
+    assert "frontier/package identity" in readme_text
     assert "should not add more repeat-verification rows" in readme_text
     assert '"package_id": "next90-m103-ea-parity-lab"' in active_prompt_text
     assert '"repo": "executive-assistant"' in active_prompt_text
@@ -714,7 +724,12 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
 
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
-    assert mode_match and mode_match.group(1).strip() == "successor_wave"
+    assert mode_match, "active handoff missing mode line"
+    mode_text = mode_match.group(1).strip()
+    assert mode_text in {"successor_wave", "unknown"}
+    if mode_text == "unknown":
+        assert "Frontier ids: 4287684466" in active_handoff_text
+        assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_local_telemetry.get("mode") == "implementation_only"
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
