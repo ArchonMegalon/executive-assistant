@@ -91,6 +91,20 @@ def _assert_m103_queue_proof_is_scoped(proof: set[str]) -> None:
         raise AssertionError(f"unscoped M103 proof anchor: {anchor}")
 
 
+def _assert_only_frozen_canonical_proof_floor(proof_anchors: set[str], registry_evidence: str) -> None:
+    allowed_commit_anchor = CANONICAL_QUEUE_PROOF_FLOOR
+    commit_anchor_pattern = re.compile(r"/docker/EA commit [0-9a-f]{7,40} .+")
+
+    for anchor in proof_anchors:
+        if commit_anchor_pattern.fullmatch(anchor):
+            assert anchor.startswith(allowed_commit_anchor), anchor
+
+    registry_commit_anchors = commit_anchor_pattern.findall(registry_evidence)
+    assert registry_commit_anchors
+    assert len(registry_commit_anchors) == 1, registry_commit_anchors
+    assert registry_commit_anchors[0].startswith(allowed_commit_anchor), registry_commit_anchors
+
+
 def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
 
@@ -160,6 +174,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "and blocks operator-owned run-helper proof for the closed EA package."
     ) in proof
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in proof)
+    _assert_only_frozen_canonical_proof_floor(proof, task_evidence)
     for proof_anchor in proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
@@ -187,6 +202,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "and blocks operator-owned run-helper proof for the closed EA package."
     ) in design_proof
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in design_proof)
+    _assert_only_frozen_canonical_proof_floor(design_proof, task_evidence)
     for proof_anchor in design_proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
