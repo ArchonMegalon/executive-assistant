@@ -18,6 +18,10 @@ README_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "README.md"
 PUBLISHED_PACK_PATH = ROOT / ".codex-studio" / "published" / "CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 ACTIVE_RUN_HANDOFF_PATH = Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md")
+TASK_LOCAL_TELEMETRY_PATH = Path(
+    "/var/lib/codex-fleet/chummer_design_supervisor/shard-3/runs/"
+    "20260416T192314Z-shard-3/TASK_LOCAL_TELEMETRY.generated.json"
+)
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
@@ -592,6 +596,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    task_local_telemetry = _yaml(TASK_LOCAL_TELEMETRY_PATH)
 
     combined = "\n".join(
         [
@@ -600,8 +605,10 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
             PACK_PATH.read_text(encoding="utf-8"),
         ]
     )
+    task_local_telemetry_path_text = TASK_LOCAL_TELEMETRY_PATH.as_posix()
     blocked_markers = [
         "TASK_LOCAL_TELEMETRY",
+        task_local_telemetry_path_text,
         "operator telemetry",
         "active-run helper",
         "active run helper",
@@ -614,6 +621,12 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     for marker in blocked_markers:
         assert marker.lower() not in combined.lower(), marker
     assert "## Recent stderr tail" in active_handoff_text
+    assert task_local_telemetry.get("polling_disabled") is True
+    assert task_local_telemetry.get("status_query_supported") is False
+    task_queue_item = dict(task_local_telemetry.get("queue_item") or {})
+    assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
+    assert task_queue_item.get("repo") == "executive-assistant"
+    assert int(task_queue_item.get("milestone_id") or 0) == 103
 
     proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
@@ -649,6 +662,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     ]
     for marker in blocked_proof_markers:
         assert marker.lower() not in canonical_package_proof.lower(), marker
+    assert task_local_telemetry_path_text.lower() not in canonical_package_proof.lower()
 
     append_policy = dict(closeout.get("repeat_row_append_policy") or {})
     proof_floor_freeze = dict(append_policy.get("proof_floor_freeze") or {})
