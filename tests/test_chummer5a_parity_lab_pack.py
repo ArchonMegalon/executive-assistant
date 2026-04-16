@@ -18,10 +18,6 @@ README_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "README.md"
 PUBLISHED_PACK_PATH = ROOT / ".codex-studio" / "published" / "CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
 ACTIVE_RUN_HANDOFF_PATH = Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md")
-TASK_LOCAL_TELEMETRY_PATH = Path(
-    "/var/lib/codex-fleet/chummer_design_supervisor/shard-3/runs/"
-    "20260416T192314Z-shard-3/TASK_LOCAL_TELEMETRY.generated.json"
-)
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
@@ -44,12 +40,22 @@ def _active_handoff_generated_at() -> str:
 
 
 def _active_handoff_prompt_text() -> str:
+    return _active_handoff_prompt_path().read_text(encoding="utf-8")
+
+
+def _active_handoff_prompt_path() -> Path:
     text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     match = re.search(r"^- Prompt path:\s*(\S+)", text, re.MULTILINE)
     assert match, "active handoff missing prompt path"
     prompt_path = Path(match.group(1))
     assert prompt_path.exists(), str(prompt_path)
-    return prompt_path.read_text(encoding="utf-8")
+    return prompt_path
+
+
+def _task_local_telemetry_path() -> Path:
+    path = _active_handoff_prompt_path().parent / "TASK_LOCAL_TELEMETRY.generated.json"
+    assert path.exists(), str(path)
+    return path
 
 
 def _single_package_row(items: list, package_id: str) -> dict:
@@ -596,7 +602,8 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
-    task_local_telemetry = _yaml(TASK_LOCAL_TELEMETRY_PATH)
+    task_local_telemetry_path = _task_local_telemetry_path()
+    task_local_telemetry = _yaml(task_local_telemetry_path)
 
     combined = "\n".join(
         [
@@ -605,7 +612,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
             PACK_PATH.read_text(encoding="utf-8"),
         ]
     )
-    task_local_telemetry_path_text = TASK_LOCAL_TELEMETRY_PATH.as_posix()
+    task_local_telemetry_path_text = task_local_telemetry_path.as_posix()
     blocked_markers = [
         "TASK_LOCAL_TELEMETRY",
         task_local_telemetry_path_text,
@@ -623,6 +630,8 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert "## Recent stderr tail" in active_handoff_text
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
+    assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
+    assert task_local_telemetry_path.parent.name in active_handoff_text
     task_queue_item = dict(task_local_telemetry.get("queue_item") or {})
     assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_queue_item.get("repo") == "executive-assistant"
