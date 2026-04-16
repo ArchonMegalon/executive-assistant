@@ -590,6 +590,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     registry = _yaml(SUCCESSOR_REGISTRY_PATH)
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
+    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
 
     combined = "\n".join(
         [
@@ -605,9 +606,13 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "active run helper",
         "ooda",
         "telemetry helper",
+        "Recent stderr tail",
+        "Supervisor status polling",
+        "active worker run",
     ]
     for marker in blocked_markers:
         assert marker.lower() not in combined.lower(), marker
+    assert "## Recent stderr tail" in active_handoff_text
 
     proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
@@ -639,6 +644,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "operator telemetry",
         "telemetry helper output",
         "operator-owned helper output",
+        "Recent stderr tail",
     ]
     for marker in blocked_proof_markers:
         assert marker.lower() not in canonical_package_proof.lower(), marker
