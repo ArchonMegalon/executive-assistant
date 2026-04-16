@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -193,8 +194,10 @@ def test_pack_required_outputs_exist_on_disk() -> None:
 
 def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     pack = _yaml(PACK_PATH)
+    strict_json_receipt = json.loads(PUBLISHED_PACK_PATH.read_text(encoding="utf-8"))
     receipt = _yaml(PUBLISHED_PACK_PATH)
 
+    assert strict_json_receipt == receipt
     assert receipt.get("contract_name") == "ea.chummer5a_parity_oracle_pack"
     assert receipt.get("package_id") == pack.get("package_id") == "next90-m103-ea-parity-lab"
     assert int(receipt.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0) == 103
