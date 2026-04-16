@@ -27,6 +27,10 @@ DESIGN_SUCCESSOR_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/produ
 SUCCESSOR_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 FLAGSHIP_READINESS_PATH = Path("/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json")
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-14-chummer5a-parity-lab-package-closeout.md"
+CANONICAL_QUEUE_PROOF_FLOOR = (
+    "/docker/EA commit f252c02 pins the latest M103 parity-lab proof floor into the published receipt, "
+    "handoff closeout, and direct guard"
+)
 
 
 def _yaml(path: Path) -> dict:
@@ -122,6 +126,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert "README.md documents the closed EA proof boundary" in task_evidence
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
     assert f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result}" in task_evidence
+    assert CANONICAL_QUEUE_PROOF_FLOOR in task_evidence
 
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert queue.get("source_design_queue_path") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
@@ -145,6 +150,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
         "and blocks operator-owned run-helper proof for the closed EA package."
     ) in proof
+    assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in proof)
     for proof_anchor in proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
@@ -171,6 +177,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
         "and blocks operator-owned run-helper proof for the closed EA package."
     ) in design_proof
+    assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in design_proof)
     for proof_anchor in design_proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
