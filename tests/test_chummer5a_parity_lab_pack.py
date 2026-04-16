@@ -667,6 +667,16 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert "## Recent stderr tail" in active_handoff_text
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
+    assert task_local_telemetry.get("successor_registry_path") == SUCCESSOR_REGISTRY_PATH.as_posix()
+    assert task_local_telemetry.get("successor_queue_path") == SUCCESSOR_QUEUE_PATH.as_posix()
+    assert task_local_telemetry.get("runtime_handoff_path") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
+    assert dict(task_local_telemetry.get("paths") or {}).get("successor_queue_path") == SUCCESSOR_QUEUE_PATH.as_posix()
+    assert dict(task_local_telemetry.get("paths") or {}).get("registry_path") == (
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
+    )
+    telemetry_guidance = str(task_local_telemetry.get("guidance") or "")
+    assert "Do not run supervisor status helpers" in telemetry_guidance
+    assert "Open the listed files directly" in telemetry_guidance
     assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
     assert task_local_telemetry_path.parent.name in active_handoff_text
     first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
@@ -702,9 +712,27 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "veteran_compare_packs",
     ]
     task_local_assignment_text = json.dumps(task_local_telemetry, sort_keys=True)
+    task_local_command_source_text = json.dumps(
+        {
+            "first_commands": task_local_telemetry.get("first_commands"),
+            "paths": task_local_telemetry.get("paths"),
+            "queue_item": task_local_telemetry.get("queue_item"),
+            "successor_queue_path": task_local_telemetry.get("successor_queue_path"),
+            "successor_registry_path": task_local_telemetry.get("successor_registry_path"),
+        },
+        sort_keys=True,
+    ).lower()
     assert "4287684466 [W7]" in task_local_assignment_text
     assert "status: complete" in task_local_assignment_text
     assert "next90-m103-ea-parity-lab" in task_local_assignment_text
+    for forbidden_assignment_fragment in (
+        "run_chummer_design_supervisor",
+        "chummer_design_supervisor.py",
+        "supervisor status",
+        "status helper output",
+        "operator telemetry output",
+    ):
+        assert forbidden_assignment_fragment not in task_local_command_source_text
 
     proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
