@@ -887,19 +887,22 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
     pack = _yaml(PACK_PATH)
     source_repos = dict(pack.get("source_repos") or {})
-    assert Path(str(source_repos.get("chummer5a") or "")).is_dir()
+    chummer5a_root = Path(str(source_repos.get("chummer5a") or ""))
+    assert chummer5a_root == Path("/docker/chummer5a")
+    assert chummer5a_root.is_dir()
     assert Path(str(source_repos.get("chummer6_ui") or "")).is_dir()
 
     oracle_sources = dict(pack.get("oracle_sources") or {})
     for key in ("parity_oracle_json", "parity_checklist_md", "parity_audit_md"):
         path = Path(str(oracle_sources.get(key) or ""))
         assert path.exists(), f"{key}: {path}"
+        assert path.parent == chummer5a_root / "docs", f"{key}: {path}"
+        assert path.name in {"PARITY_ORACLE.json", "PARITY_CHECKLIST.md", "PARITY_AUDIT.md"}, f"{key}: {path}"
 
     baselines = _yaml(ORACLE_BASELINES_PATH)
     baseline_sources = dict(baselines.get("source") or {})
-    assert Path(str(baseline_sources.get("parity_oracle_json") or "")).exists()
-    assert Path(str(baseline_sources.get("parity_checklist_md") or "")).exists()
-    assert Path(str(baseline_sources.get("parity_audit_md") or "")).exists()
+    for key in ("parity_oracle_json", "parity_checklist_md", "parity_audit_md"):
+        assert Path(str(baseline_sources.get(key) or "")) == Path(str(oracle_sources.get(key) or ""))
 
     workflow = _yaml(WORKFLOW_PACK_PATH)
     workflow_sources = dict(workflow.get("source_of_truth") or {})
