@@ -123,6 +123,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
     design_proof = set(str(item) for item in (design_queue_item.get("proof") or []))
+    assert design_proof == proof
     assert {
         "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
         "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
@@ -133,6 +134,9 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
         "and blocks operator-owned run-helper proof for the closed EA package."
     ) in design_proof
+    for proof_anchor in design_proof:
+        if proof_anchor.startswith("/docker/EA/"):
+            assert Path(proof_anchor).exists(), proof_anchor
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
