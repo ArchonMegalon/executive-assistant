@@ -822,6 +822,10 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert task_queue_item.get("package_id") == closure_scope.get("closed_package_only")
     assert task_queue_item.get("repo") == "executive-assistant"
     assert int(task_queue_item.get("milestone_id") or 0) == int(closeout.get("milestone_id") or 0) == 103
+    assert task_queue_item.get("title") == "Extract Chummer5a oracle baselines and veteran workflow packs"
+    assert task_queue_item.get("task") == (
+        "Capture screenshot baselines, first-minute veteran tasks, and compare artifacts from the Chummer5a oracle repo."
+    )
     assert "status" not in task_queue_item
     assert "proof" not in task_queue_item
     assert "landed_commit" not in task_queue_item
@@ -853,6 +857,8 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or []) == list(
         task_queue_item.get("owned_surfaces") or []
     )
+    assert design_queue_item.get("title") == queue_item.get("title") == task_queue_item.get("title")
+    assert design_queue_item.get("task") == queue_item.get("task") == task_queue_item.get("task")
 
     closure_evidence = "\n".join(
         [
