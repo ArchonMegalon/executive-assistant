@@ -674,6 +674,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "active worker run",
         "active-run telemetry",
         "operator telemetry",
+        "ooda",
         "telemetry helper output",
         "operator-owned helper output",
         "Recent stderr tail",
