@@ -803,6 +803,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     blocked_proof_markers = [
         "TASK_LOCAL_TELEMETRY",
         "ACTIVE_RUN_HANDOFF.generated.md",
+        "active_run_handoff",
         "/runs/",
         "first_commands",
         "frontier_briefs",
