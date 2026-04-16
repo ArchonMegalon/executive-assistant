@@ -949,10 +949,37 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
         "operator telemetry output:",
         "operator-owned helper output:",
     ]
+    helper_context_markers = (
+        "operator telemetry",
+        "active-run helper",
+        "active run helper",
+        "telemetry helper",
+        "status helper",
+        "ooda",
+    )
+    allowed_negative_helper_context = (
+        "no operator telemetry",
+        "did not invoke operator telemetry",
+        "no operator-owned active-run helper evidence was used",
+        "do not invoke or cite operator-owned active-run helper evidence",
+        "do not cite active-run helper output",
+        "do not cite operator-owned helper output",
+        "no active-run helper commands were invoked",
+        "did not invoke operator telemetry, active-run helper commands",
+        "no operator telemetry, active-run helper commands",
+        "no operator telemetry, active-run helper commands, oracle recapture",
+    )
     for note_path in package_notes:
         note_text = note_path.read_text(encoding="utf-8")
+        note_text_lower = note_text.lower()
         for marker in blocked_evidence_markers:
-            assert marker.lower() not in note_text.lower(), f"{note_path}: {marker}"
+            assert marker.lower() not in note_text_lower, f"{note_path}: {marker}"
+        for marker in helper_context_markers:
+            if marker not in note_text_lower:
+                continue
+            assert any(allowed in note_text_lower for allowed in allowed_negative_helper_context), (
+                f"{note_path}: {marker} must stay negative worker-safety context, not closure evidence"
+            )
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
