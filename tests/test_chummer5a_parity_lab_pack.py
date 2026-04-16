@@ -417,10 +417,15 @@ def test_successor_handoff_closeout_outputs_stay_inside_assigned_scope() -> None
 def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
     receipt = _yaml(PUBLISHED_PACK_PATH)
+    pack = _yaml(PACK_PATH)
+    registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     terminal_policy = dict(closeout.get("terminal_verification_policy") or {})
     receipt_policy = dict(dict(receipt.get("successor_closure") or {}).get("terminal_verification_policy") or {})
     readme_text = README_PATH.read_text(encoding="utf-8")
+    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     active_prompt_text = _active_handoff_prompt_text()
 
     assert terminal_policy.get("status") == "terminal_for_ea_scope"
@@ -490,6 +495,28 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "not a reason to refresh receipts" in readme_text
     assert "explicit append conditions" in readme_text
     assert "must not be inserted into the closeout receipt just because they are now `HEAD`" in readme_text
+    assert "Mode: successor_wave" in active_handoff_text
+    assert "Frontier ids: 4287684466" in active_handoff_text
+    assert "Open milestone ids: 4287684466" in active_handoff_text
+    assert "next90-m103-ea-parity-lab" in active_handoff_text
+
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    task_103_1 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
+    assert len(task_103_1) == 1
+    assert task_103_1[0].get("status") == "complete"
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
+    assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or []) == [
+        "skills",
+        "tests",
+        "feedback",
+        "docs",
+    ]
+    assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or []) == list(
+        pack.get("owned_surfaces") or []
+    )
 
     local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
     assert local_proof_commits[-3].get("commit") == "a2ae08f"
