@@ -91,6 +91,24 @@ def _assert_m103_queue_proof_is_scoped(proof: set[str]) -> None:
         raise AssertionError(f"unscoped M103 proof anchor: {anchor}")
 
 
+def _assert_m103_registry_evidence_is_scoped(evidence_items: list[str]) -> None:
+    allowed_absolute_prefixes = (
+        "/docker/EA/docs/chummer5a_parity_lab/",
+        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
+    )
+    allowed_command_prefix = "python tests/test_chummer5a_parity_lab_pack.py exits with "
+    commit_anchor_pattern = re.compile(r"/docker/EA commit [0-9a-f]{7,40} .+")
+
+    for item in evidence_items:
+        if item.startswith(allowed_absolute_prefixes):
+            continue
+        if item.startswith(allowed_command_prefix):
+            continue
+        if commit_anchor_pattern.fullmatch(item):
+            continue
+        raise AssertionError(f"unscoped M103 registry evidence item: {item}")
+
+
 def _assert_only_frozen_canonical_proof_floor(proof_anchors: set[str], registry_evidence: str) -> None:
     allowed_commit_anchor = CANONICAL_QUEUE_PROOF_FLOOR
     commit_anchor_pattern = re.compile(r"/docker/EA commit [0-9a-f]{7,40} .+")
@@ -145,7 +163,9 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     task_103_1 = task_103_1_matches[0]
     assert task_103_1.get("owner") == "executive-assistant"
     assert task_103_1.get("status") == "complete"
-    task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
+    task_evidence_items = [str(item) for item in (task_103_1.get("evidence") or [])]
+    _assert_m103_registry_evidence_is_scoped(task_evidence_items)
+    task_evidence = "\n".join(task_evidence_items)
     assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
     assert "README.md documents the closed EA proof boundary" in task_evidence
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
