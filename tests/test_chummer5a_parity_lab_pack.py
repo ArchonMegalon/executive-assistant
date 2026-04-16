@@ -109,6 +109,16 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
     proof_result = str(dict(receipt.get("proof") or {}).get("result") or "")
 
+    expected_queue_header = {
+        "program_wave": "next_90_day_product_advance",
+        "status": "live_parallel_successor",
+        "source_registry_path": SUCCESSOR_REGISTRY_PATH.as_posix(),
+    }
+    for queue_source in (design_queue, queue):
+        for key, expected in expected_queue_header.items():
+            assert queue_source.get(key) == expected
+    assert queue.get("source_design_queue_path") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
+
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
     milestone = milestones[103]
     assert milestone.get("title") == "Chummer5a parity lab and veteran migration certification"
@@ -129,7 +139,6 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert CANONICAL_QUEUE_PROOF_FLOOR in task_evidence
 
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
-    assert queue.get("source_design_queue_path") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
     assert int(queue_item.get("frontier_id") or 0) == 4287684466
