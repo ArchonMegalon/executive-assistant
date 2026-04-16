@@ -863,6 +863,15 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert task_queue_item.get("task") == (
         "Capture screenshot baselines, first-minute veteran tasks, and compare artifacts from the Chummer5a oracle repo."
     )
+    assert set(task_queue_item) == {
+        "allowed_paths",
+        "milestone_id",
+        "owned_surfaces",
+        "package_id",
+        "repo",
+        "task",
+        "title",
+    }
     assert "status" not in task_queue_item
     assert "proof" not in task_queue_item
     assert "landed_commit" not in task_queue_item
@@ -884,6 +893,11 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
 
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    for canonical_queue_item in (design_queue_item, queue_item):
+        assert canonical_queue_item.get("status") == "complete"
+        assert int(canonical_queue_item.get("frontier_id") or 0) == 4287684466
+        assert canonical_queue_item.get("proof"), canonical_queue_item
+        assert canonical_queue_item.get("proof") != task_queue_item.get("proof")
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == int(
         repeat_prevention.get("successor_frontier_id") or 0
