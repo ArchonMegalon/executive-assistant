@@ -526,7 +526,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert mode_match, "active handoff missing mode line"
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "Open milestone ids: 4287684466" in active_handoff_text
-    assert "next90-m103-ea-parity-lab" in active_handoff_text
+    assert "next90-m103-ea-parity-lab" in active_prompt_text
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
     task_103_1 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
