@@ -471,6 +471,9 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "closeout timestamps" in freeze_rule
     assert "ACTIVE_RUN_HANDOFF.generated.md" in freeze_rule
     assert "4287684466" in freeze_rule
+    assert "allowed to be older than the repository `HEAD`" in readme_text
+    assert "not a reason to refresh receipts" in readme_text
+    assert "explicit append conditions" in readme_text
 
     local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
     assert local_proof_commits[-3].get("commit") == "a2ae08f"
@@ -498,6 +501,14 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
         stderr=subprocess.PIPE,
         text=True,
     )
+    head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short=7", "HEAD"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    assert head != proof_floor_freeze.get("latest_guard_commit")
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
