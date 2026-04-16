@@ -698,6 +698,58 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     ).stdout.strip()
     assert head != frozen_guard_commit
     assert head not in canonical_package_proof
+    _assert_task_local_assignment_is_context_not_closure_evidence()
+
+
+def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
+    task_local_telemetry_path = _task_local_telemetry_path()
+    task_local_telemetry = _yaml(task_local_telemetry_path)
+    task_queue_item = dict(task_local_telemetry.get("queue_item") or {})
+    closure_scope = dict(closeout.get("closure_scope") or {})
+    repeat_prevention = dict(closeout.get("repeat_prevention") or {})
+    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+
+    mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
+    assert mode_match and mode_match.group(1).strip() == "successor_wave"
+    assert task_local_telemetry.get("mode") == "implementation_only"
+    assert task_local_telemetry.get("polling_disabled") is True
+    assert task_local_telemetry.get("status_query_supported") is False
+    assert task_queue_item.get("package_id") == closure_scope.get("closed_package_only")
+    assert task_queue_item.get("repo") == "executive-assistant"
+    assert int(task_queue_item.get("milestone_id") or 0) == int(closeout.get("milestone_id") or 0) == 103
+    assert list(task_queue_item.get("allowed_paths") or []) == list(closure_scope.get("allowed_paths") or [])
+    assert list(task_queue_item.get("owned_surfaces") or []) == list(
+        repeat_prevention.get("active_handoff_owned_surfaces_required") or []
+    )
+
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == int(
+        repeat_prevention.get("successor_frontier_id") or 0
+    ) == 4287684466
+    assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or []) == list(
+        task_queue_item.get("allowed_paths") or []
+    )
+    assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or []) == list(
+        task_queue_item.get("owned_surfaces") or []
+    )
+
+    closure_evidence = "\n".join(
+        [
+            HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
+            PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            "\n".join(str(item) for item in (design_queue_item.get("proof") or [])),
+            "\n".join(str(item) for item in (queue_item.get("proof") or [])),
+        ]
+    )
+    assert task_local_telemetry_path.as_posix().lower() not in closure_evidence.lower()
+    assert "TASK_LOCAL_TELEMETRY".lower() not in closure_evidence.lower()
+    assert str(dict(receipt.get("proof") or {}).get("command") or "") == "python tests/test_chummer5a_parity_lab_pack.py"
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
