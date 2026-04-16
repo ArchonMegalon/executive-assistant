@@ -54,6 +54,27 @@ def _single_package_row(items: list, package_id: str) -> dict:
     return matches[0]
 
 
+def _assert_m103_queue_proof_is_scoped(proof: set[str]) -> None:
+    allowed_absolute_prefixes = (
+        "/docker/EA/docs/",
+        "/docker/EA/tests/",
+        "/docker/EA/feedback/",
+        "/docker/EA/skills/",
+    )
+    allowed_published_receipt = "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
+    direct_command = "python tests/test_chummer5a_parity_lab_pack.py"
+
+    for anchor in proof:
+        if anchor.startswith("/docker/EA/"):
+            assert anchor.startswith(allowed_absolute_prefixes) or anchor == allowed_published_receipt, anchor
+            continue
+        if anchor == direct_command or anchor.startswith(f"{direct_command} exits with "):
+            continue
+        if re.fullmatch(r"/docker/EA commit [0-9a-f]{7,40} .+", anchor):
+            continue
+        raise AssertionError(f"unscoped M103 proof anchor: {anchor}")
+
+
 def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
 
@@ -113,6 +134,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     for proof_anchor in proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
+    _assert_m103_queue_proof_is_scoped(proof)
 
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
@@ -137,6 +159,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     for proof_anchor in design_proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
+    _assert_m103_queue_proof_is_scoped(design_proof)
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
