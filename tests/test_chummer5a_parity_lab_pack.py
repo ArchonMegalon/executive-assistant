@@ -474,6 +474,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "allowed to be older than the repository `HEAD`" in readme_text
     assert "not a reason to refresh receipts" in readme_text
     assert "explicit append conditions" in readme_text
+    assert "must not be inserted into the closeout receipt just because they are now `HEAD`" in readme_text
 
     local_proof_commits = [dict(item) for item in (closeout.get("local_proof_commits") or [])]
     assert local_proof_commits[-3].get("commit") == "a2ae08f"
@@ -509,6 +510,8 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
         text=True,
     ).stdout.strip()
     assert head != proof_floor_freeze.get("latest_guard_commit")
+    assert head not in {str(item.get("commit") or "") for item in local_proof_commits}
+    assert head not in set(receipt_proof_commits)
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:

@@ -31,6 +31,7 @@ Proof boundary:
 - The active handoff timestamp guard is a minimum generated-at value, not an exact-value trap; a newer handoff stays valid, while an older handoff cannot be used to justify repeating the EA extraction work.
 - Newer same-package assignments should not add more repeat-verification rows while the canonical registry, design queue, Fleet queue, completed outputs, terminal policy, and direct proof command remain green.
 - The append-free proof floor is allowed to be older than the repository `HEAD`; later same-package verification commits are not a reason to refresh receipts unless one of the explicit append conditions in `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` fails.
+- Later verification-only commits must not be inserted into the closeout receipt just because they are now `HEAD`; `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` and the generated receipt intentionally stop at the frozen proof floor until a real append condition fails.
 
 Verification:
 
