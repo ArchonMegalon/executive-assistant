@@ -119,6 +119,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert task_103_1.get("status") == "complete"
     task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
     assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
+    assert "README.md documents the closed EA proof boundary" in task_evidence
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
     assert f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result}" in task_evidence
 
@@ -135,6 +136,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     proof = set(str(item) for item in (queue_item.get("proof") or []))
     assert {
         "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/README.md",
         "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
@@ -160,6 +162,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert design_proof == proof
     assert {
         "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/README.md",
         "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
