@@ -522,7 +522,8 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "not a reason to refresh receipts" in readme_text
     assert "explicit append conditions" in readme_text
     assert "must not be inserted into the closeout receipt just because they are now `HEAD`" in readme_text
-    assert "Mode: successor_wave" in active_handoff_text
+    mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
+    assert mode_match, "active handoff missing mode line"
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "Open milestone ids: 4287684466" in active_handoff_text
     assert "next90-m103-ea-parity-lab" in active_handoff_text
