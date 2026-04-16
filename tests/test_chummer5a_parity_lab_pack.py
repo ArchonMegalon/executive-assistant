@@ -810,6 +810,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert head != frozen_guard_commit
     assert head not in canonical_package_proof
     _assert_task_local_assignment_is_context_not_closure_evidence()
+    _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence()
 
 
 def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
@@ -898,6 +899,40 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     for marker in blocked_task_local_closure_markers:
         assert marker.lower() not in closure_evidence.lower(), marker
     assert str(dict(receipt.get("proof") or {}).get("command") or "") == "python tests/test_chummer5a_parity_lab_pack.py"
+
+
+def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> None:
+    feedback_root = ROOT / "feedback"
+    package_notes = sorted(feedback_root.glob("*chummer5a-parity-lab*.md"))
+    assert package_notes, "missing Chummer5a parity-lab feedback notes"
+
+    blocked_evidence_markers = [
+        "TASK_LOCAL_TELEMETRY.generated.json",
+        "/runs/",
+        "Recent stderr tail",
+        "first_commands:",
+        "frontier_briefs:",
+        "focus_texts:",
+        "polling_disabled:",
+        "queue_item:",
+        "slice_summary:",
+        "status_query_supported:",
+        '"first_commands"',
+        '"frontier_briefs"',
+        '"focus_texts"',
+        '"polling_disabled"',
+        '"queue_item"',
+        '"slice_summary"',
+        '"status_query_supported"',
+        "Supervisor status polling",
+        "status helper output:",
+        "operator telemetry output:",
+        "operator-owned helper output:",
+    ]
+    for note_path in package_notes:
+        note_text = note_path.read_text(encoding="utf-8")
+        for marker in blocked_evidence_markers:
+            assert marker.lower() not in note_text.lower(), f"{note_path}: {marker}"
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
