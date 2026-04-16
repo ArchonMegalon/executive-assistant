@@ -1010,17 +1010,31 @@ def test_compare_packs_cover_all_flagship_parity_families() -> None:
 
 def test_import_export_inventory_counts_match_parity_oracle() -> None:
     fixture_inventory = _yaml(FIXTURE_INVENTORY_PATH)
+    baselines = _yaml(ORACLE_BASELINES_PATH)
     parity_oracle = _yaml(PARITY_ORACLE_PATH)
     inventory = dict(fixture_inventory.get("inventory") or {})
     counts = dict(fixture_inventory.get("counts") or {})
+    baseline_counts = dict(baselines.get("surface_counts") or {})
 
-    assert int(counts.get("tabs") or 0) == len(list(inventory.get("tab_fixture_ids") or [])) == len(list(parity_oracle.get("tabs") or []))
-    assert int(counts.get("workspace_actions") or 0) == len(list(inventory.get("workspace_action_fixture_ids") or [])) == len(
-        list(parity_oracle.get("workspaceActions") or [])
-    )
-    assert int(counts.get("desktop_controls") or 0) == len(list(inventory.get("desktop_control_fixture_ids") or [])) == len(
-        list(parity_oracle.get("desktopControls") or [])
-    )
+    oracle_tabs = [str(item) for item in (parity_oracle.get("tabs") or [])]
+    oracle_workspace_actions = [str(item) for item in (parity_oracle.get("workspaceActions") or [])]
+    oracle_desktop_controls = [str(item) for item in (parity_oracle.get("desktopControls") or [])]
+    inventory_tabs = [str(item) for item in (inventory.get("tab_fixture_ids") or [])]
+    inventory_workspace_actions = [str(item) for item in (inventory.get("workspace_action_fixture_ids") or [])]
+    inventory_desktop_controls = [str(item) for item in (inventory.get("desktop_control_fixture_ids") or [])]
+    baseline_tabs = [str(item) for item in (baselines.get("tab_ids") or [])]
+
+    assert inventory_tabs == oracle_tabs
+    assert baseline_tabs == oracle_tabs
+    assert inventory_workspace_actions == oracle_workspace_actions
+    assert inventory_desktop_controls == oracle_desktop_controls
+    assert int(counts.get("tabs") or 0) == int(baseline_counts.get("tabs") or 0) == len(oracle_tabs)
+    assert int(counts.get("workspace_actions") or 0) == int(
+        baseline_counts.get("workspace_actions") or 0
+    ) == len(oracle_workspace_actions)
+    assert int(counts.get("desktop_controls") or 0) == int(
+        baseline_counts.get("desktop_controls") or 0
+    ) == len(oracle_desktop_controls)
 
 
 def _run_direct() -> int:
