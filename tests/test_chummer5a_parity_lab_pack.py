@@ -632,6 +632,14 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert task_local_telemetry.get("status_query_supported") is False
     assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
     assert task_local_telemetry_path.parent.name in active_handoff_text
+    first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
+    assert first_commands[:2] == [
+        "cat TASK_LOCAL_TELEMETRY.generated.json",
+        "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    ]
+    assert all("status" not in item.lower() for item in first_commands)
+    assert all("telemetry helper" not in item.lower() for item in first_commands)
+    assert all("supervisor status" not in item.lower() for item in first_commands)
     task_queue_item = dict(task_local_telemetry.get("queue_item") or {})
     assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_queue_item.get("repo") == "executive-assistant"
