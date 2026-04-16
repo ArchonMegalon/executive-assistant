@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import subprocess
+import traceback
 
 import yaml
 
@@ -849,6 +850,7 @@ def _run_direct() -> int:
         except Exception as exc:
             failed += 1
             print(f"FAIL {name}: {exc}")
+            traceback.print_exc()
     print(f"ran={ran} failed={failed}")
     return 1 if failed else 0
 
