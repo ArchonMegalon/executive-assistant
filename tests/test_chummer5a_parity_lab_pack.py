@@ -670,9 +670,13 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
     assert task_local_telemetry_path.parent.name in active_handoff_text
     first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
-    assert first_commands[:2] == [
+    assert first_commands == [
         "cat TASK_LOCAL_TELEMETRY.generated.json",
         "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+        "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+        "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "sed -n '1,220p' /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md",
     ]
     forbidden_first_command_fragments = [
         "status",
