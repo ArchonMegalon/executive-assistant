@@ -633,6 +633,8 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "TASK_LOCAL_TELEMETRY",
         "ACTIVE_RUN_HANDOFF.generated.md",
         "/runs/",
+        "Supervisor status polling",
+        "active worker run",
         "active-run telemetry",
         "operator telemetry",
         "telemetry helper output",
@@ -640,6 +642,22 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     ]
     for marker in blocked_proof_markers:
         assert marker.lower() not in canonical_package_proof.lower(), marker
+
+    append_policy = dict(closeout.get("repeat_row_append_policy") or {})
+    proof_floor_freeze = dict(append_policy.get("proof_floor_freeze") or {})
+    frozen_guard_commit = str(proof_floor_freeze.get("latest_guard_commit") or "")
+    assert frozen_guard_commit == "1eddb6d"
+    assert frozen_guard_commit not in canonical_package_proof
+
+    head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short=7", "HEAD"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    assert head != frozen_guard_commit
+    assert head not in canonical_package_proof
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
