@@ -696,6 +696,15 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_queue_item.get("repo") == "executive-assistant"
     assert int(task_queue_item.get("milestone_id") or 0) == 103
+    assert list(task_queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+    assert list(task_queue_item.get("owned_surfaces") or []) == [
+        "parity_lab:capture",
+        "veteran_compare_packs",
+    ]
+    task_local_assignment_text = json.dumps(task_local_telemetry, sort_keys=True)
+    assert "4287684466 [W7]" in task_local_assignment_text
+    assert "status: complete" in task_local_assignment_text
+    assert "next90-m103-ea-parity-lab" in task_local_assignment_text
 
     proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
@@ -769,6 +778,7 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     task_queue_item = dict(task_local_telemetry.get("queue_item") or {})
     closure_scope = dict(closeout.get("closure_scope") or {})
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
+    append_policy = dict(closeout.get("repeat_row_append_policy") or {})
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
 
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
@@ -795,7 +805,13 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     frontier_briefs = "\n".join(str(item) for item in (task_local_telemetry.get("frontier_briefs") or []))
     assert "4287684466 [W7]" in frontier_briefs
     assert "status: complete" in frontier_briefs
+    assert "owners: executive-assistant" in frontier_briefs
     assert "status: complete" not in "\n".join(f"{key}: {value}" for key, value in task_queue_item.items())
+    assert append_policy.get("status") == "closed_append_free"
+    assert append_policy.get("do_not_append_for_newer_same_package_handoffs") is True
+    assert "do not edit completed EA outputs only to record a newer assignment timestamp" in str(
+        append_policy.get("worker_action") or ""
+    )
 
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
