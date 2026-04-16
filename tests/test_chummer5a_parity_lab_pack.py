@@ -602,6 +602,16 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "not a reason to refresh receipts" in readme_text
     assert "explicit append conditions" in readme_text
     assert "must not be inserted into the closeout receipt just because they are now `HEAD`" in readme_text
+
+    terminal_floor = str(terminal_policy.get("latest_required_handoff_floor") or "")
+    repeat_rows = [dict(item) for item in (closeout.get("repeat_verifications") or [])]
+    assert repeat_rows, "terminal closeout must retain the original proof-bearing repeat row"
+    assert repeat_rows[-1].get("active_handoff_generated_at") == terminal_floor
+    assert repeat_rows[-1].get("verified_at") == repeat_prevention.get("active_handoff_verified_at")
+    for row in repeat_rows:
+        assert str(row.get("active_handoff_generated_at") or "") <= terminal_floor, row
+        assert str(row.get("verified_at") or "") <= str(repeat_prevention.get("active_handoff_verified_at") or ""), row
+
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
     assert mode_match, "active handoff missing mode line"
     assert "Frontier ids: 4287684466" in active_handoff_text
