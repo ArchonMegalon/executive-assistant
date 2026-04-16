@@ -421,6 +421,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     terminal_policy = dict(closeout.get("terminal_verification_policy") or {})
     receipt_policy = dict(dict(receipt.get("successor_closure") or {}).get("terminal_verification_policy") or {})
     readme_text = README_PATH.read_text(encoding="utf-8")
+    active_prompt_text = _active_handoff_prompt_text()
 
     assert terminal_policy.get("status") == "terminal_for_ea_scope"
     assert receipt_policy == terminal_policy
@@ -442,6 +443,14 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "not an exact-value trap" in readme_text
     assert "newer handoff stays valid" in readme_text
     assert "should not add more repeat-verification rows" in readme_text
+    assert '"package_id": "next90-m103-ea-parity-lab"' in active_prompt_text
+    assert '"repo": "executive-assistant"' in active_prompt_text
+    assert '"milestone_id": 103' in active_prompt_text
+    assert '"parity_lab:capture"' in active_prompt_text
+    assert '"veteran_compare_packs"' in active_prompt_text
+    assert "status: complete; owners: executive-assistant" in active_prompt_text
+    assert "do not invoke operator telemetry or active-run helper commands" in active_prompt_text.lower()
+    assert "If the package is already materially complete" in active_prompt_text
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
     assert allowed_next_work == {
