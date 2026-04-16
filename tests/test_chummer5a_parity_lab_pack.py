@@ -48,6 +48,12 @@ def _active_handoff_prompt_text() -> str:
     return prompt_path.read_text(encoding="utf-8")
 
 
+def _single_package_row(items: list, package_id: str) -> dict:
+    matches = [dict(item) for item in (items or []) if str(dict(item).get("package_id") or "") == package_id]
+    assert len(matches) == 1, f"{package_id} row count: {len(matches)}"
+    return matches[0]
+
+
 def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
 
@@ -73,7 +79,9 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert "executive-assistant" in set(milestone.get("owners") or [])
     assert 101 in set(milestone.get("dependencies") or [])
     assert 102 in set(milestone.get("dependencies") or [])
-    task_103_1 = next(dict(task) for task in (milestone.get("work_tasks") or []) if dict(task).get("id") == 103.1)
+    task_103_1_matches = [dict(task) for task in (milestone.get("work_tasks") or []) if dict(task).get("id") == 103.1]
+    assert len(task_103_1_matches) == 1, f"103.1 work task row count: {len(task_103_1_matches)}"
+    task_103_1 = task_103_1_matches[0]
     assert task_103_1.get("owner") == "executive-assistant"
     assert task_103_1.get("status") == "complete"
     task_evidence = "\n".join(str(item) for item in (task_103_1.get("evidence") or []))
@@ -81,8 +89,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
     assert f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result}" in task_evidence
 
-    queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
-    queue_item = queue_items["next90-m103-ea-parity-lab"]
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert queue.get("source_design_queue_path") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
@@ -107,8 +114,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
 
-    design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
-    design_queue_item = design_queue_items["next90-m103-ea-parity-lab"]
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
@@ -367,16 +373,16 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert "delegated non-EA follow-up packages" in str(repeat_prevention.get("worker_rule") or "")
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
-    task_103_1 = next(dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1)
+    task_103_1_matches = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
+    assert len(task_103_1_matches) == 1, f"103.1 work task row count: {len(task_103_1_matches)}"
+    task_103_1 = task_103_1_matches[0]
     assert task_103_1.get("status") == repeat_prevention.get("registry_task_status_required") == "complete"
 
-    queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
-    queue_item = queue_items["next90-m103-ea-parity-lab"]
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert int(queue_item.get("frontier_id") or 0) == int(repeat_prevention.get("successor_frontier_id") or 0)
     assert queue_item.get("status") == repeat_prevention.get("queue_package_status_required") == "complete"
 
-    design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
-    design_queue_item = design_queue_items["next90-m103-ea-parity-lab"]
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert int(design_queue_item.get("frontier_id") or 0) == int(repeat_prevention.get("successor_frontier_id") or 0)
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
     assert list(design_queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
@@ -546,16 +552,18 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert dict(pack.get("readiness_evidence") or {}).get("flagship_readiness_status") == "pass"
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
-    task_103_1 = next(dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1)
-    design_queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (design_queue.get("items") or [])}
-    queue_items = {str(dict(item).get("package_id") or ""): dict(item) for item in (queue.get("items") or [])}
+    task_103_1_matches = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
+    assert len(task_103_1_matches) == 1, f"103.1 work task row count: {len(task_103_1_matches)}"
+    task_103_1 = task_103_1_matches[0]
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
 
     canonical_package_proof = "\n".join(
         str(item)
         for item in (
             list(task_103_1.get("evidence") or [])
-            + list(design_queue_items["next90-m103-ea-parity-lab"].get("proof") or [])
-            + list(queue_items["next90-m103-ea-parity-lab"].get("proof") or [])
+            + list(design_queue_item.get("proof") or [])
+            + list(queue_item.get("proof") or [])
         )
     )
     blocked_proof_markers = [
