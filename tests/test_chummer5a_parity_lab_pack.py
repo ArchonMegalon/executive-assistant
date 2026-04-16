@@ -721,10 +721,18 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert task_queue_item.get("package_id") == closure_scope.get("closed_package_only")
     assert task_queue_item.get("repo") == "executive-assistant"
     assert int(task_queue_item.get("milestone_id") or 0) == int(closeout.get("milestone_id") or 0) == 103
+    assert "status" not in task_queue_item
+    assert "proof" not in task_queue_item
+    assert "landed_commit" not in task_queue_item
+    assert "frontier_id" not in task_queue_item
     assert list(task_queue_item.get("allowed_paths") or []) == list(closure_scope.get("allowed_paths") or [])
     assert list(task_queue_item.get("owned_surfaces") or []) == list(
         repeat_prevention.get("active_handoff_owned_surfaces_required") or []
     )
+    frontier_briefs = "\n".join(str(item) for item in (task_local_telemetry.get("frontier_briefs") or []))
+    assert "4287684466 [W7]" in frontier_briefs
+    assert "status: complete" in frontier_briefs
+    assert "status: complete" not in "\n".join(f"{key}: {value}" for key, value in task_queue_item.items())
 
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
