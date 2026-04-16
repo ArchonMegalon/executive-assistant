@@ -721,6 +721,13 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "TASK_LOCAL_TELEMETRY",
         "ACTIVE_RUN_HANDOFF.generated.md",
         "/runs/",
+        "first_commands",
+        "frontier_briefs",
+        "focus_texts",
+        "polling_disabled",
+        "queue_item",
+        "slice_summary",
+        "status_query_supported",
         "Supervisor status polling",
         "active worker run",
         "active-run telemetry",
@@ -811,8 +818,19 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
             "\n".join(str(item) for item in (queue_item.get("proof") or [])),
         ]
     )
-    assert task_local_telemetry_path.as_posix().lower() not in closure_evidence.lower()
-    assert "TASK_LOCAL_TELEMETRY".lower() not in closure_evidence.lower()
+    blocked_task_local_closure_markers = [
+        task_local_telemetry_path.as_posix(),
+        "TASK_LOCAL_TELEMETRY",
+        "first_commands",
+        "frontier_briefs",
+        "focus_texts",
+        "polling_disabled",
+        "queue_item",
+        "slice_summary",
+        "status_query_supported",
+    ]
+    for marker in blocked_task_local_closure_markers:
+        assert marker.lower() not in closure_evidence.lower(), marker
     assert str(dict(receipt.get("proof") or {}).get("command") or "") == "python tests/test_chummer5a_parity_lab_pack.py"
 
 
