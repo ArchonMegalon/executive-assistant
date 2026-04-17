@@ -793,7 +793,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     assert post_freeze_commits.isdisjoint(receipt_commits)
     assert post_freeze_commits.isdisjoint(closeout_commits)
 
-    final_receipt_refresh_commit = "c73d531"
+    final_receipt_refresh_commit = "bbe7d86"
     assert (
         subprocess.run(
             ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", final_receipt_refresh_commit],
@@ -802,7 +802,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             stderr=subprocess.PIPE,
             text=True,
         ).stdout.strip()
-        == "Tighten M103 proof count guard"
+        == "Tighten M103 queue proof source guard"
     )
     post_receipt_refresh_paths = _post_freeze_commit_paths(frozen_commit=final_receipt_refresh_commit)
     assert post_receipt_refresh_paths, "expected verification-only commits after the final receipt refresh"
