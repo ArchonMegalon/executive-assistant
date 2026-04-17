@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 import re
@@ -100,6 +101,54 @@ def _post_freeze_commit_paths(frozen_commit: str = "257a5b7") -> dict[str, set[s
         )
         changed_paths[commit] = {line.strip() for line in diff.stdout.splitlines() if line.strip()}
     return changed_paths
+
+
+def _literal_subprocess_run_commands(path: Path) -> list[list[str]]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    commands: list[list[str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        is_subprocess_run = (
+            isinstance(func, ast.Attribute)
+            and func.attr == "run"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "subprocess"
+        )
+        if not is_subprocess_run or not node.args:
+            continue
+        command_arg = node.args[0]
+        if not isinstance(command_arg, ast.List):
+            continue
+        command: list[str] = []
+        for element in command_arg.elts:
+            if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                command.append(element.value)
+                continue
+            command.append("<dynamic>")
+        if command:
+            commands.append(command)
+    return commands
+
+
+def _assert_verifier_subprocesses_are_worker_safe() -> None:
+    commands = _literal_subprocess_run_commands(Path(__file__).resolve())
+    assert commands, "expected explicit subprocess proof commands"
+    for command in commands:
+        command_text = " ".join(command).lower()
+        assert command[0] == "git", command
+        for forbidden_fragment in (
+            "run_chummer_design_supervisor",
+            "chummer_design_supervisor.py",
+            "supervisor status",
+            "supervisor eta",
+            "active-run helper",
+            "active run helper",
+            "operator telemetry",
+            "ooda",
+        ):
+            assert forbidden_fragment not in command_text, command
 
 
 def _single_package_row(items: list, package_id: str) -> dict:
@@ -1083,6 +1132,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         _post_freeze_commit_ids() & set(re.findall(r"\b[0-9a-f]{7}\b", canonical_package_proof))
     )
     assert leaked_post_freeze_commits == []
+    _assert_verifier_subprocesses_are_worker_safe()
     _assert_task_local_assignment_is_context_not_closure_evidence()
     _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence()
 
