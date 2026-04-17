@@ -94,13 +94,15 @@ def _assert_m103_queue_proof_is_scoped(proof: set[str]) -> None:
 def _assert_m103_registry_evidence_is_scoped(evidence_items: list[str]) -> None:
     allowed_absolute_prefixes = (
         "/docker/EA/docs/chummer5a_parity_lab/",
-        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
     )
+    allowed_published_receipt = "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
     allowed_command_prefix = "python tests/test_chummer5a_parity_lab_pack.py exits with "
     commit_anchor_pattern = re.compile(r"/docker/EA commit [0-9a-f]{7,40} .+")
 
     for item in evidence_items:
-        if item.startswith(allowed_absolute_prefixes):
+        if item.startswith(allowed_absolute_prefixes) or item == allowed_published_receipt:
+            continue
+        if item.startswith(f"{allowed_published_receipt} reports "):
             continue
         if item.startswith(allowed_command_prefix):
             continue
