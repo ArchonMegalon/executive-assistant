@@ -1394,6 +1394,9 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     telemetry_guidance = str(task_local_telemetry.get("guidance") or "")
     assert "Do not run supervisor status helpers" in telemetry_guidance
     assert "Open the listed files directly" in telemetry_guidance
+    assert "keep implementing the assigned successor slice" in telemetry_guidance
+    assert task_local_telemetry.get("polling_disabled") is True
+    assert task_local_telemetry.get("status_query_supported") is False
     assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
     assert task_local_telemetry_path.parent.name in active_handoff_text
     first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
@@ -1582,6 +1585,9 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "do not invoke operator telemetry or active-run helper commands from inside worker runs" in active_prompt_lower
         or "the previous attempt burned time on supervisor helper loops" in active_prompt_lower
     )
+    assert "those helpers are hard-blocked, count as run failure, and return non-zero" in active_prompt_lower
+    assert "the operator/ooda loop owns telemetry; keep working the assigned slice" in active_prompt_lower
+    assert "use the task-local telemetry file and shard runtime handoff as the local machine-readable context" in active_prompt_lower
     assert (
         "those helpers are hard-blocked, count as run failure, and return non-zero" in active_prompt_lower
         or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
