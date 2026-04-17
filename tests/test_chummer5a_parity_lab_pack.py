@@ -1156,6 +1156,8 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     append_policy = dict(closeout.get("repeat_row_append_policy") or {})
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    active_prompt_path = _active_handoff_prompt_path()
+    active_prompt_parent = active_prompt_path.parent
 
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
     assert mode_match, "active handoff missing mode line"
@@ -1246,8 +1248,8 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     )
     blocked_task_local_closure_markers = [
         task_local_telemetry_path.as_posix(),
-        _active_handoff_prompt_path().as_posix(),
-        _active_handoff_prompt_path().parent.as_posix(),
+        active_prompt_path.as_posix(),
+        active_prompt_parent.as_posix(),
         "TASK_LOCAL_TELEMETRY",
         "Successor-wave telemetry",
         "Current steering focus",
@@ -1266,6 +1268,39 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     for marker in blocked_task_local_closure_markers:
         assert marker.lower() not in closure_evidence.lower(), marker
         assert marker.lower() not in package_docs_context.lower(), marker
+
+    handoff_generated_match = re.search(r"^Generated at:\s*(\S+)", active_handoff_text, re.MULTILINE)
+    handoff_run_match = re.search(r"^- Run id:\s*(\S+)", active_handoff_text, re.MULTILINE)
+    assert handoff_generated_match, "active handoff missing generated-at"
+    assert handoff_run_match, "active handoff missing run id"
+    unstable_assignment_tokens = {
+        handoff_generated_match.group(1),
+        handoff_run_match.group(1),
+        active_prompt_parent.name,
+        task_local_telemetry_path.name,
+    }
+    static_closure_artifacts = "\n".join(
+        [
+            HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
+            PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            README_PATH.read_text(encoding="utf-8"),
+        ]
+    )
+    canonical_queue_proof = "\n".join(
+        [
+            "\n".join(str(item) for item in (task_103_1[0].get("evidence") or [])),
+            "\n".join(str(item) for item in (design_queue_item.get("proof") or [])),
+            "\n".join(str(item) for item in (queue_item.get("proof") or [])),
+        ]
+    )
+    for token in unstable_assignment_tokens:
+        assert token, token
+        assert token not in static_closure_artifacts, token
+        assert token not in canonical_queue_proof, token
+    assert task_local_telemetry.get("slice_summary")
+    assert task_local_telemetry.get("frontier_briefs")
+    assert "slice_summary" not in canonical_queue_proof
+    assert "frontier_briefs" not in canonical_queue_proof
     assert str(dict(receipt.get("proof") or {}).get("command") or "") == "python tests/test_chummer5a_parity_lab_pack.py"
 
 
