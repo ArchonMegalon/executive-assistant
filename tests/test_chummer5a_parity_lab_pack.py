@@ -375,6 +375,13 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
+    assert queue_item.get("completion_action") == "verify_closed_package_only"
+    assert "verify this receipt, registry row, design queue row, Fleet queue row, and direct proof command" in str(
+        queue_item.get("do_not_reopen_reason") or ""
+    )
+    assert "recapturing Chummer5a oracle baselines or veteran workflow packs" in str(
+        queue_item.get("do_not_reopen_reason") or ""
+    )
     assert "landed_commit" not in queue_item
     assert int(queue_item.get("frontier_id") or 0) == 4287684466
     assert int(queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
@@ -412,6 +419,8 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert design_queue_item.get("completion_action") == queue_item.get("completion_action")
+    assert design_queue_item.get("do_not_reopen_reason") == queue_item.get("do_not_reopen_reason")
     assert "landed_commit" not in design_queue_item
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
     assert int(design_queue_item.get("milestone_id") or 0) == int(queue_item.get("milestone_id") or 0) == 103
@@ -1456,6 +1465,11 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert len(task_103_1) == 1
     for canonical_queue_item in (design_queue_item, queue_item):
         assert canonical_queue_item.get("status") == "complete"
+        assert canonical_queue_item.get("completion_action") == "verify_closed_package_only"
+        assert "direct proof command" in str(canonical_queue_item.get("do_not_reopen_reason") or "")
+        assert "recapturing Chummer5a oracle baselines or veteran workflow packs" in str(
+            canonical_queue_item.get("do_not_reopen_reason") or ""
+        )
         assert int(canonical_queue_item.get("frontier_id") or 0) == 4287684466
         assert canonical_queue_item.get("proof"), canonical_queue_item
         assert canonical_queue_item.get("proof") != task_queue_item.get("proof")
