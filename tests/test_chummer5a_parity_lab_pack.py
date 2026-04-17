@@ -1448,6 +1448,7 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
         "TASK_LOCAL_TELEMETRY.generated.json",
         "/runs/",
         "Successor-wave telemetry",
+        "eta:",
         "remaining milestones",
         "remaining queue items",
         "critical path",
