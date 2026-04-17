@@ -1876,6 +1876,15 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert "Left the frozen closeout receipt" in verification_pass_text
     assert "No EA-owned parity-lab extraction work remains" in verification_pass_text
 
+    first_action_context_note = feedback_root / "2026-04-17-chummer5a-parity-lab-first-action-context-guard.md"
+    assert first_action_context_note in package_notes, "missing current first-action context guard note"
+    first_action_context_text = first_action_context_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in first_action_context_text
+    assert "Frontier: `4287684466`" in first_action_context_text
+    assert "`python tests/test_chummer5a_parity_lab_pack.py` -> `ran=18 failed=0`" in first_action_context_text
+    assert "first-action context was verified without refreshing frozen closure receipts" in first_action_context_text
+    assert "No EA-owned parity-lab extraction work remains" in first_action_context_text
+
     blocked_evidence_markers = [
         "TASK_LOCAL_TELEMETRY.generated.json",
         "/runs/",
