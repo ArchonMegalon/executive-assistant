@@ -112,7 +112,6 @@ def _assert_m103_queue_proof_is_scoped(proof: set[str]) -> None:
     allowed_absolute_prefixes = (
         "/docker/EA/docs/",
         "/docker/EA/tests/",
-        "/docker/EA/feedback/",
         "/docker/EA/skills/",
     )
     allowed_published_receipt = "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
@@ -266,6 +265,22 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
     _assert_m103_queue_proof_is_scoped(design_proof)
+
+
+def test_canonical_queue_proof_excludes_feedback_notes_for_closed_ea_scope() -> None:
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
+
+    for queue_source in (design_queue, queue):
+        queue_item = _single_package_row(queue_source.get("items") or [], "next90-m103-ea-parity-lab")
+        proof = [str(item) for item in (queue_item.get("proof") or [])]
+
+        assert proof, queue_source
+        assert not any("/docker/EA/feedback/" in anchor or anchor.startswith("feedback/") for anchor in proof)
+        assert "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml" in proof
+        assert "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in proof
+        assert "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json" in proof
+        assert "python tests/test_chummer5a_parity_lab_pack.py" in proof
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:

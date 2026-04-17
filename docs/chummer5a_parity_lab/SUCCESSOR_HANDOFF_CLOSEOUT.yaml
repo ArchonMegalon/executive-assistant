@@ -27,7 +27,7 @@ completed_outputs:
   - .codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json
 proof:
   command: python tests/test_chummer5a_parity_lab_pack.py
-  result: ran=17 failed=0
+  result: ran=18 failed=0
   verified_at: "2026-04-15T16:24:00Z"
 local_proof_commits:
   - commit: f3a3649

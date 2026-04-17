@@ -114,6 +114,6 @@
   "current_limitations": [],
   "proof": {
     "command": "python tests/test_chummer5a_parity_lab_pack.py",
-    "result": "ran=17 failed=0"
+    "result": "ran=18 failed=0"
   }
 }
