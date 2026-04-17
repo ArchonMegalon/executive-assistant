@@ -461,6 +461,12 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "worker-safe active-run handoff when the prompt requires it",
         "target package files under docs, tests, feedback, or skills before any edit",
     } == required_startup_context
+    startup_order_rule = str(retry_helper_loop_guard.get("startup_order_rule") or "")
+    assert "task-local telemetry assignment file first" in startup_order_rule
+    assert "at least one listed canonical repo file" in startup_order_rule
+    assert "target package files under docs, tests, feedback, or skills before any edit" in startup_order_rule
+    assert "assignment intake" in startup_order_rule
+    assert "must not become package proof" in startup_order_rule
     startup_command_policy = str(retry_helper_loop_guard.get("startup_command_policy") or "")
     assert "current worker prompt's required direct reads" in startup_command_policy
     assert "assignment intake, not package proof" in startup_command_policy

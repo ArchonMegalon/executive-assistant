@@ -214,6 +214,7 @@ terminal_verification_policy:
       - at least one listed canonical repo file before package inspection
       - worker-safe active-run handoff when the prompt requires it
       - target package files under docs, tests, feedback, or skills before any edit
+    startup_order_rule: Read the task-local telemetry assignment file first, then at least one listed canonical repo file, then the target package files under docs, tests, feedback, or skills before any edit; these reads remain assignment intake and must not become package proof.
     startup_command_policy: Follow the current worker prompt's required direct reads exactly and do not replace them with supervisor status, ETA, polling, active-run wait loops, operator telemetry, or invented orientation helpers; those reads remain assignment intake, not package proof.
     assignment_context_pattern:
       telemetry_path_pattern: /docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json
