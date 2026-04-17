@@ -165,9 +165,40 @@ def _assert_no_unreviewed_process_invocations(path: Path) -> None:
             continue
 
 
+def _assert_subprocess_run_calls_are_fail_closed(path: Path) -> None:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and func.attr == "run"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "subprocess"
+        ):
+            continue
+
+        keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
+        check = keywords.get("check")
+        assert isinstance(check, ast.Constant) and check.value is True, "subprocess.run must use check=True"
+        text = keywords.get("text")
+        assert isinstance(text, ast.Constant) and text.value is True, "subprocess.run must use text=True"
+        for stream_name in ("stdout", "stderr"):
+            stream = keywords.get(stream_name)
+            assert (
+                isinstance(stream, ast.Attribute)
+                and stream.attr == "PIPE"
+                and isinstance(stream.value, ast.Name)
+                and stream.value.id == "subprocess"
+            ), f"subprocess.run must capture {stream_name}=subprocess.PIPE"
+
+
 def _assert_verifier_subprocesses_are_worker_safe() -> None:
     verifier_path = Path(__file__).resolve()
     _assert_no_unreviewed_process_invocations(verifier_path)
+    _assert_subprocess_run_calls_are_fail_closed(verifier_path)
     commands = _literal_subprocess_run_commands(verifier_path)
     assert commands, "expected explicit subprocess proof commands"
     for command in commands:
