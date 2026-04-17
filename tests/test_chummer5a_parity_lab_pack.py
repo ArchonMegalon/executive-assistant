@@ -610,6 +610,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "hard-blocked" in active_prompt_lower
     assert "count as run failure" in active_prompt_lower
     assert "return non-zero" in active_prompt_lower
+    assert "operator/ooda loop owns telemetry" in active_prompt_lower
     assert "If the package is already materially complete" in active_prompt_text
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
@@ -962,10 +963,14 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "active worker run",
         "active-run telemetry",
         "operator telemetry",
+        "operator/ooda loop owns telemetry",
         "ooda",
         "telemetry helper output",
         "operator-owned helper output",
         "Recent stderr tail",
+        "hard-blocked",
+        "count as run failure",
+        "return non-zero",
     ]
     for marker in blocked_proof_markers:
         assert marker.lower() not in canonical_package_proof.lower(), marker
@@ -1141,6 +1146,10 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
         "status helper output:",
         "operator telemetry output:",
         "operator-owned helper output:",
+        "operator/ooda loop owns telemetry",
+        "hard-blocked",
+        "count as run failure",
+        "return non-zero",
     ]
     helper_context_markers = (
         "operator telemetry",
