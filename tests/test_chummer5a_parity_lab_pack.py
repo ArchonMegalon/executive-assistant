@@ -1065,6 +1065,10 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert "TASK_LOCAL_TELEMETRY.generated.json" in first_commands[0]
     assert any(path in first_commands[1] for path in allowed_first_action_repo_files), first_commands[1]
     assert all(command.startswith(worker_safe_direct_read_prefixes) for command in first_commands)
+    shell_control_fragments = ("&&", "||", ";", "|", ">", "<", "$(", "`")
+    for command in first_commands:
+        for fragment in shell_control_fragments:
+            assert fragment not in command, command
     assert any(command.endswith(SUCCESSOR_REGISTRY_PATH.as_posix()) for command in first_commands)
     assert any(command.endswith(SUCCESSOR_QUEUE_PATH.as_posix()) for command in first_commands)
     assert any(command.endswith(ACTIVE_RUN_HANDOFF_PATH.as_posix()) for command in first_commands)
@@ -1282,6 +1286,8 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     )
     for command in first_commands:
         command_lower = command.lower()
+        for fragment in ("&&", "||", ";", "|", ">", "<", "$(", "`"):
+            assert fragment not in command, command
         for fragment in blocked_first_command_fragments:
             assert fragment not in command_lower, command
     assert task_queue_item.get("package_id") == closure_scope.get("closed_package_only")
