@@ -1264,6 +1264,19 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
             PACK_PATH.read_text(encoding="utf-8"),
         ]
     )
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    task_103_1 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
+    assert len(task_103_1) == 1
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
+    canonical_closure_proof_text = "\n".join(
+        str(item)
+        for item in (
+            list(task_103_1[0].get("evidence") or [])
+            + list(queue_item.get("proof") or [])
+            + list(design_queue_item.get("proof") or [])
+        )
+    )
     task_local_telemetry_path_text = task_local_telemetry_path.as_posix()
     blocked_markers = [
         "TASK_LOCAL_TELEMETRY",
@@ -1283,6 +1296,21 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     ]
     for marker in blocked_markers:
         assert marker.lower() not in combined.lower(), marker
+        assert marker.lower() not in canonical_closure_proof_text.lower(), marker
+    for assignment_only_marker in (
+        ACTIVE_RUN_HANDOFF_PATH.as_posix(),
+        "remaining milestones",
+        "remaining queue items",
+        "critical path",
+        "slice_summary",
+        "frontier_briefs",
+        "focus_owners",
+        "status_query_supported",
+        "polling_disabled",
+    ):
+        assert assignment_only_marker.lower() not in canonical_closure_proof_text.lower(), assignment_only_marker
+    assert "python tests/test_chummer5a_parity_lab_pack.py exits with ran=18 failed=0" in canonical_closure_proof_text
+    assert "/docker/EA commit f252c02" in canonical_closure_proof_text
     assert "## Recent stderr tail" in active_handoff_text
     recent_stderr_tail = active_handoff_text.split("## Recent stderr tail", 1)[1]
     recent_stderr_tail_lower = recent_stderr_tail.lower()
