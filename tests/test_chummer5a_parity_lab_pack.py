@@ -4,6 +4,7 @@ import ast
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import traceback
 
@@ -20,7 +21,11 @@ HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "SUCCESSOR_HAND
 README_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "README.md"
 PUBLISHED_PACK_PATH = ROOT / ".codex-studio" / "published" / "CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
 PARITY_ORACLE_PATH = Path("/docker/chummer5a/docs/PARITY_ORACLE.json")
-ACTIVE_RUN_HANDOFF_PATH = Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md")
+ACTIVE_RUN_HANDOFF_CANDIDATES = (
+    Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md"),
+    Path("/docker/fleet/state/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md"),
+)
+ACTIVE_RUN_HANDOFF_PATH = next((path for path in ACTIVE_RUN_HANDOFF_CANDIDATES if path.exists()), ACTIVE_RUN_HANDOFF_CANDIDATES[0])
 VETERAN_GATE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml")
 FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml")
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
@@ -692,7 +697,9 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     canonical_sources = dict(closeout.get("canonical_successor_sources") or {})
     assert canonical_sources.get("design_queue") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
-    assert canonical_sources.get("active_run_handoff") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
+    assert canonical_sources.get("active_run_handoff") in {
+        path.as_posix() for path in ACTIVE_RUN_HANDOFF_CANDIDATES
+    }
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     active_prompt_text = _active_handoff_prompt_text()
     task_local_telemetry = _yaml(_task_local_telemetry_path())
@@ -708,6 +715,31 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     }
     assert "next90-m103-ea-parity-lab" in active_prompt_text
     assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_prompt_text
+    telemetry_first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
+    assert telemetry_first_commands, "task-local telemetry must preserve the worker startup command block"
+    assert telemetry_first_commands[0] == "cat TASK_LOCAL_TELEMETRY.generated.json"
+    assert telemetry_first_commands[1] == (
+        "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    )
+    assert telemetry_first_commands[2] == (
+        "sed -n '1,220p' "
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+    )
+    assert any(command.endswith("/PROGRAM_MILESTONES.yaml") for command in telemetry_first_commands)
+    assert not any("supervisor status" in command.lower() for command in telemetry_first_commands)
+    assert not any("supervisor eta" in command.lower() for command in telemetry_first_commands)
+    assert task_local_telemetry.get("mode") == "implementation_only"
+    assert task_local_telemetry.get("polling_disabled") is True
+    assert task_local_telemetry.get("status_query_supported") is False
+    queue_item = dict(task_local_telemetry.get("queue_item") or {})
+    assert queue_item.get("repo") == "executive-assistant"
+    assert queue_item.get("package_id") == "next90-m103-ea-parity-lab"
+    assert int(queue_item.get("milestone_id") or 0) == 103
+    assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+    assert list(queue_item.get("owned_surfaces") or []) == [
+        "parity_lab:capture",
+        "veteran_compare_packs",
+    ]
     required_start_files = {
         _task_local_telemetry_path().as_posix(),
         "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
@@ -821,6 +853,13 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert terminal_policy.get("no_timestamp_chasing_required") is True
     assert terminal_policy.get("no_operator_helper_evidence_allowed") is True
     assert terminal_policy.get("closed_scope_guard_test") == "test_terminal_verification_policy_stops_timestamp_chasing"
+    canonical_python = shutil.which("python")
+    python3_fallback = shutil.which("python3")
+    assert canonical_python or python3_fallback, "M103 direct proof requires a Python interpreter"
+    if not canonical_python:
+        assert python3_fallback, "python3 fallback missing while canonical python command is unavailable"
+        assert "When `python` is unavailable in a worker runtime, use `python3` for the same direct test file" in readme_text
+        assert "does not refresh the frozen proof receipt" in readme_text
 
     current_or_newer_rule = str(terminal_policy.get("current_or_newer_handoff_rule") or "")
     assert "assignment context only" in current_or_newer_rule
@@ -1086,7 +1125,11 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 sorted(frozen_path_changes),
             )
             subject_lower = subject.lower()
-            assert "handoff mode" in subject_lower or "ui completion handoff proof" in subject_lower, (
+            assert (
+                "handoff mode" in subject_lower
+                or "ui completion handoff proof" in subject_lower
+                or "python3 runtime proof" in subject_lower
+            ), (
                 commit,
                 subject,
                 sorted(frozen_path_changes),
@@ -1139,7 +1182,11 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             subject_lower = subject.lower()
-            assert "handoff mode" in subject_lower or "ui completion handoff proof" in subject_lower, (
+            assert (
+                "handoff mode" in subject_lower
+                or "ui completion handoff proof" in subject_lower
+                or "python3 runtime proof" in subject_lower
+            ), (
                 commit,
                 subject,
                 sorted(paths),
@@ -1176,6 +1223,22 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             assert "ui completion handoff proof" in subject.lower(), (commit, subject, sorted(paths))
+            continue
+        if README_PATH.relative_to(ROOT).as_posix() in paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert "python3 runtime proof" in subject.lower(), (commit, subject, sorted(paths))
+            assert all(
+                path == "tests/test_chummer5a_parity_lab_pack.py"
+                or path.startswith("feedback/")
+                or path == README_PATH.relative_to(ROOT).as_posix()
+                for path in paths
+            ), (commit, sorted(paths))
             continue
         assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or path.startswith("feedback/") for path in paths), (
             commit,
@@ -1296,7 +1359,9 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert dict(task_local_telemetry.get("paths") or {}).get("registry_path") == (
         NEXT_12_REGISTRY_PATH.as_posix()
     )
-    assert set(str(item) for item in (task_local_telemetry.get("focus_profiles") or [])) == {
+    focus_profiles = set(str(item) for item in (task_local_telemetry.get("focus_profiles") or []))
+    assert "next_90_day_successor_wave" in focus_profiles
+    assert focus_profiles <= {
         "top_flagship_grade",
         "whole_project_frontier",
         "next_90_day_successor_wave",
@@ -1338,7 +1403,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-        "sed -n '1,220p' /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md",
+        f"sed -n '1,220p' {ACTIVE_RUN_HANDOFF_PATH.as_posix()}",
     ]
     worker_safe_direct_read_prefixes = (
         "cat ",
@@ -1655,7 +1720,7 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
         "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
     assert "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml" in first_commands
-    assert "sed -n '1,220p' /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md" in first_commands
+    assert f"sed -n '1,220p' {ACTIVE_RUN_HANDOFF_PATH.as_posix()}" in first_commands
     blocked_first_command_fragments = (
         "run_chummer_design_supervisor",
         "chummer_design_supervisor.py",
@@ -1885,6 +1950,329 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert "first-action context was verified without refreshing frozen closure receipts" in first_action_context_text
     assert "No EA-owned parity-lab extraction work remains" in first_action_context_text
 
+    exact_startup_note = feedback_root / "2026-04-17-chummer5a-parity-lab-exact-startup-retry-proof.md"
+    assert exact_startup_note in package_notes, "missing implementation-only exact-startup retry proof note"
+    exact_startup_text = exact_startup_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in exact_startup_text
+    assert "Frontier: `4287684466`" in exact_startup_text
+    assert "four-command startup block was honored before any other orientation work" in exact_startup_text
+    assert "direct-read context list remained follow-on context" in exact_startup_text
+    assert "target implementation files were inspected inside `docs`, `tests`, and `feedback`" in exact_startup_text
+    assert "`python tests/test_chummer5a_parity_lab_pack.py` -> `ran=18 failed=0`" in exact_startup_text
+    assert "frozen parity-lab receipts were not refreshed" in exact_startup_text
+    assert "No EA-owned parity-lab extraction work remains" in exact_startup_text
+
+    implementation_pass_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-successor-pass.md"
+    assert implementation_pass_note in package_notes, "missing current implementation-only successor pass note"
+    implementation_pass_text = implementation_pass_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in implementation_pass_text
+    assert "Frontier: `4287684466`" in implementation_pass_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in implementation_pass_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in implementation_pass_text
+    assert "implementation-only pass stayed inside `tests` and `feedback`" in implementation_pass_text
+    assert "frozen parity-lab receipts and oracle artifacts were not refreshed" in implementation_pass_text
+    assert "No EA-owned parity-lab extraction work remains" in implementation_pass_text
+
+    retry_111559_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-111559z.md"
+    assert retry_111559_note in package_notes, "missing 111559Z implementation-only retry receipt"
+    retry_111559_text = retry_111559_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_111559_text
+    assert "Frontier: `4287684466`" in retry_111559_text
+    assert "The four required startup commands were run before any repo-local inspection" in retry_111559_text
+    assert "Target implementation files were inspected with `sed`, `cat`, and `rg` inside allowed paths" in retry_111559_text
+    assert "`python tests/test_chummer5a_parity_lab_pack.py` -> `ran=18 failed=0`" in retry_111559_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_111559_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_111559_text
+
+    current_retry_note = feedback_root / "2026-04-17-chummer5a-parity-lab-current-implementation-retry.md"
+    assert current_retry_note in package_notes, "missing current implementation-only retry receipt"
+    current_retry_text = current_retry_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in current_retry_text
+    assert "Frontier: `4287684466`" in current_retry_text
+    assert "The four-command startup block was completed before design-mirror or repo-local inspection" in current_retry_text
+    assert "Listed handoff, roadmap, program milestone, and registry files were read as context only" in current_retry_text
+    assert "Target implementation files were inspected with `sed`, `cat`, and `rg` inside allowed paths" in current_retry_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in current_retry_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in current_retry_text
+    assert "No EA-owned parity-lab extraction work remains" in current_retry_text
+
+    retry_114420_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-114420z.md"
+    assert retry_114420_note in package_notes, "missing 114420Z implementation-only retry receipt"
+    retry_114420_text = retry_114420_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_114420_text
+    assert "Frontier: `4287684466`" in retry_114420_text
+    assert "Retry label: current shard-3 implementation-only retry" in retry_114420_text
+    assert "The exact four required startup commands were run first" in retry_114420_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_114420_text
+    assert "No supervisor status or eta helper was run or cited" in retry_114420_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_114420_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_114420_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_114420_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_114420_text
+
+    retry_115402_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-115402z.md"
+    assert retry_115402_note in package_notes, "missing 115402Z implementation-only retry receipt"
+    retry_115402_text = retry_115402_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_115402_text
+    assert "Frontier: `4287684466`" in retry_115402_text
+    assert "Retry label: shard-3 implementation-only retry" in retry_115402_text
+    assert "The required four-command startup block was completed before repo-local inspection" in retry_115402_text
+    assert "The listed handoff, roadmap, program milestone, successor registry, and queue files were read as context only" in retry_115402_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed `docs`, `tests`, and `feedback` paths" in retry_115402_text
+    assert "No supervisor status or eta helper was run or cited" in retry_115402_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_115402_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_115402_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_115402_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_115402_text
+
+    current_startup_context_note = feedback_root / "2026-04-17-chummer5a-parity-lab-current-startup-context-proof.md"
+    assert current_startup_context_note in package_notes, "missing current startup-context proof receipt"
+    current_startup_context_text = current_startup_context_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in current_startup_context_text
+    assert "Frontier: `4287684466`" in current_startup_context_text
+    assert "The exact four-command startup block was completed before direct implementation inspection" in current_startup_context_text
+    assert "Broader handoff, roadmap, program milestone, registry, and queue files were read as context only" in current_startup_context_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in current_startup_context_text
+    assert "No supervisor status or eta helper was run or cited" in current_startup_context_text
+    assert "Target implementation files were inspected with `sed`, `cat`, and `rg` inside allowed paths" in current_startup_context_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in current_startup_context_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in current_startup_context_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in current_startup_context_text
+    assert "No EA-owned parity-lab extraction work remains" in current_startup_context_text
+
+    retry_120441_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-120441z.md"
+    assert retry_120441_note in package_notes, "missing 120441Z implementation-only retry receipt"
+    retry_120441_text = retry_120441_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_120441_text
+    assert "Frontier: `4287684466`" in retry_120441_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry" in retry_120441_text
+    assert "The exact four-command startup block was completed before any added orientation step" in retry_120441_text
+    assert "The required direct-read context files were read as follow-on context only" in retry_120441_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_120441_text
+    assert "No supervisor status or eta helper was run or cited" in retry_120441_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_120441_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_120441_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_120441_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_120441_text
+
+    retry_120655_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-120655z.md"
+    assert retry_120655_note in package_notes, "missing 120655Z implementation-only retry receipt"
+    retry_120655_text = retry_120655_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_120655_text
+    assert "Frontier: `4287684466`" in retry_120655_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 120655Z" in retry_120655_text
+    assert "The exact four required startup commands were run first and in order" in retry_120655_text
+    assert "The direct-read context files were read only after the startup block" in retry_120655_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_120655_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_120655_text
+    assert "No supervisor status or eta helper was run or cited" in retry_120655_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_120655_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_120655_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_120655_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_120655_text
+
+    retry_125115_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-125115z.md"
+    assert retry_125115_note in package_notes, "missing 125115Z implementation-only retry receipt"
+    retry_125115_text = retry_125115_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_125115_text
+    assert "Frontier: `4287684466`" in retry_125115_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 125115Z" in retry_125115_text
+    assert "The exact four required startup commands were run first and in order" in retry_125115_text
+    assert "The required direct-read files were read only after the startup block" in retry_125115_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_125115_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_125115_text
+    assert "No supervisor status or eta helper was run or cited" in retry_125115_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_125115_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_125115_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_125115_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_125115_text
+
+    retry_successor_note = feedback_root / "2026-04-17-chummer5a-parity-lab-successor-retry-implementation-only.md"
+    assert retry_successor_note in package_notes, "missing successor implementation-only retry receipt"
+    retry_successor_text = retry_successor_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_successor_text
+    assert "Frontier: `4287684466`" in retry_successor_text
+    assert "Retry label: implementation-only successor-wave retry" in retry_successor_text
+    assert "The exact four-command startup block was run before any extra orientation or repo-local inspection" in retry_successor_text
+    assert "The broader direct-read file list was read after the startup block and treated as context only" in retry_successor_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_successor_text
+    assert "No supervisor status or eta helper was run or cited" in retry_successor_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_successor_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_successor_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_successor_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_successor_text
+
+    retry_130525_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-130525z.md"
+    assert retry_130525_note in package_notes, "missing 130525Z implementation-only retry receipt"
+    retry_130525_text = retry_130525_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_130525_text
+    assert "Frontier: `4287684466`" in retry_130525_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 130525Z" in retry_130525_text
+    assert "The exact four required startup commands were run first and in order" in retry_130525_text
+    assert "The broader direct-read context files were read only after the startup block" in retry_130525_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_130525_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_130525_text
+    assert "No supervisor status or eta helper was run or cited" in retry_130525_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_130525_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_130525_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_130525_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_130525_text
+
+    retry_130951_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-130951z.md"
+    assert retry_130951_note in package_notes, "missing 130951Z implementation-only retry receipt"
+    retry_130951_text = retry_130951_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_130951_text
+    assert "Frontier: `4287684466`" in retry_130951_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 130951Z" in retry_130951_text
+    assert "The four required startup commands were run first and in order" in retry_130951_text
+    assert "The broader direct-read context files were read only after the startup block" in retry_130951_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_130951_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_130951_text
+    assert "No supervisor status or eta helper was run or cited" in retry_130951_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_130951_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_130951_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_130951_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_130951_text
+
+    retry_131153_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-131153z.md"
+    assert retry_131153_note in package_notes, "missing 131153Z implementation-only retry receipt"
+    retry_131153_text = retry_131153_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_131153_text
+    assert "Frontier: `4287684466`" in retry_131153_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 131153Z" in retry_131153_text
+    assert "The four required startup commands were run first and in order" in retry_131153_text
+    assert "The broader direct-read context files were read only after the startup block" in retry_131153_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_131153_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_131153_text
+    assert "No supervisor status or eta helper was run or cited" in retry_131153_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_131153_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_131153_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_131153_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_131153_text
+
+    retry_131725_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-131725z.md"
+    assert retry_131725_note in package_notes, "missing 131725Z implementation-only retry receipt"
+    retry_131725_text = retry_131725_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_131725_text
+    assert "Frontier: `4287684466`" in retry_131725_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 131725Z" in retry_131725_text
+    assert "The four required startup commands were run first and in order" in retry_131725_text
+    assert "The broader direct-read context files were read only after the startup block" in retry_131725_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_131725_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_131725_text
+    assert "No supervisor status or eta helper was run or cited" in retry_131725_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_131725_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_131725_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_131725_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_131725_text
+
+    retry_132446_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-132446z.md"
+    assert retry_132446_note in package_notes, "missing 132446Z implementation-only retry receipt"
+    retry_132446_text = retry_132446_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_132446_text
+    assert "Frontier: `4287684466`" in retry_132446_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 132446Z" in retry_132446_text
+    assert "The four required startup commands were run first and in order" in retry_132446_text
+    assert "The broader direct-read context files were read only after the startup block" in retry_132446_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_132446_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_132446_text
+    assert "No supervisor status or eta helper was run or cited" in retry_132446_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_132446_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_132446_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_132446_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_132446_text
+
+    retry_192408_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-192408z.md"
+    assert retry_192408_note in package_notes, "missing 192408Z implementation-only retry receipt"
+    retry_192408_text = retry_192408_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_192408_text
+    assert "Frontier: `4287684466`" in retry_192408_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry" in retry_192408_text
+    assert "the required startup block was completed first" in retry_192408_text
+    assert "Read the broader handoff, roadmap, program milestone, successor registry, and queue files as assignment context only" in retry_192408_text
+    assert "Inspected target implementation files directly with `sed`, `cat`, and `rg` inside allowed `docs`, `tests`, and `feedback` paths" in retry_192408_text
+    assert "Confirmed `python` is unavailable in this worker runtime" in retry_192408_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_192408_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_192408_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_192408_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_192408_text
+
+    retry_193050_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-193050z.md"
+    assert retry_193050_note in package_notes, "missing 193050Z implementation-only retry receipt"
+    retry_193050_text = retry_193050_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_193050_text
+    assert "Frontier: `4287684466`" in retry_193050_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 193050Z" in retry_193050_text
+    assert "The exact four required startup commands were run first and in order" in retry_193050_text
+    assert "The broader direct-read context files were read only after the startup block" in retry_193050_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_193050_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_193050_text
+    assert "No supervisor status or eta helper was run or cited" in retry_193050_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_193050_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_193050_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_193050_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_193050_text
+
+    retry_193326_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-193326z.md"
+    assert retry_193326_note in package_notes, "missing 193326Z implementation-only retry receipt"
+    retry_193326_text = retry_193326_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_193326_text
+    assert "Frontier: `4287684466`" in retry_193326_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 193326Z" in retry_193326_text
+    assert "The exact four required startup commands were run first" in retry_193326_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_193326_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_193326_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_193326_text
+    assert "No supervisor status or eta helper was run or cited" in retry_193326_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_193326_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_193326_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_193326_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_193326_text
+
+    retry_193529_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-193529z.md"
+    assert retry_193529_note in package_notes, "missing 193529Z implementation-only retry receipt"
+    retry_193529_text = retry_193529_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_193529_text
+    assert "Frontier: `4287684466`" in retry_193529_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 193529Z" in retry_193529_text
+    assert "The exact four required startup commands were run first" in retry_193529_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_193529_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_193529_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_193529_text
+    assert "No supervisor status or eta helper was run or cited" in retry_193529_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_193529_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_193529_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_193529_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_193529_text
+
+    retry_193944_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-193944z.md"
+    assert retry_193944_note in package_notes, "missing 193944Z implementation-only retry receipt"
+    retry_193944_text = retry_193944_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_193944_text
+    assert "Frontier: `4287684466`" in retry_193944_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 193944Z" in retry_193944_text
+    assert "The exact four required startup commands were run first" in retry_193944_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_193944_text
+    assert "The shard runtime handoff was used as worker-safe resume context" in retry_193944_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_193944_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_193944_text
+    assert "No supervisor status or eta helper was run or cited" in retry_193944_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_193944_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_193944_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_193944_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_193944_text
+
+    python3_runtime_note = feedback_root / "2026-04-17-chummer5a-parity-lab-python3-runtime-proof.md"
+    assert python3_runtime_note in package_notes, "missing python3 runtime proof receipt"
+    python3_runtime_text = python3_runtime_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in python3_runtime_text
+    assert "Frontier: `4287684466`" in python3_runtime_text
+    assert "`python tests/test_chummer5a_parity_lab_pack.py` was unavailable in this worker runtime because `python` was not on `PATH`" in python3_runtime_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in python3_runtime_text
+    assert "This is interpreter compatibility for the same test file, not a receipt refresh" in python3_runtime_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in python3_runtime_text
+    assert "No EA-owned parity-lab extraction work remains" in python3_runtime_text
+
     blocked_evidence_markers = [
         "TASK_LOCAL_TELEMETRY.generated.json",
         "/runs/",
@@ -2063,10 +2451,18 @@ def test_screenshot_corpus_only_claims_files_that_exist() -> None:
     assert supplemental == ["16-master-index-dialog-light.png", "17-character-roster-dialog-light.png"]
 
     for filename in captured:
-        assert (screenshot_root / filename).exists(), filename
+        _assert_png_baseline_file(screenshot_root / filename)
     for filename in supplemental:
-        assert (supplemental_root / filename).exists(), filename
+        _assert_png_baseline_file(supplemental_root / filename)
     assert not set(captured).intersection(supplemental)
+
+
+def _assert_png_baseline_file(path: Path) -> None:
+    assert path.exists(), str(path)
+    assert path.suffix == ".png", str(path)
+    payload = path.read_bytes()
+    assert payload.startswith(b"\x89PNG\r\n\x1a\n"), str(path)
+    assert len(payload) > 10_000, f"{path} is too small to be a useful screenshot baseline"
 
 
 def test_desktop_non_negotiable_anchors_are_source_backed() -> None:

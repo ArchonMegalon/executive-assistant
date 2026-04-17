@@ -37,3 +37,4 @@ Proof boundary:
 Verification:
 
 - `python tests/test_chummer5a_parity_lab_pack.py` runs the parity-lab contract checks directly for worker runtimes where `pytest` is not installed.
+- When `python` is unavailable in a worker runtime, use `python3` for the same direct test file. This is interpreter compatibility for the same package proof and does not refresh the frozen proof receipt, closeout rows, oracle baselines, workflow pack, compare packs, or fixture inventory.
