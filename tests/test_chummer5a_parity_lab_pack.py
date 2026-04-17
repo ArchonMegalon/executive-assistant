@@ -26,6 +26,9 @@ FLAGSHIP_PARITY_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/pro
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 DESIGN_SUCCESSOR_QUEUE_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 SUCCESSOR_QUEUE_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+NEXT_12_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml")
+PROGRAM_MILESTONES_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml")
+ROADMAP_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md")
 FLAGSHIP_READINESS_PATH = Path("/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json")
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-14-chummer5a-parity-lab-package-closeout.md"
 CANONICAL_QUEUE_PROOF_FLOOR = (
@@ -1058,7 +1061,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     )
     assert dict(task_local_telemetry.get("paths") or {}).get("successor_queue_path") == SUCCESSOR_QUEUE_PATH.as_posix()
     assert dict(task_local_telemetry.get("paths") or {}).get("registry_path") == (
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
+        NEXT_12_REGISTRY_PATH.as_posix()
     )
     assert set(str(item) for item in (task_local_telemetry.get("focus_profiles") or [])) == {
         "top_flagship_grade",
@@ -1280,6 +1283,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert leaked_post_freeze_commits == []
     _assert_verifier_subprocesses_are_worker_safe()
     _assert_task_local_assignment_is_context_not_closure_evidence()
+    _assert_legacy_program_files_are_context_not_m103_closure()
     _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence()
 
 
@@ -1313,8 +1317,8 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
     assert mode_match, "active handoff missing mode line"
     mode_text = mode_match.group(1).strip()
-    assert mode_text in {"successor_wave", "unknown"}
-    if mode_text == "unknown":
+    assert mode_text in {"successor_wave", "unknown", "completion_review"}
+    if mode_text in {"unknown", "completion_review"}:
         assert "Frontier ids: 4287684466" in active_handoff_text
         assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_local_telemetry.get("mode") == "implementation_only"
@@ -1477,6 +1481,45 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert "slice_summary" not in canonical_queue_proof
     assert "frontier_briefs" not in canonical_queue_proof
     assert str(dict(receipt.get("proof") or {}).get("command") or "") == "python tests/test_chummer5a_parity_lab_pack.py"
+
+
+def _assert_legacy_program_files_are_context_not_m103_closure() -> None:
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
+    registry = _yaml(SUCCESSOR_REGISTRY_PATH)
+    design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
+    queue = _yaml(SUCCESSOR_QUEUE_PATH)
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    task_103_1 = [
+        dict(task)
+        for task in (milestones[103].get("work_tasks") or [])
+        if dict(task).get("id") == 103.1
+    ]
+    assert len(task_103_1) == 1
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+
+    legacy_context_paths = {NEXT_12_REGISTRY_PATH, PROGRAM_MILESTONES_PATH, ROADMAP_PATH}
+    for path in legacy_context_paths:
+        assert path.exists(), path
+        assert "next90-m103-ea-parity-lab" not in path.read_text(encoding="utf-8")
+
+    closure_evidence = "\n".join(
+        [
+            HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
+            PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            "\n".join(str(item) for item in (task_103_1[0].get("evidence") or [])),
+            "\n".join(str(item) for item in (design_queue_item.get("proof") or [])),
+            "\n".join(str(item) for item in (queue_item.get("proof") or [])),
+        ]
+    )
+    for path in legacy_context_paths:
+        assert path.as_posix() not in closure_evidence, path
+        assert path.name not in closure_evidence, path
+    assert SUCCESSOR_REGISTRY_PATH.as_posix() in str(dict(receipt.get("successor_closure") or {}).get("registry") or "")
+    assert DESIGN_SUCCESSOR_QUEUE_PATH.as_posix() in str(dict(receipt.get("successor_closure") or {}).get("design_queue") or "")
+    assert SUCCESSOR_QUEUE_PATH.as_posix() in str(dict(receipt.get("successor_closure") or {}).get("fleet_queue") or "")
+    assert dict(closeout.get("canonical_successor_sources") or {}).get("design_queue") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
 
 
 def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> None:
