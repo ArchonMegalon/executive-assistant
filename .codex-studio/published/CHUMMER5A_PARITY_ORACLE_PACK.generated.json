@@ -8,7 +8,7 @@
   "kind": "proof_receipt",
   "generated_at": "2026-04-15T16:24:00Z",
   "status": "task_proven",
-  "operator_summary": "Chummer5a parity-lab extraction is task_proven for the EA-owned surfaces; promoted-head certification remains delegated to next90-m103-ui-veteran-certification.",
+  "operator_summary": "Chummer5a parity-lab extraction is task_proven for the EA-owned surfaces; promoted-head certification is canonically complete in next90-m103-ui-veteran-certification, with design and Fleet follow-up work remaining non-EA.",
   "owned_surfaces": [
     "parity_lab:capture",
     "veteran_compare_packs"
@@ -29,7 +29,7 @@
   "desktop_noise_auditor": {
     "target_surface": "Avalonia screenshots",
     "owner_package": "next90-m103-ui-veteran-certification",
-    "status": "delegated",
+    "status": "delegated_complete",
     "metrics": {
       "spacing_padding_budget": null,
       "visible_row_count": null,
@@ -100,9 +100,16 @@
       "no_operator_helper_evidence_allowed": true,
       "closed_scope_guard_test": "test_terminal_verification_policy_stops_timestamp_chasing",
       "allowed_next_work": [
-        "next90-m103-ui-veteran-certification",
         "next90-m103-design-parity-ladder",
         "next90-m103-fleet-readiness-consumption"
+      ],
+      "completed_non_ea_work": [
+        {
+          "package_id": "next90-m103-ui-veteran-certification",
+          "owner": "chummer6-ui",
+          "registry_task_id": "103.2",
+          "status": "complete"
+        }
       ]
     },
     "proof_hygiene": {

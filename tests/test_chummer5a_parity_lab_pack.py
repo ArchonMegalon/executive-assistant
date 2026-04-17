@@ -504,7 +504,9 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
         assert (ROOT / str(output_path)).exists(), output_path
     assert receipt.get("blocking_reasons") == []
     assert receipt.get("current_limitations") == []
-    assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
+    operator_summary = str(receipt.get("operator_summary") or "")
+    assert "promoted-head certification is canonically complete" in operator_summary
+    assert "design and Fleet follow-up work remaining non-EA" in operator_summary
     proof = dict(receipt.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
     assert proof.get("result") == _expected_direct_result()
@@ -582,10 +584,18 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert terminal_policy.get("no_operator_helper_evidence_allowed") is True
     assert terminal_policy.get("closed_scope_guard_test") == "test_terminal_verification_policy_stops_timestamp_chasing"
     assert set(str(item) for item in (terminal_policy.get("allowed_next_work") or [])) == {
-        "next90-m103-ui-veteran-certification",
         "next90-m103-design-parity-ladder",
         "next90-m103-fleet-readiness-consumption",
     }
+    completed_non_ea_work = [dict(item) for item in (terminal_policy.get("completed_non_ea_work") or [])]
+    assert completed_non_ea_work == [
+        {
+            "package_id": "next90-m103-ui-veteran-certification",
+            "owner": "chummer6-ui",
+            "registry_task_id": "103.2",
+            "status": "complete",
+        }
+    ]
     current_or_newer_rule = str(terminal_policy.get("current_or_newer_handoff_rule") or "")
     assert "assignment context only" in current_or_newer_rule
     assert "not a reason to edit this EA package" in current_or_newer_rule
@@ -752,9 +762,22 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         "veteran_compare_packs",
     ]
 
+    completed_non_ea = [dict(item) for item in (closeout.get("completed_non_ea_work") or [])]
+    assert completed_non_ea == [
+        {
+            "package_id": "next90-m103-ui-veteran-certification",
+            "owner": "chummer6-ui",
+            "registry_task_id": 103.2,
+            "status": "complete",
+            "reason": (
+                "Canonical successor registry task 103.2 reports the promoted-head screenshot-backed veteran "
+                "certification package complete, so repeated EA workers must not reopen or recapture it."
+            ),
+        }
+    ]
     remaining = {str(dict(item).get("owner") or "") for item in (closeout.get("remaining_non_ea_work") or [])}
     assert "executive-assistant" not in remaining
-    assert {"chummer6-ui", "chummer6-design", "fleet"} <= remaining
+    assert remaining == {"chummer6-design", "fleet"}
 
     anti_reopen_rules = "\n".join(str(item) for item in (closeout.get("anti_reopen_rules") or []))
     assert "Do not reopen the closed flagship closeout wave" in anti_reopen_rules
@@ -866,10 +889,16 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
     assert allowed_next_work == {
-        "next90-m103-ui-veteran-certification",
         "next90-m103-design-parity-ladder",
         "next90-m103-fleet-readiness-consumption",
     }
+    assert "next90-m103-ui-veteran-certification" not in allowed_next_work
+    completed_non_ea = [dict(item) for item in (closeout.get("completed_non_ea_work") or [])]
+    assert len(completed_non_ea) == 1
+    assert completed_non_ea[0].get("package_id") == "next90-m103-ui-veteran-certification"
+    assert completed_non_ea[0].get("owner") == "chummer6-ui"
+    assert completed_non_ea[0].get("registry_task_id") == 103.2
+    assert completed_non_ea[0].get("status") == "complete"
 
     append_policy = dict(closeout.get("repeat_row_append_policy") or {})
     assert append_policy.get("status") == "closed_append_free"
@@ -934,6 +963,17 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     task_103_1 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
     assert len(task_103_1) == 1
     assert task_103_1[0].get("status") == "complete"
+    task_103_2 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.2]
+    assert len(task_103_2) == 1
+    assert task_103_2[0].get("owner") == "chummer6-ui"
+    assert task_103_2[0].get("status") == "complete"
+    assert task_103_2[0].get("landed_commit") == "a8e4f92c"
+    remaining_task_ids = {
+        dict(task).get("id")
+        for task in (milestones[103].get("work_tasks") or [])
+        if dict(task).get("status") != "complete"
+    }
+    assert remaining_task_ids == {103.3, 103.4}
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
@@ -1045,7 +1085,12 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 commit,
                 sorted(frozen_path_changes),
             )
-            assert "handoff mode" in subject.lower(), (commit, subject, sorted(frozen_path_changes))
+            subject_lower = subject.lower()
+            assert "handoff mode" in subject_lower or "ui completion handoff proof" in subject_lower, (
+                commit,
+                subject,
+                sorted(frozen_path_changes),
+            )
         if paths & allowed_proof_refresh_paths:
             assert dict(closeout.get("proof") or {}).get("result") == _expected_direct_result()
             assert dict(receipt.get("proof") or {}).get("result") == _expected_direct_result()
@@ -1093,7 +1138,12 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 stderr=subprocess.PIPE,
                 text=True,
             ).stdout.strip()
-            assert "handoff mode" in subject.lower(), (commit, subject, sorted(paths))
+            subject_lower = subject.lower()
+            assert "handoff mode" in subject_lower or "ui completion handoff proof" in subject_lower, (
+                commit,
+                subject,
+                sorted(paths),
+            )
 
     latest_receipt_touch_floor = "f3ba05e"
     assert (
@@ -1107,8 +1157,26 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         == "Tighten M103 parity lab handoff mode guard"
     )
     post_latest_receipt_touch_paths = _post_freeze_commit_paths(frozen_commit=latest_receipt_touch_floor)
+    ui_completion_handoff_paths = {
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "feedback/2026-04-17-chummer5a-parity-lab-ui-completion-handoff-tightening.md",
+        HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
+        PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
+        README_PATH.relative_to(ROOT).as_posix(),
+    }
+    ui_completion_receipt_paths = ui_completion_handoff_paths - {"tests/test_chummer5a_parity_lab_pack.py"}
     for commit, paths in post_latest_receipt_touch_paths.items():
         assert paths, commit
+        if paths <= ui_completion_handoff_paths and paths & ui_completion_receipt_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert "ui completion handoff proof" in subject.lower(), (commit, subject, sorted(paths))
+            continue
         assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or path.startswith("feedback/") for path in paths), (
             commit,
             sorted(paths),

@@ -578,9 +578,19 @@ terminal_verification_policy:
   no_operator_helper_evidence_allowed: true
   closed_scope_guard_test: test_terminal_verification_policy_stops_timestamp_chasing
   allowed_next_work:
-    - next90-m103-ui-veteran-certification
     - next90-m103-design-parity-ladder
     - next90-m103-fleet-readiness-consumption
+  completed_non_ea_work:
+    - package_id: next90-m103-ui-veteran-certification
+      owner: chummer6-ui
+      registry_task_id: "103.2"
+      status: complete
+completed_non_ea_work:
+  - package_id: next90-m103-ui-veteran-certification
+    owner: chummer6-ui
+    registry_task_id: 103.2
+    status: complete
+    reason: Canonical successor registry task 103.2 reports the promoted-head screenshot-backed veteran certification package complete, so repeated EA workers must not reopen or recapture it.
 repeat_row_append_policy:
   status: closed_append_free
   do_not_append_for_newer_same_package_handoffs: true
@@ -597,9 +607,6 @@ repeat_row_append_policy:
     - terminal_verification_policy_removed_or_weakened
   worker_action: Verify the canonical anchors and direct proof, then move to allowed_next_work; do not edit completed EA outputs only to record a newer assignment timestamp.
 remaining_non_ea_work:
-  - package_id: next90-m103-ui-veteran-certification
-    owner: chummer6-ui
-    reason: Run promoted-head screenshot-backed veteran certification and visual compare review.
   - package_id: next90-m103-design-parity-ladder
     owner: chummer6-design
     reason: Move flagship parity families through stricter release-truth ladder policy when downstream evidence changes.
