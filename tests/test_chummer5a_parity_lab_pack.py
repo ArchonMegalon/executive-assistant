@@ -1591,6 +1591,17 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert "append-free because the explicit append conditions did not fail" in current_pass_text
     assert "No EA-owned parity-lab extraction work remains" in current_pass_text
 
+    verification_pass_note = feedback_root / "2026-04-17-chummer5a-parity-lab-successor-verification-pass.md"
+    assert verification_pass_note in package_notes, "missing current successor verification pass note"
+    verification_pass_text = verification_pass_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in verification_pass_text
+    assert "Frontier: `4287684466`" in verification_pass_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in verification_pass_text
+    assert "`python -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in verification_pass_text
+    assert "assigned EA scope remains append-free" in verification_pass_text
+    assert "Left the frozen closeout receipt" in verification_pass_text
+    assert "No EA-owned parity-lab extraction work remains" in verification_pass_text
+
     blocked_evidence_markers = [
         "TASK_LOCAL_TELEMETRY.generated.json",
         "/runs/",
