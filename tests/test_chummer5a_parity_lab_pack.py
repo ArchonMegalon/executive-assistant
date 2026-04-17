@@ -1342,6 +1342,10 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
         "active run helper",
         "telemetry helper",
         "status helper",
+        "supervisor status",
+        "supervisor eta",
+        "run_chummer_design_supervisor",
+        "chummer_design_supervisor.py",
         "ooda",
     )
     allowed_negative_helper_context = (
@@ -1355,6 +1359,9 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
         "did not invoke operator telemetry, active-run helper commands",
         "no operator telemetry, active-run helper commands",
         "no operator telemetry, active-run helper commands, oracle recapture",
+        "rejects supervisor status or eta helper phrasing",
+        "do not query supervisor status or eta",
+        "no supervisor status or eta",
     )
     for note_path in package_notes:
         note_text = note_path.read_text(encoding="utf-8")
