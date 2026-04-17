@@ -75,6 +75,28 @@ def _post_freeze_commit_ids(frozen_commit: str = "257a5b7") -> set[str]:
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
+def _post_freeze_commit_paths(frozen_commit: str = "257a5b7") -> dict[str, set[str]]:
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-list", "--reverse", "--abbrev-commit", "--abbrev=7", f"{frozen_commit}..HEAD"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    commits = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    changed_paths: dict[str, set[str]] = {}
+    for commit in commits:
+        diff = subprocess.run(
+            ["git", "-C", str(ROOT), "diff-tree", "--no-commit-id", "--name-only", "-r", commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        changed_paths[commit] = {line.strip() for line in diff.stdout.splitlines() if line.strip()}
+    return changed_paths
+
+
 def _single_package_row(items: list, package_id: str) -> dict:
     matches = [dict(item) for item in (items or []) if str(dict(item).get("package_id") or "") == package_id]
     assert len(matches) == 1, f"{package_id} row count: {len(matches)}"
@@ -700,6 +722,42 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
         _post_freeze_commit_ids() & set(re.findall(r"\b[0-9a-f]{7}\b", frozen_closeout_evidence))
     )
     assert leaked_post_freeze_commits == []
+
+
+def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_scope() -> None:
+    closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
+    receipt = _yaml(PUBLISHED_PACK_PATH)
+    append_policy = dict(closeout.get("repeat_row_append_policy") or {})
+    proof_floor_freeze = dict(append_policy.get("proof_floor_freeze") or {})
+
+    assert proof_floor_freeze.get("latest_guard_commit") == "257a5b7"
+    assert append_policy.get("status") == "closed_append_free"
+    assert append_policy.get("do_not_append_for_newer_same_package_handoffs") is True
+
+    post_freeze_paths = _post_freeze_commit_paths(frozen_commit="4722d54")
+    assert post_freeze_paths, "expected local verification-only commits after frozen M103 floor"
+    for commit, paths in post_freeze_paths.items():
+        assert paths, commit
+        assert all(
+            path == "tests/test_chummer5a_parity_lab_pack.py"
+            or path.startswith("feedback/")
+            for path in paths
+        ), (commit, sorted(paths))
+
+    frozen_artifacts = {
+        HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
+        PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
+        README_PATH.relative_to(ROOT).as_posix(),
+        PACK_PATH.relative_to(ROOT).as_posix(),
+    }
+    for commit, paths in post_freeze_paths.items():
+        assert not (paths & frozen_artifacts), (commit, sorted(paths & frozen_artifacts))
+
+    receipt_commits = set(str(commit) for commit in dict(receipt.get("successor_closure") or {}).get("local_proof_commits") or [])
+    closeout_commits = set(str(item.get("commit") or "") for item in closeout.get("local_proof_commits") or [])
+    post_freeze_commits = set(post_freeze_paths)
+    assert post_freeze_commits.isdisjoint(receipt_commits)
+    assert post_freeze_commits.isdisjoint(closeout_commits)
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
