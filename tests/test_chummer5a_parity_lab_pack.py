@@ -246,6 +246,34 @@ def _assert_only_frozen_canonical_proof_floor(proof_anchors: set[str], registry_
     assert registry_commit_anchors[0].startswith(allowed_commit_anchor), registry_commit_anchors
 
 
+def _assert_frozen_canonical_proof_commit_resolves(proof_anchors: set[str], registry_evidence: str) -> None:
+    proof_text = "\n".join(sorted(proof_anchors)) + "\n" + registry_evidence
+    matches = sorted(set(re.findall(r"/docker/EA commit ([0-9a-f]{7,40}) .+", proof_text)))
+
+    assert matches == ["f252c02"], matches
+    subject = subprocess.run(
+        ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", matches[0]],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    assert subject == "Pin M103 latest parity lab proof floor"
+
+    changed_paths = subprocess.run(
+        ["git", "-C", str(ROOT), "diff-tree", "--no-commit-id", "--name-only", "-r", matches[0]],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.splitlines()
+    assert set(changed_paths) == {
+        ".codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
+        "docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "tests/test_chummer5a_parity_lab_pack.py",
+    }
+
+
 def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
 
@@ -325,6 +353,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     ) in proof
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in proof)
     _assert_only_frozen_canonical_proof_floor(proof, task_evidence)
+    _assert_frozen_canonical_proof_commit_resolves(proof, task_evidence)
     for proof_anchor in proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
@@ -348,6 +377,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     ) in design_proof
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in design_proof)
     _assert_only_frozen_canonical_proof_floor(design_proof, task_evidence)
+    _assert_frozen_canonical_proof_commit_resolves(design_proof, task_evidence)
     for proof_anchor in design_proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
