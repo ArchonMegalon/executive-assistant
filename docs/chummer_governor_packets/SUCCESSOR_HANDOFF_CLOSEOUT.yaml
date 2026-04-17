@@ -155,13 +155,14 @@ terminal_verification_policy:
   latest_allowed_timestamp_only_verification_at: "2026-04-15T15:13:15Z"
   post_terminal_proof_command_result_required: ran=20 failed=0
   current_worker_rule: Do not append a new successor-wave verification note solely because ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp for the same closed frontier; run the proof command and cite the terminal closeout instead.
+  implementation_only_retry_rule: Implementation-only retries for the same package id and frontier id must not create new timestamp-only feedback notes, completed_outputs entries, proof_artifacts entries, queue proof entries, registry evidence, or task-local telemetry proof; they may only change this package when an allowed reopen trigger exposes real artifact or authority drift.
   repeated_assignment_handling: Treat later active-run handoffs for the same package id and frontier id as ignored by this terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger below fires.
   ignored_assignment_rule:
     package_id: next90-m106-ea-governor-packets
     frontier_id: 1758984842
-    active_run_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+    active_run_handoff_path: /docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
     generated_after: "2026-04-15T15:13:15Z"
-    prompt_path_pattern: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt
+    prompt_path_pattern: /docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/prompt.txt
     action: ignore_without_manifest_append
     worker_safety_instruction_required: true
     do_not_add_to:
@@ -175,6 +176,72 @@ terminal_verification_policy:
       - ignored_assignment_signals_after_terminal
     active_run_helper_commands_invoked: []
     operator_telemetry_commands_invoked: []
+  forbidden_retry_proof_sources:
+    - task-local telemetry generated file
+    - ACTIVE_RUN_HANDOFF.generated.md timestamp refresh
+    - supervisor status helper output
+    - supervisor eta helper output
+    - supervisor polling helper output
+    - active-run polling output
+    - operator telemetry output
+    - feedback/2026-04-16-ea-governor-packets-*
+    - feedback/2026-04-17-ea-governor-packets-*
+  retry_helper_loop_guard:
+    guard_id: implementation_only_retry_helper_loop_guard
+    applies_to_package_id: next90-m106-ea-governor-packets
+    applies_to_frontier_id: 1758984842
+    previous_failure_mode: supervisor helper loops consumed implementation time and produced no EA-owned packet evidence
+    worker_rule: Implementation-only retries must read the worker-safe handoff as assignment context, then verify or edit repo-local docs/tests only; supervisor status, ETA, polling, active-run wait loops, and operator telemetry helpers are not valid orientation, proof, or reopen evidence.
+    denied_command_fragments:
+      - supervisor status
+      - supervisor eta
+      - supervisor polling
+      - status helper
+      - eta helper
+      - polling helper
+      - active-run polling
+      - operator telemetry
+      - codexea status
+      - codexea eta
+    allowed_worker_context:
+      - task-local telemetry file may be read only because the assignment requires it
+      - ACTIVE_RUN_HANDOFF.generated.md may be read only as worker-safe resume context
+      - repo-local docs and tests remain the proof boundary
+    required_startup_context:
+      - task-local telemetry path supplied by the active assignment prompt
+      - at least one listed canonical repo file before package inspection
+      - worker-safe active-run handoff when the prompt requires it
+      - target package files under docs, tests, feedback, or skills before any edit
+    startup_command_policy: Follow the current worker prompt's required direct reads exactly and do not replace them with supervisor status, ETA, polling, active-run wait loops, operator telemetry, or invented orientation helpers; those reads remain assignment intake, not package proof.
+    assignment_context_pattern:
+      telemetry_path_pattern: /docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json
+      active_run_handoff_path: /docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+      generated_after: "2026-04-15T15:13:15Z"
+      use_rule: Matching retry files are assignment context only; do not add run ids, telemetry paths, or handoff timestamps to completed outputs, proof artifacts, queue proof, registry evidence, or successor verification history unless a guarded reopen trigger fires.
+      first_commands_are_assignment_intake_not_proof: true
+      active_run_helper_commands_invoked: []
+      operator_telemetry_commands_invoked: []
+    implementation_only_edit_policy: After the prompt-required startup reads and direct target inspection, edit repo-local docs, tests, feedback, or skills only when the guarded EA packet contract has real drift.
+    historical_operator_status_policy: Treat historical operator status snippets inside assignment files as stale notes, not commands to repeat or proof to preserve.
+    stop_report_contract:
+      required_fields:
+        - "What shipped"
+        - "What remains"
+        - "Exact blocker"
+    required_direct_read_context_roles:
+      - task-local telemetry assignment file
+      - Fleet-published successor queue mirror
+      - design-owned successor registry
+      - program milestone spine
+      - closed biggest-wins registry
+      - product roadmap
+      - worker-safe active-run handoff
+    invented_orientation_denied: true
+    proof_boundary:
+      - docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+      - docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
+      - docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+      - tests/test_chummer_governor_packet_pack.py
   ignored_assignment_signals_after_terminal: []
   allowed_reopen_triggers:
     - canonical successor registry reopens or changes work task 106.2

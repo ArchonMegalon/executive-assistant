@@ -80,6 +80,18 @@ def _strings(value: object) -> list[str]:
     return []
 
 
+def _without_keys(value: object, keys_to_drop: set[str]) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _without_keys(child, keys_to_drop)
+            for key, child in value.items()
+            if str(key) not in keys_to_drop
+        }
+    if isinstance(value, list):
+        return [_without_keys(child, keys_to_drop) for child in value]
+    return value
+
+
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
@@ -224,6 +236,7 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     forbidden_mutable_proof_paths = {
         "/var/lib/codex-fleet/chummer_design_supervisor/",
         "/var/lib/codex-fleet/",
+        "/docker/fleet/state/chummer_design_supervisor/",
     }
     assert not any(
         marker in evidence.lower()
@@ -240,6 +253,12 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     assert any("successor queue" in item and "owned surfaces" in item for item in drift_policy)
     assert any("progress email workflow" in item and "exactly-once" in item for item in drift_policy)
     assert any("docs, tests, feedback, or skills" in item for item in drift_policy)
+    assert any(
+        "Implementation-only retry assignments" in item
+        and "assignment context only" in item
+        and "must not become packet proof" in item
+        for item in drift_policy
+    )
 
 
 def test_successor_frontier_closeout_prevents_reopening_completed_ea_slice() -> None:
@@ -355,6 +374,10 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
+    implementation_only_retry_rule = str(terminal_policy.get("implementation_only_retry_rule") or "")
+    assert "Implementation-only retries" in implementation_only_retry_rule
+    assert "task-local telemetry proof" in implementation_only_retry_rule
+    assert "allowed reopen trigger" in implementation_only_retry_rule
     latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
     assert (
         terminal_policy.get("repeated_assignment_handling")
@@ -368,11 +391,11 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert ignored_assignment_rule.get("package_id") == "next90-m106-ea-governor-packets"
     assert int(ignored_assignment_rule.get("frontier_id") or 0) == 1758984842
     assert ignored_assignment_rule.get("active_run_handoff_path") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
+        "/docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
     )
     assert ignored_assignment_rule.get("generated_after") == latest_allowed_timestamp_only
     assert ignored_assignment_rule.get("prompt_path_pattern") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt"
+        "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/prompt.txt"
     )
     assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
     assert ignored_assignment_rule.get("worker_safety_instruction_required") is True
@@ -388,6 +411,103 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     } == {str(item) for item in ignored_assignment_rule.get("do_not_add_to") or []}
     assert ignored_assignment_rule.get("active_run_helper_commands_invoked") == []
     assert ignored_assignment_rule.get("operator_telemetry_commands_invoked") == []
+    forbidden_retry_proof_sources = {str(item) for item in terminal_policy.get("forbidden_retry_proof_sources") or []}
+    assert {
+        "task-local telemetry generated file",
+        "ACTIVE_RUN_HANDOFF.generated.md timestamp refresh",
+        "supervisor status helper output",
+        "supervisor eta helper output",
+        "supervisor polling helper output",
+        "active-run polling output",
+        "operator telemetry output",
+        "feedback/2026-04-16-ea-governor-packets-*",
+        "feedback/2026-04-17-ea-governor-packets-*",
+    } <= forbidden_retry_proof_sources
+    retry_helper_loop_guard = dict(terminal_policy.get("retry_helper_loop_guard") or {})
+    assert retry_helper_loop_guard.get("guard_id") == "implementation_only_retry_helper_loop_guard"
+    assert retry_helper_loop_guard.get("applies_to_package_id") == "next90-m106-ea-governor-packets"
+    assert int(retry_helper_loop_guard.get("applies_to_frontier_id") or 0) == 1758984842
+    assert "supervisor helper loops" in str(retry_helper_loop_guard.get("previous_failure_mode") or "")
+    assert "no EA-owned packet evidence" in str(retry_helper_loop_guard.get("previous_failure_mode") or "")
+    retry_worker_rule = str(retry_helper_loop_guard.get("worker_rule") or "")
+    assert "Implementation-only retries" in retry_worker_rule
+    assert "worker-safe handoff as assignment context" in retry_worker_rule
+    assert "not valid orientation, proof, or reopen evidence" in retry_worker_rule
+    denied_command_fragments = {str(item) for item in retry_helper_loop_guard.get("denied_command_fragments") or []}
+    assert {
+        "supervisor status",
+        "supervisor eta",
+        "supervisor polling",
+        "status helper",
+        "eta helper",
+        "polling helper",
+        "active-run polling",
+        "operator telemetry",
+        "codexea status",
+        "codexea eta",
+    } <= denied_command_fragments
+    allowed_worker_context = {str(item) for item in retry_helper_loop_guard.get("allowed_worker_context") or []}
+    assert "task-local telemetry file may be read only because the assignment requires it" in allowed_worker_context
+    assert "ACTIVE_RUN_HANDOFF.generated.md may be read only as worker-safe resume context" in allowed_worker_context
+    assert "repo-local docs and tests remain the proof boundary" in allowed_worker_context
+    required_startup_context = {str(item) for item in retry_helper_loop_guard.get("required_startup_context") or []}
+    assert {
+        "task-local telemetry path supplied by the active assignment prompt",
+        "at least one listed canonical repo file before package inspection",
+        "worker-safe active-run handoff when the prompt requires it",
+        "target package files under docs, tests, feedback, or skills before any edit",
+    } == required_startup_context
+    startup_command_policy = str(retry_helper_loop_guard.get("startup_command_policy") or "")
+    assert "current worker prompt's required direct reads" in startup_command_policy
+    assert "assignment intake, not package proof" in startup_command_policy
+    assert "invented orientation helpers" in startup_command_policy
+    assert "supervisor status" in startup_command_policy
+    assignment_context_pattern = dict(retry_helper_loop_guard.get("assignment_context_pattern") or {})
+    assert assignment_context_pattern.get("telemetry_path_pattern") == (
+        "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
+    )
+    assert assignment_context_pattern.get("active_run_handoff_path") == (
+        "/docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
+    )
+    assert assignment_context_pattern.get("generated_after") == latest_allowed_timestamp_only
+    assert "assignment context only" in str(assignment_context_pattern.get("use_rule") or "")
+    assert "do not add run ids" in str(assignment_context_pattern.get("use_rule") or "")
+    assert assignment_context_pattern.get("first_commands_are_assignment_intake_not_proof") is True
+    assert assignment_context_pattern.get("active_run_helper_commands_invoked") == []
+    assert assignment_context_pattern.get("operator_telemetry_commands_invoked") == []
+    edit_policy = str(retry_helper_loop_guard.get("implementation_only_edit_policy") or "")
+    assert "After the prompt-required startup reads" in edit_policy
+    assert "direct target inspection" in edit_policy
+    assert "edit repo-local docs, tests, feedback, or skills" in edit_policy
+    assert "real drift" in edit_policy
+    historical_operator_status_policy = str(
+        retry_helper_loop_guard.get("historical_operator_status_policy") or ""
+    )
+    assert "historical operator status snippets" in historical_operator_status_policy
+    assert "stale notes" in historical_operator_status_policy
+    assert "not commands to repeat" in historical_operator_status_policy
+    stop_report_contract = dict(retry_helper_loop_guard.get("stop_report_contract") or {})
+    assert stop_report_contract.get("required_fields") == [
+        "What shipped",
+        "What remains",
+        "Exact blocker",
+    ]
+    assert retry_helper_loop_guard.get("invented_orientation_denied") is True
+    assert set(retry_helper_loop_guard.get("required_direct_read_context_roles") or []) == {
+        "task-local telemetry assignment file",
+        "Fleet-published successor queue mirror",
+        "design-owned successor registry",
+        "program milestone spine",
+        "closed biggest-wins registry",
+        "product roadmap",
+        "worker-safe active-run handoff",
+    }
+    assert set(retry_helper_loop_guard.get("proof_boundary") or []) == {
+        "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+        "docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+        "docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "tests/test_chummer_governor_packet_pack.py",
+    }
     allowed_reopen_triggers = {str(item) for item in terminal_policy.get("allowed_reopen_triggers") or []}
     assert {
         "canonical successor registry reopens or changes work task 106.2",
@@ -549,6 +669,13 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert "assignment signal, not EA-owned implementation evidence" in (
         ROOT / "docs" / "chummer_governor_packets" / "README.md"
     ).read_text(encoding="utf-8")
+    readme_text = (ROOT / "docs" / "chummer_governor_packets" / "README.md").read_text(encoding="utf-8")
+    assert "Implementation-only retries for the same package id and frontier id" in readme_text
+    assert "must not create new timestamp-only feedback notes" in readme_text
+    assert "`retry_helper_loop_guard`" in readme_text
+    assert "direct-read context set" in readme_text
+    assert "invented orientation as denied" in readme_text
+    assert "not orientation, proof, or reopen evidence" in readme_text
     assert "newer `ACTIVE_RUN_HANDOFF.generated.md` timestamp alone is not a reason" in (
         ROOT / str(terminal_policy.get("proof_note") or "")
     ).read_text(encoding="utf-8")
@@ -616,7 +743,7 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     synthetic_ignored_assignment = {
         "active_run_handoff_generated_at": "2026-04-15T19:44:20Z",
         "active_run_handoff_prompt_path": (
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+            "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/"
             "20260415T194253Z-shard-12/prompt.txt"
         ),
     }
@@ -634,8 +761,16 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         assert not any(run_id in item for item in canonical_evidence)
     assert not any(
         item.startswith("/var/lib/codex-fleet/chummer_design_supervisor/")
+        or item.startswith("/docker/fleet/state/chummer_design_supervisor/")
         for item in canonical_evidence
     )
+    forbidden_retry_feedback_notes = sorted(
+        [
+            *ROOT.glob("feedback/2026-04-16-ea-governor-packets-*.md"),
+            *ROOT.glob("feedback/2026-04-17-ea-governor-packets-*.md"),
+        ]
+    )
+    assert forbidden_retry_feedback_notes == []
 
 
 def test_terminal_policy_ignores_later_same_package_assignments_without_enumerating_them() -> None:
@@ -648,7 +783,7 @@ def test_terminal_policy_ignores_later_same_package_assignments_without_enumerat
         "frontier_id": 1758984842,
         "generated_at": "2026-04-15T18:55:26Z",
         "prompt_path": (
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+            "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/"
             "20260415T185515Z-shard-12/prompt.txt"
         ),
     }
@@ -682,7 +817,7 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
         "frontier_id": 1758984842,
         "generated_at": "2026-04-16T00:00:00Z",
         "prompt_path": (
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
+            "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/"
             "20260415T235900Z-shard-12/prompt.txt"
         ),
     }
@@ -706,10 +841,25 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
         *[str(item) for item in registry_task.get("evidence") or []],
     ]
     run_id = Path(same_package_assignment_after_terminal_closeout["prompt_path"]).parts[-2]
+    retry_helper_loop_guard = dict(terminal_policy.get("retry_helper_loop_guard") or {})
+    assignment_context_pattern = dict(retry_helper_loop_guard.get("assignment_context_pattern") or {})
+    example_current_retry_run_id = "20260417T201912Z-shard-12"
 
     assert not any(run_id in item for item in completed_outputs)
     assert not any(run_id in item for item in proof_artifacts)
     assert not any(run_id in item for item in canonical_evidence)
+    assert retry_helper_loop_guard.get("required_startup_commands") is None
+    assert retry_helper_loop_guard.get("current_retry_context") is None
+    assert assignment_context_pattern.get("telemetry_path_pattern") == (
+        "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
+    )
+    assert assignment_context_pattern.get("first_commands_are_assignment_intake_not_proof") is True
+    assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
+    assert terminal_policy.get("ignored_assignment_signals_after_terminal") == []
+    assert not any(example_current_retry_run_id in item for item in completed_outputs)
+    assert not any(example_current_retry_run_id in item for item in proof_artifacts)
+    assert not any(example_current_retry_run_id in item for item in canonical_evidence)
+    assert sorted(ROOT.glob("feedback/2026-04-17-ea-governor-packets-*.md")) == []
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
@@ -728,8 +878,22 @@ def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
     pack = _yaml(PACK_PATH)
     source_truth = {str(key): dict(value) for key, value in dict(pack.get("source_truth") or {}).items()}
     shared_anchors = set(pack.get("shared_evidence_anchor_ids") or [])
+    truth_bundle = dict(pack.get("normalized_truth_bundle") or {})
 
     assert shared_anchors == {"weekly_pulse", "parity_lab_pack", "feedback_release_gate", "progress_email_workflow"}
+    assert truth_bundle.get("bundle_id") == "ea-m106-governor-readiness-parity-support-release-v1"
+    assert set(truth_bundle.get("consumer_surfaces") or []) == set(pack.get("owned_surfaces") or [])
+    assert set(truth_bundle.get("input_anchor_ids") or []) == shared_anchors
+    assert {
+        "release_health",
+        "flagship_readiness",
+        "journey_gate_health",
+        "support_closure",
+        "parity_evidence",
+        "reporter_followthrough",
+        "release_channel_truth",
+    } <= set(truth_bundle.get("required_signal_families") or [])
+    assert "same bundle id" in str(truth_bundle.get("single_bundle_rule") or "")
     assert _source_path(source_truth["canonical_successor_queue"]).resolve() == QUEUE_STAGING_PATH.resolve()
     assert _source_path(source_truth["design_successor_queue"]).resolve() == DESIGN_QUEUE_STAGING_PATH.resolve()
     assert "Fleet-published queue mirror" in str(source_truth["canonical_successor_queue"].get("use_rule") or "")
@@ -740,6 +904,8 @@ def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
 
     assert set(pack["operator_packet"]["evidence_anchor_ids"]) == shared_anchors
     assert set(pack["reporter_followthrough"]["evidence_anchor_ids"]) == shared_anchors
+    assert pack["operator_packet"]["truth_bundle_id"] == truth_bundle["bundle_id"]
+    assert pack["reporter_followthrough"]["truth_bundle_id"] == truth_bundle["bundle_id"]
 
 
 def test_operator_packet_can_explain_all_governor_postures_without_claiming_authority() -> None:
@@ -855,10 +1021,16 @@ def test_runtime_safety_records_no_worker_side_telemetry_or_active_run_helpers()
     assert dict(handoff.get("runtime_safety") or {}).get("active_run_helper_commands_invoked") == []
     assert dict(handoff.get("runtime_safety") or {}).get("operator_telemetry_commands_invoked") == []
 
+    handoff_proof_strings = _strings(
+        _without_keys(
+            handoff,
+            {"required_startup_commands", "current_retry_context", "assignment_context_pattern"},
+        )
+    )
     canonical_and_local_proof_strings = [
         *_strings(pack),
         *_strings(specimens),
-        *_strings(handoff),
+        *handoff_proof_strings,
         *[str(item) for item in queue_item.get("proof") or []],
         *[str(item) for item in design_queue_item.get("proof") or []],
         *[str(item) for item in registry_task.get("evidence") or []],
@@ -885,13 +1057,28 @@ def test_specimens_project_operator_and_reporter_packets_from_same_anchors() -> 
     specimens = _yaml(SPECIMENS_PATH)
 
     shared_anchors = set(pack.get("shared_evidence_anchor_ids") or [])
+    pack_truth_bundle = dict(pack.get("normalized_truth_bundle") or {})
+    specimen_truth_bundle = dict(specimens.get("normalized_truth_bundle") or {})
     assert specimens.get("package_id") == pack.get("package_id")
     assert int(specimens.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
     assert set(specimens.get("shared_evidence_anchor_ids") or []) == shared_anchors
     assert set(dict(specimens.get("shared_evidence_bindings") or {})) == shared_anchors
+    assert specimen_truth_bundle.get("bundle_id") == pack_truth_bundle.get("bundle_id")
+    assert set(specimen_truth_bundle.get("input_anchor_ids") or []) == shared_anchors
+    assert set(specimen_truth_bundle.get("projected_signal_families") or []) == set(
+        pack_truth_bundle.get("required_signal_families") or []
+    )
+    assert "same truth_bundle_id" in str(specimen_truth_bundle.get("use_rule") or "")
     assert specimens["operator_packet_specimen"]["packet_kind"] == "operator_packets:weekly_governor"
     assert specimens["reporter_followthrough_specimen"]["packet_kind"] == "reporter_followthrough:release_truth"
+    assert specimens["operator_packet_specimen"]["truth_bundle_id"] == pack_truth_bundle["bundle_id"]
+    assert specimens["reporter_followthrough_specimen"]["truth_bundle_id"] == pack_truth_bundle["bundle_id"]
+    assert (
+        specimens["operator_packet_specimen"]["specimen_payload"]["truth_bundle_id"]
+        == specimens["reporter_followthrough_specimen"]["truth_bundle_id"]
+    )
     assert set(specimens["operator_packet_specimen"]["specimen_payload"]["cited_signal_ids"]) == shared_anchors
+    assert set(specimens["reporter_followthrough_specimen"]["source_signal_ids"]) == shared_anchors
     assert _source_path({"path": specimens.get("source_pack")}).resolve() == PACK_PATH.resolve()
 
     source_truth = {
