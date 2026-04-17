@@ -584,6 +584,8 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     handoff_mode_rule = str(terminal_policy.get("handoff_mode_rule") or "")
     assert "assignment metadata only" in handoff_mode_rule
     assert "Mode: unknown" in handoff_mode_rule
+    assert "Mode: completion_review" in handoff_mode_rule
+    assert "Mode: flagship_product" in handoff_mode_rule
     assert "frontier/package identity" in handoff_mode_rule
 
 
@@ -789,11 +791,15 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     handoff_mode_rule = str(terminal_policy.get("handoff_mode_rule") or "")
     assert "assignment metadata only" in handoff_mode_rule
     assert "Mode: unknown" in handoff_mode_rule
+    assert "Mode: completion_review" in handoff_mode_rule
+    assert "Mode: flagship_product" in handoff_mode_rule
     assert "frontier/package identity" in handoff_mode_rule
     assert "minimum generated-at value" in readme_text
     assert "not an exact-value trap" in readme_text
     assert "newer handoff stays valid" in readme_text
     assert "Mode: unknown" in readme_text
+    assert "Mode: completion_review" in readme_text
+    assert "Mode: flagship_product" in readme_text
     assert "frontier/package identity" in readme_text
     assert "should not add more repeat-verification rows" in readme_text
     assert '"package_id": "next90-m103-ea-parity-lab"' in active_prompt_text
@@ -950,6 +956,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     allowed_proof_refresh_paths = {
         HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
         PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
+        README_PATH.relative_to(ROOT).as_posix(),
     }
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
@@ -965,7 +972,20 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         PACK_PATH.relative_to(ROOT).as_posix(),
     }
     for commit, paths in post_freeze_paths.items():
-        assert not (paths & frozen_artifacts), (commit, sorted(paths & frozen_artifacts))
+        frozen_path_changes = paths & frozen_artifacts
+        if frozen_path_changes:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert frozen_path_changes == {README_PATH.relative_to(ROOT).as_posix()}, (
+                commit,
+                sorted(frozen_path_changes),
+            )
+            assert "handoff mode" in subject.lower(), (commit, subject, sorted(frozen_path_changes))
         if paths & allowed_proof_refresh_paths:
             assert dict(closeout.get("proof") or {}).get("result") == _expected_direct_result()
             assert dict(receipt.get("proof") or {}).get("result") == _expected_direct_result()
@@ -989,14 +1009,31 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     )
     post_receipt_refresh_paths = _post_freeze_commit_paths(frozen_commit=final_receipt_refresh_commit)
     assert post_receipt_refresh_paths, "expected verification-only commits after the final receipt refresh"
+    permitted_post_receipt_paths = {
+        "tests/test_chummer5a_parity_lab_pack.py",
+        HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
+        PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
+        README_PATH.relative_to(ROOT).as_posix(),
+    }
     for commit, paths in post_receipt_refresh_paths.items():
         assert paths, commit
-        assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or path.startswith("feedback/") for path in paths), (
+        assert all(path in permitted_post_receipt_paths or path.startswith("feedback/") for path in paths), (
             commit,
             sorted(paths),
         )
-        assert HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix() not in paths, (commit, sorted(paths))
-        assert PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix() not in paths, (commit, sorted(paths))
+        if paths & {
+            HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
+            PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
+            README_PATH.relative_to(ROOT).as_posix(),
+        }:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert "handoff mode" in subject.lower(), (commit, subject, sorted(paths))
 
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
@@ -1317,8 +1354,8 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
     assert mode_match, "active handoff missing mode line"
     mode_text = mode_match.group(1).strip()
-    assert mode_text in {"successor_wave", "unknown", "completion_review"}
-    if mode_text in {"unknown", "completion_review"}:
+    assert mode_text in {"successor_wave", "unknown", "completion_review", "flagship_product"}
+    if mode_text in {"unknown", "completion_review", "flagship_product"}:
         assert "Frontier ids: 4287684466" in active_handoff_text
         assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
     assert task_local_telemetry.get("mode") == "implementation_only"

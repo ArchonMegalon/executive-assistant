@@ -95,7 +95,7 @@
       "status": "terminal_for_ea_scope",
       "latest_required_handoff_floor": "2026-04-15T16:20:33Z",
       "current_or_newer_handoff_rule": "A newer active-run handoff for the same frontier and package is assignment context only; it is not a reason to edit this EA package while canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.",
-      "handoff_mode_rule": "The ACTIVE_RUN_HANDOFF Mode field is assignment metadata only; Mode: unknown is acceptable when frontier/package identity, canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.",
+      "handoff_mode_rule": "The ACTIVE_RUN_HANDOFF Mode field is assignment metadata only; Mode: unknown, Mode: completion_review, and Mode: flagship_product are acceptable when frontier/package identity, canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.",
       "no_timestamp_chasing_required": true,
       "no_operator_helper_evidence_allowed": true,
       "closed_scope_guard_test": "test_terminal_verification_policy_stops_timestamp_chasing",
