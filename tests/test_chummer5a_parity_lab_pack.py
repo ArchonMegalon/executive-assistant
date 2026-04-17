@@ -866,9 +866,18 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
 
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
     assert mode_match, "active handoff missing mode line"
+    assert mode_match.group(1).strip() == "successor_wave"
     assert "Frontier ids: 4287684466" in active_handoff_text
     assert "Open milestone ids: 4287684466" in active_handoff_text
     assert "next90-m103-ea-parity-lab" in active_prompt_text
+    static_closure_text = "\n".join(
+        [
+            HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
+            PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            README_PATH.read_text(encoding="utf-8"),
+        ]
+    )
+    assert "Mode: successor_wave" not in static_closure_text
 
     milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
     task_103_1 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
@@ -1374,9 +1383,10 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert mode_match, "active handoff missing mode line"
     mode_text = mode_match.group(1).strip()
     assert mode_text in {"successor_wave", "unknown", "completion_review", "flagship_product"}
-    if mode_text in {"unknown", "completion_review", "flagship_product"}:
-        assert "Frontier ids: 4287684466" in active_handoff_text
-        assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
+    assert "Frontier ids: 4287684466" in active_handoff_text
+    assert task_queue_item.get("package_id") == "next90-m103-ea-parity-lab"
+    if mode_text == "successor_wave":
+        assert mode_text not in "\n".join(task_local_context_values)
     assert task_local_telemetry.get("mode") == "implementation_only"
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
