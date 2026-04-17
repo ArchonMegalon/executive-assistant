@@ -1032,8 +1032,20 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
             "\n".join(str(item) for item in (queue_item.get("proof") or [])),
         ]
     )
+    package_docs_context = "\n".join(
+        [
+            README_PATH.read_text(encoding="utf-8"),
+            PACK_PATH.read_text(encoding="utf-8"),
+            ORACLE_BASELINES_PATH.read_text(encoding="utf-8"),
+            WORKFLOW_PACK_PATH.read_text(encoding="utf-8"),
+            COMPARE_PACKS_PATH.read_text(encoding="utf-8"),
+            FIXTURE_INVENTORY_PATH.read_text(encoding="utf-8"),
+        ]
+    )
     blocked_task_local_closure_markers = [
         task_local_telemetry_path.as_posix(),
+        _active_handoff_prompt_path().as_posix(),
+        _active_handoff_prompt_path().parent.as_posix(),
         "TASK_LOCAL_TELEMETRY",
         "first_commands",
         "frontier_briefs",
@@ -1045,6 +1057,7 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     ]
     for marker in blocked_task_local_closure_markers:
         assert marker.lower() not in closure_evidence.lower(), marker
+        assert marker.lower() not in package_docs_context.lower(), marker
     assert str(dict(receipt.get("proof") or {}).get("command") or "") == "python tests/test_chummer5a_parity_lab_pack.py"
 
 
