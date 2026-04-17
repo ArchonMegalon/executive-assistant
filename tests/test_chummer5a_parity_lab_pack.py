@@ -778,6 +778,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     assert post_freeze_commits.isdisjoint(receipt_commits)
     assert post_freeze_commits.isdisjoint(closeout_commits)
 
+    final_receipt_refresh_commit = "c73d531"
+    assert (
+        subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", final_receipt_refresh_commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        == "Tighten M103 proof count guard"
+    )
+    post_receipt_refresh_paths = _post_freeze_commit_paths(frozen_commit=final_receipt_refresh_commit)
+    assert post_receipt_refresh_paths, "expected verification-only commits after the final receipt refresh"
+    for commit, paths in post_receipt_refresh_paths.items():
+        assert paths, commit
+        assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or path.startswith("feedback/") for path in paths), (
+            commit,
+            sorted(paths),
+        )
+        assert HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix() not in paths, (commit, sorted(paths))
+        assert PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix() not in paths, (commit, sorted(paths))
+
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
