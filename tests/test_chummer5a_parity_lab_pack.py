@@ -955,6 +955,8 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     active_prompt_lower = active_prompt_text.lower()
     assert "do not query supervisor status or eta from inside the worker run" in active_prompt_lower
     assert "the operator/ooda loop owns telemetry; keep working the assigned slice" in active_prompt_lower
+    assert "do not invoke operator telemetry or active-run helper commands from inside worker runs" in active_prompt_lower
+    assert "those helpers are hard-blocked, count as run failure, and return non-zero" in active_prompt_lower
 
     proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
