@@ -952,6 +952,19 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
 
     active_prompt_text = _active_handoff_prompt_text()
     active_prompt_lower = active_prompt_text.lower()
+    required_start_files = {
+        task_local_telemetry_path.as_posix(),
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+        ACTIVE_RUN_HANDOFF_PATH.as_posix(),
+        SUCCESSOR_REGISTRY_PATH.as_posix(),
+        SUCCESSOR_QUEUE_PATH.as_posix(),
+    }
+    assert "Start by reading these files directly:" in active_prompt_text
+    for required_start_file in required_start_files:
+        assert required_start_file in active_prompt_text, required_start_file
+    assert "then inspect the target implementation files directly" in active_prompt_text
     assert "do not query supervisor status or eta from inside the worker run" in active_prompt_lower
     assert "the operator/ooda loop owns telemetry; keep working the assigned slice" in active_prompt_lower
     assert "do not invoke operator telemetry or active-run helper commands from inside worker runs" in active_prompt_lower
