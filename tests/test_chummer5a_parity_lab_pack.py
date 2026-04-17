@@ -639,10 +639,27 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert canonical_sources.get("design_queue") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
     assert canonical_sources.get("active_run_handoff") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    active_prompt_text = _active_handoff_prompt_text()
+    task_local_telemetry = _yaml(_task_local_telemetry_path())
     assert "Frontier ids: 4287684466" in active_handoff_text
-    assert "Focus owners: chummer6-ui, executive-assistant" in active_handoff_text
-    assert "next90-m103-ea-parity-lab" in active_handoff_text
-    assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_handoff_text
+    assert set(str(item) for item in (task_local_telemetry.get("focus_owners") or [])) == {
+        "chummer6-ui",
+        "executive-assistant",
+    }
+    assert "next90-m103-ea-parity-lab" in active_prompt_text
+    assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_prompt_text
+    required_start_files = {
+        _task_local_telemetry_path().as_posix(),
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+        ACTIVE_RUN_HANDOFF_PATH.as_posix(),
+        SUCCESSOR_REGISTRY_PATH.as_posix(),
+        SUCCESSOR_QUEUE_PATH.as_posix(),
+    }
+    assert "Start by reading these files directly:" in active_prompt_text
+    for required_start_file in required_start_files:
+        assert required_start_file in active_prompt_text, required_start_file
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
