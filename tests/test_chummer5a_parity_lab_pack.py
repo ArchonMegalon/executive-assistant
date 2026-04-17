@@ -605,7 +605,11 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert '"parity_lab:capture"' in active_prompt_text
     assert '"veteran_compare_packs"' in active_prompt_text
     assert "status: complete; owners: executive-assistant" in active_prompt_text
-    assert "do not invoke operator telemetry or active-run helper commands" in active_prompt_text.lower()
+    active_prompt_lower = active_prompt_text.lower()
+    assert "do not invoke operator telemetry or active-run helper commands" in active_prompt_lower
+    assert "hard-blocked" in active_prompt_lower
+    assert "count as run failure" in active_prompt_lower
+    assert "return non-zero" in active_prompt_lower
     assert "If the package is already materially complete" in active_prompt_text
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
