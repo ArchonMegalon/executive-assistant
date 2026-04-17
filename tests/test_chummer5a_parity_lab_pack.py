@@ -1243,6 +1243,17 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     active_prompt_path = _active_handoff_prompt_path()
     active_prompt_parent = active_prompt_path.parent
+    task_local_context_values = {
+        str(value)
+        for value in (
+            task_local_telemetry.get("scope_label"),
+            task_local_telemetry.get("slice_summary"),
+            task_local_telemetry.get("guidance"),
+        )
+        if str(value or "").strip()
+    }
+    task_local_context_values.update(str(item) for item in (task_local_telemetry.get("frontier_briefs") or []))
+    task_local_context_values.update(str(item) for item in (task_local_telemetry.get("first_commands") or []))
 
     mode_match = re.search(r"^Mode:\s*(.+)$", active_handoff_text, re.MULTILINE)
     assert mode_match, "active handoff missing mode line"
@@ -1401,6 +1412,9 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
         assert token, token
         assert token not in static_closure_artifacts, token
         assert token not in canonical_queue_proof, token
+    for value in task_local_context_values:
+        assert value not in static_closure_artifacts, value
+        assert value not in canonical_queue_proof, value
     assert task_local_telemetry.get("slice_summary")
     assert task_local_telemetry.get("frontier_briefs")
     assert "slice_summary" not in canonical_queue_proof
