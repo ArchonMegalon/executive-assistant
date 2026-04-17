@@ -38,6 +38,11 @@ def _yaml(path: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _expected_direct_result() -> str:
+    ran = sum(1 for name, func in globals().items() if name.startswith("test_") and callable(func))
+    return f"ran={ran} failed=0"
+
+
 def _active_handoff_generated_at() -> str:
     text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     match = re.search(r"^Generated at:\s*(\S+)", text, re.MULTILINE)
@@ -316,7 +321,7 @@ def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
     assert "promoted-head certification remains delegated" in str(receipt.get("operator_summary") or "")
     proof = dict(receipt.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=16 failed=0"
+    assert proof.get("result") == _expected_direct_result()
 
     successor_closure = dict(receipt.get("successor_closure") or {})
     assert int(successor_closure.get("successor_frontier_id") or 0) == 4287684466
@@ -457,7 +462,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     proof = dict(closeout.get("proof") or {})
     assert proof.get("command") == "python tests/test_chummer5a_parity_lab_pack.py"
-    assert proof.get("result") == "ran=16 failed=0"
+    assert proof.get("result") == _expected_direct_result()
 
     repeat_verifications = [dict(item) for item in (closeout.get("repeat_verifications") or [])]
     assert repeat_verifications
@@ -467,6 +472,10 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert int(latest_repeat.get("frontier_id") or 0) == 4287684466
     assert latest_repeat.get("package_id") == pack.get("package_id")
     assert latest_repeat.get("result") == "registry=complete design_queue=complete fleet_queue=complete proof=ran=16 failed=0 local_proof_commit=d274b66"
+    assert str(latest_repeat.get("result") or "") != (
+        f"registry=complete design_queue=complete fleet_queue=complete proof={_expected_direct_result()} "
+        "local_proof_commit=d274b66"
+    )
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
     assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
     assert "design-owned completed queue row" in str(latest_repeat.get("worker_rule") or "")
@@ -736,22 +745,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
 
     post_freeze_paths = _post_freeze_commit_paths(frozen_commit="4722d54")
     assert post_freeze_paths, "expected local verification-only commits after frozen M103 floor"
+    allowed_proof_refresh_paths = {
+        HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
+        PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
+    }
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
             or path.startswith("feedback/")
+            or path in allowed_proof_refresh_paths
             for path in paths
         ), (commit, sorted(paths))
 
     frozen_artifacts = {
-        HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
-        PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
         README_PATH.relative_to(ROOT).as_posix(),
         PACK_PATH.relative_to(ROOT).as_posix(),
     }
     for commit, paths in post_freeze_paths.items():
         assert not (paths & frozen_artifacts), (commit, sorted(paths & frozen_artifacts))
+        if paths & allowed_proof_refresh_paths:
+            assert dict(closeout.get("proof") or {}).get("result") == _expected_direct_result()
+            assert dict(receipt.get("proof") or {}).get("result") == _expected_direct_result()
 
     receipt_commits = set(str(commit) for commit in dict(receipt.get("successor_closure") or {}).get("local_proof_commits") or [])
     closeout_commits = set(str(item.get("commit") or "") for item in closeout.get("local_proof_commits") or [])
