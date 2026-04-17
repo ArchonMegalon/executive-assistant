@@ -55,6 +55,26 @@ shared_evidence_anchor_ids:
   - parity_lab_pack
   - feedback_release_gate
   - progress_email_workflow
+normalized_truth_bundle:
+  bundle_id: ea-m106-governor-readiness-parity-support-release-v1
+  purpose: Bind the weekly-governor operator packet and reporter followthrough packet to one normalized readiness, parity, support, and release signal set.
+  consumer_surfaces:
+    - operator_packets:weekly_governor
+    - reporter_followthrough:release_truth
+  input_anchor_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - feedback_release_gate
+    - progress_email_workflow
+  required_signal_families:
+    - release_health
+    - flagship_readiness
+    - journey_gate_health
+    - support_closure
+    - parity_evidence
+    - reporter_followthrough
+    - release_channel_truth
+  single_bundle_rule: Operator posture and reporter mail readiness must cite this same bundle id; a packet compiled from a different readiness, parity, support, or release snapshot is not valid EA output for this package.
 proof_guardrails:
   successor_frontier:
     frontier_id: 1758984842
@@ -83,8 +103,10 @@ proof_guardrails:
     - Fail closed if the milestone dependencies or EA work task drift away from the canonical successor registry.
     - Fail closed if reporter specimens diverge from the mirrored progress email workflow stage order, trigger statuses, required fields, or exactly-once rules.
     - Keep package proof under docs, tests, feedback, or skills unless a future canonical queue row explicitly changes allowed paths.
+    - Implementation-only retry assignments, task-local telemetry, and active-run handoff timestamps are assignment context only; they must not become packet proof, queue proof, registry evidence, or reporter followthrough evidence for this closed EA package.
 operator_packet:
   packet_id: ea-weekly-governor-synthesis-2026-04-15
+  truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
   purpose: Condense readiness, parity, support, and release signals into an operator packet downstream of the Fleet governor loop.
   decision_postures:
     - launch
@@ -93,6 +115,7 @@ operator_packet:
     - rollback
     - focus_shift
   minimum_fields:
+    - truth_bundle_id
     - release_health_state
     - flagship_readiness_state
     - journey_gate_state
@@ -156,6 +179,7 @@ operator_packet:
       fail_closed_reason: Focus-shift copy must name the successor milestone or risk cluster plus the owner repo that can act.
 reporter_followthrough:
   packet_id: ea-reporter-followthrough-release-truth-2026-04-15
+  truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
   purpose: Compile reporter-facing progress mail readiness from the same evidence anchors as the operator packet.
   sender_identity:
     from_email: wageslave@chummer.run

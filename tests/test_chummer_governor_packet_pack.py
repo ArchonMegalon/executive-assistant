@@ -325,6 +325,10 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
 
     proof = dict(handoff.get("proof_command") or {})
     assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
+    assert proof.get("worker_runtime_fallback_command") == "python3 tests/test_chummer_governor_packet_pack.py"
+    fallback_use_rule = str(proof.get("fallback_use_rule") or "")
+    assert "worker image has no python executable" in fallback_use_rule
+    assert "same direct-run proof module" in fallback_use_rule
     assert proof.get("expected_result") == _expected_direct_runner_result()
 
     proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}

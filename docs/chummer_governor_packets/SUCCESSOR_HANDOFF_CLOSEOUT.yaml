@@ -68,6 +68,8 @@ completed_outputs:
   - feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
 proof_command:
   command: python tests/test_chummer_governor_packet_pack.py
+  worker_runtime_fallback_command: python3 tests/test_chummer_governor_packet_pack.py
+  fallback_use_rule: Use the python3 fallback only when the worker image has no python executable; it is the same direct-run proof module and must still produce the expected result.
   expected_result: ran=20 failed=0
 proof_artifacts:
   - docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml

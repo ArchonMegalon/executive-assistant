@@ -10,6 +10,23 @@ shared_evidence_anchor_ids:
   - parity_lab_pack
   - feedback_release_gate
   - progress_email_workflow
+normalized_truth_bundle:
+  bundle_id: ea-m106-governor-readiness-parity-support-release-v1
+  source_pack_field: normalized_truth_bundle
+  input_anchor_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - feedback_release_gate
+    - progress_email_workflow
+  projected_signal_families:
+    - release_health
+    - flagship_readiness
+    - journey_gate_health
+    - support_closure
+    - parity_evidence
+    - reporter_followthrough
+    - release_channel_truth
+  use_rule: Operator packet and reporter followthrough specimens must carry the same truth_bundle_id before any launch, canary, rollback, or fix-available copy is valid.
 shared_evidence_bindings:
   weekly_pulse:
     path: .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json
@@ -40,8 +57,10 @@ shared_evidence_bindings:
 operator_packet_specimen:
   packet_kind: operator_packets:weekly_governor
   packet_id_template: ea-weekly-governor-synthesis-{yyyy-mm-dd}
+  truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
   authority_statement: EA recommends posture only; Fleet lands weekly governor packets and design owns canonical milestone meaning.
   required_inputs:
+    - truth_bundle_id
     - release_health_state
     - flagship_readiness_state
     - journey_gate_state
@@ -50,6 +69,7 @@ operator_packet_specimen:
     - reporter_followthrough_gate
     - cited_signal_ids
   specimen_payload:
+    truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
     release_health_state: ready
     flagship_readiness_state: ready
     journey_gate_state: ready
@@ -80,6 +100,7 @@ operator_packet_specimen:
 reporter_followthrough_specimen:
   packet_kind: reporter_followthrough:release_truth
   packet_id_template: ea-reporter-followthrough-release-truth-{yyyy-mm-dd}
+  truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
   authority_statement: EA may queue reporter mail only from Hub case truth and Registry release-channel truth that satisfy the mirrored workflow.
   sender_identity:
     from_email: wageslave@chummer.run
@@ -90,6 +111,11 @@ reporter_followthrough_specimen:
     - request_received
     - audited_decision
     - fix_available
+  source_signal_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - feedback_release_gate
+    - progress_email_workflow
   specimen_stage_payloads:
     request_received:
       allowed_trigger_statuses:
