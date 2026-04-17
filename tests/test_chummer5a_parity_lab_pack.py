@@ -1109,8 +1109,26 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         PUBLISHED_PACK_PATH.relative_to(ROOT).as_posix(),
         README_PATH.relative_to(ROOT).as_posix(),
     }
+    compare_source_anchor_paths = {
+        PACK_PATH.relative_to(ROOT).as_posix(),
+        README_PATH.relative_to(ROOT).as_posix(),
+        COMPARE_PACKS_PATH.relative_to(ROOT).as_posix(),
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "feedback/2026-04-17-chummer5a-parity-lab-implementation-only-retry-205051z.md",
+        "feedback/2026-04-17-chummer5a-parity-lab-implementation-only-retry-205302z.md",
+    }
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
+        subject = subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        if paths == compare_source_anchor_paths:
+            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            continue
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
             or is_m103_feedback_path(path)
@@ -1124,6 +1142,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     }
     for commit, paths in post_freeze_paths.items():
         frozen_path_changes = paths & frozen_artifacts
+        if paths == compare_source_anchor_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            continue
         if frozen_path_changes:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -1184,6 +1212,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     }
     for commit, paths in post_receipt_refresh_paths.items():
         assert paths, commit
+        if paths == compare_source_anchor_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -1240,6 +1278,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     ui_completion_receipt_paths = ui_completion_handoff_paths - {"tests/test_chummer5a_parity_lab_pack.py"}
     for commit, paths in post_latest_receipt_touch_paths.items():
         assert paths, commit
+        if paths == compare_source_anchor_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            continue
         if paths <= ui_completion_handoff_paths and paths & ui_completion_receipt_paths:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2401,6 +2449,40 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_201212_text
     assert "No EA-owned parity-lab extraction work remains" in retry_201212_text
 
+    retry_205051_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-205051z.md"
+    assert retry_205051_note in package_notes, "missing 205051Z implementation-only retry receipt"
+    retry_205051_text = retry_205051_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_205051_text
+    assert "Frontier: `4287684466`" in retry_205051_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 205051Z" in retry_205051_text
+    assert "The exact four-command startup block was completed first and in order" in retry_205051_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_205051_text
+    assert "The shard runtime handoff was used as worker-safe resume context" in retry_205051_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_205051_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_205051_text
+    assert "No supervisor status or eta helper was run or cited" in retry_205051_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_205051_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_205051_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_205051_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_205051_text
+
+    retry_205302_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-205302z.md"
+    assert retry_205302_note in package_notes, "missing 205302Z implementation-only retry receipt"
+    retry_205302_text = retry_205302_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_205302_text
+    assert "Frontier: `4287684466`" in retry_205302_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 205302Z" in retry_205302_text
+    assert "The exact four-command startup block was completed before any follow-on context read" in retry_205302_text
+    assert "The listed direct-read files were read after the startup block as assignment context only" in retry_205302_text
+    assert "The shard runtime handoff generated at `2026-04-17T20:53:10Z` was used as worker-safe resume context" in retry_205302_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_205302_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_205302_text
+    assert "No supervisor status or eta helper was run or cited" in retry_205302_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_205302_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_205302_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_205302_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_205302_text
+
     python3_runtime_note = feedback_root / "2026-04-17-chummer5a-parity-lab-python3-runtime-proof.md"
     assert python3_runtime_note in package_notes, "missing python3 runtime proof receipt"
     python3_runtime_text = python3_runtime_note.read_text(encoding="utf-8")
@@ -2638,11 +2720,44 @@ def test_veteran_workflow_pack_matches_required_landmarks_and_tasks() -> None:
 
 def test_compare_packs_cover_all_flagship_parity_families() -> None:
     compare = _yaml(COMPARE_PACKS_PATH)
+    pack = _yaml(PACK_PATH)
     registry = _yaml(FLAGSHIP_PARITY_REGISTRY_PATH)
 
     compare_families = {str(dict(item).get("id") or "").strip() for item in (compare.get("families") or [])}
     required_families = {str(dict(item).get("id") or "").strip() for item in (registry.get("families") or [])}
     assert required_families <= compare_families
+
+    source_anchor_checks = [dict(item) for item in (compare.get("source_anchor_checks") or [])]
+    assert len(source_anchor_checks) == len(required_families)
+    anchor_family_ids = {str(item.get("family_id") or "").strip() for item in source_anchor_checks}
+    assert len(anchor_family_ids) == len(source_anchor_checks)
+    assert anchor_family_ids == required_families
+    assert anchor_family_ids <= compare_families
+
+    source_roots = {
+        Path("/docker/chummer5a/Chummer.Web/wwwroot/index.html"),
+        Path("/docker/chummer5a/docs/PARITY_ORACLE.json"),
+        Path("/docker/chummer5a/docs/PARITY_AUDIT.md"),
+    }
+    manifest_anchor = dict(dict(pack.get("required_outputs") or {}).get("compare_source_anchors") or {})
+    assert manifest_anchor.get("path") == str(COMPARE_PACKS_PATH.relative_to(ROOT))
+    assert manifest_anchor.get("present") is True
+    assert manifest_anchor.get("proof_level") == "source_token_guarded"
+    assert {Path(str(item)) for item in (manifest_anchor.get("source_paths") or [])} == source_roots
+
+    for check in source_anchor_checks:
+        family_id = str(check.get("family_id") or "").strip()
+        source_path = Path(str(check.get("source_path") or ""))
+        required_tokens = [str(item) for item in (check.get("required_tokens") or [])]
+        assert family_id, check
+        assert source_path in source_roots, f"{family_id}: unexpected source root {source_path}"
+        assert source_path.is_relative_to(Path("/docker/chummer5a")), f"{family_id}: {source_path}"
+        assert source_path.exists(), f"{family_id}: {source_path}"
+        assert required_tokens, family_id
+        assert len(set(required_tokens)) == len(required_tokens), f"{family_id}: duplicate source tokens"
+        source_text = source_path.read_text(encoding="utf-8")
+        for token in required_tokens:
+            assert token in source_text, f"{family_id}: {source_path}: {token}"
 
 
 def test_import_export_inventory_counts_match_parity_oracle() -> None:

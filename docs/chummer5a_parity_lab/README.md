@@ -16,7 +16,7 @@ Canonical outputs:
 - `CHUMMER5A_PARITY_LAB_PACK.yaml` is the package manifest and successor-wave handoff.
 - `oracle_baselines.yaml` records Chummer5a oracle counts, source-backed desktop landmarks, and screenshot corpus pointers.
 - `veteran_workflow_pack.yaml` maps the required first-minute veteran landmarks and tasks.
-- `compare_packs.yaml` maps every flagship parity family to extracted compare artifacts.
+- `compare_packs.yaml` maps every flagship parity family to extracted compare artifacts and source-token anchors in the Chummer5a oracle repo.
 - `import_export_fixture_inventory.yaml` records the import/export fixture universe from the Chummer5a oracle.
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` records that the EA-owned successor slice is complete, names the completed non-EA UI certification handoff, and names the remaining non-EA followups.
 - `.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json` is the published task-proven proof receipt for this EA package.
@@ -24,6 +24,7 @@ Canonical outputs:
 Proof boundary:
 
 - This package extracts and normalizes oracle evidence only.
+- Compare-pack source anchors must resolve against `/docker/chummer5a/Chummer.Web/wwwroot/index.html`, `/docker/chummer5a/docs/PARITY_ORACLE.json`, or `/docker/chummer5a/docs/PARITY_AUDIT.md`; a family without live source tokens is not a captured veteran baseline.
 - Promoted-head visual review remains non-EA work and is now canonically complete in `next90-m103-ui-veteran-certification`.
 - Desktop host-proof ingestion and release promotion remain owned by the release/operator lanes; the current flagship readiness packet is green with zero unresolved external host-proof requests, so this pack must not reopen the closed flagship wave.
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` carries repeat-prevention markers for successor frontier `4287684466`; future workers should treat the EA slice as closed while the canonical registry, queue staging packet, completed outputs, and proof command still agree.

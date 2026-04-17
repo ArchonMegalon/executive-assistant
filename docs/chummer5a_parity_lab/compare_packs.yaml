@@ -69,6 +69,86 @@ families:
 source_of_truth:
   flagship_parity_registry: /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml
   chummer5a_oracle: /docker/chummer5a/docs/PARITY_ORACLE.json
+source_anchor_checks:
+  - family_id: shell_workbench_orientation
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - data-command="file"
+      - data-command="tools"
+      - data-command="windows"
+      - data-command="help"
+      - class="status-bar"
+  - family_id: dense_builder_and_career_workflows
+    source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    required_tokens:
+      - '"tab-attributes"'
+      - '"tab-skills"'
+      - '"build"'
+      - '"progress"'
+      - '"improvements"'
+  - family_id: identity_contacts_lifestyles_history
+    source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    required_tokens:
+      - '"contacts"'
+      - '"lifestyles"'
+      - '"calendar"'
+      - '"expenses"'
+  - family_id: sourcebooks_reference_and_master_index
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - data-command="master_index"
+      - "master_index: async"
+      - '"sources"'
+      - data-ui-control="show_source"
+  - family_id: settings_and_rules_environment_authoring
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - data-command="global_settings"
+      - data-command="character_settings"
+      - switch_ruleset
+      - "rules:"
+      - "sources:"
+  - family_id: custom_data_xml_and_translator_bridge
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - data-command="translator"
+      - data-command="xml_editor"
+      - data-command="data_exporter"
+      - accept=".chum5,.xml,text/xml"
+  - family_id: dice_initiative_and_table_utilities
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - data-command="dice_roller"
+      - /api/tools/dice/roll
+      - data-tab="tab-combat"
+      - combat_damage_track
+  - family_id: roster_dashboards_and_multi_character_ops
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - data-command="character_roster"
+      - "character_roster: async"
+      - /api/tools/roster
+      - data-tab="tab-contacts"
+  - family_id: sheet_export_print_viewer_and_exchange
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - open_for_printing
+      - open_for_export
+      - print_multiple
+      - export_character
+      - character-export.json
+  - family_id: legacy_and_adjacent_import_oracles
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    required_tokens:
+      - hero_lab_importer
+      - fileInput.setAttribute("accept", ".xml,.chum5,.por,text/xml")
+      - Hero Lab import staging loaded as XML.
+  - family_id: sr6_supplements_designers_and_house_rules
+    source_path: /docker/chummer5a/docs/PARITY_AUDIT.md
+    required_tokens:
+      - XML-shaped
+      - import/export edges
+      - save/download/export semantics
 exit_readiness:
   status: successor_handoff_ready
   current_flagship_readiness:

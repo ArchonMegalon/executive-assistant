@@ -22,6 +22,14 @@ required_outputs:
     path: docs/chummer5a_parity_lab/compare_packs.yaml
     present: true
     proof_level: source_backed
+  compare_source_anchors:
+    path: docs/chummer5a_parity_lab/compare_packs.yaml
+    present: true
+    proof_level: source_token_guarded
+    source_paths:
+      - /docker/chummer5a/Chummer.Web/wwwroot/index.html
+      - /docker/chummer5a/docs/PARITY_ORACLE.json
+      - /docker/chummer5a/docs/PARITY_AUDIT.md
   import_export_fixture_inventory:
     path: docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml
     present: true
@@ -40,5 +48,6 @@ readiness_evidence:
   successor_queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
 notes:
   - This pack captures and normalizes Chummer5a oracle baselines and veteran first-minute task maps.
+  - Compare packs include source-token anchors for every flagship parity family so the veteran workflow handoff stays tied to the oracle repo rather than prose-only parity claims.
   - Desktop publishability and host-specific startup-smoke proofs remain gated in chummer6-ui/chummer-hub-registry and are out of scope for this package.
   - Master-index and character-roster screenshots are cited from the closed flagship UI proof worktree as supplemental corpus evidence; the successor UI package still owns promoted-head veteran certification.
