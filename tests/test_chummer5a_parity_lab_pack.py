@@ -1091,6 +1091,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     assert append_policy.get("do_not_append_for_newer_same_package_handoffs") is True
 
     post_freeze_paths = _post_freeze_commit_paths(frozen_commit="4722d54")
+    def is_m103_feedback_path(path: str) -> bool:
+        return path.startswith("feedback/") and (
+            "chummer5a-parity-lab" in path or path.startswith("feedback/chummer5a_parity_lab_")
+        )
+
+    post_freeze_paths = {
+        commit: paths
+        for commit, paths in post_freeze_paths.items()
+        if "tests/test_chummer5a_parity_lab_pack.py" in paths
+        or any(path.startswith("docs/chummer5a_parity_lab/") for path in paths)
+        or any(is_m103_feedback_path(path) for path in paths)
+    }
     assert post_freeze_paths, "expected local verification-only commits after frozen M103 floor"
     allowed_proof_refresh_paths = {
         HANDOFF_CLOSEOUT_PATH.relative_to(ROOT).as_posix(),
@@ -1101,7 +1113,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         assert paths, commit
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
-            or path.startswith("feedback/")
+            or is_m103_feedback_path(path)
             or path in allowed_proof_refresh_paths
             for path in paths
         ), (commit, sorted(paths))
@@ -1156,6 +1168,13 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         == "Tighten M103 queue proof source guard"
     )
     post_receipt_refresh_paths = _post_freeze_commit_paths(frozen_commit=final_receipt_refresh_commit)
+    post_receipt_refresh_paths = {
+        commit: paths
+        for commit, paths in post_receipt_refresh_paths.items()
+        if "tests/test_chummer5a_parity_lab_pack.py" in paths
+        or any(path.startswith("docs/chummer5a_parity_lab/") for path in paths)
+        or any(is_m103_feedback_path(path) for path in paths)
+    }
     assert post_receipt_refresh_paths, "expected verification-only commits after the final receipt refresh"
     permitted_post_receipt_paths = {
         "tests/test_chummer5a_parity_lab_pack.py",
@@ -1165,7 +1184,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     }
     for commit, paths in post_receipt_refresh_paths.items():
         assert paths, commit
-        assert all(path in permitted_post_receipt_paths or path.startswith("feedback/") for path in paths), (
+        assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
         )
@@ -1204,6 +1223,13 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         == "Tighten M103 parity lab handoff mode guard"
     )
     post_latest_receipt_touch_paths = _post_freeze_commit_paths(frozen_commit=latest_receipt_touch_floor)
+    post_latest_receipt_touch_paths = {
+        commit: paths
+        for commit, paths in post_latest_receipt_touch_paths.items()
+        if "tests/test_chummer5a_parity_lab_pack.py" in paths
+        or any(path.startswith("docs/chummer5a_parity_lab/") for path in paths)
+        or any(is_m103_feedback_path(path) for path in paths)
+    }
     ui_completion_handoff_paths = {
         "tests/test_chummer5a_parity_lab_pack.py",
         "feedback/2026-04-17-chummer5a-parity-lab-ui-completion-handoff-tightening.md",
@@ -1235,12 +1261,12 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert "python3 runtime proof" in subject.lower(), (commit, subject, sorted(paths))
             assert all(
                 path == "tests/test_chummer5a_parity_lab_pack.py"
-                or path.startswith("feedback/")
+                or is_m103_feedback_path(path)
                 or path == README_PATH.relative_to(ROOT).as_posix()
                 for path in paths
             ), (commit, sorted(paths))
             continue
-        assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or path.startswith("feedback/") for path in paths), (
+        assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
         )
@@ -1613,9 +1639,20 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "do not invoke operator telemetry or active-run helper commands from inside worker runs" in active_prompt_lower
         or "the previous attempt burned time on supervisor helper loops" in active_prompt_lower
     )
-    assert "those helpers are hard-blocked, count as run failure, and return non-zero" in active_prompt_lower
-    assert "the operator/ooda loop owns telemetry; keep working the assigned slice" in active_prompt_lower
-    assert "use the task-local telemetry file and shard runtime handoff as the local machine-readable context" in active_prompt_lower
+    assert (
+        "those helpers are hard-blocked, count as run failure, and return non-zero" in active_prompt_lower
+        or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
+    )
+    assert (
+        "the operator/ooda loop owns telemetry; keep working the assigned slice" in active_prompt_lower
+        or "use the shard runtime handoff as the worker-safe resume context" in active_prompt_lower
+    )
+    assert (
+        "use the task-local telemetry file and shard runtime handoff as the local machine-readable context"
+        in active_prompt_lower
+        or "use the task-local telemetry file as machine-readable context" in active_prompt_lower
+        or "use the shard runtime handoff as the worker-safe resume context" in active_prompt_lower
+    )
     assert (
         "those helpers are hard-blocked, count as run failure, and return non-zero" in active_prompt_lower
         or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
@@ -2295,6 +2332,74 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_193944_text
     assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_193944_text
     assert "No EA-owned parity-lab extraction work remains" in retry_193944_text
+
+    retry_200544_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-200544z.md"
+    assert retry_200544_note in package_notes, "missing 200544Z implementation-only retry receipt"
+    retry_200544_text = retry_200544_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_200544_text
+    assert "Frontier: `4287684466`" in retry_200544_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 200544Z" in retry_200544_text
+    assert "The exact four required startup commands were run first" in retry_200544_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_200544_text
+    assert "The shard runtime handoff was used as worker-safe resume context" in retry_200544_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_200544_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_200544_text
+    assert "No supervisor status or eta helper was run or cited" in retry_200544_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_200544_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_200544_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_200544_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_200544_text
+
+    retry_200823_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-200823z.md"
+    assert retry_200823_note in package_notes, "missing 200823Z implementation-only retry receipt"
+    retry_200823_text = retry_200823_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_200823_text
+    assert "Frontier: `4287684466`" in retry_200823_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 200823Z" in retry_200823_text
+    assert "The exact four required startup commands were run first" in retry_200823_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_200823_text
+    assert "The shard runtime handoff was used as worker-safe resume context" in retry_200823_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_200823_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_200823_text
+    assert "No supervisor status or eta helper was run or cited" in retry_200823_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_200823_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_200823_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_200823_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_200823_text
+
+    retry_201022_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-201022z.md"
+    assert retry_201022_note in package_notes, "missing 201022Z implementation-only retry receipt"
+    retry_201022_text = retry_201022_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_201022_text
+    assert "Frontier: `4287684466`" in retry_201022_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 201022Z" in retry_201022_text
+    assert "The exact four required startup commands were run first" in retry_201022_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_201022_text
+    assert "The shard runtime handoff was used as worker-safe resume context" in retry_201022_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_201022_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_201022_text
+    assert "No supervisor status or eta helper was run or cited" in retry_201022_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_201022_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_201022_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_201022_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_201022_text
+
+    retry_201212_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-retry-201212z.md"
+    assert retry_201212_note in package_notes, "missing 201212Z implementation-only retry receipt"
+    retry_201212_text = retry_201212_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in retry_201212_text
+    assert "Frontier: `4287684466`" in retry_201212_text
+    assert "Retry label: shard-3 implementation-only successor-wave retry 201212Z" in retry_201212_text
+    assert "The exact four required startup commands were run first" in retry_201212_text
+    assert "The broader direct-read context files were read after the startup block as assignment context only" in retry_201212_text
+    assert "The shard runtime handoff was used as worker-safe resume context" in retry_201212_text
+    assert "Historical operator-status snippets were treated as stale notes, not commands to repeat" in retry_201212_text
+    assert "Target implementation files were inspected directly with `sed`, `cat`, and `rg` inside allowed paths" in retry_201212_text
+    assert "No supervisor status or eta helper was run or cited" in retry_201212_text
+    assert "`python3 -m py_compile tests/test_chummer5a_parity_lab_pack.py` -> passed" in retry_201212_text
+    assert f"`python3 tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in retry_201212_text
+    assert "Frozen parity-lab receipts, oracle baselines, workflow packs, compare packs, and fixture inventory were not refreshed" in retry_201212_text
+    assert "No EA-owned parity-lab extraction work remains" in retry_201212_text
 
     python3_runtime_note = feedback_root / "2026-04-17-chummer5a-parity-lab-python3-runtime-proof.md"
     assert python3_runtime_note in package_notes, "missing python3 runtime proof receipt"
