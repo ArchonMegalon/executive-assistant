@@ -1308,6 +1308,14 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     feedback_root = ROOT / "feedback"
     package_notes = sorted(feedback_root.glob("*chummer5a-parity-lab*.md"))
     assert package_notes, "missing Chummer5a parity-lab feedback notes"
+    current_pass_note = feedback_root / "2026-04-17-chummer5a-parity-lab-current-pass.md"
+    assert current_pass_note in package_notes, "missing current append-free M103 parity-lab pass note"
+    current_pass_text = current_pass_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in current_pass_text
+    assert "Frontier: `4287684466`" in current_pass_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in current_pass_text
+    assert "append-free because the explicit append conditions did not fail" in current_pass_text
+    assert "No EA-owned parity-lab extraction work remains" in current_pass_text
 
     blocked_evidence_markers = [
         "TASK_LOCAL_TELEMETRY.generated.json",
