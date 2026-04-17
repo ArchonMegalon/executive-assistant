@@ -1169,6 +1169,25 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     assert task_local_telemetry.get("mode") == "implementation_only"
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
+    first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
+    assert first_commands[:2] == [
+        "cat TASK_LOCAL_TELEMETRY.generated.json",
+        "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    ]
+    assert "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml" in first_commands
+    assert "sed -n '1,220p' /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md" in first_commands
+    blocked_first_command_fragments = (
+        "run_chummer_design_supervisor",
+        "chummer_design_supervisor.py",
+        "supervisor status",
+        "supervisor eta",
+        "operator telemetry",
+        "ooda",
+    )
+    for command in first_commands:
+        command_lower = command.lower()
+        for fragment in blocked_first_command_fragments:
+            assert fragment not in command_lower, command
     assert task_queue_item.get("package_id") == closure_scope.get("closed_package_only")
     assert task_queue_item.get("repo") == "executive-assistant"
     assert int(task_queue_item.get("milestone_id") or 0) == int(closeout.get("milestone_id") or 0) == 103
