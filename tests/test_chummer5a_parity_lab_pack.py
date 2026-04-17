@@ -1035,6 +1035,25 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert "handoff mode" in subject.lower(), (commit, subject, sorted(paths))
 
+    latest_receipt_touch_floor = "f3ba05e"
+    assert (
+        subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", latest_receipt_touch_floor],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        == "Tighten M103 parity lab handoff mode guard"
+    )
+    post_latest_receipt_touch_paths = _post_freeze_commit_paths(frozen_commit=latest_receipt_touch_floor)
+    for commit, paths in post_latest_receipt_touch_paths.items():
+        assert paths, commit
+        assert all(path == "tests/test_chummer5a_parity_lab_pack.py" or path.startswith("feedback/") for path in paths), (
+            commit,
+            sorted(paths),
+        )
+
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
