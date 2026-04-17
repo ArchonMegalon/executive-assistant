@@ -317,6 +317,20 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert "landed_commit" not in task_103_1
     task_evidence_items = [str(item) for item in (task_103_1.get("evidence") or [])]
     _assert_m103_registry_evidence_is_scoped(task_evidence_items)
+    expected_registry_evidence = {
+        "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven "
+        "for owned surfaces parity_lab:capture and veteran_compare_packs.",
+        "/docker/EA/docs/chummer5a_parity_lab/README.md documents the closed EA proof boundary, append-free "
+        "terminal policy, and delegated non-EA follow-up packages for repeated M103 assignments.",
+        "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete, "
+        "completed outputs, anti-reopen rules, and delegated non-EA follow-up packages.",
+        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json reports status=task_proven "
+        "with screenshot_corpora, workflow_maps, compare_packs, and import_export_fixture_inventory outputs present.",
+        f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} in /docker/EA.",
+        f"{CANONICAL_QUEUE_PROOF_FLOOR} so future shards verify the closed EA package instead of repeating it.",
+    }
+    assert set(task_evidence_items) == expected_registry_evidence
+    assert len(task_evidence_items) == len(expected_registry_evidence)
     task_evidence = "\n".join(task_evidence_items)
     assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
     assert "README.md documents the closed EA proof boundary" in task_evidence
@@ -346,11 +360,13 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
     }
-    assert expected_output_proof_anchors <= proof
-    assert (
+    expected_queue_proof = expected_output_proof_anchors | {
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
-        "and blocks operator-owned run-helper proof for the closed EA package."
-    ) in proof
+        "and blocks operator-owned run-helper proof for the closed EA package.",
+        f"{CANONICAL_QUEUE_PROOF_FLOOR}.",
+    }
+    assert proof == expected_queue_proof
+    assert len(queue_item.get("proof") or []) == len(expected_queue_proof)
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in proof)
     _assert_only_frozen_canonical_proof_floor(proof, task_evidence)
     _assert_frozen_canonical_proof_commit_resolves(proof, task_evidence)
@@ -369,12 +385,8 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
     design_proof = set(str(item) for item in (design_queue_item.get("proof") or []))
-    assert design_proof == proof
-    assert expected_output_proof_anchors <= design_proof
-    assert (
-        f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
-        "and blocks operator-owned run-helper proof for the closed EA package."
-    ) in design_proof
+    assert design_proof == expected_queue_proof
+    assert len(design_queue_item.get("proof") or []) == len(expected_queue_proof)
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in design_proof)
     _assert_only_frozen_canonical_proof_floor(design_proof, task_evidence)
     _assert_frozen_canonical_proof_commit_resolves(design_proof, task_evidence)
