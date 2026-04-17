@@ -116,24 +116,59 @@ def _literal_subprocess_run_commands(path: Path) -> list[list[str]]:
             and isinstance(func.value, ast.Name)
             and func.value.id == "subprocess"
         )
-        if not is_subprocess_run or not node.args:
+        if not is_subprocess_run:
             continue
+        assert node.args, "subprocess.run calls must use explicit command arguments"
         command_arg = node.args[0]
-        if not isinstance(command_arg, ast.List):
-            continue
+        assert isinstance(command_arg, ast.List), "subprocess.run commands must stay literal lists"
         command: list[str] = []
-        for element in command_arg.elts:
+        for index, element in enumerate(command_arg.elts):
             if isinstance(element, ast.Constant) and isinstance(element.value, str):
                 command.append(element.value)
                 continue
+            assert index > 0, "subprocess.run executable must stay a literal string"
             command.append("<dynamic>")
         if command:
             commands.append(command)
     return commands
 
 
+def _assert_no_unreviewed_process_invocations(path: Path) -> None:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    allowed_subprocess_attrs = {"run"}
+    blocked_function_names = {
+        "system",
+        "popen",
+        "spawnl",
+        "spawnle",
+        "spawnlp",
+        "spawnlpe",
+        "spawnv",
+        "spawnve",
+        "spawnvp",
+        "spawnvpe",
+    }
+    blocked_subprocess_attrs = {"Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute):
+            owner = func.value
+            owner_name = owner.id if isinstance(owner, ast.Name) else ""
+            if owner_name == "subprocess":
+                assert func.attr in allowed_subprocess_attrs, f"unreviewed subprocess invocation: {func.attr}"
+                assert func.attr not in blocked_subprocess_attrs, f"blocked subprocess invocation: {func.attr}"
+            if owner_name == "os":
+                assert func.attr not in blocked_function_names, f"blocked os process invocation: {func.attr}"
+            continue
+
+
 def _assert_verifier_subprocesses_are_worker_safe() -> None:
-    commands = _literal_subprocess_run_commands(Path(__file__).resolve())
+    verifier_path = Path(__file__).resolve()
+    _assert_no_unreviewed_process_invocations(verifier_path)
+    commands = _literal_subprocess_run_commands(verifier_path)
     assert commands, "expected explicit subprocess proof commands"
     for command in commands:
         command_text = " ".join(command).lower()
