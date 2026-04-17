@@ -903,8 +903,10 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert first_action_rule in _active_handoff_prompt_text()
     forbidden_first_command_fragments = [
         "status",
+        "eta",
         "telemetry helper",
         "supervisor status",
+        "supervisor eta",
         "run_chummer_design_supervisor",
         "chummer_design_supervisor.py",
         "active-run helper",
@@ -942,10 +944,17 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "run_chummer_design_supervisor",
         "chummer_design_supervisor.py",
         "supervisor status",
+        "supervisor eta",
         "status helper output",
+        "eta helper output",
         "operator telemetry output",
     ):
         assert forbidden_assignment_fragment not in task_local_command_source_text
+
+    active_prompt_text = _active_handoff_prompt_text()
+    active_prompt_lower = active_prompt_text.lower()
+    assert "do not query supervisor status or eta from inside the worker run" in active_prompt_lower
+    assert "the operator/ooda loop owns telemetry; keep working the assigned slice" in active_prompt_lower
 
     proof_command = str(dict(closeout.get("proof") or {}).get("command") or "")
     receipt_command = str(dict(receipt.get("proof") or {}).get("command") or "")
