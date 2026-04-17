@@ -993,6 +993,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
 def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
     receipt = _yaml(PUBLISHED_PACK_PATH)
+    registry = _yaml(SUCCESSOR_REGISTRY_PATH)
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
     task_local_telemetry_path = _task_local_telemetry_path()
@@ -1050,6 +1051,9 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
 
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    milestones = {int(dict(item).get("id") or 0): dict(item) for item in (registry.get("milestones") or [])}
+    task_103_1 = [dict(task) for task in (milestones[103].get("work_tasks") or []) if dict(task).get("id") == 103.1]
+    assert len(task_103_1) == 1
     for canonical_queue_item in (design_queue_item, queue_item):
         assert canonical_queue_item.get("status") == "complete"
         assert int(canonical_queue_item.get("frontier_id") or 0) == 4287684466
@@ -1072,6 +1076,7 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
         [
             HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
             PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            "\n".join(str(item) for item in (task_103_1[0].get("evidence") or [])),
             "\n".join(str(item) for item in (design_queue_item.get("proof") or [])),
             "\n".join(str(item) for item in (queue_item.get("proof") or [])),
         ]
