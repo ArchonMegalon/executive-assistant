@@ -64,6 +64,17 @@ def _task_local_telemetry_path() -> Path:
     return path
 
 
+def _post_freeze_commit_ids(frozen_commit: str = "257a5b7") -> set[str]:
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-list", "--abbrev-commit", "--abbrev=7", f"{frozen_commit}..HEAD"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
 def _single_package_row(items: list, package_id: str) -> dict:
     matches = [dict(item) for item in (items or []) if str(dict(item).get("package_id") or "") == package_id]
     assert len(matches) == 1, f"{package_id} row count: {len(matches)}"
@@ -678,6 +689,18 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert head not in {str(item.get("commit") or "") for item in local_proof_commits}
     assert head not in set(receipt_proof_commits)
 
+    frozen_closeout_evidence = "\n".join(
+        [
+            HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
+            PUBLISHED_PACK_PATH.read_text(encoding="utf-8"),
+            README_PATH.read_text(encoding="utf-8"),
+        ]
+    )
+    leaked_post_freeze_commits = sorted(
+        _post_freeze_commit_ids() & set(re.findall(r"\b[0-9a-f]{7}\b", frozen_closeout_evidence))
+    )
+    assert leaked_post_freeze_commits == []
+
 
 def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     closeout = _yaml(HANDOFF_CLOSEOUT_PATH)
@@ -842,6 +865,10 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     ).stdout.strip()
     assert head != frozen_guard_commit
     assert head not in canonical_package_proof
+    leaked_post_freeze_commits = sorted(
+        _post_freeze_commit_ids() & set(re.findall(r"\b[0-9a-f]{7}\b", canonical_package_proof))
+    )
+    assert leaked_post_freeze_commits == []
     _assert_task_local_assignment_is_context_not_closure_evidence()
     _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence()
 
