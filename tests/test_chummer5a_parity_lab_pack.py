@@ -1153,6 +1153,55 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     for marker in blocked_markers:
         assert marker.lower() not in combined.lower(), marker
     assert "## Recent stderr tail" in active_handoff_text
+    recent_stderr_tail = active_handoff_text.split("## Recent stderr tail", 1)[1]
+    recent_stderr_tail_lower = recent_stderr_tail.lower()
+    historical_helper_loop_guard_present = (
+        "supervisor status polling was observed from inside the active worker run." in recent_stderr_tail_lower
+        and "do not repeat it" in recent_stderr_tail_lower
+        and "keep working from the prompt, task-local telemetry, handoff, and frontier artifacts only"
+        in recent_stderr_tail_lower
+    )
+    implementation_retry_guard_present = (
+        "the previous attempt burned time on supervisor helper loops" in recent_stderr_tail_lower
+        and "this retry is implementation-only" in recent_stderr_tail_lower
+        and "do not run supervisor status or eta helpers inside this worker run" in recent_stderr_tail_lower
+        and "use the shard runtime handoff as the worker-safe resume context" in recent_stderr_tail_lower
+    )
+    prompt_text_for_tail = _active_handoff_prompt_text()
+    prompt_retry_guard_present = (
+        "The previous attempt burned time on supervisor helper loops." in prompt_text_for_tail
+        and "This retry is implementation-only." in prompt_text_for_tail
+        and "Do not run supervisor status or eta helpers inside this worker run." in prompt_text_for_tail
+        and "Use the shard runtime handoff as the worker-safe resume context." in prompt_text_for_tail
+    )
+    current_execution_guard_present = (
+        "do not invoke operator telemetry or active-run helper commands from inside worker runs"
+        in prompt_text_for_tail.lower()
+        and "those helpers are hard-blocked, count as run failure, and return non-zero"
+        in prompt_text_for_tail.lower()
+        and "the operator/ooda loop owns telemetry; keep working the assigned slice"
+        in prompt_text_for_tail.lower()
+    )
+    assert (
+        historical_helper_loop_guard_present
+        or implementation_retry_guard_present
+        or prompt_retry_guard_present
+        or current_execution_guard_present
+    )
+    assert (
+        "Do not run supervisor status or eta helpers inside this worker run." in prompt_text_for_tail
+        or "do not invoke operator telemetry or active-run helper commands from inside worker runs"
+        in prompt_text_for_tail.lower()
+    )
+    assert "treat them as stale notes rather than commands to repeat" in prompt_text_for_tail
+    assert "Use the shard runtime handoff as the worker-safe resume context." in prompt_text_for_tail
+    assert "If you stop, report only:" in prompt_text_for_tail
+    assert "What shipped: ..." in prompt_text_for_tail
+    assert "What remains: ..." in prompt_text_for_tail
+    assert "Exact blocker: ..." in prompt_text_for_tail
+    assert "status helper output:" not in recent_stderr_tail.lower()
+    assert "eta helper output:" not in recent_stderr_tail.lower()
+    assert "operator telemetry output:" not in recent_stderr_tail.lower()
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
     assert task_local_telemetry.get("scope_label") == "Next 90-day product advance wave"
@@ -1246,6 +1295,33 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert any(command.endswith(SUCCESSOR_QUEUE_PATH.as_posix()) for command in first_commands)
     assert any(command.endswith(ACTIVE_RUN_HANDOFF_PATH.as_posix()) for command in first_commands)
     prompt_text = _active_handoff_prompt_text()
+    prompt_lower = prompt_text.lower()
+    assert (
+        "This retry is implementation-only." in prompt_text
+        or str(task_local_telemetry.get("mode") or "") == "implementation_only"
+    )
+    assert (
+        "do not invent another orientation step" in prompt_lower
+        or "first action rule" in prompt_lower
+    )
+    assert (
+        "staying inside the allowed paths" in prompt_text
+        or "Keep implementation scoped to the allowed paths: skills, tests, feedback, docs" in prompt_text
+        or "keep implementation inside the package repo, owned surfaces, and allowed paths" in prompt_text
+    )
+    assert "start editing" in prompt_text or "inspect the target implementation files directly" in prompt_lower
+    assert (
+        "Do not run supervisor status or eta helpers inside this worker run." in prompt_text
+        or "do not query supervisor status or eta from inside the worker run" in prompt_lower
+    )
+    assert "treat them as stale notes rather than commands to repeat" in prompt_text
+    assert "Writable scope roots:" in prompt_text
+    assert "/docker/EA" in prompt_text
+    assert "If you stop, report only:" in prompt_text
+    assert "What shipped: ..." in prompt_text
+    assert "What remains: ..." in prompt_text
+    assert "Exact blocker: ..." in prompt_text
+    assert prompt_text.index("Writable scope roots:") < prompt_text.index("If you stop, report only:")
     assert (
         "First action rule: open `TASK_LOCAL_TELEMETRY.generated.json`, then open one listed repo file, then inspect the target implementation files directly."
         in prompt_text
@@ -1281,6 +1357,14 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         assert normalized_exact_prompt_commands.issubset(normalized_first_commands)
         assert "NEXT_12_BIGGEST_WINS_REGISTRY.yaml" not in exact_command_block
         assert "ACTIVE_RUN_HANDOFF.generated.md" not in exact_command_block
+        read_directly_first_block = prompt_text.split("Read these files directly first:", 1)[1]
+        read_directly_first_block = read_directly_first_block.split("Use the shard runtime handoff", 1)[0]
+        assert "NEXT_12_BIGGEST_WINS_REGISTRY.yaml" in read_directly_first_block
+        assert "ACTIVE_RUN_HANDOFF.generated.md" in read_directly_first_block
+        assert prompt_text.index(exact_command_header) < prompt_text.index("Read these files directly first:")
+        assert prompt_text.index("Then inspect the target implementation files directly") < prompt_text.index(
+            "Read these files directly first:"
+        )
     else:
         assert "TASK_LOCAL_TELEMETRY.generated.json" in prompt_text
         assert "then open one listed repo file" in prompt_text
