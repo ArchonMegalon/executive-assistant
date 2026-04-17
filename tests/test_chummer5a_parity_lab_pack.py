@@ -286,6 +286,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     task_103_1 = task_103_1_matches[0]
     assert task_103_1.get("owner") == "executive-assistant"
     assert task_103_1.get("status") == "complete"
+    assert "landed_commit" not in task_103_1
     task_evidence_items = [str(item) for item in (task_103_1.get("evidence") or [])]
     _assert_m103_registry_evidence_is_scoped(task_evidence_items)
     task_evidence = "\n".join(task_evidence_items)
@@ -298,6 +299,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
+    assert "landed_commit" not in queue_item
     assert int(queue_item.get("frontier_id") or 0) == 4287684466
     assert int(queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
     assert queue_item.get("wave") == milestone.get("wave")
@@ -331,6 +333,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
+    assert "landed_commit" not in design_queue_item
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
     assert int(design_queue_item.get("milestone_id") or 0) == int(queue_item.get("milestone_id") or 0) == 103
     assert design_queue_item.get("wave") == queue_item.get("wave") == "W7"
