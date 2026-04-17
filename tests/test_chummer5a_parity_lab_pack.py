@@ -1560,6 +1560,21 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
         "do not query supervisor status or eta",
         "no supervisor status or eta",
     )
+    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    task_local_telemetry_path = _task_local_telemetry_path()
+    active_prompt_path = _active_handoff_prompt_path()
+    handoff_generated_match = re.search(r"^Generated at:\s*(\S+)", active_handoff_text, re.MULTILINE)
+    handoff_run_match = re.search(r"^- Run id:\s*(\S+)", active_handoff_text, re.MULTILINE)
+    assert handoff_generated_match, "active handoff missing generated-at"
+    assert handoff_run_match, "active handoff missing run id"
+    unstable_assignment_tokens = {
+        handoff_generated_match.group(1),
+        handoff_run_match.group(1),
+        active_prompt_path.as_posix(),
+        active_prompt_path.parent.as_posix(),
+        active_prompt_path.parent.name,
+        task_local_telemetry_path.as_posix(),
+    }
     for note_path in package_notes:
         note_text = note_path.read_text(encoding="utf-8")
         note_text_lower = note_text.lower()
@@ -1571,6 +1586,8 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
             assert any(allowed in note_text_lower for allowed in allowed_negative_helper_context), (
                 f"{note_path}: {marker} must stay negative worker-safety context, not closure evidence"
             )
+        for token in unstable_assignment_tokens:
+            assert token not in note_text, f"{note_path}: unstable assignment token leaked into feedback proof"
 
 
 def test_pack_source_pointers_resolve_to_repo_local_evidence() -> None:
