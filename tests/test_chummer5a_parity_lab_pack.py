@@ -640,6 +640,9 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert canonical_sources.get("active_run_handoff") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     assert "Frontier ids: 4287684466" in active_handoff_text
+    assert "Focus owners: chummer6-ui, executive-assistant" in active_handoff_text
+    assert "next90-m103-ea-parity-lab" in active_handoff_text
+    assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_handoff_text
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
