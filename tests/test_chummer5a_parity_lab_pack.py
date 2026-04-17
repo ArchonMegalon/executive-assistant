@@ -881,6 +881,26 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
         "sed -n '1,220p' /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md",
     ]
+    worker_safe_direct_read_prefixes = (
+        "cat ",
+        "sed -n ",
+    )
+    allowed_first_action_repo_files = {
+        SUCCESSOR_QUEUE_PATH.as_posix(),
+        SUCCESSOR_REGISTRY_PATH.as_posix(),
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+        ACTIVE_RUN_HANDOFF_PATH.as_posix(),
+    }
+    assert "TASK_LOCAL_TELEMETRY.generated.json" in first_commands[0]
+    assert any(path in first_commands[1] for path in allowed_first_action_repo_files), first_commands[1]
+    assert all(command.startswith(worker_safe_direct_read_prefixes) for command in first_commands)
+    assert any(command.endswith(SUCCESSOR_REGISTRY_PATH.as_posix()) for command in first_commands)
+    assert any(command.endswith(SUCCESSOR_QUEUE_PATH.as_posix()) for command in first_commands)
+    assert any(command.endswith(ACTIVE_RUN_HANDOFF_PATH.as_posix()) for command in first_commands)
+    first_action_rule = "First action rule: open `TASK_LOCAL_TELEMETRY.generated.json`, then open one listed repo file, then inspect the target implementation files directly."
+    assert first_action_rule in _active_handoff_prompt_text()
     forbidden_first_command_fragments = [
         "status",
         "telemetry helper",
