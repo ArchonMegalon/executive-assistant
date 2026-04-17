@@ -222,13 +222,18 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
     assert queue_item.get("title") == "Extract Chummer5a oracle baselines and veteran workflow packs"
     proof = set(str(item) for item in (queue_item.get("proof") or []))
-    assert {
+    expected_output_proof_anchors = {
         "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
         "/docker/EA/docs/chummer5a_parity_lab/README.md",
+        "/docker/EA/docs/chummer5a_parity_lab/oracle_baselines.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/veteran_workflow_pack.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml",
+        "/docker/EA/docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml",
         "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
-    } <= proof
+    }
+    assert expected_output_proof_anchors <= proof
     assert (
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
         "and blocks operator-owned run-helper proof for the closed EA package."
@@ -250,13 +255,7 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
     design_proof = set(str(item) for item in (design_queue_item.get("proof") or []))
     assert design_proof == proof
-    assert {
-        "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
-        "/docker/EA/docs/chummer5a_parity_lab/README.md",
-        "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
-        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
-        "python tests/test_chummer5a_parity_lab_pack.py",
-    } <= design_proof
+    assert expected_output_proof_anchors <= design_proof
     assert (
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
         "and blocks operator-owned run-helper proof for the closed EA package."
