@@ -811,13 +811,57 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert "## Recent stderr tail" in active_handoff_text
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
+    assert task_local_telemetry.get("scope_label") == "Next 90-day product advance wave"
+    assert task_local_telemetry.get("mode") == "implementation_only"
+    assert task_local_telemetry.get("registry_path") == (
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
+    )
+    assert task_local_telemetry.get("program_milestones_path") == (
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml"
+    )
+    assert task_local_telemetry.get("roadmap_path") == (
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md"
+    )
     assert task_local_telemetry.get("successor_registry_path") == SUCCESSOR_REGISTRY_PATH.as_posix()
     assert task_local_telemetry.get("successor_queue_path") == SUCCESSOR_QUEUE_PATH.as_posix()
     assert task_local_telemetry.get("runtime_handoff_path") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
+    assert dict(task_local_telemetry.get("paths") or {}).get("program_milestones_path") == (
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml"
+    )
+    assert dict(task_local_telemetry.get("paths") or {}).get("roadmap_path") == (
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md"
+    )
     assert dict(task_local_telemetry.get("paths") or {}).get("successor_queue_path") == SUCCESSOR_QUEUE_PATH.as_posix()
     assert dict(task_local_telemetry.get("paths") or {}).get("registry_path") == (
         "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
     )
+    assert set(str(item) for item in (task_local_telemetry.get("focus_profiles") or [])) == {
+        "top_flagship_grade",
+        "whole_project_frontier",
+        "next_90_day_successor_wave",
+    }
+    assert set(str(item) for item in (task_local_telemetry.get("focus_owners") or [])) == {
+        "chummer6-ui",
+        "executive-assistant",
+    }
+    focus_texts = set(str(item) for item in (task_local_telemetry.get("focus_texts") or []))
+    assert {
+        "next90-m103-ea-parity-lab",
+        "Extract Chummer5a oracle baselines and veteran workflow packs",
+        "master-index",
+        "character-roster",
+    } <= focus_texts
+    frontier_briefs = [str(item) for item in (task_local_telemetry.get("frontier_briefs") or [])]
+    assert len(frontier_briefs) == 1
+    assert "4287684466 [W7]" in frontier_briefs[0]
+    assert "status: complete" in frontier_briefs[0]
+    assert "owners: executive-assistant" in frontier_briefs[0]
+    assert "deps: 101, 102" in frontier_briefs[0]
+    slice_summary = str(task_local_telemetry.get("slice_summary") or "")
+    assert "20 next-wave milestones remain" in slice_summary
+    assert "41 queue slices" in slice_summary
+    assert "101 -> 102 -> 103" in slice_summary
+    assert "119 -> 120" in slice_summary
     telemetry_guidance = str(task_local_telemetry.get("guidance") or "")
     assert "Do not run supervisor status helpers" in telemetry_guidance
     assert "Open the listed files directly" in telemetry_guidance
