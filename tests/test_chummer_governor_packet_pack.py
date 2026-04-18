@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -15,10 +16,27 @@ PROGRESS_EMAIL_WORKFLOW_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_PR
 FEEDBACK_RELEASE_GATE_PATH = ROOT / ".codex-design" / "product" / "FEEDBACK_LOOP_RELEASE_GATE.yaml"
 FEEDBACK_CLOSEOUT_PATH = ROOT / "feedback" / "2026-04-15-ea-governor-packets-package-closeout.md"
 HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_governor_packets" / "SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
+FLEET_WEEKLY_GOVERNOR_PACKET_PATH = Path("/docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json")
+FLEET_SUPPORT_PACKETS_PATH = Path("/docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json")
+REGISTRY_RELEASE_CHANNEL_PATH = Path(
+    "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json"
+)
+LANDED_COMMIT = "dacbdad"
+COMPLETION_ACTION = "verify_closed_package_only"
+DO_NOT_REOPEN_REASON = (
+    "M106 executive-assistant governor packets are complete; future shards must verify this packet pack, "
+    "focused test, canonical registry row, Fleet queue row, and design queue row instead of reopening the "
+    "EA-owned operator-packet and reporter-followthrough slice."
+)
 
 
 def _yaml(path: Path) -> dict:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _json(path: Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8")) or {}
     return payload if isinstance(payload, dict) else {}
 
 
@@ -64,6 +82,22 @@ def _allowed_historical_runner_results() -> set[str]:
     return {"ran=17 failed=0", _expected_direct_runner_result()}
 
 
+def _expected_completed_outputs() -> set[str]:
+    return {
+        "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+        "docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+        "docs/chummer_governor_packets/README.md",
+        "docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "feedback/2026-04-15-ea-governor-packets-package-closeout.md",
+        "feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+        "feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md",
+    }
+
+
+def _expected_proof_artifacts() -> set[str]:
+    return _expected_completed_outputs() | {"tests/test_chummer_governor_packet_pack.py"}
+
+
 def _timestamp_suffix_from_repeat_note(note_path: str) -> str:
     stem = Path(note_path).stem
     suffix = stem.rsplit("-", 1)[-1].removesuffix("z")
@@ -92,6 +126,15 @@ def _without_keys(value: object, keys_to_drop: set[str]) -> object:
     return value
 
 
+def _field(payload: dict, dotted_path: str) -> object:
+    current: object = payload
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            raise AssertionError(f"missing field {dotted_path}")
+        current = current[part]
+    return current
+
+
 def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     pack = _yaml(PACK_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
@@ -110,6 +153,9 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert queue_item.get("repo") == "executive-assistant"
     assert queue_item.get("status") == "complete"
     assert int(queue_item.get("frontier_id") or 0) == 1758984842
+    assert queue_item.get("landed_commit") == LANDED_COMMIT
+    assert queue_item.get("completion_action") == COMPLETION_ACTION
+    assert queue_item.get("do_not_reopen_reason") == DO_NOT_REOPEN_REASON
     assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
     assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
     assert queue_item.get("title") == "Synthesize parity, support, and release signals into operator-ready and reporter-ready packets"
@@ -121,6 +167,9 @@ def test_pack_contract_tracks_successor_package_and_owned_surfaces() -> None:
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
     assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 1758984842
     assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
+    assert design_queue_item.get("landed_commit") == queue_item.get("landed_commit") == LANDED_COMMIT
+    assert design_queue_item.get("completion_action") == queue_item.get("completion_action") == COMPLETION_ACTION
+    assert design_queue_item.get("do_not_reopen_reason") == queue_item.get("do_not_reopen_reason") == DO_NOT_REOPEN_REASON
     assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
     assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
     assert set(str(item) for item in design_queue_item.get("proof") or []) == {
@@ -182,6 +231,9 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     }
     assert registry_task.get("owner") == "executive-assistant"
     assert registry_task.get("status") == "complete"
+    assert registry_task.get("landed_commit") == LANDED_COMMIT
+    assert registry_task.get("completion_action") == COMPLETION_ACTION
+    assert registry_task.get("do_not_reopen_reason") == DO_NOT_REOPEN_REASON
     assert "Synthesize support, parity, and release signals" in str(registry_task.get("title") or "")
     registry_evidence = {str(item) for item in registry_task.get("evidence") or []}
     assert all(
@@ -252,6 +304,12 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     drift_policy = [str(item) for item in guardrails.get("drift_policy") or []]
     assert any("successor queue" in item and "owned surfaces" in item for item in drift_policy)
     assert any("progress email workflow" in item and "exactly-once" in item for item in drift_policy)
+    assert any(
+        "generated_at refreshes" in item
+        and "informational only" in item
+        and "must not by themselves reopen queue proof" in item
+        for item in drift_policy
+    )
     assert any("docs, tests, feedback, or skills" in item for item in drift_policy)
     assert any(
         "Implementation-only retry assignments" in item
@@ -304,24 +362,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert completed_outputs, "handoff closeout should name completed package outputs"
     assert all((ROOT / item).exists() for item in completed_outputs)
     assert all(Path(item).parts[0] in allowed_output_roots for item in completed_outputs)
-    for expected in {
-        "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
-        "docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
-        "docs/chummer_governor_packets/README.md",
-        "feedback/2026-04-15-ea-governor-packets-package-closeout.md",
-        "feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
-        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md",
-        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-verified.md",
-        "feedback/2026-04-15-ea-governor-packets-registry-evidence-guard.md",
-        "feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md",
-        "feedback/2026-04-15-ea-governor-packets-dual-queue-proof-guard.md",
-        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-111728z.md",
-        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md",
-        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-1124z.md",
-        "feedback/2026-04-15-ea-governor-packets-successor-wave-pass-113230z.md",
-    }:
-        assert expected in completed_outputs
-        assert (ROOT / expected).exists()
+    assert completed_outputs == _expected_completed_outputs()
 
     proof = dict(handoff.get("proof_command") or {})
     assert proof.get("command") == "python tests/test_chummer_governor_packet_pack.py"
@@ -336,7 +377,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert all((ROOT / item).exists() for item in proof_artifacts)
     assert all(Path(item).parts[0] in allowed_output_roots for item in proof_artifacts)
     assert completed_outputs <= proof_artifacts
-    assert "tests/test_chummer_governor_packet_pack.py" in proof_artifacts
+    assert proof_artifacts == _expected_proof_artifacts()
 
     authority = dict(handoff.get("canonical_authority") or {})
     assert authority.get("successor_registry_path") == str(CANONICAL_REGISTRY_PATH)
@@ -345,6 +386,9 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert authority.get("queue_package") == "next90-m106-ea-governor-packets status=complete"
     assert authority.get("queue_frontier") == "1758984842"
     assert authority.get("registry_work_task") == "106.2 status=complete owner=executive-assistant"
+    assert authority.get("landed_commit") == LANDED_COMMIT
+    assert authority.get("completion_action") == COMPLETION_ACTION
+    assert authority.get("do_not_reopen_reason") == DO_NOT_REOPEN_REASON
     assert set(authority.get("queue_proof_required_entries") or []) == {
         str(item) for item in queue_item.get("proof") or []
     }
@@ -358,6 +402,22 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
 
     repeat_prevention = dict(handoff.get("repeat_prevention") or {})
     assert "Treat this EA-owned package as closed" in str(repeat_prevention.get("worker_rule") or "")
+
+    runtime_sources = {
+        str(dict(row).get("source_anchor_id") or ""): dict(row)
+        for row in handoff.get("shared_truth_runtime_sources") or []
+    }
+    assert set(runtime_sources) == {
+        "fleet_weekly_governor_packet",
+        "fleet_support_packets",
+        "registry_release_channel",
+    }
+    assert Path(runtime_sources["fleet_weekly_governor_packet"]["path"]).resolve() == FLEET_WEEKLY_GOVERNOR_PACKET_PATH.resolve()
+    assert Path(runtime_sources["fleet_support_packets"]["path"]).resolve() == FLEET_SUPPORT_PACKETS_PATH.resolve()
+    assert Path(runtime_sources["registry_release_channel"]["path"]).resolve() == REGISTRY_RELEASE_CHANNEL_PATH.resolve()
+    assert "live Fleet governor packet" in runtime_sources["fleet_weekly_governor_packet"]["use_rule"]
+    assert "live Fleet support followthrough packet" in runtime_sources["fleet_support_packets"]["use_rule"]
+    assert "canonical release-channel truth" in runtime_sources["registry_release_channel"]["use_rule"]
     assert any("Fleet weekly governor packet runtime" in item for item in repeat_prevention.get("do_not_reopen_for") or [])
     assert any("Design successor registry meaning" in item for item in repeat_prevention.get("do_not_reopen_for") or [])
 
@@ -369,6 +429,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert policy_inputs.get("proof_command_result") == _expected_direct_runner_result()
     assert terminal_policy.get("active_run_handoff_refresh_required") is False
     assert terminal_policy.get("timestamp_only_handoff_refreshes_are_proof") is False
+    assert terminal_policy.get("artifact_generated_at_only_refreshes_are_proof") is False
     assert terminal_policy.get("successor_wave_verification_history_closed") is True
     assert terminal_policy.get("latest_allowed_timestamp_only_verification_at") == "2026-04-15T15:13:15Z"
     assert terminal_policy.get("post_terminal_proof_command_result_required") == _expected_direct_runner_result()
@@ -382,6 +443,12 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "Implementation-only retries" in implementation_only_retry_rule
     assert "task-local telemetry proof" in implementation_only_retry_rule
     assert "allowed reopen trigger" in implementation_only_retry_rule
+    artifact_generated_at_refresh_rule = str(terminal_policy.get("artifact_generated_at_refresh_rule") or "")
+    assert "generated_at refreshes" in artifact_generated_at_refresh_rule
+    assert "informational only" in artifact_generated_at_refresh_rule
+    assert "must not by themselves append proof notes" in artifact_generated_at_refresh_rule
+    assert "refresh canonical queue or registry proof entries" in artifact_generated_at_refresh_rule
+    assert "reopen the closed EA packet slice" in artifact_generated_at_refresh_rule
     latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
     assert (
         terminal_policy.get("repeated_assignment_handling")
@@ -395,11 +462,11 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert ignored_assignment_rule.get("package_id") == "next90-m106-ea-governor-packets"
     assert int(ignored_assignment_rule.get("frontier_id") or 0) == 1758984842
     assert ignored_assignment_rule.get("active_run_handoff_path") == (
-        "/docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
     )
     assert ignored_assignment_rule.get("generated_after") == latest_allowed_timestamp_only
     assert ignored_assignment_rule.get("prompt_path_pattern") == (
-        "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/prompt.txt"
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt"
     )
     assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
     assert ignored_assignment_rule.get("worker_safety_instruction_required") is True
@@ -426,7 +493,15 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "operator telemetry output",
         "feedback/2026-04-16-ea-governor-packets-*",
         "feedback/2026-04-17-ea-governor-packets-*",
+        "feedback/2026-04-18-ea-governor-packets-*",
     } <= forbidden_retry_proof_sources
+    forbidden_retry_feedback_globs = [
+        item
+        for item in forbidden_retry_proof_sources
+        if item.startswith("feedback/") and "*" in item
+    ]
+    assert forbidden_retry_feedback_globs
+    assert all(not list(ROOT.glob(pattern)) for pattern in forbidden_retry_feedback_globs)
     retry_helper_loop_guard = dict(terminal_policy.get("retry_helper_loop_guard") or {})
     assert retry_helper_loop_guard.get("guard_id") == "implementation_only_retry_helper_loop_guard"
     assert retry_helper_loop_guard.get("applies_to_package_id") == "next90-m106-ea-governor-packets"
@@ -472,12 +547,77 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "assignment intake, not package proof" in startup_command_policy
     assert "invented orientation helpers" in startup_command_policy
     assert "supervisor status" in startup_command_policy
+    prompt_direct_read_contract = dict(retry_helper_loop_guard.get("prompt_direct_read_contract") or {})
+    assert "startup order requirements plus direct-read files" in str(
+        prompt_direct_read_contract.get("use_rule") or ""
+    )
+    assert "assignment intake only" in str(prompt_direct_read_contract.get("use_rule") or "")
+    telemetry_command_rule = str(prompt_direct_read_contract.get("task_local_telemetry_command_rule") or "")
+    assert "first startup read" in telemetry_command_rule
+    assert "exact task-local telemetry path named by the active prompt" in telemetry_command_rule
+    assert "telemetry_path_pattern guard" in telemetry_command_rule
+    assert "stale retry run id" in telemetry_command_rule
+    assert list(prompt_direct_read_contract.get("required_prompt_startup_sequence") or []) == [
+        "task-local telemetry assignment file first",
+        "one listed repo file second",
+        "target package files under docs, tests, feedback, or skills third",
+    ]
+    listed_repo_file_candidates = list(prompt_direct_read_contract.get("listed_repo_file_candidates") or [])
+    assert listed_repo_file_candidates == [
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+        "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    ]
+    assert list(prompt_direct_read_contract.get("prompt_named_direct_reads") or []) == listed_repo_file_candidates
+    assert "stale notes" in str(prompt_direct_read_contract.get("stale_status_rule") or "")
+    assert "not commands to repeat" in str(prompt_direct_read_contract.get("stale_status_rule") or "")
+    assignment_intake_exclusion_rule = dict(
+        retry_helper_loop_guard.get("assignment_intake_exclusion_rule") or {}
+    )
+    assert assignment_intake_exclusion_rule.get("rule_id") == "first_commands_are_not_package_evidence"
+    assert {
+        "first_commands",
+        "first output",
+        "last output",
+        "prompt path",
+        "recent stderr tail",
+        "generated_at",
+        "stdout",
+        "stderr",
+    } <= {str(item) for item in assignment_intake_exclusion_rule.get("applies_to_fields") or []}
+    assignment_intake_use_rule = str(assignment_intake_exclusion_rule.get("use_rule") or "")
+    assert "Prompt-required startup reads" in assignment_intake_use_rule
+    assert "assignment shape and queue authority only" in assignment_intake_use_rule
+    assert "must not be cited as operator packet evidence" in assignment_intake_use_rule
+    assert "reporter followthrough evidence" in assignment_intake_use_rule
+    assert "successor verification history" in assignment_intake_use_rule
+    assert {
+        "package_id",
+        "repo",
+        "milestone_id",
+        "owned_surfaces",
+        "allowed_paths",
+        "implementation_only mode",
+    } == {str(item) for item in assignment_intake_exclusion_rule.get("allowed_projection") or []}
+    assert {
+        "run id",
+        "shard timestamp",
+        "first-command receipts",
+        "active-run handoff timestamp",
+        "helper-loop history",
+        "operator status snippets",
+        "telemetry stdout",
+        "telemetry stderr",
+    } == {str(item) for item in assignment_intake_exclusion_rule.get("forbidden_projection") or []}
     assignment_context_pattern = dict(retry_helper_loop_guard.get("assignment_context_pattern") or {})
     assert assignment_context_pattern.get("telemetry_path_pattern") == (
-        "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
     )
     assert assignment_context_pattern.get("active_run_handoff_path") == (
-        "/docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
     )
     assert assignment_context_pattern.get("generated_after") == latest_allowed_timestamp_only
     assert "assignment context only" in str(assignment_context_pattern.get("use_rule") or "")
@@ -485,6 +625,29 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert assignment_context_pattern.get("first_commands_are_assignment_intake_not_proof") is True
     assert assignment_context_pattern.get("active_run_helper_commands_invoked") == []
     assert assignment_context_pattern.get("operator_telemetry_commands_invoked") == []
+    assignment_authority_check = dict(retry_helper_loop_guard.get("current_assignment_authority_check") or {})
+    required_queue_fields = dict(assignment_authority_check.get("required_queue_fields") or {})
+    assert assignment_authority_check.get("check_id") == "implementation_only_retry_assignment_authority_shape"
+    assert assignment_authority_check.get("applies_to_task_local_telemetry") is True
+    assert required_queue_fields.get("package_id") == "next90-m106-ea-governor-packets"
+    assert required_queue_fields.get("repo") == "executive-assistant"
+    assert int(required_queue_fields.get("milestone_id") or 0) == 106
+    assert list(required_queue_fields.get("owned_surfaces") or []) == [
+        "operator_packets:weekly_governor",
+        "reporter_followthrough:release_truth",
+    ]
+    assert list(required_queue_fields.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+    assert assignment_authority_check.get("required_mode") == "implementation_only"
+    validation_rule = str(assignment_authority_check.get("validation_rule") or "")
+    assert "task-local telemetry" in validation_rule
+    assert "closed EA package authority shape" in validation_rule
+    assert "guarded reopen trigger" in validation_rule
+    proof_exclusion_rule = str(assignment_authority_check.get("proof_exclusion_rule") or "")
+    assert "telemetry run ids" in proof_exclusion_rule
+    assert "first-command receipts" in proof_exclusion_rule
+    assert "queue proof" in proof_exclusion_rule
+    assert "registry evidence" in proof_exclusion_rule
+    assert "successor verification history" in proof_exclusion_rule
     edit_policy = str(retry_helper_loop_guard.get("implementation_only_edit_policy") or "")
     assert "After the prompt-required startup reads" in edit_policy
     assert "direct target inspection" in edit_policy
@@ -588,11 +751,12 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert latest_verification.get("active_run_helper_commands_invoked") == []
     assert latest_verification.get("operator_telemetry_commands_invoked") == []
     assert latest_note_path.exists()
-    assert str(latest_verification.get("note_path") or "") in completed_outputs
-    assert str(latest_verification.get("note_path") or "") in proof_artifacts
+    assert str(latest_verification.get("note_path") or "") not in completed_outputs
+    assert str(latest_verification.get("note_path") or "") not in proof_artifacts
     latest_note = latest_note_path.read_text(encoding="utf-8")
     assert "No operator telemetry or active-run helper commands were invoked" in latest_note
     assert "No EA-owned work remains" in latest_note
+    assert "/docker/fleet/state/chummer_design_supervisor/" not in latest_note
 
     verification_history = [latest_verification] + [
         dict(item) for item in handoff.get("additional_successor_wave_verifications") or []
@@ -614,7 +778,11 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert terminal_policy.get("successor_wave_verification_history_closed") is True
     assert all(str(item.get("verified_at") or "") <= latest_allowed_timestamp_only for item in verification_history)
     assert all(
-        str(path.relative_to(ROOT)) in completed_outputs
+        str(path.relative_to(ROOT)) not in completed_outputs
+        for path in successor_wave_pass_notes
+    )
+    assert all(
+        str(path.relative_to(ROOT)) not in proof_artifacts
         for path in successor_wave_pass_notes
     )
     terminal_note_time = latest_allowed_timestamp_only.split("T", 1)[1].removesuffix("Z").replace(":", "")
@@ -655,8 +823,8 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
         assert verification.get("active_run_helper_commands_invoked") == []
         assert verification.get("operator_telemetry_commands_invoked") == []
         assert note_path.exists()
-        assert str(verification.get("note_path") or "") in completed_outputs
-        assert str(verification.get("note_path") or "") in proof_artifacts
+        assert str(verification.get("note_path") or "") not in completed_outputs
+        assert str(verification.get("note_path") or "") not in proof_artifacts
         note_text = note_path.read_text(encoding="utf-8").lower()
         assert not any(marker in note_text for marker in forbidden_proof_output_markers), note_path
 
@@ -682,10 +850,14 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     readme_text = (ROOT / "docs" / "chummer_governor_packets" / "README.md").read_text(encoding="utf-8")
     assert "Implementation-only retries for the same package id and frontier id" in readme_text
     assert "must not create new timestamp-only feedback notes" in readme_text
+    assert "top-level `generated_at` refresh inside `CHUMMER_GOVERNOR_PACKET_PACK.yaml`" in readme_text
+    assert "must not, by itself, append proof notes" in readme_text
     assert "`retry_helper_loop_guard`" in readme_text
     assert "direct-read context set" in readme_text
     assert "invented orientation as denied" in readme_text
     assert "not orientation, proof, or reopen evidence" in readme_text
+    assert "exact task-local telemetry path named by the active prompt" in readme_text
+    assert "previous retry run id cannot stay pinned as fake proof" in readme_text
     assert "newer `ACTIVE_RUN_HANDOFF.generated.md` timestamp alone is not a reason" in (
         ROOT / str(terminal_policy.get("proof_note") or "")
     ).read_text(encoding="utf-8")
@@ -709,8 +881,9 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         str(path.relative_to(ROOT))
         for path in (ROOT / "feedback").glob("2026-04-15-ea-governor-packets-successor-wave-pass-*.md")
     }
-    assert successor_wave_pass_notes <= completed_outputs
-    assert successor_wave_pass_notes <= proof_artifacts
+    assert successor_wave_pass_notes
+    assert successor_wave_pass_notes.isdisjoint(completed_outputs)
+    assert successor_wave_pass_notes.isdisjoint(proof_artifacts)
     assert not any(
         note.rsplit("-", 1)[-1].removesuffix(".md").removesuffix("z") > "151315"
         for note in successor_wave_pass_notes
@@ -753,7 +926,7 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     synthetic_ignored_assignment = {
         "active_run_handoff_generated_at": "2026-04-15T19:44:20Z",
         "active_run_handoff_prompt_path": (
-            "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/"
+            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
             "20260415T194253Z-shard-12/prompt.txt"
         ),
     }
@@ -778,6 +951,7 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
         [
             *ROOT.glob("feedback/2026-04-16-ea-governor-packets-*.md"),
             *ROOT.glob("feedback/2026-04-17-ea-governor-packets-*.md"),
+            *ROOT.glob("feedback/2026-04-18-ea-governor-packets-*.md"),
         ]
     )
     assert forbidden_retry_feedback_notes == []
@@ -793,7 +967,7 @@ def test_terminal_policy_ignores_later_same_package_assignments_without_enumerat
         "frontier_id": 1758984842,
         "generated_at": "2026-04-15T18:55:26Z",
         "prompt_path": (
-            "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/"
+            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
             "20260415T185515Z-shard-12/prompt.txt"
         ),
     }
@@ -827,7 +1001,7 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
         "frontier_id": 1758984842,
         "generated_at": "2026-04-16T00:00:00Z",
         "prompt_path": (
-            "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/"
+            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
             "20260415T235900Z-shard-12/prompt.txt"
         ),
     }
@@ -861,7 +1035,7 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
     assert retry_helper_loop_guard.get("required_startup_commands") is None
     assert retry_helper_loop_guard.get("current_retry_context") is None
     assert assignment_context_pattern.get("telemetry_path_pattern") == (
-        "/docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
     )
     assert assignment_context_pattern.get("first_commands_are_assignment_intake_not_proof") is True
     assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
@@ -869,7 +1043,12 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
     assert not any(example_current_retry_run_id in item for item in completed_outputs)
     assert not any(example_current_retry_run_id in item for item in proof_artifacts)
     assert not any(example_current_retry_run_id in item for item in canonical_evidence)
-    assert sorted(ROOT.glob("feedback/2026-04-17-ea-governor-packets-*.md")) == []
+    assert sorted(
+        [
+            *ROOT.glob("feedback/2026-04-17-ea-governor-packets-*.md"),
+            *ROOT.glob("feedback/2026-04-18-ea-governor-packets-*.md"),
+        ]
+    ) == []
 
 
 def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> None:
@@ -889,8 +1068,20 @@ def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
     source_truth = {str(key): dict(value) for key, value in dict(pack.get("source_truth") or {}).items()}
     shared_anchors = set(pack.get("shared_evidence_anchor_ids") or [])
     truth_bundle = dict(pack.get("normalized_truth_bundle") or {})
+    materialized_truth_projection = dict(pack.get("materialized_truth_projection") or {})
+    weekly_governor_packet = _json(FLEET_WEEKLY_GOVERNOR_PACKET_PATH)
+    support_packets = _json(FLEET_SUPPORT_PACKETS_PATH)
+    release_channel = _json(REGISTRY_RELEASE_CHANNEL_PATH)
 
-    assert shared_anchors == {"weekly_pulse", "parity_lab_pack", "feedback_release_gate", "progress_email_workflow"}
+    assert shared_anchors == {
+        "weekly_pulse",
+        "parity_lab_pack",
+        "fleet_weekly_governor_packet",
+        "fleet_support_packets",
+        "registry_release_channel",
+        "feedback_release_gate",
+        "progress_email_workflow",
+    }
     assert truth_bundle.get("bundle_id") == "ea-m106-governor-readiness-parity-support-release-v1"
     assert set(truth_bundle.get("consumer_surfaces") or []) == set(pack.get("owned_surfaces") or [])
     assert set(truth_bundle.get("input_anchor_ids") or []) == shared_anchors
@@ -902,15 +1093,96 @@ def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
         "parity_evidence",
         "reporter_followthrough",
         "release_channel_truth",
+        "governor_decision_projection",
+        "support_followthrough_receipts",
     } <= set(truth_bundle.get("required_signal_families") or [])
     assert "same bundle id" in str(truth_bundle.get("single_bundle_rule") or "")
+    assert "live Fleet weekly governor packet" in str(truth_bundle.get("materialized_truth_rule") or "")
     assert _source_path(source_truth["canonical_successor_queue"]).resolve() == QUEUE_STAGING_PATH.resolve()
     assert _source_path(source_truth["design_successor_queue"]).resolve() == DESIGN_QUEUE_STAGING_PATH.resolve()
+    assert _source_path(source_truth["fleet_weekly_governor_packet"]).resolve() == FLEET_WEEKLY_GOVERNOR_PACKET_PATH.resolve()
+    assert _source_path(source_truth["fleet_support_packets"]).resolve() == FLEET_SUPPORT_PACKETS_PATH.resolve()
+    assert _source_path(source_truth["registry_release_channel"]).resolve() == REGISTRY_RELEASE_CHANNEL_PATH.resolve()
     assert "Fleet-published queue mirror" in str(source_truth["canonical_successor_queue"].get("use_rule") or "")
     assert "design-owned successor queue source" in str(source_truth["design_successor_queue"].get("use_rule") or "")
+    assert "live Fleet operator packet projection" in str(source_truth["fleet_weekly_governor_packet"].get("use_rule") or "")
+    assert "live followthrough gate and support-closure source" in str(source_truth["fleet_support_packets"].get("use_rule") or "")
+    assert "canonical release-channel truth source" in str(source_truth["registry_release_channel"].get("use_rule") or "")
     for key, row in source_truth.items():
         if row.get("required") is True:
             assert _source_path(row).exists(), key
+
+    assert materialized_truth_projection["operator_packet_live_source"]["source_anchor_id"] == "fleet_weekly_governor_packet"
+    assert materialized_truth_projection["reporter_followthrough_live_source"]["source_anchor_id"] == "fleet_support_packets"
+    assert materialized_truth_projection["release_truth_live_source"]["source_anchor_id"] == "registry_release_channel"
+    assert "decision_board.current_launch_action" in materialized_truth_projection["operator_packet_live_source"]["required_fields"]
+    assert "reporter_followthrough_plan.ready_count" in materialized_truth_projection["reporter_followthrough_live_source"]["required_fields"]
+    assert "rolloutState" in materialized_truth_projection["release_truth_live_source"]["required_fields"]
+    assert "measured_rollout_loop.decision_action_routes.status" in materialized_truth_projection["operator_packet_live_source"][
+        "required_fields"
+    ]
+    assert "measured_rollout_loop.decision_receipts.status" in materialized_truth_projection["operator_packet_live_source"][
+        "required_fields"
+    ]
+    projection_contract = dict(materialized_truth_projection.get("projection_contract") or {})
+    operator_projection_contract = dict(projection_contract.get("operator_packet") or {})
+    reporter_projection_contract = dict(projection_contract.get("reporter_followthrough") or {})
+    assert operator_projection_contract.get("decision_source_fields") == [
+        "decision_alignment.actual_action",
+        "decision_board.current_launch_action",
+    ]
+    assert operator_projection_contract.get("action_normalization") == {
+        "launch_expand": "launch",
+        "freeze_launch": "freeze",
+        "canary": "canary",
+        "rollback": "rollback",
+        "focus_shift": "focus_shift",
+    }
+    assert operator_projection_contract.get("gate_summary_source_fields") == [
+        "measured_rollout_loop.decision_action_routes.rows",
+        "measured_rollout_loop.decision_receipts.rows",
+    ]
+    assert operator_projection_contract.get("support_followthrough_source_fields") == [
+        "summary.reporter_followthrough_ready_count",
+        "reporter_followthrough_plan.ready_count",
+    ]
+    assert reporter_projection_contract.get("closure_waiting_source_field") == "summary.closure_waiting_on_release_truth"
+    assert reporter_projection_contract.get("ready_count_source_fields") == [
+        "summary.reporter_followthrough_ready_count",
+        "reporter_followthrough_plan.ready_count",
+    ]
+    assert reporter_projection_contract.get("receipt_gate_source_fields") == [
+        "followthrough_receipt_gates.required_gates",
+        "followthrough_receipt_gates.source_rule",
+    ]
+    assert reporter_projection_contract.get("release_truth_source_fields") == [
+        "status",
+        "rolloutState",
+        "supportabilityState",
+        "fixAvailabilitySummary",
+    ]
+    assert "same live-source fields" in str(projection_contract.get("projection_guard_rule") or "")
+    for field_name in materialized_truth_projection["operator_packet_live_source"]["required_fields"]:
+        _field(weekly_governor_packet, field_name)
+    for field_name in materialized_truth_projection["reporter_followthrough_live_source"]["required_fields"]:
+        _field(support_packets, field_name)
+    for field_name in materialized_truth_projection["release_truth_live_source"]["required_fields"]:
+        _field(release_channel, field_name)
+    for field_name in operator_projection_contract.get("decision_source_fields") or []:
+        _field(weekly_governor_packet, field_name)
+    for field_name in operator_projection_contract.get("gate_summary_source_fields") or []:
+        _field(weekly_governor_packet, field_name)
+    for field_name in operator_projection_contract.get("support_followthrough_source_fields") or []:
+        _field(support_packets, field_name)
+    _field(support_packets, str(reporter_projection_contract.get("closure_waiting_source_field") or ""))
+    for field_name in reporter_projection_contract.get("ready_count_source_fields") or []:
+        _field(support_packets, field_name)
+    for field_name in reporter_projection_contract.get("receipt_gate_source_fields") or []:
+        _field(support_packets, field_name)
+    for field_name in reporter_projection_contract.get("release_truth_source_fields") or []:
+        _field(release_channel, field_name)
+    assert "one truth window" in str(materialized_truth_projection.get("same_window_rule") or "")
+    _assert_handoff_closeout_runtime_sources_match_packet_materialized_truth_projection()
 
     assert set(pack["operator_packet"]["evidence_anchor_ids"]) == shared_anchors
     assert set(pack["reporter_followthrough"]["evidence_anchor_ids"]) == shared_anchors
@@ -1034,7 +1306,12 @@ def test_runtime_safety_records_no_worker_side_telemetry_or_active_run_helpers()
     handoff_proof_strings = _strings(
         _without_keys(
             handoff,
-            {"required_startup_commands", "current_retry_context", "assignment_context_pattern"},
+            {
+                "required_startup_commands",
+                "current_retry_context",
+                "assignment_context_pattern",
+                "prompt_direct_read_contract",
+            },
         )
     )
     canonical_and_local_proof_strings = [
@@ -1098,6 +1375,125 @@ def test_specimens_project_operator_and_reporter_packets_from_same_anchors() -> 
     }
     bindings = {key: _source_path(dict(row)).resolve() for key, row in dict(specimens.get("shared_evidence_bindings") or {}).items()}
     assert bindings == source_truth
+    projection_bindings = dict(specimens.get("packet_projection_bindings") or {})
+    operator_projection_bindings = dict(projection_bindings.get("operator_packet") or {})
+    reporter_projection_bindings = dict(projection_bindings.get("reporter_followthrough") or {})
+    pack_projection_contract = dict(dict(pack.get("materialized_truth_projection") or {}).get("projection_contract") or {})
+    operator_pack_projection_contract = dict(pack_projection_contract.get("operator_packet") or {})
+    reporter_pack_projection_contract = dict(pack_projection_contract.get("reporter_followthrough") or {})
+    assert operator_projection_bindings.get("recommended_decision_source_fields") == [
+        "fleet_weekly_governor_packet.decision_alignment.actual_action",
+        "fleet_weekly_governor_packet.decision_board.current_launch_action",
+    ]
+    assert operator_projection_bindings.get("action_normalization") == operator_pack_projection_contract.get(
+        "action_normalization"
+    )
+    assert operator_projection_bindings.get("gate_summary_source_fields") == [
+        f"fleet_weekly_governor_packet.{item}"
+        for item in operator_pack_projection_contract.get("gate_summary_source_fields") or []
+    ]
+    assert operator_projection_bindings.get("support_followthrough_source_fields") == [
+        f"fleet_support_packets.{item}"
+        for item in operator_pack_projection_contract.get("support_followthrough_source_fields") or []
+    ]
+    assert "normalize Fleet's live launch action" in str(operator_projection_bindings.get("use_rule") or "")
+    assert reporter_projection_bindings.get("closure_waiting_source_field") == (
+        f"fleet_support_packets.{reporter_pack_projection_contract.get('closure_waiting_source_field')}"
+    )
+    assert reporter_projection_bindings.get("ready_count_source_fields") == [
+        f"fleet_support_packets.{item}"
+        for item in reporter_pack_projection_contract.get("ready_count_source_fields") or []
+    ]
+    assert reporter_projection_bindings.get("receipt_gate_source_fields") == [
+        f"fleet_support_packets.{item}"
+        for item in reporter_pack_projection_contract.get("receipt_gate_source_fields") or []
+    ]
+    assert reporter_projection_bindings.get("release_truth_source_fields") == [
+        f"registry_release_channel.{item}"
+        for item in reporter_pack_projection_contract.get("release_truth_source_fields") or []
+    ]
+    assert "same support packet and release-channel truth window" in str(
+        reporter_projection_bindings.get("use_rule") or ""
+    )
+    assert "one live truth window" in str(projection_bindings.get("same_window_rule") or "")
+
+
+def _assert_specimens_match_packet_contract_fields_and_posture_coverage() -> None:
+    pack = _yaml(PACK_PATH)
+    specimens = _yaml(SPECIMENS_PATH)
+    operator_contract = dict(pack.get("operator_packet") or {})
+    reporter_contract = dict(pack.get("reporter_followthrough") or {})
+    materialized_truth_projection = {
+        str(key): value for key, value in dict(pack.get("materialized_truth_projection") or {}).items()
+    }
+    operator_specimen = dict(specimens.get("operator_packet_specimen") or {})
+    reporter_specimen = dict(specimens.get("reporter_followthrough_specimen") or {})
+    operator_payload = dict(operator_specimen.get("specimen_payload") or {})
+    shared_bindings = {str(key): value for key, value in dict(specimens.get("shared_evidence_bindings") or {}).items()}
+    specimen_stages = {
+        str(key): dict(value) for key, value in dict(reporter_specimen.get("specimen_stage_payloads") or {}).items()
+    }
+    reporter_stage_gates = {
+        str(key): dict(value) for key, value in dict(reporter_contract.get("stage_gates") or {}).items()
+    }
+    projection_bindings = dict(specimens.get("packet_projection_bindings") or {})
+    operator_projection_bindings = dict(projection_bindings.get("operator_packet") or {})
+    reporter_projection_bindings = dict(projection_bindings.get("reporter_followthrough") or {})
+
+    assert set(operator_specimen.get("required_inputs") or []) == set(operator_contract.get("minimum_fields") or [])
+    assert set(operator_payload) == set(operator_contract.get("minimum_fields") or [])
+    assert operator_specimen.get("example_kind") == "illustrative_launch_when_all_launch_gates_clear"
+    assert (
+        reporter_specimen.get("example_kind")
+        == "illustrative_stage_contracts_using_the_live_support_and_release_truth_window"
+    )
+    assert set(operator_specimen.get("downgrade_examples") or {}) == {
+        "freeze",
+        "canary",
+        "rollback",
+        "focus_shift",
+    }
+    assert set(operator_specimen.get("downgrade_examples") or {}) == (
+        set(operator_contract.get("decision_postures") or []) - {"launch"}
+    )
+    assert shared_bindings["fleet_weekly_governor_packet"]["projected_fields"] == materialized_truth_projection[
+        "operator_packet_live_source"
+    ]["required_fields"]
+    assert shared_bindings["fleet_support_packets"]["projected_fields"] == materialized_truth_projection[
+        "reporter_followthrough_live_source"
+    ]["required_fields"]
+    assert shared_bindings["registry_release_channel"]["projected_fields"] == materialized_truth_projection[
+        "release_truth_live_source"
+    ]["required_fields"]
+    assert set(operator_projection_bindings.get("action_normalization") or {}) == {
+        "launch_expand",
+        "freeze_launch",
+        "canary",
+        "rollback",
+        "focus_shift",
+    }
+    assert reporter_projection_bindings.get("release_truth_source_fields") == [
+        "registry_release_channel.status",
+        "registry_release_channel.rolloutState",
+        "registry_release_channel.supportabilityState",
+        "registry_release_channel.fixAvailabilitySummary",
+    ]
+
+    assert list(reporter_specimen.get("required_stage_sequence") or []) == list(
+        reporter_contract.get("required_stage_sequence") or []
+    )
+    assert set(specimen_stages) == set(reporter_stage_gates)
+    for stage_id, contract_gate in reporter_stage_gates.items():
+        specimen_stage = specimen_stages[stage_id]
+        assert specimen_stage.get("exactly_once_rule") == contract_gate.get("exactly_once_rule")
+        assert bool(specimen_stage.get("release_truth_required")) == (
+            stage_id == "fix_available"
+        )
+        if stage_id == "fix_available":
+            assert specimen_stage.get("required_truth_planes") == contract_gate.get("required_truth_planes")
+            assert specimen_stage.get("forbidden_resolution_sources") == reporter_contract["release_truth_guard"][
+                "forbidden_resolution_sources"
+            ]
 
 
 def test_specimens_track_progress_workflow_stage_payloads_without_local_drift() -> None:
@@ -1119,6 +1515,7 @@ def test_specimens_track_progress_workflow_stage_payloads_without_local_drift() 
     assert workflow_stages["audited_decision"]["exactly_once_per_decision_change"] is True
     assert specimen_stages["fix_available"]["exactly_once_rule"] == "exactly_once_per_reporter_channel_release"
     assert workflow_stages["fix_available"]["exactly_once_per_reporter_channel_release"] is True
+    _assert_specimens_match_packet_contract_fields_and_posture_coverage()
 
 
 def test_specimens_keep_reporter_fix_available_release_truth_fail_closed() -> None:
@@ -1140,6 +1537,47 @@ def test_specimens_keep_reporter_fix_available_release_truth_fail_closed() -> No
         "merged_pr",
         "preview_build",
     }
+
+
+def _assert_handoff_closeout_runtime_sources_match_packet_materialized_truth_projection() -> None:
+    pack = _yaml(PACK_PATH)
+    materialized_truth_projection = dict(pack.get("materialized_truth_projection") or {})
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    runtime_sources = {
+        str(dict(row).get("source_anchor_id") or ""): dict(row)
+        for row in handoff.get("shared_truth_runtime_sources") or []
+    }
+
+    _assert_handoff_closeout_names_live_runtime_truth_sources()
+    assert runtime_sources["fleet_weekly_governor_packet"]["source_anchor_id"] == materialized_truth_projection[
+        "operator_packet_live_source"
+    ]["source_anchor_id"]
+    assert runtime_sources["fleet_support_packets"]["source_anchor_id"] == materialized_truth_projection[
+        "reporter_followthrough_live_source"
+    ]["source_anchor_id"]
+    assert runtime_sources["registry_release_channel"]["source_anchor_id"] == materialized_truth_projection[
+        "release_truth_live_source"
+    ]["source_anchor_id"]
+
+
+def _assert_handoff_closeout_names_live_runtime_truth_sources() -> None:
+    handoff = _yaml(HANDOFF_CLOSEOUT_PATH)
+    runtime_sources = {
+        str(dict(row).get("source_anchor_id") or ""): dict(row)
+        for row in handoff.get("shared_truth_runtime_sources") or []
+    }
+
+    assert set(runtime_sources) == {
+        "fleet_weekly_governor_packet",
+        "fleet_support_packets",
+        "registry_release_channel",
+    }
+    assert Path(runtime_sources["fleet_weekly_governor_packet"]["path"]).resolve() == FLEET_WEEKLY_GOVERNOR_PACKET_PATH.resolve()
+    assert Path(runtime_sources["fleet_support_packets"]["path"]).resolve() == FLEET_SUPPORT_PACKETS_PATH.resolve()
+    assert Path(runtime_sources["registry_release_channel"]["path"]).resolve() == REGISTRY_RELEASE_CHANNEL_PATH.resolve()
+    assert "live Fleet governor packet" in runtime_sources["fleet_weekly_governor_packet"]["use_rule"]
+    assert "live Fleet support followthrough packet" in runtime_sources["fleet_support_packets"]["use_rule"]
+    assert "canonical release-channel truth" in runtime_sources["registry_release_channel"]["use_rule"]
 
 
 def _run_direct() -> int:

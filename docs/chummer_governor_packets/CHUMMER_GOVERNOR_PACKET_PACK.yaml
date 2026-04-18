@@ -2,7 +2,7 @@ contract_name: ea.chummer_governor_packet_pack
 package_id: next90-m106-ea-governor-packets
 milestone_id: 106
 wave: W8
-generated_at: "2026-04-15T08:38:00Z"
+generated_at: "2026-04-18T20:05:00Z"
 status: task_proven
 title: Synthesize parity, support, and release signals into operator-ready and reporter-ready packets
 owned_surfaces:
@@ -34,6 +34,21 @@ source_truth:
     path: docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml
     required: true
     use_rule: Use as EA-local parity evidence; desktop publishability remains owned by UI, Registry, and Fleet.
+  fleet_weekly_governor_packet:
+    id: fleet_weekly_governor_packet
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    required: true
+    use_rule: Use as the live Fleet operator packet projection so EA operator-ready copy stays downstream of the same measured readiness, parity, support, and release signals the governor loop already compiled.
+  fleet_support_packets:
+    id: fleet_support_packets
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    required: true
+    use_rule: Use as the live followthrough gate and support-closure source so EA reporter followthrough stays downstream of the same install-aware receipt truth Fleet already materialized.
+  registry_release_channel:
+    id: registry_release_channel
+    path: /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+    required: true
+    use_rule: Use as the canonical release-channel truth source for reporter fix-available mail and for any operator posture that cites promoted-channel or rollback state.
   feedback_release_gate:
     id: feedback_release_gate
     path: .codex-design/product/FEEDBACK_LOOP_RELEASE_GATE.yaml
@@ -53,6 +68,9 @@ source_truth:
 shared_evidence_anchor_ids:
   - weekly_pulse
   - parity_lab_pack
+  - fleet_weekly_governor_packet
+  - fleet_support_packets
+  - registry_release_channel
   - feedback_release_gate
   - progress_email_workflow
 normalized_truth_bundle:
@@ -64,6 +82,9 @@ normalized_truth_bundle:
   input_anchor_ids:
     - weekly_pulse
     - parity_lab_pack
+    - fleet_weekly_governor_packet
+    - fleet_support_packets
+    - registry_release_channel
     - feedback_release_gate
     - progress_email_workflow
   required_signal_families:
@@ -74,7 +95,69 @@ normalized_truth_bundle:
     - parity_evidence
     - reporter_followthrough
     - release_channel_truth
+    - governor_decision_projection
+    - support_followthrough_receipts
   single_bundle_rule: Operator posture and reporter mail readiness must cite this same bundle id; a packet compiled from a different readiness, parity, support, or release snapshot is not valid EA output for this package.
+  materialized_truth_rule: The shared bundle must name the live Fleet weekly governor packet, Fleet support followthrough packet, and Registry release-channel source alongside the mirrored pulse, parity, and workflow anchors so operator and reporter output cannot drift onto parallel packet truth.
+materialized_truth_projection:
+  operator_packet_live_source:
+    source_anchor_id: fleet_weekly_governor_packet
+    required_fields:
+      - generated_at
+      - decision_board.current_launch_action
+      - decision_alignment.actual_action
+      - measured_rollout_loop.decision_action_routes.status
+      - measured_rollout_loop.decision_receipts.status
+      - decision_gate_ledger.launch_expand
+  reporter_followthrough_live_source:
+    source_anchor_id: fleet_support_packets
+    required_fields:
+      - generated_at
+      - summary.closure_waiting_on_release_truth
+      - summary.reporter_followthrough_ready_count
+      - reporter_followthrough_plan.ready_count
+      - followthrough_receipt_gates.required_gates
+      - followthrough_receipt_gates.source_rule
+  release_truth_live_source:
+    source_anchor_id: registry_release_channel
+    required_fields:
+      - generated_at
+      - status
+      - rolloutState
+      - supportabilityState
+      - fixAvailabilitySummary
+  projection_contract:
+    operator_packet:
+      decision_source_fields:
+        - decision_alignment.actual_action
+        - decision_board.current_launch_action
+      action_normalization:
+        launch_expand: launch
+        freeze_launch: freeze
+        canary: canary
+        rollback: rollback
+        focus_shift: focus_shift
+      gate_summary_source_fields:
+        - measured_rollout_loop.decision_action_routes.rows
+        - measured_rollout_loop.decision_receipts.rows
+      support_followthrough_source_fields:
+        - summary.reporter_followthrough_ready_count
+        - reporter_followthrough_plan.ready_count
+    reporter_followthrough:
+      closure_waiting_source_field: summary.closure_waiting_on_release_truth
+      ready_count_source_fields:
+        - summary.reporter_followthrough_ready_count
+        - reporter_followthrough_plan.ready_count
+      receipt_gate_source_fields:
+        - followthrough_receipt_gates.required_gates
+        - followthrough_receipt_gates.source_rule
+      release_truth_source_fields:
+        - status
+        - rolloutState
+        - supportabilityState
+        - fixAvailabilitySummary
+    projection_guard_rule: Operator recommendation and reporter followthrough readiness must both project from these same live-source fields, not from independent EA-local summaries.
+  same_window_rule: EA output must treat these live sources plus the mirrored pulse and workflow anchors as one truth window; if the operator packet, support followthrough packet, or release-channel source is missing, stale, or points at a different packet family, EA must fail closed instead of synthesizing packet copy from partial truth.
 proof_guardrails:
   successor_frontier:
     frontier_id: 1758984842
@@ -102,6 +185,7 @@ proof_guardrails:
     - Fail closed if the successor queue no longer assigns this package to executive-assistant or changes the owned surfaces.
     - Fail closed if the milestone dependencies or EA work task drift away from the canonical successor registry.
     - Fail closed if reporter specimens diverge from the mirrored progress email workflow stage order, trigger statuses, required fields, or exactly-once rules.
+    - Treat top-level generated_at refreshes inside this packet pack or the paired specimen artifact as informational only; they must not by themselves reopen queue proof, registry evidence, or closed-slice work.
     - Keep package proof under docs, tests, feedback, or skills unless a future canonical queue row explicitly changes allowed paths.
     - Implementation-only retry assignments, task-local telemetry, and active-run handoff timestamps are assignment context only; they must not become packet proof, queue proof, registry evidence, or reporter followthrough evidence for this closed EA package.
 operator_packet:
@@ -129,6 +213,9 @@ operator_packet:
   evidence_anchor_ids:
     - weekly_pulse
     - parity_lab_pack
+    - fleet_weekly_governor_packet
+    - fleet_support_packets
+    - registry_release_channel
     - feedback_release_gate
     - progress_email_workflow
   output_rule: Operator copy may recommend a governor posture, but Fleet and design remain the decision and canon authorities.
@@ -209,6 +296,9 @@ reporter_followthrough:
   evidence_anchor_ids:
     - weekly_pulse
     - parity_lab_pack
+    - fleet_weekly_governor_packet
+    - fleet_support_packets
+    - registry_release_channel
     - feedback_release_gate
     - progress_email_workflow
   output_rule: Reporter mail can be queued only when Hub-owned case truth and Registry release truth satisfy the mirrored workflow preconditions.

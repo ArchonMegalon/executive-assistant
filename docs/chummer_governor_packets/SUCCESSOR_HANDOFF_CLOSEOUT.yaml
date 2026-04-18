@@ -22,49 +22,9 @@ completed_outputs:
   - docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
   - docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
   - docs/chummer_governor_packets/README.md
+  - docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
   - feedback/2026-04-15-ea-governor-packets-package-closeout.md
   - feedback/2026-04-15-chummer-governor-packets-successor-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-verified.md
-  - feedback/2026-04-15-ea-governor-packets-registry-evidence-guard.md
-  - feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md
-  - feedback/2026-04-15-ea-governor-packets-dual-queue-proof-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-111728z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-1124z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-113230z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-113700z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-114244z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-114536z.md
-  - feedback/2026-04-15-ea-governor-packets-duplicate-row-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-115150z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-115445z.md
-  - feedback/2026-04-15-ea-governor-packets-queue-frontier-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-120516z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-120742z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-134658z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-135128z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-135415z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-135706z.md
-  - feedback/2026-04-15-ea-governor-packets-helper-output-proof-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-140340z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-140602z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-141110z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-141307z.md
-  - feedback/2026-04-15-ea-governor-packets-proof-count-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-142029z.md
-  - feedback/2026-04-15-ea-governor-packets-status-alignment-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-142555z.md
-  - feedback/2026-04-15-ea-governor-packets-design-queue-source-truth-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-143643z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-144543z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145011z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145354z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145650z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145937z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-150247z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-150554z.md
-  - feedback/2026-04-15-ea-governor-packets-history-integrity-guard.md
   - feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
 proof_command:
   command: python tests/test_chummer_governor_packet_pack.py
@@ -79,48 +39,17 @@ proof_artifacts:
   - tests/test_chummer_governor_packet_pack.py
   - feedback/2026-04-15-ea-governor-packets-package-closeout.md
   - feedback/2026-04-15-chummer-governor-packets-successor-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-102117z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-verified.md
-  - feedback/2026-04-15-ea-governor-packets-registry-evidence-guard.md
-  - feedback/2026-04-15-ea-governor-packets-active-run-handoff-guard.md
-  - feedback/2026-04-15-ea-governor-packets-dual-queue-proof-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-111728z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-112001z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-1124z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-113230z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-113700z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-114244z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-114536z.md
-  - feedback/2026-04-15-ea-governor-packets-duplicate-row-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-115150z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-115445z.md
-  - feedback/2026-04-15-ea-governor-packets-queue-frontier-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-120516z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-120742z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-134658z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-135128z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-135415z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-135706z.md
-  - feedback/2026-04-15-ea-governor-packets-helper-output-proof-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-140340z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-140602z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-141110z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-141307z.md
-  - feedback/2026-04-15-ea-governor-packets-proof-count-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-142029z.md
-  - feedback/2026-04-15-ea-governor-packets-status-alignment-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-142555z.md
-  - feedback/2026-04-15-ea-governor-packets-design-queue-source-truth-guard.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-143643z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-144543z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145011z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145354z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145650z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-145937z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-150247z.md
-  - feedback/2026-04-15-ea-governor-packets-successor-wave-pass-150554z.md
-  - feedback/2026-04-15-ea-governor-packets-history-integrity-guard.md
   - feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
+shared_truth_runtime_sources:
+  - source_anchor_id: fleet_weekly_governor_packet
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    use_rule: Verify that EA operator synthesis still points at the live Fleet governor packet instead of only at mirrored policy inputs.
+  - source_anchor_id: fleet_support_packets
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    use_rule: Verify that EA reporter followthrough still points at the live Fleet support followthrough packet and release-truth gate counts.
+  - source_anchor_id: registry_release_channel
+    path: /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+    use_rule: Verify that reporter fix-available output still routes through canonical release-channel truth before any mail can be queued.
 canonical_authority:
   successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
@@ -128,6 +57,9 @@ canonical_authority:
   queue_package: "next90-m106-ea-governor-packets status=complete"
   queue_frontier: "1758984842"
   registry_work_task: "106.2 status=complete owner=executive-assistant"
+  landed_commit: dacbdad
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M106 executive-assistant governor packets are complete; future shards must verify this packet pack, focused test, canonical registry row, Fleet queue row, and design queue row instead of reopening the EA-owned operator-packet and reporter-followthrough slice.
   queue_proof_required_entries:
     - /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
     - /docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml
@@ -157,14 +89,16 @@ terminal_verification_policy:
   latest_allowed_timestamp_only_verification_at: "2026-04-15T15:13:15Z"
   post_terminal_proof_command_result_required: ran=20 failed=0
   current_worker_rule: Do not append a new successor-wave verification note solely because ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp for the same closed frontier; run the proof command and cite the terminal closeout instead.
+  artifact_generated_at_only_refreshes_are_proof: false
+  artifact_generated_at_refresh_rule: Top-level generated_at refreshes inside docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml or docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml are informational only; they must not by themselves append proof notes, refresh canonical queue or registry proof entries, or reopen the closed EA packet slice.
   implementation_only_retry_rule: Implementation-only retries for the same package id and frontier id must not create new timestamp-only feedback notes, completed_outputs entries, proof_artifacts entries, queue proof entries, registry evidence, or task-local telemetry proof; they may only change this package when an allowed reopen trigger exposes real artifact or authority drift.
   repeated_assignment_handling: Treat later active-run handoffs for the same package id and frontier id as ignored by this terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger below fires.
   ignored_assignment_rule:
     package_id: next90-m106-ea-governor-packets
     frontier_id: 1758984842
-    active_run_handoff_path: /docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+    active_run_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
     generated_after: "2026-04-15T15:13:15Z"
-    prompt_path_pattern: /docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/prompt.txt
+    prompt_path_pattern: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt
     action: ignore_without_manifest_append
     worker_safety_instruction_required: true
     do_not_add_to:
@@ -188,6 +122,7 @@ terminal_verification_policy:
     - operator telemetry output
     - feedback/2026-04-16-ea-governor-packets-*
     - feedback/2026-04-17-ea-governor-packets-*
+    - feedback/2026-04-18-ea-governor-packets-*
   retry_helper_loop_guard:
     guard_id: implementation_only_retry_helper_loop_guard
     applies_to_package_id: next90-m106-ea-governor-packets
@@ -216,14 +151,82 @@ terminal_verification_policy:
       - target package files under docs, tests, feedback, or skills before any edit
     startup_order_rule: Read the task-local telemetry assignment file first, then at least one listed canonical repo file, then the target package files under docs, tests, feedback, or skills before any edit; these reads remain assignment intake and must not become package proof.
     startup_command_policy: Follow the current worker prompt's required direct reads exactly and do not replace them with supervisor status, ETA, polling, active-run wait loops, operator telemetry, or invented orientation helpers; those reads remain assignment intake, not package proof.
+    prompt_direct_read_contract:
+      use_rule: When an implementation-only retry prompt names startup order requirements plus direct-read files, honor that prompt-relative read contract before any invented orientation step and treat the receipts as assignment intake only.
+      task_local_telemetry_command_rule: The first startup read must open the exact task-local telemetry path named by the active prompt, and that path must also satisfy the shard-local telemetry_path_pattern guard instead of pinning a stale retry run id.
+      required_prompt_startup_sequence:
+        - task-local telemetry assignment file first
+        - one listed repo file second
+        - target package files under docs, tests, feedback, or skills third
+      listed_repo_file_candidates:
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml
+        - /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml
+        - /docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md
+        - /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+        - /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+      prompt_named_direct_reads:
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml
+        - /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml
+        - /docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md
+        - /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+        - /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+      stale_status_rule: Historical operator status snippets found during those direct reads are stale notes, not commands to repeat.
+    assignment_intake_exclusion_rule:
+      rule_id: first_commands_are_not_package_evidence
+      applies_to_fields:
+        - first_commands
+        - first output
+        - last output
+        - prompt path
+        - recent stderr tail
+        - generated_at
+        - stdout
+        - stderr
+      use_rule: Prompt-required startup reads may confirm assignment shape and queue authority only; command receipts, read order, telemetry stdout or stderr, and handoff tail text must not be cited as operator packet evidence, reporter followthrough evidence, queue proof, registry evidence, or successor verification history.
+      allowed_projection:
+        - package_id
+        - repo
+        - milestone_id
+        - owned_surfaces
+        - allowed_paths
+        - implementation_only mode
+      forbidden_projection:
+        - run id
+        - shard timestamp
+        - first-command receipts
+        - active-run handoff timestamp
+        - helper-loop history
+        - operator status snippets
+        - telemetry stdout
+        - telemetry stderr
     assignment_context_pattern:
-      telemetry_path_pattern: /docker/fleet/state/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json
-      active_run_handoff_path: /docker/fleet/state/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
+      telemetry_path_pattern: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json
+      active_run_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
       generated_after: "2026-04-15T15:13:15Z"
       use_rule: Matching retry files are assignment context only; do not add run ids, telemetry paths, or handoff timestamps to completed outputs, proof artifacts, queue proof, registry evidence, or successor verification history unless a guarded reopen trigger fires.
       first_commands_are_assignment_intake_not_proof: true
       active_run_helper_commands_invoked: []
       operator_telemetry_commands_invoked: []
+    current_assignment_authority_check:
+      check_id: implementation_only_retry_assignment_authority_shape
+      applies_to_task_local_telemetry: true
+      required_queue_fields:
+        package_id: next90-m106-ea-governor-packets
+        repo: executive-assistant
+        milestone_id: 106
+        owned_surfaces:
+          - operator_packets:weekly_governor
+          - reporter_followthrough:release_truth
+        allowed_paths:
+          - skills
+          - tests
+          - feedback
+          - docs
+      required_mode: implementation_only
+      validation_rule: Read the task-local telemetry only to confirm the assignment still targets the closed EA package authority shape before direct repo-local inspection; if it disagrees with queue or registry authority, treat that as a guarded reopen trigger rather than as packet proof.
+      proof_exclusion_rule: Do not copy telemetry run ids, focus text, first-command receipts, shard timestamps, stdout, stderr, or helper-loop history into completed outputs, proof artifacts, queue proof, registry evidence, reporter followthrough evidence, or successor verification history.
     implementation_only_edit_policy: After the prompt-required startup reads and direct target inspection, edit repo-local docs, tests, feedback, or skills only when the guarded EA packet contract has real drift.
     historical_operator_status_policy: Treat historical operator status snippets inside assignment files as stale notes, not commands to repeat or proof to preserve.
     stop_report_contract:
