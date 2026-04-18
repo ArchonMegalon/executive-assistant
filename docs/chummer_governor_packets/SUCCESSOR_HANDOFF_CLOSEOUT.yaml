@@ -158,6 +158,7 @@ terminal_verification_policy:
     prompt_direct_read_contract:
       use_rule: When an implementation-only retry prompt names startup order requirements plus direct-read files, honor that prompt-relative read contract before any invented orientation step and treat the receipts as assignment intake only.
       task_local_telemetry_command_rule: The first startup read must open the exact task-local telemetry path named by the active prompt, and that path must also satisfy the shard-local telemetry_path_pattern guard instead of pinning a stale retry run id.
+      prompt_named_direct_reads_are_assignment_intake_only: true
       required_prompt_startup_sequence:
         - task-local telemetry assignment file first
         - one listed repo file second
@@ -176,6 +177,14 @@ terminal_verification_policy:
         - /var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md
         - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
         - /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+      prompt_named_direct_reads_must_not_appear_in:
+        - completed_outputs
+        - proof_artifacts
+        - canonical registry evidence
+        - design queue proof
+        - fleet queue proof
+        - operator packet evidence
+        - reporter followthrough evidence
       stale_status_rule: Historical operator status snippets found during those direct reads are stale notes, not commands to repeat.
     assignment_intake_exclusion_rule:
       rule_id: first_commands_are_not_package_evidence

@@ -882,6 +882,8 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert "open the prompt-named task-local telemetry file first" in readme_text
     assert "then open one of the listed canonical repo files" in readme_text
     assert "then inspect the target package files directly" in readme_text
+    assert "The prompt-named canonical repo files are excluded just as explicitly" in readme_text
+    assert "must never migrate into completed outputs, proof artifacts, canonical registry evidence" in readme_text
     assert "Queue proof and registry evidence may cite only the terminal closeout trio" in readme_text
     assert "Do not replace that sequence with supervisor status or ETA checks" in readme_text
     assert "Those first reads only confirm assignment shape and proof boundaries" in readme_text
@@ -1056,6 +1058,7 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
     run_id = Path(same_package_assignment_after_terminal_closeout["prompt_path"]).parts[-2]
     retry_helper_loop_guard = dict(terminal_policy.get("retry_helper_loop_guard") or {})
     assignment_context_pattern = dict(retry_helper_loop_guard.get("assignment_context_pattern") or {})
+    prompt_direct_read_contract = dict(retry_helper_loop_guard.get("prompt_direct_read_contract") or {})
     example_current_retry_run_id = "20260417T201912Z-shard-12"
 
     assert not any(run_id in item for item in completed_outputs)
@@ -1067,11 +1070,33 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
         "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
     )
     assert assignment_context_pattern.get("first_commands_are_assignment_intake_not_proof") is True
+    assert prompt_direct_read_contract.get("prompt_named_direct_reads_are_assignment_intake_only") is True
+    assert set(prompt_direct_read_contract.get("prompt_named_direct_reads_must_not_appear_in") or []) == {
+        "completed_outputs",
+        "proof_artifacts",
+        "canonical registry evidence",
+        "design queue proof",
+        "fleet queue proof",
+        "operator packet evidence",
+        "reporter followthrough evidence",
+    }
     assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
     assert terminal_policy.get("ignored_assignment_signals_after_terminal") == []
     assert not any(example_current_retry_run_id in item for item in completed_outputs)
     assert not any(example_current_retry_run_id in item for item in proof_artifacts)
     assert not any(example_current_retry_run_id in item for item in canonical_evidence)
+    prompt_named_direct_reads = {str(item) for item in prompt_direct_read_contract.get("prompt_named_direct_reads") or []}
+    assert prompt_named_direct_reads == {
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
+        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+        "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    }
+    assert prompt_named_direct_reads.isdisjoint(completed_outputs)
+    assert prompt_named_direct_reads.isdisjoint(proof_artifacts)
+    assert prompt_named_direct_reads.isdisjoint(canonical_evidence)
     assert sorted(
         [
             *ROOT.glob("feedback/2026-04-17-ea-governor-packets-*.md"),
