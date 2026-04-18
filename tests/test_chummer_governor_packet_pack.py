@@ -98,6 +98,14 @@ def _expected_proof_artifacts() -> set[str]:
     return _expected_completed_outputs() | {"tests/test_chummer_governor_packet_pack.py"}
 
 
+def _expected_registry_feedback_proof_notes() -> set[str]:
+    return {
+        "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
+        "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
+        "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md",
+    }
+
+
 def _timestamp_suffix_from_repeat_note(note_path: str) -> str:
     stem = Path(note_path).stem
     suffix = stem.rsplit("-", 1)[-1].removesuffix("z")
@@ -250,6 +258,12 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         }
     )
     registry_evidence_items = [str(item) for item in registry_task.get("evidence") or []]
+    registry_feedback_notes = {
+        item.split(" ", 1)[0]
+        for item in registry_evidence_items
+        if item.startswith("/docker/EA/feedback/")
+    }
+    assert registry_feedback_notes == _expected_registry_feedback_proof_notes()
     assert not any(
         "ea-governor-packets-successor-wave-pass-" in item
         for item in registry_evidence_items
@@ -308,6 +322,11 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         "generated_at refreshes" in item
         and "informational only" in item
         and "must not by themselves reopen queue proof" in item
+        for item in drift_policy
+    )
+    assert any(
+        "paired specimen artifact must carry the same generated_at" in item
+        and "one synchronized informational timestamp window" in item
         for item in drift_policy
     )
     assert any("docs, tests, feedback, or skills" in item for item in drift_policy)
@@ -395,6 +414,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert set(authority.get("queue_proof_required_entries") or []) == {
         str(item) for item in _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH)).get("proof") or []
     }
+    assert set(authority.get("registry_feedback_proof_notes") or []) == _expected_registry_feedback_proof_notes()
     assert (
         "/docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md"
         in set(authority.get("queue_proof_required_entries") or [])
@@ -449,6 +469,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "must not by themselves append proof notes" in artifact_generated_at_refresh_rule
     assert "refresh canonical queue or registry proof entries" in artifact_generated_at_refresh_rule
     assert "reopen the closed EA packet slice" in artifact_generated_at_refresh_rule
+    assert "both artifacts must carry the same generated_at" in artifact_generated_at_refresh_rule
     latest_allowed_timestamp_only = str(terminal_policy.get("latest_allowed_timestamp_only_verification_at") or "")
     assert (
         terminal_policy.get("repeated_assignment_handling")
@@ -858,6 +879,14 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert "not orientation, proof, or reopen evidence" in readme_text
     assert "exact task-local telemetry path named by the active prompt" in readme_text
     assert "previous retry run id cannot stay pinned as fake proof" in readme_text
+    assert "open the prompt-named task-local telemetry file first" in readme_text
+    assert "then open one of the listed canonical repo files" in readme_text
+    assert "then inspect the target package files directly" in readme_text
+    assert "Queue proof and registry evidence may cite only the terminal closeout trio" in readme_text
+    assert "Do not replace that sequence with supervisor status or ETA checks" in readme_text
+    assert "Those first reads only confirm assignment shape and proof boundaries" in readme_text
+    for note in _expected_registry_feedback_proof_notes():
+        assert note.removeprefix("/docker/EA/") in readme_text
     assert "newer `ACTIVE_RUN_HANDOFF.generated.md` timestamp alone is not a reason" in (
         ROOT / str(terminal_policy.get("proof_note") or "")
     ).read_text(encoding="utf-8")
@@ -1065,6 +1094,7 @@ def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> N
 
 def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
     pack = _yaml(PACK_PATH)
+    specimens = _yaml(SPECIMENS_PATH)
     source_truth = {str(key): dict(value) for key, value in dict(pack.get("source_truth") or {}).items()}
     shared_anchors = set(pack.get("shared_evidence_anchor_ids") or [])
     truth_bundle = dict(pack.get("normalized_truth_bundle") or {})
@@ -1103,6 +1133,8 @@ def test_pack_source_truth_files_exist_and_share_evidence_anchors() -> None:
     assert _source_path(source_truth["fleet_weekly_governor_packet"]).resolve() == FLEET_WEEKLY_GOVERNOR_PACKET_PATH.resolve()
     assert _source_path(source_truth["fleet_support_packets"]).resolve() == FLEET_SUPPORT_PACKETS_PATH.resolve()
     assert _source_path(source_truth["registry_release_channel"]).resolve() == REGISTRY_RELEASE_CHANNEL_PATH.resolve()
+    assert str(pack.get("generated_at") or "").strip()
+    assert pack.get("generated_at") == specimens.get("generated_at")
     assert "Fleet-published queue mirror" in str(source_truth["canonical_successor_queue"].get("use_rule") or "")
     assert "design-owned successor queue source" in str(source_truth["design_successor_queue"].get("use_rule") or "")
     assert "live Fleet operator packet projection" in str(source_truth["fleet_weekly_governor_packet"].get("use_rule") or "")

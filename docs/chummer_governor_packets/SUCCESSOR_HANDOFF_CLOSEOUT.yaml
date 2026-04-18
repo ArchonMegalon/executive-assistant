@@ -70,6 +70,10 @@ canonical_authority:
     - /docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md
     - /docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
     - python tests/test_chummer_governor_packet_pack.py exits 0 with ran=20 failed=0
+  registry_feedback_proof_notes:
+    - /docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md
+    - /docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md
+    - /docker/EA/feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md
 repeat_prevention:
   worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging row, completed outputs, and proof command still agree; advance only delegated non-EA follow-up packages from here.
   do_not_reopen_for:
@@ -90,7 +94,7 @@ terminal_verification_policy:
   post_terminal_proof_command_result_required: ran=20 failed=0
   current_worker_rule: Do not append a new successor-wave verification note solely because ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp for the same closed frontier; run the proof command and cite the terminal closeout instead.
   artifact_generated_at_only_refreshes_are_proof: false
-  artifact_generated_at_refresh_rule: Top-level generated_at refreshes inside docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml or docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml are informational only; they must not by themselves append proof notes, refresh canonical queue or registry proof entries, or reopen the closed EA packet slice.
+  artifact_generated_at_refresh_rule: Top-level generated_at refreshes inside docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml or docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml are informational only; they must not by themselves append proof notes, refresh canonical queue or registry proof entries, or reopen the closed EA packet slice. If either packet artifact timestamp is refreshed, both artifacts must carry the same generated_at so the closed pack continues to present one synchronized informational timestamp window.
   implementation_only_retry_rule: Implementation-only retries for the same package id and frontier id must not create new timestamp-only feedback notes, completed_outputs entries, proof_artifacts entries, queue proof entries, registry evidence, or task-local telemetry proof; they may only change this package when an allowed reopen trigger exposes real artifact or authority drift.
   repeated_assignment_handling: Treat later active-run handoffs for the same package id and frontier id as ignored by this terminal policy without appending per-handoff manifest rows, unless an allowed reopen trigger below fires.
   ignored_assignment_rule:

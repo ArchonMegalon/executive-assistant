@@ -186,6 +186,7 @@ proof_guardrails:
     - Fail closed if the milestone dependencies or EA work task drift away from the canonical successor registry.
     - Fail closed if reporter specimens diverge from the mirrored progress email workflow stage order, trigger statuses, required fields, or exactly-once rules.
     - Treat top-level generated_at refreshes inside this packet pack or the paired specimen artifact as informational only; they must not by themselves reopen queue proof, registry evidence, or closed-slice work.
+    - If either packet artifact refreshes generated_at, the paired specimen artifact must carry the same generated_at so the closed pack still reads as one synchronized informational timestamp window instead of two competing refresh moments.
     - Keep package proof under docs, tests, feedback, or skills unless a future canonical queue row explicitly changes allowed paths.
     - Implementation-only retry assignments, task-local telemetry, and active-run handoff timestamps are assignment context only; they must not become packet proof, queue proof, registry evidence, or reporter followthrough evidence for this closed EA package.
 operator_packet:

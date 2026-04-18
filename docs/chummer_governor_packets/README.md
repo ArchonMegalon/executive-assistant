@@ -42,6 +42,16 @@ Implementation-only retries for the same package id and frontier id are covered 
 
 That same closure rule now applies to packet-artifact timestamps as well. A top-level `generated_at` refresh inside `CHUMMER_GOVERNOR_PACKET_PACK.yaml` or `OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml` is informational only and must not, by itself, append proof notes, refresh canonical queue or registry proof entries, or reopen the closed EA-owned packet slice.
 
+If one of those two packet artifacts is refreshed, the other must carry the same top-level `generated_at`. The timestamps are still informational, but the closed packet pack should read as one synchronized snapshot window rather than two competing refresh moments.
+
+Queue proof and registry evidence may cite only the terminal closeout trio:
+
+* `feedback/2026-04-15-ea-governor-packets-package-closeout.md`
+* `feedback/2026-04-15-chummer-governor-packets-successor-guard.md`
+* `feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md`
+
+Intermediate same-package pass notes and extra guard notes are historical context only; they are not canonical closeout proof for this package.
+
 The terminal policy now also carries `retry_helper_loop_guard`. That guard is specifically for implementation-only retries after helper-loop churn: task-local telemetry and `ACTIVE_RUN_HANDOFF.generated.md` may be read as assignment context when the prompt requires it, but supervisor status, ETA, polling, active-run wait loops, operator telemetry, or `codexea status`/`codexea eta` helpers are not orientation, proof, or reopen evidence for this EA package. The repo-local proof boundary remains the packet pack, specimens, handoff closeout, and focused test file.
 
 For this implementation-only retry, the guard also pins the direct-read context set from the worker prompt and marks invented orientation as denied. That preserves the useful assignment inputs without letting those mutable runtime files become package evidence or a reason to append another feedback note.
@@ -49,6 +59,8 @@ For this implementation-only retry, the guard also pins the direct-read context 
 The same guard now records the required startup context as prompt-relative assignment intake instead of pinning a single retry run id. Workers must read the task-local telemetry path supplied by the active prompt first, at least one listed canonical repo file second, the worker-safe handoff when required, and the target `docs`, `tests`, `feedback`, or `skills` files before editing. Those reads are assignment intake, not proof, and they must not be substituted with supervisor status, ETA, polling, active-run wait loops, operator telemetry, or invented orientation helpers.
 
 The guard now records the prompt-relative direct-read startup contract instead of pinning a stale retry run id. For this implementation-only retry shape, workers must read the task-local telemetry file first, one listed repo file second, and the target package files under `docs`, `tests`, `feedback`, or `skills` before editing. The first startup read must still match the exact task-local telemetry path named by the active prompt while satisfying the shard-local telemetry path pattern, so a previous retry run id cannot stay pinned as fake proof. The listed repo-file candidates and the prompt-named direct reads still include the closed biggest-wins registry, milestone spine, roadmap, worker-safe handoff, successor registry, and Fleet queue mirror, while any historical operator status snippets found in those files remain stale notes rather than commands to repeat.
+
+That startup rule is intentionally exact for successor-wave retries: open the prompt-named task-local telemetry file first, then open one of the listed canonical repo files, then inspect the target package files directly. Do not replace that sequence with supervisor status or ETA checks, operator telemetry, active-run wait loops, or other invented orientation helpers. Those first reads only confirm assignment shape and proof boundaries; they are never queue proof, registry evidence, operator-packet evidence, or reporter-followthrough evidence.
 
 The retry context pattern is recorded only inside the terminal guard as assignment intake: task-local telemetry under `/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json` and handoff path `/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md`. Matching run ids, telemetry paths, and handoff timestamps must not be copied into completed outputs, proof artifacts, queue proof, registry evidence, or successor verification history unless a guarded reopen trigger exposes real artifact or authority drift.
 
