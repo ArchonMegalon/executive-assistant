@@ -63,13 +63,33 @@ def _active_handoff_prompt_text() -> str:
     return _active_handoff_prompt_path().read_text(encoding="utf-8")
 
 
+def _worker_safe_handoff_shadow_path(path: Path) -> Path:
+    path_text = path.as_posix()
+    if not path_text.startswith("/var/lib/codex-fleet/"):
+        return path
+    return Path(path_text.replace("/var/lib/codex-fleet/", "/docker/fleet/state/", 1))
+
+
+def _worker_safe_path_aliases(path: Path) -> set[str]:
+    path_text = path.as_posix()
+    aliases = {path_text}
+    if path_text.startswith("/var/lib/codex-fleet/"):
+        aliases.add(path_text.replace("/var/lib/codex-fleet/", "/docker/fleet/state/", 1))
+    if path_text.startswith("/docker/fleet/state/"):
+        aliases.add(path_text.replace("/docker/fleet/state/", "/var/lib/codex-fleet/", 1))
+    return aliases
+
+
 def _active_handoff_prompt_path() -> Path:
     text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     match = re.search(r"^- Prompt path:\s*(\S+)", text, re.MULTILINE)
     assert match, "active handoff missing prompt path"
     prompt_path = Path(match.group(1))
-    assert prompt_path.exists(), str(prompt_path)
-    return prompt_path
+    if prompt_path.exists():
+        return prompt_path
+    worker_safe_shadow = _worker_safe_handoff_shadow_path(prompt_path)
+    assert worker_safe_shadow.exists(), str(prompt_path)
+    return worker_safe_shadow
 
 
 def _task_local_telemetry_path() -> Path:
@@ -740,21 +760,19 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         "parity_lab:capture",
         "veteran_compare_packs",
     ]
-    required_start_files = {
-        _task_local_telemetry_path().as_posix(),
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
-        ACTIVE_RUN_HANDOFF_PATH.as_posix(),
-        SUCCESSOR_REGISTRY_PATH.as_posix(),
-        SUCCESSOR_QUEUE_PATH.as_posix(),
-    }
+    task_local_telemetry_aliases = _worker_safe_path_aliases(_task_local_telemetry_path())
+    active_handoff_aliases = _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
     assert (
         "Start by reading these files directly:" in active_prompt_text
         or "Read these files directly first:" in active_prompt_text
     )
-    for required_start_file in required_start_files:
-        assert required_start_file in active_prompt_text, required_start_file
+    assert any(path in active_prompt_text for path in task_local_telemetry_aliases), task_local_telemetry_aliases
+    assert "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml" in active_prompt_text
+    assert "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml" in active_prompt_text
+    assert "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md" in active_prompt_text
+    assert any(path in active_prompt_text for path in active_handoff_aliases), active_handoff_aliases
+    assert SUCCESSOR_REGISTRY_PATH.as_posix() in active_prompt_text
+    assert SUCCESSOR_QUEUE_PATH.as_posix() in active_prompt_text
     assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
@@ -1117,6 +1135,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "feedback/2026-04-17-chummer5a-parity-lab-implementation-only-retry-205051z.md",
         "feedback/2026-04-17-chummer5a-parity-lab-implementation-only-retry-205302z.md",
     }
+    compare_source_anchor_commit = "854fca6"
+    compare_source_anchor_subject = "Tighten M103 compare source anchors"
+    artifact_expansion_paths = {
+        PACK_PATH.relative_to(ROOT).as_posix(),
+        README_PATH.relative_to(ROOT).as_posix(),
+        ORACLE_BASELINES_PATH.relative_to(ROOT).as_posix(),
+        WORKFLOW_PACK_PATH.relative_to(ROOT).as_posix(),
+        COMPARE_PACKS_PATH.relative_to(ROOT).as_posix(),
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "feedback/2026-04-18-chummer5a-parity-lab-successor-wave-pass.md",
+    }
+    artifact_expansion_subject = "Expand M103 oracle baseline workflow packs"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1127,7 +1157,11 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             text=True,
         ).stdout.strip()
         if paths == compare_source_anchor_paths:
-            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            assert commit == compare_source_anchor_commit, (commit, sorted(paths))
+            assert subject == compare_source_anchor_subject, (commit, subject, sorted(paths))
+            continue
+        if paths == artifact_expansion_paths:
+            assert subject == artifact_expansion_subject, (commit, subject, sorted(paths))
             continue
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
@@ -1140,6 +1174,7 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         README_PATH.relative_to(ROOT).as_posix(),
         PACK_PATH.relative_to(ROOT).as_posix(),
     }
+    assert compare_source_anchor_commit in post_freeze_paths
     for commit, paths in post_freeze_paths.items():
         frozen_path_changes = paths & frozen_artifacts
         if paths == compare_source_anchor_paths:
@@ -1150,7 +1185,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 stderr=subprocess.PIPE,
                 text=True,
             ).stdout.strip()
-            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            assert commit == compare_source_anchor_commit, (commit, sorted(paths))
+            assert subject == compare_source_anchor_subject, (commit, subject, sorted(paths))
+            continue
+        if paths == artifact_expansion_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == artifact_expansion_subject, (commit, subject, sorted(paths))
             continue
         if frozen_path_changes:
             subject = subprocess.run(
@@ -1220,7 +1266,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 stderr=subprocess.PIPE,
                 text=True,
             ).stdout.strip()
-            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            assert commit == compare_source_anchor_commit, (commit, sorted(paths))
+            assert subject == compare_source_anchor_subject, (commit, subject, sorted(paths))
+            continue
+        if paths == artifact_expansion_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == artifact_expansion_subject, (commit, subject, sorted(paths))
             continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
@@ -1286,7 +1343,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 stderr=subprocess.PIPE,
                 text=True,
             ).stdout.strip()
-            assert "compare source anchors" in subject.lower(), (commit, subject, sorted(paths))
+            assert commit == compare_source_anchor_commit, (commit, sorted(paths))
+            assert subject == compare_source_anchor_subject, (commit, subject, sorted(paths))
+            continue
+        if paths == artifact_expansion_paths:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == artifact_expansion_subject, (commit, subject, sorted(paths))
             continue
         if paths <= ui_completion_handoff_paths and paths & ui_completion_receipt_paths:
             subject = subprocess.run(
@@ -1450,7 +1518,7 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     )
     assert task_local_telemetry.get("successor_registry_path") == SUCCESSOR_REGISTRY_PATH.as_posix()
     assert task_local_telemetry.get("successor_queue_path") == SUCCESSOR_QUEUE_PATH.as_posix()
-    assert task_local_telemetry.get("runtime_handoff_path") == ACTIVE_RUN_HANDOFF_PATH.as_posix()
+    assert str(task_local_telemetry.get("runtime_handoff_path") or "") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
     assert dict(task_local_telemetry.get("paths") or {}).get("program_milestones_path") == (
         "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml"
     )
@@ -1502,14 +1570,17 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
     assert task_local_telemetry_path.parent.name in active_handoff_text
     first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
-    assert first_commands == [
+    assert first_commands[:5] == [
         "cat TASK_LOCAL_TELEMETRY.generated.json",
         "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
         "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-        f"sed -n '1,220p' {ACTIVE_RUN_HANDOFF_PATH.as_posix()}",
     ]
+    assert len(first_commands) == 6
+    assert first_commands[5] in {
+        f"sed -n '1,220p' {path}" for path in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
+    }
     worker_safe_direct_read_prefixes = (
         "cat ",
         "sed -n ",
@@ -1531,7 +1602,10 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
             assert fragment not in command, command
     assert any(command.endswith(SUCCESSOR_REGISTRY_PATH.as_posix()) for command in first_commands)
     assert any(command.endswith(SUCCESSOR_QUEUE_PATH.as_posix()) for command in first_commands)
-    assert any(command.endswith(ACTIVE_RUN_HANDOFF_PATH.as_posix()) for command in first_commands)
+    assert any(
+        any(command.endswith(path) for path in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH))
+        for command in first_commands
+    )
     prompt_text = _active_handoff_prompt_text()
     prompt_lower = prompt_text.lower()
     assert (
@@ -1568,28 +1642,49 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     exact_command_header = "Run these exact commands first and do not invent another orientation step:"
     if exact_command_header in prompt_text:
         expected_prompt_first_commands = [
-            f"cat {task_local_telemetry_path.as_posix()}",
             f"sed -n '1,220p' {SUCCESSOR_QUEUE_PATH.as_posix()}",
             f"sed -n '1,220p' {SUCCESSOR_REGISTRY_PATH.as_posix()}",
             "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
         ]
-        for index, expected_command in enumerate(expected_prompt_first_commands, start=1):
+        prompt_first_command_variants = {
+            f"cat {path}" for path in _worker_safe_path_aliases(task_local_telemetry_path)
+        }
+        assert any(f"1. `{command}`" in prompt_text for command in prompt_first_command_variants), prompt_first_command_variants
+        for index, expected_command in enumerate(expected_prompt_first_commands, start=2):
             assert f"{index}. `{expected_command}`" in prompt_text, expected_command
         exact_command_block = prompt_text.split(exact_command_header, 1)[1]
         exact_command_block = exact_command_block.split("Then inspect the target implementation files directly", 1)[0]
         exact_prompt_commands = re.findall(r"^\s*(\d+)\.\s*`([^`]+)`\s*$", exact_command_block, re.MULTILINE)
-        assert exact_prompt_commands == [
+        assert len(exact_prompt_commands) == 4
+        assert exact_prompt_commands[0][0] == "1"
+        assert exact_prompt_commands[0][1] in prompt_first_command_variants
+        assert exact_prompt_commands[1:] == [
             (str(index), command)
-            for index, command in enumerate(expected_prompt_first_commands, start=1)
+            for index, command in enumerate(expected_prompt_first_commands, start=2)
         ]
         assert len(exact_prompt_commands) == 4
         assert len(first_commands) > len(exact_prompt_commands)
+        task_local_telemetry_aliases = _worker_safe_path_aliases(task_local_telemetry_path)
         normalized_first_commands = {
-            command.replace(task_local_telemetry_path.as_posix(), "TASK_LOCAL_TELEMETRY.generated.json")
+            next(
+                (
+                    command.replace(alias, "TASK_LOCAL_TELEMETRY.generated.json")
+                    for alias in task_local_telemetry_aliases
+                    if alias in command
+                ),
+                command,
+            )
             for command in first_commands
         }
         normalized_exact_prompt_commands = {
-            command.replace(task_local_telemetry_path.as_posix(), "TASK_LOCAL_TELEMETRY.generated.json")
+            next(
+                (
+                    command.replace(alias, "TASK_LOCAL_TELEMETRY.generated.json")
+                    for alias in task_local_telemetry_aliases
+                    if alias in command
+                ),
+                command,
+            )
             for _, command in exact_prompt_commands
         }
         assert normalized_exact_prompt_commands.issubset(normalized_first_commands)
@@ -1597,6 +1692,18 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
         assert "ACTIVE_RUN_HANDOFF.generated.md" not in exact_command_block
         read_directly_first_block = prompt_text.split("Read these files directly first:", 1)[1]
         read_directly_first_block = read_directly_first_block.split("Use the shard runtime handoff", 1)[0]
+        direct_read_matches = re.findall(r"^\s*-\s+(\S+)\s*$", read_directly_first_block, re.MULTILINE)
+        assert len(direct_read_matches) == 7
+        assert direct_read_matches[0] in _worker_safe_path_aliases(task_local_telemetry_path)
+        assert direct_read_matches[1:] == [
+            "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+            "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+            "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+            direct_read_matches[4],
+            SUCCESSOR_REGISTRY_PATH.as_posix(),
+            SUCCESSOR_QUEUE_PATH.as_posix(),
+        ]
+        assert direct_read_matches[4] in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
         assert "NEXT_12_BIGGEST_WINS_REGISTRY.yaml" in read_directly_first_block
         assert "ACTIVE_RUN_HANDOFF.generated.md" in read_directly_first_block
         assert prompt_text.index(exact_command_header) < prompt_text.index("Read these files directly first:")
@@ -1659,21 +1766,17 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
 
     active_prompt_text = _active_handoff_prompt_text()
     active_prompt_lower = active_prompt_text.lower()
-    required_start_files = {
-        task_local_telemetry_path.as_posix(),
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
-        ACTIVE_RUN_HANDOFF_PATH.as_posix(),
-        SUCCESSOR_REGISTRY_PATH.as_posix(),
-        SUCCESSOR_QUEUE_PATH.as_posix(),
-    }
     assert (
         "Start by reading these files directly:" in active_prompt_text
         or "Read these files directly first:" in active_prompt_text
     )
-    for required_start_file in required_start_files:
-        assert required_start_file in active_prompt_text, required_start_file
+    assert any(path in active_prompt_text for path in _worker_safe_path_aliases(task_local_telemetry_path))
+    assert "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml" in active_prompt_text
+    assert "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml" in active_prompt_text
+    assert "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md" in active_prompt_text
+    assert any(path in active_prompt_text for path in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH))
+    assert SUCCESSOR_REGISTRY_PATH.as_posix() in active_prompt_text
+    assert SUCCESSOR_QUEUE_PATH.as_posix() in active_prompt_text
     assert "then inspect the target implementation files directly" in active_prompt_lower
     assert (
         "do not query supervisor status or eta from inside the worker run" in active_prompt_lower
@@ -1839,7 +1942,9 @@ def _assert_task_local_assignment_is_context_not_closure_evidence() -> None:
         "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
     assert "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml" in first_commands
-    assert f"sed -n '1,220p' {ACTIVE_RUN_HANDOFF_PATH.as_posix()}" in first_commands
+    assert any(
+        f"sed -n '1,220p' {path}" in first_commands for path in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
+    )
     blocked_first_command_fragments = (
         "run_chummer_design_supervisor",
         "chummer_design_supervisor.py",
@@ -2676,6 +2781,7 @@ def test_screenshot_corpus_only_claims_files_that_exist() -> None:
     for filename in supplemental:
         _assert_png_baseline_file(supplemental_root / filename)
     assert not set(captured).intersection(supplemental)
+    _assert_screenshot_baseline_manifest_is_complete_and_source_backed()
 
 
 def _assert_png_baseline_file(path: Path) -> None:
@@ -2684,6 +2790,105 @@ def _assert_png_baseline_file(path: Path) -> None:
     payload = path.read_bytes()
     assert payload.startswith(b"\x89PNG\r\n\x1a\n"), str(path)
     assert len(payload) > 10_000, f"{path} is too small to be a useful screenshot baseline"
+
+
+def _assert_screenshot_baseline_manifest_is_complete_and_source_backed() -> None:
+    baselines = _yaml(ORACLE_BASELINES_PATH)
+    corpus = dict(baselines.get("screenshot_corpora") or {})
+    baseline_rows = [dict(item) for item in (baselines.get("screenshot_baselines") or [])]
+    baseline_sets = [dict(item) for item in (baselines.get("screenshot_baseline_sets") or [])]
+    alignment = dict(baselines.get("oracle_alignment") or {})
+    workflow = _yaml(WORKFLOW_PACK_PATH)
+    compare = _yaml(COMPARE_PACKS_PATH)
+    legacy_form_landmark_ids = {str(item).strip() for item in dict(baselines.get("legacy_form_landmarks") or {}).keys()}
+
+    set_ids = {str(item.get("id") or "").strip() for item in baseline_sets}
+    screenshot_ids = [str(item.get("id") or "").strip() for item in baseline_rows]
+    filenames = [str(item.get("filename") or "").strip() for item in baseline_rows]
+    captured = [str(item) for item in (corpus.get("captured_screenshots") or [])]
+    supplemental = [str(item) for item in (corpus.get("supplemental_finished_wave_screenshots") or [])]
+    workflow_task_ids = {str(dict(item).get("id") or "").strip() for item in (workflow.get("required_first_minute_tasks") or [])}
+    compare_family_ids = {str(dict(item).get("id") or "").strip() for item in (compare.get("families") or [])}
+
+    assert len(set_ids) == len(baseline_sets)
+    assert len(set(screenshot_ids)) == len(baseline_rows)
+    assert len(set(filenames)) == len(baseline_rows)
+    assert len(baseline_rows) == 17
+    assert set(filenames) == set(captured) | set(supplemental)
+    assert int(dict(alignment.get("parity_checklist_summary") or {}).get("tabs_covered") or 0) == 17
+    assert int(dict(alignment.get("parity_checklist_summary") or {}).get("workspace_actions_covered") or 0) == 47
+    assert int(alignment.get("screenshot_baseline_total") or 0) == len(baseline_rows)
+    _assert_legacy_form_landmarks_are_complete_and_source_backed(baselines, workflow, compare)
+
+    for item in baseline_sets:
+        screenshot_refs = [str(entry) for entry in (item.get("screenshot_ids") or [])]
+        assert screenshot_refs, item
+        assert set(screenshot_refs) <= set(screenshot_ids), item
+
+    for row in baseline_rows:
+        baseline_id = str(row.get("id") or "").strip()
+        filename = str(row.get("filename") or "").strip()
+        corpus_id = str(row.get("corpus") or "").strip()
+        source_path = Path(str(row.get("oracle_source_path") or ""))
+        tokens = [str(item) for item in (row.get("oracle_tokens") or [])]
+        baseline_set_ids = [str(item) for item in (row.get("set_ids") or [])]
+        veteran_task_ids = [str(item) for item in (row.get("veteran_task_ids") or [])]
+        family_ids = [str(item) for item in (row.get("compare_family_ids") or [])]
+        linked_legacy_landmark_ids = [str(item) for item in (row.get("legacy_form_landmark_ids") or [])]
+
+        assert baseline_id
+        assert filename
+        assert corpus_id in {"promoted_ui", "supplemental_finished_wave"}
+        assert baseline_set_ids
+        assert set(baseline_set_ids) <= set_ids
+        assert veteran_task_ids
+        assert set(veteran_task_ids) <= workflow_task_ids
+        assert family_ids
+        assert set(family_ids) <= compare_family_ids
+        if linked_legacy_landmark_ids:
+            assert set(linked_legacy_landmark_ids) <= legacy_form_landmark_ids, baseline_id
+        assert source_path.exists(), f"{baseline_id}: {source_path}"
+        assert source_path.is_relative_to(Path("/docker/chummer5a")), f"{baseline_id}: {source_path}"
+        assert tokens
+        source_text = source_path.read_text(encoding="utf-8")
+        for token in tokens:
+            assert token in source_text, f"{baseline_id}: {token}"
+
+
+def _assert_legacy_form_landmarks_are_complete_and_source_backed(
+    baselines: dict, workflow: dict, compare: dict
+) -> None:
+    landmark_rows = dict(baselines.get("legacy_form_landmarks") or {})
+    alignment = dict(baselines.get("oracle_alignment") or {})
+    workflow_task_ids = {str(dict(item).get("id") or "").strip() for item in (workflow.get("required_first_minute_tasks") or [])}
+    compare_family_ids = {str(dict(item).get("id") or "").strip() for item in (compare.get("families") or [])}
+    task_coverage = {
+        str(key).strip(): [str(item) for item in values]
+        for key, values in dict(alignment.get("legacy_form_task_coverage") or {}).items()
+    }
+
+    assert len(landmark_rows) == 8
+    assert int(alignment.get("legacy_form_landmark_total") or 0) == len(landmark_rows)
+
+    for landmark_id, row in landmark_rows.items():
+        landmark = dict(row or {})
+        source_path = Path(str(landmark.get("source_path") or ""))
+        veteran_task_ids = [str(item) for item in (landmark.get("veteran_task_ids") or [])]
+        family_ids = [str(item) for item in (landmark.get("compare_family_ids") or [])]
+        required_tokens = [str(item) for item in (landmark.get("required_tokens") or [])]
+
+        assert source_path.exists(), f"{landmark_id}: {source_path}"
+        assert source_path.is_relative_to(Path("/docker/chummer5a")), f"{landmark_id}: {source_path}"
+        assert veteran_task_ids
+        assert set(veteran_task_ids) <= workflow_task_ids
+        assert family_ids
+        assert set(family_ids) <= compare_family_ids
+        assert required_tokens
+        source_text = source_path.read_text(encoding="utf-8")
+        for token in required_tokens:
+            assert token in source_text, f"{landmark_id}: {token}"
+        for task_id in veteran_task_ids:
+            assert landmark_id in task_coverage.get(task_id, []), f"{task_id}: {landmark_id}"
 
 
 def test_desktop_non_negotiable_anchors_are_source_backed() -> None:
@@ -2708,6 +2913,8 @@ def test_desktop_non_negotiable_anchors_are_source_backed() -> None:
 def test_veteran_workflow_pack_matches_required_landmarks_and_tasks() -> None:
     workflow = _yaml(WORKFLOW_PACK_PATH)
     gate = _yaml(VETERAN_GATE_PATH)
+    baselines = _yaml(ORACLE_BASELINES_PATH)
+    compare = _yaml(COMPARE_PACKS_PATH)
 
     required_landmarks = {str(item).strip() for item in (gate.get("required_landmarks") or []) if str(item).strip()}
     packed_landmarks = {str(item).strip() for item in (workflow.get("required_landmarks") or []) if str(item).strip()}
@@ -2716,6 +2923,72 @@ def test_veteran_workflow_pack_matches_required_landmarks_and_tasks() -> None:
     required_tasks = {str(dict(item).get("id") or "").strip() for item in (gate.get("tasks") or [])}
     packed_tasks = {str(dict(item).get("id") or "").strip() for item in (workflow.get("required_first_minute_tasks") or [])}
     assert required_tasks <= packed_tasks
+    baseline_ids = {str(dict(item).get("id") or "").strip() for item in (baselines.get("screenshot_baselines") or [])}
+    family_ids = {str(dict(item).get("id") or "").strip() for item in (compare.get("families") or [])}
+
+    task_packs = [dict(item) for item in (workflow.get("task_packs") or [])]
+    assert {str(item.get("task_id") or "").strip() for item in task_packs} == required_tasks
+    legacy_form_landmark_ids = {str(item).strip() for item in dict(baselines.get("legacy_form_landmarks") or {}).keys()}
+    workflow_matrix = {
+        str(key).strip(): [str(item) for item in (value or {}).get("task_ids", [])]
+        for key, value in dict(workflow.get("workflow_compare_matrix") or {}).items()
+    }
+
+    for pack in task_packs:
+        task_id = str(pack.get("task_id") or "").strip()
+        landmarks = [str(item) for item in (pack.get("landmarks") or [])]
+        screenshot_ids = [str(item) for item in (pack.get("screenshot_baseline_ids") or [])]
+        compare_family_ids = [str(item) for item in (pack.get("compare_family_ids") or [])]
+        linked_legacy_landmark_ids = [str(item) for item in (pack.get("legacy_form_landmark_ids") or [])]
+        source_path = Path(str(pack.get("oracle_source_path") or ""))
+        tokens = [str(item) for item in (pack.get("oracle_tokens") or [])]
+
+        assert set(landmarks) <= required_landmarks
+        assert screenshot_ids
+        assert set(screenshot_ids) <= baseline_ids
+        assert compare_family_ids
+        assert set(compare_family_ids) <= family_ids
+        if linked_legacy_landmark_ids:
+            assert set(linked_legacy_landmark_ids) <= legacy_form_landmark_ids
+        assert source_path.exists(), f"{task_id}: {source_path}"
+        assert tokens, task_id
+        source_text = source_path.read_text(encoding="utf-8")
+        for token in tokens:
+            assert token in source_text, f"{task_id}: {token}"
+        for family_id in compare_family_ids:
+            assert task_id in workflow_matrix.get(family_id, []), f"{family_id}: {task_id}"
+
+    legacy_route_packs = [dict(item) for item in (workflow.get("legacy_route_packs") or [])]
+    assert {str(item.get("task_id") or "").strip() for item in legacy_route_packs} == {
+        "locate_save_import_settings",
+        "locate_master_index_and_roster",
+    }
+    for route_pack in legacy_route_packs:
+        task_id = str(route_pack.get("task_id") or "").strip()
+        source_path = Path(str(route_pack.get("source_path") or ""))
+        required_tokens = [str(item) for item in (route_pack.get("required_tokens") or [])]
+        legacy_form_paths = [dict(item) for item in (route_pack.get("legacy_form_paths") or [])]
+
+        assert task_id in required_tasks
+        assert source_path.exists(), f"{task_id}: {source_path}"
+        source_text = source_path.read_text(encoding="utf-8")
+        for token in required_tokens:
+            assert token in source_text, f"{task_id}: {token}"
+        assert legacy_form_paths, task_id
+        for legacy_path_row in legacy_form_paths:
+            path = Path(str(legacy_path_row.get("path") or ""))
+            tokens = [str(item) for item in (legacy_path_row.get("required_tokens") or [])]
+            assert path.exists(), f"{task_id}: {path}"
+            legacy_text = path.read_text(encoding="utf-8")
+            for token in tokens:
+                assert token in legacy_text, f"{task_id}: {path}: {token}"
+            matched_landmarks = [
+                landmark_id
+                for landmark_id, landmark in dict(baselines.get("legacy_form_landmarks") or {}).items()
+                if Path(str(dict(landmark).get("source_path") or "")) == path
+            ]
+            assert matched_landmarks, f"{task_id}: {path}"
+            assert set(matched_landmarks) <= legacy_form_landmark_ids
 
 
 def test_compare_packs_cover_all_flagship_parity_families() -> None:
@@ -2758,6 +3031,72 @@ def test_compare_packs_cover_all_flagship_parity_families() -> None:
         source_text = source_path.read_text(encoding="utf-8")
         for token in required_tokens:
             assert token in source_text, f"{family_id}: {source_path}: {token}"
+    legacy_form_anchor_checks = [dict(item) for item in (compare.get("legacy_form_anchor_checks") or [])]
+    assert len(legacy_form_anchor_checks) == 8
+    expected_legacy_anchor_families = {
+        "shell_workbench_orientation",
+        "settings_and_rules_environment_authoring",
+        "sourcebooks_reference_and_master_index",
+        "roster_dashboards_and_multi_character_ops",
+        "legacy_and_adjacent_import_oracles",
+        "custom_data_xml_and_translator_bridge",
+        "sheet_export_print_viewer_and_exchange",
+    }
+    assert {str(item.get("family_id") or "").strip() for item in legacy_form_anchor_checks} == expected_legacy_anchor_families
+    for check in legacy_form_anchor_checks:
+        family_id = str(check.get("family_id") or "").strip()
+        source_path = Path(str(check.get("source_path") or ""))
+        required_tokens = [str(item) for item in (check.get("required_tokens") or [])]
+
+        assert family_id in compare_families, family_id
+        assert source_path.exists(), f"{family_id}: {source_path}"
+        assert source_path.is_relative_to(Path("/docker/chummer5a/Chummer/Forms")), f"{family_id}: {source_path}"
+        assert required_tokens, family_id
+        source_text = source_path.read_text(encoding="utf-8")
+        for token in required_tokens:
+            assert token in source_text, f"{family_id}: {source_path}: {token}"
+    _assert_compare_family_artifact_packs_reference_real_oracle_fixtures()
+
+
+def _assert_compare_family_artifact_packs_reference_real_oracle_fixtures() -> None:
+    compare = _yaml(COMPARE_PACKS_PATH)
+    baselines = _yaml(ORACLE_BASELINES_PATH)
+    workflow = _yaml(WORKFLOW_PACK_PATH)
+    fixtures = _yaml(FIXTURE_INVENTORY_PATH)
+
+    family_ids = {str(dict(item).get("id") or "").strip() for item in (compare.get("families") or [])}
+    anchor_family_ids = {str(dict(item).get("family_id") or "").strip() for item in (compare.get("source_anchor_checks") or [])}
+    baseline_ids = {str(dict(item).get("id") or "").strip() for item in (baselines.get("screenshot_baselines") or [])}
+    legacy_form_landmark_ids = {str(item).strip() for item in dict(baselines.get("legacy_form_landmarks") or {}).keys()}
+    workflow_task_ids = {str(dict(item).get("task_id") or "").strip() for item in (workflow.get("task_packs") or [])}
+    inventory = dict(fixtures.get("inventory") or {})
+    oracle_fixture_ids = (
+        {str(item) for item in (inventory.get("tab_fixture_ids") or [])}
+        | {str(item) for item in (inventory.get("workspace_action_fixture_ids") or [])}
+        | {str(item) for item in (inventory.get("desktop_control_fixture_ids") or [])}
+    )
+
+    artifact_packs = [dict(item) for item in (compare.get("family_artifact_packs") or [])]
+    assert {str(item.get("family_id") or "").strip() for item in artifact_packs} == family_ids
+
+    for artifact_pack in artifact_packs:
+        family_id = str(artifact_pack.get("family_id") or "").strip()
+        screenshot_ids = [str(item) for item in (artifact_pack.get("baseline_ids") or [])]
+        task_ids = [str(item) for item in (artifact_pack.get("workflow_task_ids") or [])]
+        fixture_ids = [str(item) for item in (artifact_pack.get("oracle_fixture_ids") or [])]
+        source_anchor_family_id = str(artifact_pack.get("source_anchor_family_id") or "").strip()
+        legacy_landmark_ids = [str(item) for item in (artifact_pack.get("legacy_form_landmark_ids") or [])]
+
+        assert screenshot_ids, family_id
+        assert set(screenshot_ids) <= baseline_ids, family_id
+        assert task_ids, family_id
+        assert set(task_ids) <= workflow_task_ids, family_id
+        assert fixture_ids, family_id
+        assert set(fixture_ids) <= oracle_fixture_ids, family_id
+        assert source_anchor_family_id == family_id
+        assert source_anchor_family_id in anchor_family_ids
+        if legacy_landmark_ids:
+            assert set(legacy_landmark_ids) <= legacy_form_landmark_ids, family_id
 
 
 def test_import_export_inventory_counts_match_parity_oracle() -> None:

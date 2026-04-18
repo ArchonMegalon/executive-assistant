@@ -49,5 +49,6 @@ readiness_evidence:
 notes:
   - This pack captures and normalizes Chummer5a oracle baselines and veteran first-minute task maps.
   - Compare packs include source-token anchors for every flagship parity family so the veteran workflow handoff stays tied to the oracle repo rather than prose-only parity claims.
+  - Oracle baseline and veteran workflow outputs also normalize WinForms-era landmark sources so veteran compare packs can prove the original Chummer5a route shape instead of only the web oracle shell tokens.
   - Desktop publishability and host-specific startup-smoke proofs remain gated in chummer6-ui/chummer-hub-registry and are out of scope for this package.
   - Master-index and character-roster screenshots are cited from the closed flagship UI proof worktree as supplemental corpus evidence; the successor UI package still owns promoted-head veteran certification.

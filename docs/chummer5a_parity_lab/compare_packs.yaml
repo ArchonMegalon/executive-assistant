@@ -149,6 +149,58 @@ source_anchor_checks:
       - XML-shaped
       - import/export edges
       - save/download/export semantics
+legacy_form_anchor_checks:
+  - family_id: shell_workbench_orientation
+    source_path: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+    required_tokens:
+      - 'Text = "&File"'
+      - 'this.toolsMenu.Text = "&Tools";'
+      - 'this.windowsMenu.Text = "&Windows";'
+      - 'this.helpMenu.Text = "&Help";'
+      - 'this.toolStrip.Name = "toolStrip";'
+      - 'this.tabForms = new System.Windows.Forms.TabControl();'
+  - family_id: settings_and_rules_environment_authoring
+    source_path: /docker/chummer5a/Chummer/Forms/EditGlobalSettings.Designer.cs
+    required_tokens:
+      - 'Text = "Global Settings"'
+      - "Default Setting for Master Index:"
+      - "Character Roster Watch Folder:"
+  - family_id: settings_and_rules_environment_authoring
+    source_path: /docker/chummer5a/Chummer/Forms/EditCharacterSettings.Designer.cs
+    required_tokens:
+      - 'Text = "Character Settings"'
+      - "Title_CharacterOptions"
+      - "gpbSourcebook"
+  - family_id: sourcebooks_reference_and_master_index
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs
+    required_tokens:
+      - 'Text = "Master Index"'
+      - "lblSourceClickReminder"
+      - "cmdEditCharacterSetting"
+  - family_id: roster_dashboards_and_multi_character_ops
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs
+    required_tokens:
+      - 'Text = "Character Roster"'
+      - "treCharacterList"
+      - "panGameNotes"
+  - family_id: legacy_and_adjacent_import_oracles
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/HeroLabImporter.Designer.cs
+    required_tokens:
+      - 'Text = "Hero Lab Importer"'
+      - "lblHeroLabTrademark"
+      - "cmdImport"
+  - family_id: custom_data_xml_and_translator_bridge
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/DataExporter.Designer.cs
+    required_tokens:
+      - 'Text = "Export Data Files to Archive"'
+      - 'Text = "Custom Data"'
+      - "cmdExportClose"
+  - family_id: sheet_export_print_viewer_and_exchange
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/ExportCharacter.Designer.cs
+    required_tokens:
+      - 'Text = "Export Character"'
+      - 'Text = "Generating Data..."'
+      - "cmdExportClose"
 exit_readiness:
   status: successor_handoff_ready
   current_flagship_readiness:
@@ -163,4 +215,151 @@ exit_readiness:
       reason: Capture promoted-head master-index and character-roster screenshots and run the desktop visual compare review.
   notes:
     - Compare packs are extracted and source-backed for every flagship parity family.
+    - Legacy-form anchor checks normalize the original WinForms veteran surfaces behind the web-oracle tokens so compare review can trace both route layers.
     - EA no longer carries stale desktop tuple blockers; promoted-head proof now belongs to the current readiness packet and UI veteran-certification package.
+family_artifact_packs:
+  - family_id: shell_workbench_orientation
+    baseline_ids:
+      - initial_shell
+      - menu_open
+      - loaded_runner
+      - loaded_runner_tabs
+    workflow_task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+    oracle_fixture_ids:
+      - tab-info
+      - tab-attributes
+      - tab-skills
+    source_anchor_family_id: shell_workbench_orientation
+    legacy_form_landmark_ids:
+      - main_form_window
+  - family_id: dense_builder_and_career_workflows
+    baseline_ids:
+      - dense_section_light
+      - dense_section_dark
+      - loaded_runner_tabs
+      - cyberware_dialog
+      - vehicles_section
+      - magic_dialog
+      - matrix_dialog
+      - advancement_dialog
+      - creation_section
+    workflow_task_ids:
+      - reach_real_workbench
+      - recover_section_rhythm
+    oracle_fixture_ids:
+      - build
+      - progress
+      - improvements
+      - cyberwares
+      - vehicles
+      - spells
+      - complexforms
+    source_anchor_family_id: dense_builder_and_career_workflows
+  - family_id: identity_contacts_lifestyles_history
+    baseline_ids:
+      - contacts_section
+      - diary_dialog
+    workflow_task_ids:
+      - recover_section_rhythm
+    oracle_fixture_ids:
+      - contacts
+      - lifestyles
+      - calendar
+      - expenses
+    source_anchor_family_id: identity_contacts_lifestyles_history
+  - family_id: sourcebooks_reference_and_master_index
+    baseline_ids:
+      - master_index_dialog
+    workflow_task_ids:
+      - locate_master_index_and_roster
+    oracle_fixture_ids:
+      - sources
+      - show_source
+    source_anchor_family_id: sourcebooks_reference_and_master_index
+  - family_id: settings_and_rules_environment_authoring
+    baseline_ids:
+      - menu_open
+      - settings_open
+      - master_index_dialog
+    workflow_task_ids:
+      - locate_save_import_settings
+      - locate_master_index_and_roster
+    oracle_fixture_ids:
+      - rules
+      - sources
+      - show_source
+    source_anchor_family_id: settings_and_rules_environment_authoring
+    legacy_form_landmark_ids:
+      - main_form_window
+      - global_settings_window
+      - character_settings_window
+      - master_index_window
+  - family_id: custom_data_xml_and_translator_bridge
+    baseline_ids:
+      - menu_open
+    workflow_task_ids:
+      - locate_save_import_settings
+    oracle_fixture_ids:
+      - customdatadirectorynames
+    source_anchor_family_id: custom_data_xml_and_translator_bridge
+    legacy_form_landmark_ids:
+      - data_exporter_window
+  - family_id: dice_initiative_and_table_utilities
+    baseline_ids:
+      - loaded_runner
+    workflow_task_ids:
+      - locate_save_import_settings
+    oracle_fixture_ids:
+      - combat_damage_track
+      - tab-combat
+    source_anchor_family_id: dice_initiative_and_table_utilities
+    legacy_form_landmark_ids:
+      - main_form_window
+  - family_id: roster_dashboards_and_multi_character_ops
+    baseline_ids:
+      - contacts_section
+      - character_roster_dialog
+    workflow_task_ids:
+      - locate_master_index_and_roster
+      - recover_section_rhythm
+    oracle_fixture_ids:
+      - contacts
+      - tab-contacts
+    source_anchor_family_id: roster_dashboards_and_multi_character_ops
+    legacy_form_landmark_ids:
+      - main_form_window
+      - character_roster_window
+  - family_id: sheet_export_print_viewer_and_exchange
+    baseline_ids:
+      - menu_open
+    workflow_task_ids:
+      - locate_save_import_settings
+    oracle_fixture_ids:
+      - create_entry
+      - edit_entry
+    source_anchor_family_id: sheet_export_print_viewer_and_exchange
+    legacy_form_landmark_ids:
+      - main_form_window
+      - export_character_window
+  - family_id: legacy_and_adjacent_import_oracles
+    baseline_ids:
+      - menu_open
+    workflow_task_ids:
+      - locate_save_import_settings
+    oracle_fixture_ids:
+      - customdatadirectorynames
+    source_anchor_family_id: legacy_and_adjacent_import_oracles
+    legacy_form_landmark_ids:
+      - main_form_window
+      - hero_lab_importer_window
+  - family_id: sr6_supplements_designers_and_house_rules
+    baseline_ids:
+      - settings_open
+    workflow_task_ids:
+      - locate_save_import_settings
+    oracle_fixture_ids:
+      - rules
+      - sources
+    source_anchor_family_id: sr6_supplements_designers_and_house_rules

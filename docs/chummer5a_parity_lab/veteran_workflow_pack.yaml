@@ -51,3 +51,157 @@ desktop_non_negotiables_asserted:
 notes:
   - This workflow pack is extraction and compare-map truth only.
   - Desktop tuple host-proof ingestion remains a fleet and promoted-head release lane.
+legacy_route_packs:
+  - task_id: locate_save_import_settings
+    source_path: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+    required_tokens:
+      - 'Text = "&Global Settings"'
+      - 'Text = "&Character Settings"'
+      - 'Text = "&Translator"'
+      - 'Text = "&XML Amendment Editor"'
+      - 'Text = "Data &Exporter"'
+    legacy_form_paths:
+      - path: /docker/chummer5a/Chummer/Forms/EditGlobalSettings.Designer.cs
+        required_tokens:
+          - 'Text = "Global Settings"'
+          - "Default Setting for Master Index:"
+      - path: /docker/chummer5a/Chummer/Forms/EditCharacterSettings.Designer.cs
+        required_tokens:
+          - 'Text = "Character Settings"'
+          - "Title_CharacterOptions"
+      - path: /docker/chummer5a/Chummer/Forms/Utility Forms/HeroLabImporter.Designer.cs
+        required_tokens:
+          - 'Text = "Hero Lab Importer"'
+          - "cmdImport"
+      - path: /docker/chummer5a/Chummer/Forms/Utility Forms/DataExporter.Designer.cs
+        required_tokens:
+          - 'Text = "Export Data Files to Archive"'
+          - 'Text = "Custom Data"'
+      - path: /docker/chummer5a/Chummer/Forms/Utility Forms/ExportCharacter.Designer.cs
+        required_tokens:
+          - 'Text = "Export Character"'
+          - 'Text = "Generating Data..."'
+  - task_id: locate_master_index_and_roster
+    source_path: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+    required_tokens:
+      - 'Text = "&Master Index"'
+      - 'Text = "Ch&aracter Roster"'
+    legacy_form_paths:
+      - path: /docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs
+        required_tokens:
+          - 'Text = "Master Index"'
+          - "lblSourceClickReminder"
+      - path: /docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs
+        required_tokens:
+          - 'Text = "Character Roster"'
+          - "treCharacterList"
+task_packs:
+  - task_id: reach_real_workbench
+    legacy_form_landmark_ids:
+      - main_form_window
+    landmarks:
+      - File menu
+      - Immediate toolstrip
+      - Bottom status strip
+    screenshot_baseline_ids:
+      - initial_shell
+      - loaded_runner
+      - creation_section
+    compare_family_ids:
+      - shell_workbench_orientation
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="file"
+      - data-command="new_character"
+      - class="status-bar"
+  - task_id: locate_save_import_settings
+    legacy_form_landmark_ids:
+      - main_form_window
+      - global_settings_window
+      - character_settings_window
+    landmarks:
+      - Save or open route
+      - Import route
+      - Settings route
+      - Immediate toolstrip
+    screenshot_baseline_ids:
+      - initial_shell
+      - menu_open
+      - settings_open
+    compare_family_ids:
+      - shell_workbench_orientation
+      - settings_and_rules_environment_authoring
+      - legacy_and_adjacent_import_oracles
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="open_character"
+      - data-command="save_character"
+      - data-command="global_settings"
+      - data-command="character_settings"
+  - task_id: locate_master_index_and_roster
+    legacy_form_landmark_ids:
+      - main_form_window
+      - master_index_window
+      - character_roster_window
+    landmarks:
+      - Master index route
+      - Character roster route
+      - Tools menu
+    screenshot_baseline_ids:
+      - master_index_dialog
+      - character_roster_dialog
+    compare_family_ids:
+      - sourcebooks_reference_and_master_index
+      - roster_dashboards_and_multi_character_ops
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="master_index"
+      - data-command="character_roster"
+      - data-command="tools"
+  - task_id: recover_section_rhythm
+    legacy_form_landmark_ids:
+      - main_form_window
+    landmarks:
+      - Windows menu
+      - Help menu
+      - Bottom status strip
+    screenshot_baseline_ids:
+      - loaded_runner_tabs
+      - dense_section_light
+      - contacts_section
+      - advancement_dialog
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+      - identity_contacts_lifestyles_history
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"tab-attributes"'
+      - '"tab-contacts"'
+      - '"tab-improvements"'
+      - '"progress"'
+workflow_compare_matrix:
+  shell_workbench_orientation:
+    task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+  dense_builder_and_career_workflows:
+    task_ids:
+      - reach_real_workbench
+      - recover_section_rhythm
+  identity_contacts_lifestyles_history:
+    task_ids:
+      - recover_section_rhythm
+  sourcebooks_reference_and_master_index:
+    task_ids:
+      - locate_master_index_and_roster
+  settings_and_rules_environment_authoring:
+    task_ids:
+      - locate_save_import_settings
+      - locate_master_index_and_roster
+  roster_dashboards_and_multi_character_ops:
+    task_ids:
+      - locate_master_index_and_roster
+  legacy_and_adjacent_import_oracles:
+    task_ids:
+      - locate_save_import_settings

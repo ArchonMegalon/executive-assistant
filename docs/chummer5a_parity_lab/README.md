@@ -21,6 +21,15 @@ Canonical outputs:
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` records that the EA-owned successor slice is complete, names the completed non-EA UI certification handoff, and names the remaining non-EA followups.
 - `.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json` is the published task-proven proof receipt for this EA package.
 
+Artifact extraction shape:
+
+- `oracle_baselines.yaml` now carries a per-screenshot manifest with 17 baseline IDs, corpus routing, veteran task references, compare-family links, and direct oracle tokens.
+- `oracle_baselines.yaml` also carries a legacy-form landmark inventory so the screenshot baselines stay tied to the WinForms-era veteran surfaces that defined Chummer5a muscle memory, including the original `ChummerMainForm` shell/menu window.
+- `veteran_workflow_pack.yaml` now carries first-minute task packs that bind each veteran task to landmarks, screenshot baseline IDs, compare families, and source tokens.
+- `veteran_workflow_pack.yaml` also carries cross-source route packs plus legacy landmark bindings that connect each first-minute veteran task to the matching Chummer5a desktop forms.
+- `compare_packs.yaml` now carries a family artifact matrix so each flagship parity family resolves to baseline IDs, workflow task IDs, oracle fixture IDs, and one source-anchor check family.
+- `compare_packs.yaml` also carries legacy-form anchor checks for the WinForms surfaces behind the main shell, settings, master index, roster, import, and export flows.
+
 Proof boundary:
 
 - This package extracts and normalizes oracle evidence only.
