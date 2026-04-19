@@ -25,6 +25,7 @@ Artifact extraction shape:
 
 - `oracle_baselines.yaml` now carries a per-screenshot manifest with 17 baseline IDs, corpus routing, veteran task references, compare-family links, and direct oracle tokens.
 - `oracle_baselines.yaml` also carries a legacy-form landmark inventory so the screenshot baselines stay tied to the WinForms-era veteran surfaces that defined Chummer5a muscle memory, including the original `ChummerMainForm` shell/menu window.
+- `oracle_baselines.yaml` pins the two supplemental master-index and roster PNGs to the live published screenshot corpus under `/docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots` so the closed EA pack does not point at stale flagship-worktree paths.
 - `veteran_workflow_pack.yaml` now carries first-minute task packs that bind each veteran task to landmarks, screenshot baseline IDs, compare families, and source tokens.
 - `veteran_workflow_pack.yaml` also carries cross-source route packs plus legacy landmark bindings that connect each first-minute veteran task to the matching Chummer5a desktop forms.
 - `compare_packs.yaml` now carries a family artifact matrix so each flagship parity family resolves to baseline IDs, workflow task IDs, oracle fixture IDs, and one source-anchor check family.
@@ -33,7 +34,15 @@ Artifact extraction shape:
 Proof boundary:
 
 - This package extracts and normalizes oracle evidence only.
-- Compare-pack source anchors must resolve against `/docker/chummer5a/Chummer.Web/wwwroot/index.html`, `/docker/chummer5a/docs/PARITY_ORACLE.json`, or `/docker/chummer5a/docs/PARITY_AUDIT.md`; a family without live source tokens is not a captured veteran baseline.
+- Compare-pack source anchors must resolve against the live Chummer5a oracle files declared in the package artifacts:
+  `/docker/chummer5a/Chummer.Web/wwwroot/index.html`,
+  `/docker/chummer5a/docs/PARITY_ORACLE.json`,
+  `/docker/chummer5a/docs/PARITY_AUDIT.md`,
+  plus the WinForms-era designer sources that define veteran shell landmarks and first-minute routes such as
+  `/docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs`,
+  `/docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs`, and
+  `/docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs`.
+- A family without live web-oracle tokens and, when applicable, the matching legacy-form designer anchors is not a captured veteran baseline.
 - Promoted-head visual review remains non-EA work and is now canonically complete in `next90-m103-ui-veteran-certification`.
 - Desktop host-proof ingestion and release promotion remain owned by the release/operator lanes; the current flagship readiness packet is green with zero unresolved external host-proof requests, so this pack must not reopen the closed flagship wave.
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` carries repeat-prevention markers for successor frontier `4287684466`; future workers should treat the EA slice as closed while the canonical registry, queue staging packet, completed outputs, and proof command still agree.

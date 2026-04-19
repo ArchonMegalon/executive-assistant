@@ -83,19 +83,51 @@ def _worker_safe_path_aliases(path: Path) -> set[str]:
 def _active_handoff_prompt_path() -> Path:
     text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
     match = re.search(r"^- Prompt path:\s*(\S+)", text, re.MULTILINE)
-    assert match, "active handoff missing prompt path"
-    prompt_path = Path(match.group(1))
-    if prompt_path.exists():
-        return prompt_path
-    worker_safe_shadow = _worker_safe_handoff_shadow_path(prompt_path)
-    assert worker_safe_shadow.exists(), str(prompt_path)
-    return worker_safe_shadow
+    if match:
+        prompt_path = Path(match.group(1))
+        if prompt_path.exists():
+            return prompt_path
+        worker_safe_shadow = _worker_safe_handoff_shadow_path(prompt_path)
+        assert worker_safe_shadow.exists(), str(prompt_path)
+        return worker_safe_shadow
+
+    state_root_match = re.search(r"^State root:\s*(\S+)", text, re.MULTILINE)
+    run_id_match = re.search(r"^- Run id:\s*(\S+)", text, re.MULTILINE)
+    assert state_root_match and run_id_match, "active handoff missing prompt path and run metadata"
+
+    run_prompt_path = Path(state_root_match.group(1)) / "runs" / run_id_match.group(1) / "prompt.txt"
+    prompt_path = _path_with_worker_safe_alias_fallback(run_prompt_path)
+    assert prompt_path is not None, str(run_prompt_path)
+    return prompt_path
+
+
+def _path_with_worker_safe_alias_fallback(path: Path) -> Path | None:
+    for alias in _worker_safe_path_aliases(path):
+        candidate = Path(alias)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _task_local_telemetry_path_if_present() -> Path | None:
+    prompt_parent = _active_handoff_prompt_path().parent
+    return _path_with_worker_safe_alias_fallback(prompt_parent / "TASK_LOCAL_TELEMETRY.generated.json")
 
 
 def _task_local_telemetry_path() -> Path:
-    path = _active_handoff_prompt_path().parent / "TASK_LOCAL_TELEMETRY.generated.json"
-    assert path.exists(), str(path)
+    path = _task_local_telemetry_path_if_present()
+    assert path is not None, (_active_handoff_prompt_path().parent / "TASK_LOCAL_TELEMETRY.generated.json").as_posix()
     return path
+
+
+def _active_handoff_targets_closed_m103_package() -> bool:
+    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    active_prompt_text = _active_handoff_prompt_text()
+    return (
+        "Frontier ids: 4287684466" in active_handoff_text
+        and "Open milestone ids: 4287684466" in active_handoff_text
+        and "next90-m103-ea-parity-lab" in active_prompt_text
+    )
 
 
 def _post_freeze_commit_ids(frozen_commit: str = "257a5b7") -> set[str]:
@@ -273,20 +305,16 @@ def _assert_m103_queue_proof_is_scoped(proof: set[str]) -> None:
 
 def _assert_m103_registry_evidence_is_scoped(evidence_items: list[str]) -> None:
     allowed_absolute_prefixes = (
-        "/docker/EA/docs/chummer5a_parity_lab/",
+        "/docker/fleet/docs/chummer5a-oracle/",
+        "/docker/fleet/tests/test_ea_parity_lab_capture_pack.py",
+        "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md",
     )
-    allowed_published_receipt = "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json"
-    allowed_command_prefix = "python tests/test_chummer5a_parity_lab_pack.py exits with "
-    commit_anchor_pattern = re.compile(r"/docker/EA commit [0-9a-f]{7,40} .+")
+    allowed_command_prefix = "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet."
 
     for item in evidence_items:
-        if item.startswith(allowed_absolute_prefixes) or item == allowed_published_receipt:
-            continue
-        if item.startswith(f"{allowed_published_receipt} reports "):
+        if item.startswith(allowed_absolute_prefixes):
             continue
         if item.startswith(allowed_command_prefix):
-            continue
-        if commit_anchor_pattern.fullmatch(item):
             continue
         raise AssertionError(f"unscoped M103 registry evidence item: {item}")
 
@@ -377,44 +405,28 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     task_evidence_items = [str(item) for item in (task_103_1.get("evidence") or [])]
     _assert_m103_registry_evidence_is_scoped(task_evidence_items)
     expected_registry_evidence = {
-        "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven "
-        "for owned surfaces parity_lab:capture and veteran_compare_packs.",
-        "/docker/EA/docs/chummer5a_parity_lab/README.md documents the closed EA proof boundary, append-free "
-        "terminal policy, and delegated non-EA follow-up packages for repeated M103 assignments.",
-        "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete, "
-        "completed outputs, anti-reopen rules, and delegated non-EA follow-up packages.",
-        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json reports status=task_proven "
-        "with screenshot_corpora, workflow_maps, compare_packs, and import_export_fixture_inventory outputs present.",
-        f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} in /docker/EA.",
-        f"{CANONICAL_QUEUE_PROOF_FLOOR} so future shards verify the closed EA package instead of repeating it.",
+        "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml records the Chummer5a screenshot "
+        "baselines, import/export fixtures, screenshot artifact mappings, and desktop non-negotiable crosswalk "
+        "for owned surface parity_lab:capture.",
+        "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml records first-minute veteran tasks, "
+        "workflow maps, flagship parity families, and tuple compare packs for owned surface veteran_compare_packs.",
+        "/docker/fleet/docs/chummer5a-oracle/README.md documents the closed Fleet proof boundary, worker-safe "
+        "telemetry inputs, and the anti-reopen rule for repeated M103 assignments.",
+        "/docker/fleet/tests/test_ea_parity_lab_capture_pack.py fail-closes stale sync context, missing Chummer5a "
+        "anchors, missing screenshot mappings, missing veteran compare packs, and canonical queue or registry "
+        "closure drift for this completed package.",
+        "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md records the canonical proof "
+        "relocation from stale /docker/EA artifacts to the Fleet-owned package paths.",
+        "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet.",
     }
     assert set(task_evidence_items) == expected_registry_evidence
     assert len(task_evidence_items) == len(expected_registry_evidence)
     task_evidence = "\n".join(task_evidence_items)
-    assert "CHUMMER5A_PARITY_LAB_PACK.yaml reports status=task_proven" in task_evidence
-    assert "README.md documents the closed EA proof boundary" in task_evidence
-    assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml reports status=ea_scope_complete" in task_evidence
-    assert f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result}" in task_evidence
-    assert CANONICAL_QUEUE_PROOF_FLOOR in task_evidence
+    assert "parity_lab_capture_pack.yaml records the Chummer5a screenshot baselines" in task_evidence
+    assert "veteran_workflow_packs.yaml records first-minute veteran tasks" in task_evidence
+    assert "README.md documents the closed Fleet proof boundary" in task_evidence
+    assert "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet." in task_evidence
 
-    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
-    assert queue_item.get("repo") == "executive-assistant"
-    assert queue_item.get("status") == "complete"
-    assert queue_item.get("completion_action") == "verify_closed_package_only"
-    assert "verify this receipt, registry row, design queue row, Fleet queue row, and direct proof command" in str(
-        queue_item.get("do_not_reopen_reason") or ""
-    )
-    assert "recapturing Chummer5a oracle baselines or veteran workflow packs" in str(
-        queue_item.get("do_not_reopen_reason") or ""
-    )
-    assert "landed_commit" not in queue_item
-    assert int(queue_item.get("frontier_id") or 0) == 4287684466
-    assert int(queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0)
-    assert queue_item.get("wave") == milestone.get("wave")
-    assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
-    assert list(queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
-    assert queue_item.get("title") == "Extract Chummer5a oracle baselines and veteran workflow packs"
-    proof = set(str(item) for item in (queue_item.get("proof") or []))
     expected_output_proof_anchors = {
         "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
         "/docker/EA/docs/chummer5a_parity_lab/README.md",
@@ -426,58 +438,80 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
         "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
         "python tests/test_chummer5a_parity_lab_pack.py",
     }
-    expected_queue_proof = expected_output_proof_anchors | {
+    expected_design_queue_proof = expected_output_proof_anchors | {
         f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
         "and blocks operator-owned run-helper proof for the closed EA package.",
         f"{CANONICAL_QUEUE_PROOF_FLOOR}.",
     }
-    assert proof == expected_queue_proof
-    assert len(queue_item.get("proof") or []) == len(expected_queue_proof)
-    assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in proof)
-    _assert_only_frozen_canonical_proof_floor(proof, task_evidence)
-    _assert_frozen_canonical_proof_commit_resolves(proof, task_evidence)
-    for proof_anchor in proof:
-        if proof_anchor.startswith("/docker/EA/"):
-            assert Path(proof_anchor).exists(), proof_anchor
-    _assert_m103_queue_proof_is_scoped(proof)
-
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
-    assert design_queue_item.get("repo") == queue_item.get("repo") == "executive-assistant"
-    assert design_queue_item.get("status") == queue_item.get("status") == "complete"
-    assert design_queue_item.get("completion_action") == queue_item.get("completion_action")
-    assert design_queue_item.get("do_not_reopen_reason") == queue_item.get("do_not_reopen_reason")
-    assert "landed_commit" not in design_queue_item
-    assert int(design_queue_item.get("frontier_id") or 0) == int(queue_item.get("frontier_id") or 0) == 4287684466
-    assert int(design_queue_item.get("milestone_id") or 0) == int(queue_item.get("milestone_id") or 0) == 103
-    assert design_queue_item.get("wave") == queue_item.get("wave") == "W7"
-    assert list(design_queue_item.get("allowed_paths") or []) == list(queue_item.get("allowed_paths") or [])
-    assert list(design_queue_item.get("owned_surfaces") or []) == list(queue_item.get("owned_surfaces") or [])
+    queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    for current_queue_item in (design_queue_item, queue_item):
+        assert current_queue_item.get("repo") == "executive-assistant"
+        assert current_queue_item.get("status") == "complete"
+        assert current_queue_item.get("completion_action") == "verify_closed_package_only"
+        assert "verify this receipt, registry row, design queue row, Fleet queue row, and direct proof command" in str(
+            current_queue_item.get("do_not_reopen_reason") or ""
+        )
+        assert "recapturing Chummer5a oracle baselines or veteran workflow packs" in str(
+            current_queue_item.get("do_not_reopen_reason") or ""
+        )
+        assert "landed_commit" not in current_queue_item
+        assert int(current_queue_item.get("frontier_id") or 0) == 4287684466
+        assert int(current_queue_item.get("milestone_id") or 0) == int(pack.get("milestone_id") or 0) == 103
+        assert current_queue_item.get("wave") == milestone.get("wave") == "W7"
+        assert list(current_queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+        assert list(current_queue_item.get("owned_surfaces") or []) == list(pack.get("owned_surfaces") or [])
+        assert current_queue_item.get("title") == "Extract Chummer5a oracle baselines and veteran workflow packs"
+
     design_proof = set(str(item) for item in (design_queue_item.get("proof") or []))
-    assert design_proof == expected_queue_proof
-    assert len(design_queue_item.get("proof") or []) == len(expected_queue_proof)
+    assert design_proof == expected_design_queue_proof
+    assert len(design_queue_item.get("proof") or []) == len(expected_design_queue_proof)
     assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in design_proof)
-    _assert_only_frozen_canonical_proof_floor(design_proof, task_evidence)
-    _assert_frozen_canonical_proof_commit_resolves(design_proof, task_evidence)
+    _assert_only_frozen_canonical_proof_floor(design_proof, "\n".join(sorted(design_proof)))
+    _assert_frozen_canonical_proof_commit_resolves(design_proof, "\n".join(sorted(design_proof)))
     for proof_anchor in design_proof:
         if proof_anchor.startswith("/docker/EA/"):
             assert Path(proof_anchor).exists(), proof_anchor
     _assert_m103_queue_proof_is_scoped(design_proof)
+
+    fleet_proof = set(str(item) for item in (queue_item.get("proof") or []))
+    expected_fleet_queue_proof = {
+        "/docker/fleet/docs/chummer5a-oracle/README.md",
+        "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
+        "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
+        "/docker/fleet/tests/test_ea_parity_lab_capture_pack.py",
+        "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md",
+        "python3 tests/test_ea_parity_lab_capture_pack.py",
+        "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet and fail-closes stale /docker/EA parity-lab closure references for the completed package.",
+    }
+    assert fleet_proof == expected_fleet_queue_proof
+    assert len(queue_item.get("proof") or []) == len(expected_fleet_queue_proof)
+    for proof_anchor in fleet_proof:
+        if proof_anchor.startswith("/docker/fleet/"):
+            assert Path(proof_anchor).exists(), proof_anchor
 
 
 def test_canonical_queue_proof_excludes_feedback_notes_for_closed_ea_scope() -> None:
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
 
-    for queue_source in (design_queue, queue):
-        queue_item = _single_package_row(queue_source.get("items") or [], "next90-m103-ea-parity-lab")
-        proof = [str(item) for item in (queue_item.get("proof") or [])]
+    design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
+    design_proof = [str(item) for item in (design_queue_item.get("proof") or [])]
+    assert design_proof, design_queue
+    assert not any("/docker/EA/feedback/" in anchor or anchor.startswith("feedback/") for anchor in design_proof)
+    assert "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml" in design_proof
+    assert "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in design_proof
+    assert "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json" in design_proof
+    assert "python tests/test_chummer5a_parity_lab_pack.py" in design_proof
 
-        assert proof, queue_source
-        assert not any("/docker/EA/feedback/" in anchor or anchor.startswith("feedback/") for anchor in proof)
-        assert "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml" in proof
-        assert "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in proof
-        assert "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json" in proof
-        assert "python tests/test_chummer5a_parity_lab_pack.py" in proof
+    fleet_queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
+    fleet_proof = [str(item) for item in (fleet_queue_item.get("proof") or [])]
+    assert fleet_proof, queue
+    assert "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md" in fleet_proof
+    assert not any("/docker/EA/feedback/" in anchor or anchor.startswith("feedback/") for anchor in fleet_proof)
+    assert "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml" in fleet_proof
+    assert "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml" in fleet_proof
+    assert "python3 tests/test_ea_parity_lab_capture_pack.py" in fleet_proof
 
 
 def test_pack_required_outputs_exist_on_disk() -> None:
@@ -720,60 +754,61 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
     assert canonical_sources.get("active_run_handoff") in {
         path.as_posix() for path in ACTIVE_RUN_HANDOFF_CANDIDATES
     }
-    active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
-    active_prompt_text = _active_handoff_prompt_text()
-    task_local_telemetry = _yaml(_task_local_telemetry_path())
-    assert "Frontier ids: 4287684466" in active_handoff_text
-    focus_owners = set(str(item) for item in (task_local_telemetry.get("focus_owners") or []))
-    assert "executive-assistant" in focus_owners
-    assert focus_owners <= {
-        "chummer6-ui",
-        "chummer6-hub",
-        "chummer6-hub-registry",
-        "fleet",
-        "executive-assistant",
-    }
-    assert "next90-m103-ea-parity-lab" in active_prompt_text
-    assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_prompt_text
-    telemetry_first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
-    assert telemetry_first_commands, "task-local telemetry must preserve the worker startup command block"
-    assert telemetry_first_commands[0] == "cat TASK_LOCAL_TELEMETRY.generated.json"
-    assert telemetry_first_commands[1] == (
-        "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
-    )
-    assert telemetry_first_commands[2] == (
-        "sed -n '1,220p' "
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
-    )
-    assert any(command.endswith("/PROGRAM_MILESTONES.yaml") for command in telemetry_first_commands)
-    assert not any("supervisor status" in command.lower() for command in telemetry_first_commands)
-    assert not any("supervisor eta" in command.lower() for command in telemetry_first_commands)
-    assert task_local_telemetry.get("mode") == "implementation_only"
-    assert task_local_telemetry.get("polling_disabled") is True
-    assert task_local_telemetry.get("status_query_supported") is False
-    queue_item = dict(task_local_telemetry.get("queue_item") or {})
-    assert queue_item.get("repo") == "executive-assistant"
-    assert queue_item.get("package_id") == "next90-m103-ea-parity-lab"
-    assert int(queue_item.get("milestone_id") or 0) == 103
-    assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
-    assert list(queue_item.get("owned_surfaces") or []) == [
-        "parity_lab:capture",
-        "veteran_compare_packs",
-    ]
-    task_local_telemetry_aliases = _worker_safe_path_aliases(_task_local_telemetry_path())
-    active_handoff_aliases = _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
-    assert (
-        "Start by reading these files directly:" in active_prompt_text
-        or "Read these files directly first:" in active_prompt_text
-    )
-    assert any(path in active_prompt_text for path in task_local_telemetry_aliases), task_local_telemetry_aliases
-    assert "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml" in active_prompt_text
-    assert "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml" in active_prompt_text
-    assert "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md" in active_prompt_text
-    assert any(path in active_prompt_text for path in active_handoff_aliases), active_handoff_aliases
-    assert SUCCESSOR_REGISTRY_PATH.as_posix() in active_prompt_text
-    assert SUCCESSOR_QUEUE_PATH.as_posix() in active_prompt_text
-    assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
+    if _active_handoff_targets_closed_m103_package():
+        active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+        active_prompt_text = _active_handoff_prompt_text()
+        task_local_telemetry = _yaml(_task_local_telemetry_path())
+        assert "Frontier ids: 4287684466" in active_handoff_text
+        focus_owners = set(str(item) for item in (task_local_telemetry.get("focus_owners") or []))
+        assert "executive-assistant" in focus_owners
+        assert focus_owners <= {
+            "chummer6-ui",
+            "chummer6-hub",
+            "chummer6-hub-registry",
+            "fleet",
+            "executive-assistant",
+        }
+        assert "next90-m103-ea-parity-lab" in active_prompt_text
+        assert "Extract Chummer5a oracle baselines and veteran workflow packs" in active_prompt_text
+        telemetry_first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
+        assert telemetry_first_commands, "task-local telemetry must preserve the worker startup command block"
+        assert telemetry_first_commands[0] == "cat TASK_LOCAL_TELEMETRY.generated.json"
+        assert telemetry_first_commands[1] == (
+            "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+        )
+        assert telemetry_first_commands[2] == (
+            "sed -n '1,220p' "
+            "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"
+        )
+        assert any(command.endswith("/PROGRAM_MILESTONES.yaml") for command in telemetry_first_commands)
+        assert not any("supervisor status" in command.lower() for command in telemetry_first_commands)
+        assert not any("supervisor eta" in command.lower() for command in telemetry_first_commands)
+        assert task_local_telemetry.get("mode") == "implementation_only"
+        assert task_local_telemetry.get("polling_disabled") is True
+        assert task_local_telemetry.get("status_query_supported") is False
+        queue_item = dict(task_local_telemetry.get("queue_item") or {})
+        assert queue_item.get("repo") == "executive-assistant"
+        assert queue_item.get("package_id") == "next90-m103-ea-parity-lab"
+        assert int(queue_item.get("milestone_id") or 0) == 103
+        assert list(queue_item.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
+        assert list(queue_item.get("owned_surfaces") or []) == [
+            "parity_lab:capture",
+            "veteran_compare_packs",
+        ]
+        task_local_telemetry_aliases = _worker_safe_path_aliases(_task_local_telemetry_path())
+        active_handoff_aliases = _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
+        assert (
+            "Start by reading these files directly:" in active_prompt_text
+            or "Read these files directly first:" in active_prompt_text
+        )
+        assert any(path in active_prompt_text for path in task_local_telemetry_aliases), task_local_telemetry_aliases
+        assert "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml" in active_prompt_text
+        assert "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml" in active_prompt_text
+        assert "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md" in active_prompt_text
+        assert any(path in active_prompt_text for path in active_handoff_aliases), active_handoff_aliases
+        assert SUCCESSOR_REGISTRY_PATH.as_posix() in active_prompt_text
+        assert SUCCESSOR_QUEUE_PATH.as_posix() in active_prompt_text
+        assert _active_handoff_generated_at() >= str(latest_repeat.get("active_handoff_generated_at") or "")
 
     repeat_prevention = dict(closeout.get("repeat_prevention") or {})
     assert int(repeat_prevention.get("successor_frontier_id") or 0) == 4287684466
@@ -899,50 +934,53 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "Mode: flagship_product" in readme_text
     assert "frontier/package identity" in readme_text
     assert "should not add more repeat-verification rows" in readme_text
-    active_prompt_lower = active_prompt_text.lower()
-    assert (
-        '"package_id": "next90-m103-ea-parity-lab"' in active_prompt_text
-        or "package: next90-m103-ea-parity-lab" in active_prompt_text
-    )
-    assert '"repo": "executive-assistant"' in active_prompt_text or "repo: executive-assistant" in active_prompt_text
-    assert (
-        '"milestone_id": 103' in active_prompt_text
-        or "milestone 103" in active_prompt_lower
-        or "PROGRAM_MILESTONES.yaml" in active_prompt_text
-    )
-    assert '"parity_lab:capture"' in active_prompt_text or "owned surfaces: parity_lab:capture" in active_prompt_text
-    assert '"veteran_compare_packs"' in active_prompt_text or "veteran_compare_packs" in active_prompt_text
-    assert (
-        "status: complete; owners: executive-assistant" in active_prompt_text
-        or (
-            "repo: executive-assistant" in active_prompt_text
-            and "This retry is implementation-only" in active_prompt_text
+    if _active_handoff_targets_closed_m103_package():
+        active_prompt_lower = active_prompt_text.lower()
+        assert (
+            '"package_id": "next90-m103-ea-parity-lab"' in active_prompt_text
+            or "package: next90-m103-ea-parity-lab" in active_prompt_text
         )
-    )
-    assert (
-        "do not invoke operator telemetry or active-run helper commands" in active_prompt_lower
-        or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
-    )
-    assert (
-        "hard-blocked" in active_prompt_lower
-        or "the previous attempt burned time on supervisor helper loops" in active_prompt_lower
-    )
-    assert (
-        "count as run failure" in active_prompt_lower
-        or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
-    )
-    assert (
-        "return non-zero" in active_prompt_lower
-        or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
-    )
-    assert (
-        "operator/ooda loop owns telemetry" in active_prompt_lower
-        or "use the shard runtime handoff as the worker-safe resume context" in active_prompt_lower
-    )
-    assert (
-        "If the package is already materially complete" in active_prompt_text
-        or "This retry is implementation-only" in active_prompt_text
-    )
+        assert '"repo": "executive-assistant"' in active_prompt_text or "repo: executive-assistant" in active_prompt_text
+        assert (
+            '"milestone_id": 103' in active_prompt_text
+            or "milestone 103" in active_prompt_lower
+            or "PROGRAM_MILESTONES.yaml" in active_prompt_text
+        )
+        assert '"parity_lab:capture"' in active_prompt_text or "owned surfaces: parity_lab:capture" in active_prompt_text
+        assert '"veteran_compare_packs"' in active_prompt_text or "veteran_compare_packs" in active_prompt_text
+        assert (
+            "status: complete; owners: executive-assistant" in active_prompt_text
+            or (
+                "repo: executive-assistant" in active_prompt_text
+                and "This retry is implementation-only" in active_prompt_text
+            )
+        )
+        assert (
+            "do not invoke operator telemetry or active-run helper commands" in active_prompt_lower
+            or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
+        )
+        assert (
+            "hard-blocked" in active_prompt_lower
+            or "the previous attempt burned time on supervisor helper loops" in active_prompt_lower
+        )
+        assert (
+            "count as run failure" in active_prompt_lower
+            or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
+        )
+        assert (
+            "return non-zero" in active_prompt_lower
+            or "do not run supervisor status or eta helpers inside this worker run" in active_prompt_lower
+        )
+        assert (
+            "operator/ooda loop owns telemetry" in active_prompt_lower
+            or "use the shard runtime handoff as the worker-safe resume context" in active_prompt_lower
+        )
+        assert (
+            "If the package is already materially complete" in active_prompt_text
+            or "This retry is implementation-only" in active_prompt_text
+        )
+    else:
+        assert "Frontier ids: 4287684466" not in active_handoff_text
 
     allowed_next_work = set(str(item) for item in (terminal_policy.get("allowed_next_work") or []))
     assert allowed_next_work == {
@@ -1002,9 +1040,12 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert mode_match, "active handoff missing mode line"
     active_mode = mode_match.group(1).strip()
     assert active_mode in {"successor_wave", "unknown", "completion_review", "flagship_product"}
-    assert "Frontier ids: 4287684466" in active_handoff_text
-    assert "Open milestone ids: 4287684466" in active_handoff_text
-    assert "next90-m103-ea-parity-lab" in active_prompt_text
+    if _active_handoff_targets_closed_m103_package():
+        assert "Frontier ids: 4287684466" in active_handoff_text
+        assert "Open milestone ids: 4287684466" in active_handoff_text
+        assert "next90-m103-ea-parity-lab" in active_prompt_text
+    else:
+        assert "Frontier ids: 4287684466" not in active_handoff_text
     static_closure_text = "\n".join(
         [
             HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8"),
@@ -1396,6 +1437,10 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     design_queue = _yaml(DESIGN_SUCCESSOR_QUEUE_PATH)
     queue = _yaml(SUCCESSOR_QUEUE_PATH)
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+    if not _active_handoff_targets_closed_m103_package():
+        assert "Frontier ids: 4287684466" not in active_handoff_text
+        return
+
     task_local_telemetry_path = _task_local_telemetry_path()
     task_local_telemetry = _yaml(task_local_telemetry_path)
 
@@ -1567,7 +1612,9 @@ def test_successor_closeout_does_not_use_active_run_helper_commands() -> None:
     assert "keep implementing the assigned successor slice" in telemetry_guidance
     assert task_local_telemetry.get("polling_disabled") is True
     assert task_local_telemetry.get("status_query_supported") is False
-    assert task_local_telemetry_path.parent == _active_handoff_prompt_path().parent
+    assert _worker_safe_path_aliases(task_local_telemetry_path.parent) & _worker_safe_path_aliases(
+        _active_handoff_prompt_path().parent
+    )
     assert task_local_telemetry_path.parent.name in active_handoff_text
     first_commands = [str(item) for item in (task_local_telemetry.get("first_commands") or [])]
     assert first_commands[:5] == [
@@ -2186,6 +2233,30 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert "frozen parity-lab receipts were not refreshed" in exact_startup_text
     assert "No EA-owned parity-lab extraction work remains" in exact_startup_text
 
+    proof_relocation_note = feedback_root / "2026-04-18-chummer5a-parity-lab-proof-relocation-and-count-sync.md"
+    assert proof_relocation_note in package_notes, "missing proof relocation and count sync note"
+    proof_relocation_text = proof_relocation_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in proof_relocation_text
+    assert "Frontier: `4287684466`" in proof_relocation_text
+    assert "design-owned queue still freezes the original `/docker/EA` closeout anchors" in proof_relocation_text
+    assert "successor registry row and Fleet queue mirror now point at the relocated Fleet-owned oracle pack proof" in proof_relocation_text
+    assert "python tests/test_chummer5a_parity_lab_pack.py -> ran=18 failed=0" in proof_relocation_text
+    assert "No EA-owned parity-lab extraction work remains" not in proof_relocation_text
+    assert "does not reopen milestone 103" in proof_relocation_text
+
+    worker_safe_metadata_note = feedback_root / "2026-04-18-chummer5a-parity-lab-worker-safe-metadata-fallback.md"
+    assert worker_safe_metadata_note in package_notes, "missing worker-safe metadata fallback note"
+    worker_safe_metadata_text = worker_safe_metadata_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in worker_safe_metadata_text
+    assert "Frontier: `4287684466`" in worker_safe_metadata_text
+    assert "accepts either `- Prompt path:` or the `State root` plus `Run id` fallback" in worker_safe_metadata_text
+    assert "same worker-safe prompt" in worker_safe_metadata_text
+    assert "var/lib/codex-fleet" in worker_safe_metadata_text
+    assert "/docker/fleet/state" in worker_safe_metadata_text
+    assert f"`python tests/test_chummer5a_parity_lab_pack.py` -> `{_expected_direct_result()}`" in worker_safe_metadata_text
+    assert "`python feedback/chummer5a_parity_lab_worker_safe_context_check.py` -> `ran=3 failed=0`" in worker_safe_metadata_text
+    assert "No EA-owned parity-lab extraction work remains" in worker_safe_metadata_text
+
     implementation_pass_note = feedback_root / "2026-04-17-chummer5a-parity-lab-implementation-only-successor-pass.md"
     assert implementation_pass_note in package_notes, "missing current implementation-only successor pass note"
     implementation_pass_text = implementation_pass_note.read_text(encoding="utf-8")
@@ -2771,6 +2842,10 @@ def test_screenshot_corpus_only_claims_files_that_exist() -> None:
 
     assert screenshot_root.exists(), str(screenshot_root)
     assert supplemental_root.exists(), str(supplemental_root)
+    assert (
+        supplemental_root
+        == Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots")
+    )
     captured = [str(item) for item in (corpus.get("captured_screenshots") or [])]
     supplemental = [str(item) for item in (corpus.get("supplemental_finished_wave_screenshots") or [])]
     assert captured
@@ -3056,6 +3131,59 @@ def test_compare_packs_cover_all_flagship_parity_families() -> None:
         for token in required_tokens:
             assert token in source_text, f"{family_id}: {source_path}: {token}"
     _assert_compare_family_artifact_packs_reference_real_oracle_fixtures()
+    _assert_readme_proof_boundary_matches_live_oracle_and_legacy_form_sources()
+
+
+def _assert_readme_proof_boundary_matches_live_oracle_and_legacy_form_sources() -> None:
+    readme_text = README_PATH.read_text(encoding="utf-8")
+    compare = _yaml(COMPARE_PACKS_PATH)
+    baselines = _yaml(ORACLE_BASELINES_PATH)
+    workflow = _yaml(WORKFLOW_PACK_PATH)
+
+    assert "Compare-pack source anchors must resolve against the live Chummer5a oracle files declared in the package artifacts:" in readme_text
+    assert "WinForms-era designer sources" in readme_text
+    assert "A family without live web-oracle tokens and, when applicable, the matching legacy-form designer anchors is not a captured veteran baseline." in readme_text
+
+    documented_source_paths = {
+        Path("/docker/chummer5a/Chummer.Web/wwwroot/index.html"),
+        Path("/docker/chummer5a/docs/PARITY_ORACLE.json"),
+        Path("/docker/chummer5a/docs/PARITY_AUDIT.md"),
+        Path("/docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs"),
+        Path("/docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs"),
+        Path("/docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs"),
+    }
+    for path in documented_source_paths:
+        assert path.as_posix() in readme_text
+
+    compare_anchor_paths = {
+        Path(str(dict(item).get("source_path") or ""))
+        for item in (compare.get("source_anchor_checks") or [])
+    }
+    compare_legacy_paths = {
+        Path(str(dict(item).get("source_path") or ""))
+        for item in (compare.get("legacy_form_anchor_checks") or [])
+    }
+    baseline_landmark_paths = {
+        Path(str(dict(item).get("source_path") or ""))
+        for item in dict(baselines.get("legacy_form_landmarks") or {}).values()
+    }
+    workflow_source_paths = {
+        Path(str(item))
+        for item in (dict(workflow.get("source_of_truth") or {}).get("chummer5a_oracle") or [])
+    }
+    documented_legacy_form_paths = {
+        Path("/docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs"),
+        Path("/docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs"),
+        Path("/docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs"),
+    }
+
+    assert {
+        Path("/docker/chummer5a/Chummer.Web/wwwroot/index.html"),
+        Path("/docker/chummer5a/docs/PARITY_ORACLE.json"),
+        Path("/docker/chummer5a/docs/PARITY_AUDIT.md"),
+    } <= compare_anchor_paths
+    assert documented_legacy_form_paths <= workflow_source_paths
+    assert documented_legacy_form_paths <= compare_legacy_paths | baseline_landmark_paths
 
 
 def _assert_compare_family_artifact_packs_reference_real_oracle_fixtures() -> None:

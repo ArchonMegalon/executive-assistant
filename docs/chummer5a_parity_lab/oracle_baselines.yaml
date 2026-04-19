@@ -154,11 +154,11 @@ screenshot_corpora:
     - 13-matrix-dialog-light.png
     - 14-advancement-dialog-light.png
     - 15-creation-section-light.png
-  supplemental_finished_wave_screenshot_root: /docker/chummercomplete/chummer6-ui-finish/.codex-studio/published/ui-flagship-release-gate-screenshots
+  supplemental_finished_wave_screenshot_root: /docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots
   supplemental_finished_wave_screenshots:
     - 16-master-index-dialog-light.png
     - 17-character-roster-dialog-light.png
-  supplemental_scope_note: These two PNGs come from the closed flagship proof worktree and are cited as evidence only; this package does not reopen the closed flagship wave.
+  supplemental_scope_note: These two PNGs come from the closed flagship published screenshot corpus and are cited as evidence only; this package does not reopen the closed flagship wave.
   successor_ui_certification_package: next90-m103-ui-veteran-certification
   capture_status: captured_with_closed_flagship_supplement
 screenshot_baseline_sets:
