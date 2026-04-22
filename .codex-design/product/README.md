@@ -15,7 +15,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 ### Reading tracks
 
 1. Public/product story:
-   `VISION.md` -> `PUBLIC_LANDING_POLICY.md` -> `PUBLIC_NAVIGATION.yaml` -> `PUBLIC_LANDING_MANIFEST.yaml` -> `PUBLIC_FEATURE_REGISTRY.yaml` -> `PUBLIC_PROGRESS_PARTS.yaml` -> `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml` -> `PUBLIC_USER_MODEL.md` -> `PUBLIC_AUTH_FLOW.md` -> `PUBLIC_MEDIA_BRIEFS.yaml` -> `PUBLIC_VIDEO_BRIEFS.yaml` -> `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml`
+   `VISION.md` -> `PUBLIC_LANDING_POLICY.md` -> `PUBLIC_NAVIGATION.yaml` -> `PUBLIC_LANDING_MANIFEST.yaml` -> `PUBLIC_FEATURE_REGISTRY.yaml` -> `PUBLIC_PROGRESS_PARTS.yaml` -> `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml` -> `PUBLIC_USER_MODEL.md` -> `PUBLIC_AUTH_FLOW.md` -> `COMPANION_PERSONA_AND_INTERACTION_MODEL.md` -> `COMPANION_PACKET.md` -> `COMPANION_TRIGGER_REGISTRY.yaml` -> `COMPANION_EVENT_SCHEMA.yaml` -> `PUBLIC_MEDIA_BRIEFS.yaml` -> `PUBLIC_VIDEO_BRIEFS.yaml` -> `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml`
 2. Product middle and control loop:
    `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `INTEROP_AND_PORTABILITY_MODEL.md` -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` -> `USER_JOURNEYS.md` -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml` -> `JOURNEY_GATES.generated.json` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
 3. Repo and contract boundaries:
@@ -23,7 +23,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 4. Delivery and release control:
    `RELEASE_PIPELINE.md` -> `DESKTOP_CLIENT_PRODUCT_CUT.md` -> `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` -> `LOCALIZATION_PARITY_MATRIX.yaml` -> `PRODUCT_USAGE_TELEMETRY_MODEL.md` -> `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md` -> `PRIVACY_AND_RETENTION_BOUNDARIES.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
-   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `FLAGSHIP_PRODUCT_BAR.md` -> `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md` -> `CHUMMER5A_FAMILIARITY_BRIDGE.md` -> `DENSE_WORKBENCH_BUDGET.yaml` -> `VETERAN_FIRST_MINUTE_GATE.yaml` -> `PRIMARY_ROUTE_REGISTRY.yaml` -> `DESKTOP_EXECUTABLE_EXIT_GATES.md` -> `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` -> `NEXT_12_BIGGEST_WINS_GUIDE.md` -> `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` -> `FLAGSHIP_PARITY_REGISTRY.yaml` -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
+   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `HORIZON_SIGNAL_POLICY.md` -> `LTD_DISCOVERY_OUTREACH_AND_VALIDATION_INTEGRATION_GUIDE.md` -> `ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md` -> `KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md` -> `HOUSE_RULE_DISCOVERY_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `FLAGSHIP_PRODUCT_BAR.md` -> `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md` -> `CHUMMER5A_FAMILIARITY_BRIDGE.md` -> `DENSE_WORKBENCH_BUDGET.yaml` -> `VETERAN_FIRST_MINUTE_GATE.yaml` -> `PRIMARY_ROUTE_REGISTRY.yaml` -> `DESKTOP_EXECUTABLE_EXIT_GATES.md` -> `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` -> `NEXT_12_BIGGEST_WINS_GUIDE.md` -> `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` -> `FLAGSHIP_PARITY_REGISTRY.yaml` -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
 
 ### Full canonical set
 
@@ -129,6 +129,15 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 100. `STRUCTURED_VIDEO_AND_NARRATED_MEDIA_MODEL.md`
 101. `VIDBOARD_AND_LTD_WOW_FACTOR_WORKFLOWS.md`
 102. `adrs/ADR-0016-structured-presenter-video-lane.md`
+103. `COMPANION_PERSONA_AND_INTERACTION_MODEL.md`
+104. `COMPANION_PACKET.md`
+105. `COMPANION_TRIGGER_REGISTRY.yaml`
+106. `COMPANION_EVENT_SCHEMA.yaml`
+107. `adrs/ADR-0017-first-party-companion-runtime-and-bounded-voice-mode.md`
+108. `LTD_DISCOVERY_OUTREACH_AND_VALIDATION_INTEGRATION_GUIDE.md`
+109. `ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md`
+110. `KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md`
+111. `HOUSE_RULE_DISCOVERY_REGISTRY.yaml`
 
 `HORIZON_REGISTRY.yaml` is the machine-readable source for horizon existence, order, public-guide eligibility, and eventual build path.
 The current horizon set covers knowledge fabric, spatial/runsite artifacts, creator press, replay/forensics, and bounded table coaching in addition to the earlier continuity and simulation lanes.
@@ -176,6 +185,7 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `PRIVACY_AND_RETENTION_BOUNDARIES.md` defines the default retention clocks, redaction posture, and ownership split for support, crash, claim/install, survey, provider-trace, and publication telemetry surfaces.
 `PUBLIC_TRUST_CONTENT.yaml` is the canonical trust-content manifest for help, contact, and support statements surfaced at `/help`, `/contact`, and `/downloads`.
 `PUBLIC_VIDEO_BRIEFS.yaml`, `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml`, `STRUCTURED_VIDEO_AND_NARRATED_MEDIA_MODEL.md`, and `VIDBOARD_AND_LTD_WOW_FACTOR_WORKFLOWS.md` are the media/publication canon that turns owned LTD posture into repeatable artifact-factory workflows rather than isolated vendor notes.
+`COMPANION_PERSONA_AND_INTERACTION_MODEL.md`, `COMPANION_PACKET.md`, `COMPANION_TRIGGER_REGISTRY.yaml`, and `COMPANION_EVENT_SCHEMA.yaml` define the first-party companion identity, trigger truth, runtime packet contract, suppression discipline, and structured event lanes so desktop/mobile shells, public concierge surfaces, EA compile passes, and downstream media packs stay aligned.
 `journeys/*.md` defines the top end-to-end user flows and failure-mode recoveries that multiple repos must preserve.
 `BUILD_LAB_PRODUCT_MODEL.md` defines Build Lab as a flagship Build plus Explain surface rather than leaving it as a downstream milestone label without a canonical product promise.
 `FLAGSHIP_PRODUCT_BAR.md` defines the cross-repo craftsmanship bar for what counts as a premium, public-release-ready Chummer product rather than only a closed wave or green test run.
@@ -185,9 +195,9 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` turns that craftsmanship bar into a machine-readable acceptance matrix so release control, ETA, and completion logic can prove flagship readiness instead of merely describing it.
 `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` records the just-closed install, update, support, and operator-control wave so roadmap and milestone language does not lag the public-main implementation.
 `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` records the now-closed post-audit wave boundary and keeps `ROADMAP.md`, public proof evidence, and registry status aligned.
-`NEXT_12_BIGGEST_WINS_GUIDE.md` and `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` are the active successor wave after the closed additive and post-audit sequences.
-`LEGACY_CLIENT_AND_ADJACENT_PARITY.md` and `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` are the active no-step-back overlay for that wave: they turn Chummer4, Chummer5a, Hero Lab, Genesis, and CommLink-class expectations into release-blocking feature families instead of vague nostalgia.
-`CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` is the current audit-driven remediation overlay for that successor wave: it states where journey proof, bounded-context discipline, flagship surface focus, localization, provider stewardship, and promotion proof still lag the now-strong architectural center.
+`NEXT_12_BIGGEST_WINS_GUIDE.md` and `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` are the active flagship-closeout wave after the closed additive and post-audit sequences.
+`LEGACY_CLIENT_AND_ADJACENT_PARITY.md` and `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` are the active no-step-back overlay for that closeout wave: they turn Chummer4, Chummer5a, Hero Lab, Genesis, and CommLink-class expectations into release-blocking feature families instead of vague nostalgia.
+`CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` is the current audit-driven remediation overlay for that closeout wave: it states where journey proof, bounded-context discipline, flagship surface focus, localization, provider stewardship, and promotion proof still lag the now-strong architectural center.
 `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` remains the historical milestone spine for the front-door wave, while `NEXT_15_BIG_WINS_EXECUTION_PLAN.md` is preserved as the older prior plan, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` is the preserved additive-wave closeout plan, and `NEXT_20_BIG_WINS_REGISTRY.yaml` is the machine-readable closeout registry that validators and downstream mirrors can consume directly.
 
 ## Active Chummer repos
@@ -256,7 +266,9 @@ The foundational closure wave is materially finished. The Account-Aware Front Do
 
 The current risk is no longer missing architecture. The current risk is that the campaign OS can be described better than it can be proven as a lived system across install, continuity, play, publication, closure, and no-step-back client parity. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` and `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` are the active correction layers for that gap.
 
-The queued successor wave after the current flagship closeout is `NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md`, with machine-readable staging in `NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml`. It keeps the next quarter focused on repeatable desktop release truth, parity-lab proof, boring continuity, and product-governor cadence rather than reopening architecture cleanup.
+The queued successor wave after the current flagship closeout is `NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md`, with machine-readable staging in `NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml` and `NEXT_90_DAY_QUEUE_STAGING.generated.yaml`. It keeps the next quarter focused on repeatable desktop release truth, parity-lab proof, boring continuity, first-party artifact proof, premium campaign orientation bundles, bounded public concierge and trust-surface guidance, install-aware release and support concierge flow, campaign operations, rule-environment studio, portable exchange, creator publication, artifact shelves, organizer/community operations, guided onboarding, public launch-health packets, and product-governor cadence rather than reopening architecture cleanup.
+
+`PUBLIC_CONCIERGE_AND_TRUST_WIDGET_MODEL.md`, `PUBLIC_CONCIERGE_WORKFLOWS.yaml`, and `EXTERNAL_TOOLS_BLOCKING_POLICY_REWORK.md` are the current canon for bounded public trust widgets, structured intake and booking handoff, and the narrow policy exception that allows those flows on Hub-owned public surfaces without weakening first-party truth boundaries.
 
 `PARTICIPATION_AND_BOOSTER_WORKFLOW.md` is the first-class canon for user language, ownership, state transitions, receipts, recognition, and package/bootstrap truth for the bounded participation lane.
 

@@ -65,6 +65,8 @@ required_files=(
   "scripts/materialize_ea_flagship_release_gate.py"
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
+  "scripts/verify_design_mirror_bundle.py"
+  "scripts/repair_design_mirror_bundle.sh"
   "scripts/refresh_ltds_from_inventory.py"
   "scripts/refresh_ltds_from_inventory.sh"
   "scripts/refresh_ltds_via_api.py"
@@ -110,6 +112,15 @@ if [[ -f "${f}" ]]; then
     missing=1
   fi
 done
+
+if python3 scripts/verify_design_mirror_bundle.py >/tmp/ea_design_mirror_verify.out 2>/tmp/ea_design_mirror_verify.err; then
+  echo "ok: bounded design mirror bundle parity"
+else
+  cat /tmp/ea_design_mirror_verify.out
+  cat /tmp/ea_design_mirror_verify.err >&2
+  echo "missing: bounded design mirror bundle parity" >&2
+  missing=1
+fi
 
 if python3 - <<'PY'
 import json

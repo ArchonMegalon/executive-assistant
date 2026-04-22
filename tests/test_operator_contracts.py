@@ -278,6 +278,27 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
             "Published queue overlay should not re-queue already materialized uncovered scope: " + fragment
         )
 
+    mirror_items = [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("audit_finding_key") == "project.design_mirror_missing_or_stale"
+    ]
+    assert len(mirror_items) == 1, "Published queue overlay should keep exactly one bounded mirror-drift queue slice."
+
+    mirror_item = mirror_items[0]
+    assert mirror_item["package_id"] == "audit-task-4257456"
+    assert mirror_item["audit_scope_id"] == "ea"
+    assert mirror_item["source_ref"] == "audit_task_candidates[4257456]"
+    assert mirror_item["owned_surfaces"] == ["design_mirror:ea"]
+    assert mirror_item["allowed_paths"] == [".codex-design"]
+    assert mirror_item["source_items"] == [
+        "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    ]
+    assert (
+        "keep one bounded queue slice" in str(mirror_item["task"]).lower()
+    ), "Mirror-drift queue slice should encode the non-reopen intent."
+
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     dockerfile = (ROOT / "ea" / "Dockerfile").read_text(encoding="utf-8")

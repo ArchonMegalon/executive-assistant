@@ -26,4 +26,4 @@ Research and assistive drafting tools may support operator-facing explanations, 
 
 ## Why it is not ready yet
 
-The product still needs reliable comparison and explanation surfaces before it should hand out higher-level build advice.
+Chummer still needs sturdier compare-and-explain views before it should start giving confident build advice.

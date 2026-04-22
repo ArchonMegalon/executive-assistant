@@ -1,0 +1,159 @@
+product: chummer
+surface: concierge
+version: 1
+purpose: >-
+  Machine-readable registry for bounded public concierge, trust-widget, booking,
+  intake, and testimonial workflows that sit in front of first-party Chummer
+  paths.
+
+defaults:
+  owner: chummer6-hub
+  render_owner: chummer6-media-factory
+  registry_owner: chummer6-hub-registry
+  widget_lane: FacePop
+  booking_lane: Lunacal
+  intake_lane: Deftform
+  long_form_video_lane: vidBoard
+  packet_lane: MarkupGo
+  preview_lane: PeekShot
+  survey_lane: MetaSurvey
+  approval_lane:
+    - hub_owned_approval_ui
+    - ApproveThis
+  public_only_widget_surfaces:
+    - downloads
+    - now_page
+    - public_help_entry
+    - public_release_page
+    - public_artifact_page
+    - creator_landing_page
+    - tokenized_invite_page_without_private_truth
+  hard_forbidden_surfaces:
+    - desktop_client
+    - mobile_client
+    - signed_in_home
+    - campaign_workspace
+    - support_case_timeline
+    - updater_surface
+    - claim_code_entry
+    - admin_operator_surface
+  required_controls:
+    - kill_switch
+    - first_party_fallback
+    - telemetry_event_logging
+    - locale_review
+    - accessibility_review
+  receipt_fields:
+    - concierge_flow_id
+    - entry_surface
+    - route_choice
+    - locale
+    - provider_receipt
+    - correlation_id
+
+flows:
+  - id: downloads_concierge
+    audience: public
+    entry_surface: downloads
+    widget_goal: guide_install_choice_or_help
+    branches:
+      - id: download_now
+        target: first_party_downloads
+      - id: platform_help
+        target: platform_guide_or_release_explainer
+      - id: setup_help
+        target: deftform_setup_preintake
+      - id: human_setup_call
+        target: lunacal_setup_clinic
+    proof_anchors:
+      - public_release_truth
+      - locale
+      - fallback_link_set
+
+  - id: campaign_invite_concierge
+    audience: invited_player_or_gm
+    entry_surface: tokenized_invite_page_without_private_truth
+    widget_goal: orient_new_campaign_member
+    branches:
+      - id: watch_primer
+        target: campaign_primer_video
+      - id: open_primer_packet
+        target: campaign_primer_packet
+      - id: ask_questions
+        target: deftform_campaign_question_form
+      - id: session_zero_call
+        target: lunacal_session_zero_booking
+    proof_anchors:
+      - approved_campaign_primer_pack
+      - invite_policy
+      - locale
+      - private_truth_not_exposed
+
+  - id: creator_consult_concierge
+    audience: public_or_creator
+    entry_surface: creator_page
+    widget_goal: route_creators_to_the_right_next_step
+    branches:
+      - id: how_publishing_works
+        target: creator_explainer_video_or_packet
+      - id: book_consult
+        target: lunacal_creator_consult
+      - id: submit_interest
+        target: deftform_creator_interest
+      - id: open_creator_packet
+        target: creator_packet
+    proof_anchors:
+      - creator_publish_policy
+      - locale
+      - fallback_link_set
+
+  - id: release_concierge
+    audience: public_or_pre_auth_help_entry
+    entry_surface: now_or_release_or_public_help_page
+    widget_goal: explain_changes_and_offer_safe_help_paths
+    branches:
+      - id: watch_whats_new
+        target: public_release_explainer
+      - id: read_notes
+        target: release_notes_page
+      - id: update_help
+        target: deftform_update_help_preintake
+      - id: book_help
+        target: lunacal_setup_clinic
+    proof_anchors:
+      - release_channel_truth
+      - locale
+      - fallback_link_set
+
+  - id: testimonial_capture
+    audience: opted_in_user
+    entry_surface: post_success_link
+    widget_goal: capture_social_proof_for_later_moderation
+    branches:
+      - id: video_review
+        target: facepop_video_response
+      - id: audio_review
+        target: facepop_audio_response
+      - id: quick_rating
+        target: metasurvey_usefulness
+    proof_anchors:
+      - consent_state
+      - moderation_receipt
+      - retention_policy
+      - kill_switch
+      - publication_ref_if_approved
+
+  - id: runsite_host_choice
+    audience: player_or_gm
+    entry_surface: runsite_page
+    widget_goal: choose_orientation_mode
+    branches:
+      - id: host_clip
+        target: runsite_orientation_video
+      - id: route_first
+        target: runsite_route_overlay
+      - id: explore
+        target: runsite_tour
+    proof_anchors:
+      - approved_runsite_pack
+      - locale

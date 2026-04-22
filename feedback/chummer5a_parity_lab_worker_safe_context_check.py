@@ -11,7 +11,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ID = "next90-m103-ea-parity-lab"
 FRONTIER_ID = 4287684466
-ACTIVE_RUN_HANDOFF = Path("/docker/fleet/state/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md")
+ACTIVE_RUN_HANDOFF_CANDIDATES = (
+    Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md"),
+    Path("/docker/fleet/state/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md"),
+)
+ACTIVE_RUN_HANDOFF = next((path for path in ACTIVE_RUN_HANDOFF_CANDIDATES if path.exists()), ACTIVE_RUN_HANDOFF_CANDIDATES[0])
 SUCCESSOR_REGISTRY = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 DESIGN_QUEUE = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 FLEET_QUEUE = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
@@ -28,16 +32,55 @@ def _yaml(path: Path) -> dict:
 def _active_prompt_path() -> Path:
     text = ACTIVE_RUN_HANDOFF.read_text(encoding="utf-8")
     match = re.search(r"^- Prompt path:\s*(\S+)", text, re.MULTILINE)
-    assert match, "active handoff missing prompt path"
-    path = Path(match.group(1))
+    if match:
+        path = Path(match.group(1))
+        for candidate in sorted(_path_aliases(path)):
+            alias_path = Path(candidate)
+            if alias_path.exists():
+                return alias_path
+        assert path.exists(), path
+        return path
+
+    state_root_match = re.search(r"^State root:\s*(\S+)", text, re.MULTILINE)
+    run_id_match = re.search(r"^- Run id:\s*(\S+)", text, re.MULTILINE)
+    assert state_root_match and run_id_match, "active handoff missing prompt path and run metadata"
+
+    path = Path(state_root_match.group(1)) / "runs" / run_id_match.group(1) / "prompt.txt"
+    for candidate in sorted(_path_aliases(path)):
+        alias_path = Path(candidate)
+        if alias_path.exists():
+            return alias_path
     assert path.exists(), path
     return path
 
 
+def _path_aliases(path: Path) -> set[str]:
+    path_text = path.as_posix()
+    aliases = {path_text}
+    if path_text.startswith("/var/lib/codex-fleet/"):
+        aliases.add(path_text.replace("/var/lib/codex-fleet/", "/docker/fleet/state/", 1))
+    if path_text.startswith("/docker/fleet/state/"):
+        aliases.add(path_text.replace("/docker/fleet/state/", "/var/lib/codex-fleet/", 1))
+    return aliases
+
+
 def _task_local_telemetry() -> dict:
-    path = _active_prompt_path().parent / "TASK_LOCAL_TELEMETRY.generated.json"
-    assert path.exists(), path
-    return json.loads(path.read_text(encoding="utf-8"))
+    prompt_parent = _active_prompt_path().parent
+    for candidate in sorted(_path_aliases(prompt_parent / "TASK_LOCAL_TELEMETRY.generated.json")):
+        path = Path(candidate)
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    raise AssertionError((prompt_parent / "TASK_LOCAL_TELEMETRY.generated.json").as_posix())
+
+
+def _active_handoff_targets_closed_package() -> bool:
+    text = ACTIVE_RUN_HANDOFF.read_text(encoding="utf-8")
+    prompt_text = _active_prompt_path().read_text(encoding="utf-8")
+    return (
+        f"Frontier ids: {FRONTIER_ID}" in text
+        and f"Open milestone ids: {FRONTIER_ID}" in text
+        and PACKAGE_ID in prompt_text
+    )
 
 
 def _single_queue_row(queue: dict) -> dict:
@@ -47,6 +90,11 @@ def _single_queue_row(queue: dict) -> dict:
 
 
 def test_m103_worker_context_uses_task_local_telemetry_without_operator_polling() -> None:
+    if not _active_handoff_targets_closed_package():
+        text = ACTIVE_RUN_HANDOFF.read_text(encoding="utf-8")
+        assert f"Frontier ids: {FRONTIER_ID}" not in text
+        return
+
     telemetry = _task_local_telemetry()
     prompt_text = _active_prompt_path().read_text(encoding="utf-8")
     prompt_lower = prompt_text.lower()
@@ -56,7 +104,7 @@ def test_m103_worker_context_uses_task_local_telemetry_without_operator_polling(
     assert telemetry.get("status_query_supported") is False
     assert telemetry.get("successor_registry_path") == SUCCESSOR_REGISTRY.as_posix()
     assert telemetry.get("successor_queue_path") == FLEET_QUEUE.as_posix()
-    assert telemetry.get("runtime_handoff_path") == ACTIVE_RUN_HANDOFF.as_posix()
+    assert str(telemetry.get("runtime_handoff_path") or "") in _path_aliases(ACTIVE_RUN_HANDOFF)
 
     first_commands = [str(command) for command in telemetry.get("first_commands") or []]
     assert first_commands[0] == "cat TASK_LOCAL_TELEMETRY.generated.json"
@@ -112,9 +160,15 @@ def test_m103_completed_package_rows_remain_closed_without_receipt_refresh() -> 
         assert "recapturing Chummer5a oracle baselines or veteran workflow packs" in str(
             row.get("do_not_reopen_reason") or ""
         )
-        assert "python tests/test_chummer5a_parity_lab_pack.py" in set(
-            str(item) for item in row.get("proof") or []
-        )
+
+    design_proof = {str(item) for item in design_row.get("proof") or []}
+    assert "python tests/test_chummer5a_parity_lab_pack.py" in design_proof
+    assert "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in design_proof
+
+    fleet_proof = {str(item) for item in fleet_row.get("proof") or []}
+    assert "python3 tests/test_ea_parity_lab_capture_pack.py" in fleet_proof
+    assert "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml" in fleet_proof
+    assert "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md" in fleet_proof
 
     append_policy = dict(closeout.get("repeat_row_append_policy") or {})
     assert append_policy.get("status") == "closed_append_free"

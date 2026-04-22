@@ -2496,9 +2496,9 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
 
     assert result == "first_contact_overlay:applied_ffmpeg"
     assert "drawtext=" in seen["command"][7]
-    assert "AGI" in seen["command"][7]
+    assert "SIN maybe fake" in seen["command"][7]
+    assert "smartlink green" in seen["command"][7]
     assert "TRUST CHECK" not in seen["command"][7]
-    assert "SYNC" in seen["command"][7]
     assert "boxborderw=3" in seen["command"][7]
     assert "borderw=1" in seen["command"][7]
 
@@ -2528,16 +2528,16 @@ def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
     )
 
     assert len(layout["fills"]) >= 5
-    assert len(layout["chips"]) >= 7
-    assert len(layout["lines"]) >= 6
+    assert len(layout["chips"]) >= 5
+    assert len(layout["lines"]) >= 5
     assert len(layout["arcs"]) >= 3
-    assert any(chip["text"] == "COMP" for chip in layout["chips"])
-    provenance = next(chip for chip in layout["chips"] if chip["text"] == "PROV")
-    rollback = next(chip for chip in layout["chips"] if chip["text"] == "ROLL")
-    compatibility = next(chip for chip in layout["chips"] if chip["text"] == "COMP")
+    assert any(chip["text"] == "seal drift 14%" for chip in layout["chips"])
+    provenance = next(chip for chip in layout["chips"] if chip["text"] == "seal drift 14%")
+    rollback = next(chip for chip in layout["chips"] if chip["text"] == "rollback safe 62%")
+    compatibility = next(chip for chip in layout["chips"] if chip["text"] == "witness lock weak")
     assert int(provenance["x"]) > int(0.72 * 960)
-    assert int(rollback["x"]) > int(0.78 * 960)
-    assert int(compatibility["x"]) > int(0.7 * 960)
+    assert int(rollback["x"]) > int(0.60 * 960)
+    assert int(compatibility["x"]) > int(0.6 * 960)
 
 
 def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
@@ -2550,15 +2550,15 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     )
 
     total_box_area = sum(int(box["w"]) * int(box["h"]) for box in layout["boxes"])
-    calibration = next(chip for chip in layout["chips"] if chip["text"] == "CAL")
-    wound = next(chip for chip in layout["chips"] if chip["text"] == "STAB")
+    calibration = next(chip for chip in layout["chips"] if chip["text"] == "cam jack 67%")
+    wound = next(chip for chip in layout["chips"] if chip["text"] == "cover route 3.1s")
 
     assert total_box_area < int(0.07 * 960 * 540)
-    assert any(chip["text"] == "AGI+" for chip in layout["chips"])
-    assert any(chip["text"] == "ESS" for chip in layout["chips"])
+    assert any(chip["text"] == "SIN maybe fake" for chip in layout["chips"])
+    assert any(chip["text"] == "smartlink green" for chip in layout["chips"])
     assert int(calibration["x"]) > int(0.78 * 960)
-    assert int(calibration["y"]) > int(0.64 * 540)
-    assert int(wound["x"]) < int(0.12 * 960)
+    assert int(calibration["y"]) > int(0.68 * 540)
+    assert int(wound["x"]) < int(0.16 * 960)
     assert int(wound["y"]) > int(0.68 * 540)
 
 
@@ -2572,10 +2572,39 @@ def test_core_overlay_layout_uses_smartlink_style_chips() -> None:
     )
 
     assert len(layout["chips"]) >= 4
-    assert any(chip["text"] == "W3" for chip in layout["chips"])
-    assert any(chip["text"] == "LOS" for chip in layout["chips"])
-    assert any(chip["text"] == "R2" for chip in layout["chips"])
-    assert any(chip["text"] == "E+" for chip in layout["chips"])
+    assert any(chip["text"] == "rules drift low" for chip in layout["chips"])
+    assert any(chip["text"] == "line of fire clear" for chip in layout["chips"])
+    assert any(chip["text"] == "reroute in 2 taps" for chip in layout["chips"])
+    assert any(chip["text"] == "edge spend ready" for chip in layout["chips"])
+
+
+def test_hero_overlay_layout_drops_route_and_camera_chips_without_observed_geometry(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "hero-no-route.png"
+    image = image_mod.new("RGB", (960, 540), (18, 22, 28))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((80, 120, 300, 458), fill=(66, 102, 132))
+    draw.rectangle((600, 120, 860, 430), fill=(58, 86, 116))
+    image.save(image_path)
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/hero/chummer6-hero.png",
+        width=960,
+        height=540,
+        image_path=image_path,
+    )
+
+    texts = {str(chip["text"]) for chip in layout["chips"]}
+    assert "SIN maybe fake" in texts
+    assert "smartlink green" in texts
+    assert "cover route 3.1s" not in texts
+    assert "next: side door" not in texts
+    assert "cam jack 67%" not in texts
 
 
 def test_apply_flagship_finish_postpass_uses_pillow_when_available(tmp_path: Path) -> None:

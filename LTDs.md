@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-04-16
+Updated: 2026-04-20
 
 ## Workspace Integration Tier Guide
 
@@ -41,6 +41,8 @@ Updated: 2026-04-16
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `FacePop` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 5 is confirmed manually; shared local credentials are stored for later structured verification and browser-driven access. |
 | `First Book ai` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane is verified in this repo yet | Activation is confirmed; browser-driven account access exists, but a production runtime lane is not yet pinned here. |
+| `GetNextStep.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 5 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
+| `ICanpreneur` | `Tier 3` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 3 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
 | `Lunacal` | `Tier 4 (highest AppSumo tier)` | `1 account` | `Activated` |  | `Tier 4` | BrowserAct-stored credentials plus local `.env` username/password; no active runtime lane yet | Highest AppSumo tier is confirmed at `app.lunacal.ai`; BrowserAct and the local env both hold the account credentials for later structured verification. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
@@ -49,13 +51,14 @@ Updated: 2026-04-16
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
+| `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |
 | `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
 
-- `32` total LTD products tracked
+- `35` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -77,6 +80,8 @@ Use this section to track missing tier/email/account facts discovered through th
 | `VidBoard.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `browseract_local` | 2026-04-14T00:00:00Z | Tier 5 and account email were seeded manually; credentials remain out of git and structured BrowserAct verification is still pending. |
 | `Deftform` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-16T09:27:27Z | Account ownership and shared credentials were seeded manually; plan/tier and structured verification are still pending. |
 | `FacePop` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-16T09:42:38Z | Tier 5 and shared credentials were seeded manually; structured verification and any BrowserAct capture are still pending. |
+| `GetNextStep.io` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 5 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
+| `ICanpreneur` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 3 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
 | `hedy.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-02T00:00:00Z | Username/password are stored locally; plan/tier and activation details still need structured verification. |
 | `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
@@ -94,6 +99,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Nonverbia` |  | `missing` | `manual_inventory` |  | Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
+| `Signitic` | `tibor@girschele.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 4 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
 | `Unmixr AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Vizologi` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |

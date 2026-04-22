@@ -1,0 +1,49 @@
+version: 1
+key: open_run_policy_presets
+status: proposal
+owner: chummer6-design
+
+presets:
+  - id: beginner_one_shot
+    label: Beginner One-Shot
+    admission_mode: request_to_join
+    seats_total: 4
+    quickstart_allowed: true
+    beginner_friendly: true
+    community_rule_environment_required: true
+    table_contract_required: true
+    scheduling_mode: lunacal_slots
+    communication_platform: discord
+
+  - id: creator_playtest
+    label: Creator Playtest
+    admission_mode: organizer_curated
+    seats_total: 5
+    quickstart_allowed: false
+    beginner_friendly: false
+    community_rule_environment_required: true
+    table_contract_required: true
+    scheduling_mode: manual_approval
+    communication_platform: discord_or_teams
+
+  - id: season_canon_run
+    label: Season Canon Run
+    admission_mode: request_to_join
+    seats_total: 5
+    quickstart_allowed: true
+    beginner_friendly: mixed
+    community_rule_environment_required: true
+    table_contract_required: true
+    scheduling_mode: lunacal_slots
+    communication_platform: discord
+
+  - id: private_campaign_fill_in
+    label: Private Campaign Fill-In
+    admission_mode: invite_only
+    seats_total: 5
+    quickstart_allowed: false
+    beginner_friendly: false
+    community_rule_environment_required: optional
+    table_contract_required: true
+    scheduling_mode: fixed_time
+    communication_platform: chosen_by_gm

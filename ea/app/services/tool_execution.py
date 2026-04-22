@@ -20,6 +20,7 @@ from app.services.tool_execution_connector_dispatch_module import ConnectorDispa
 from app.services.tool_execution_gemini_vortex_module import GeminiVortexToolExecutionModule
 from app.services.tool_execution_magixai_module import MagixaiToolExecutionModule
 from app.services.tool_execution_onemin_module import OneminToolExecutionModule
+from app.services.tool_execution_comfyui_module import ComfyUIToolExecutionModule
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -55,6 +56,9 @@ class ToolExecutionService:
         self._onemin_module = OneminToolExecutionModule(
             tool_runtime=tool_runtime,
         )
+        self._comfyui_module = ComfyUIToolExecutionModule(
+            tool_runtime=tool_runtime,
+        )
         self._artifact_module = ArtifactToolExecutionModule(
             tool_runtime=tool_runtime,
             artifacts=artifacts,
@@ -72,6 +76,7 @@ class ToolExecutionService:
             ("browseract", "onemin_billing_usage"): self._register_builtin_browseract_onemin_billing_usage,
             ("browseract", "onemin_member_reconciliation"): self._register_builtin_browseract_onemin_member_reconciliation,
             ("browseract", "crezlo_property_tour"): self._register_builtin_browseract_crezlo_property_tour,
+            ("comfyui", "image_generate"): self._register_builtin_comfyui_image_generate,
             ("connector_dispatch", "dispatch"): self._register_builtin_connector_dispatch,
             ("gemini_vortex", "structured_generate"): self._register_builtin_gemini_vortex_structured_generate,
             ("magixai", "structured_generate"): self._register_builtin_magixai_structured_generate,
@@ -209,6 +214,9 @@ class ToolExecutionService:
 
     def _register_builtin_onemin_image_generate(self) -> None:
         self._onemin_module.register_image_generate(self.register_handler)
+
+    def _register_builtin_comfyui_image_generate(self) -> None:
+        self._comfyui_module.register_image_generate(self.register_handler)
 
     def _register_builtin_onemin_media_transform(self) -> None:
         self._onemin_module.register_media_transform(self.register_handler)

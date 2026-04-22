@@ -48,13 +48,14 @@ The parity registry now closes every in-scope non-plugin family through proof-ba
 Cleared 2026-04-10.
 The localization release gate now passes on current shipping-locale proof, so localization is no longer the active release blocker.
 
-## RED blockers
-
 ### BLK-010 — campaign-OS lived-system proof still lags the architectural center
 
-Active since 2026-04-04.
-The product architecture is coherent, but flagship release truth can still outrun the lived system across install, claim, restore, campaign continuity, publication, closure, and public/support trust surfaces.
-This is now an external-only blocker: the remaining release debt is the two missing promoted Windows desktop tuples plus matching startup-smoke proof, followed by release/journey receipt republication from that Windows evidence.
+Cleared 2026-04-15.
+Current Fleet readiness proof, journey gates, support packets, release-channel tuple coverage, and desktop host-proof receipts now agree that no unresolved local or external release-proof requests remain for the Next 12 closeout.
+
+## RED blockers
+
+None.
 
 ## GREEN candidates once current blockers clear
 

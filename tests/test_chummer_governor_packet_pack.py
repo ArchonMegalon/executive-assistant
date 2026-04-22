@@ -21,6 +21,34 @@ FLEET_SUPPORT_PACKETS_PATH = Path("/docker/fleet/.codex-studio/published/SUPPORT
 REGISTRY_RELEASE_CHANNEL_PATH = Path(
     "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json"
 )
+CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOT = Path(
+    "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs"
+)
+CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE = (
+    "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/{active_run_id}-shard-12/"
+    "TASK_LOCAL_TELEMETRY.generated.json"
+)
+CURRENT_RETRY_FIRST_COMMAND_TEMPLATES = [
+    "cat {task_local_telemetry_path}",
+    "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+]
+CURRENT_RETRY_DIRECT_READ_TEMPLATES = [
+    "{task_local_telemetry_path}",
+    "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+    "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+    "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+    "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
+    "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+]
+CURRENT_RETRY_TARGET_PACKAGE_INSPECTION = [
+    "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+    "docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
+    "docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+    "tests/test_chummer_governor_packet_pack.py",
+]
 LANDED_COMMIT = "dacbdad"
 COMPLETION_ACTION = "verify_closed_package_only"
 DO_NOT_REOPEN_REASON = (
@@ -28,6 +56,8 @@ DO_NOT_REOPEN_REASON = (
     "focused test, canonical registry row, Fleet queue row, and design queue row instead of reopening the "
     "EA-owned operator-packet and reporter-followthrough slice."
 )
+TERMINAL_FEEDBACK_CUTOFF_DATE = "2026-04-15"
+TERMINAL_FEEDBACK_PREFIXES = ("ea-governor-packets-", "chummer-governor-packets-")
 
 
 def _yaml(path: Path) -> dict:
@@ -120,6 +150,43 @@ def _strings(value: object) -> list[str]:
     if isinstance(value, str):
         return [value]
     return []
+
+
+def _resolve_current_retry_direct_reads() -> list[str]:
+    telemetry_paths = _matching_current_retry_task_local_telemetry_paths()
+    assert telemetry_paths, "expected at least one shard-12 task-local telemetry file for prompt-relative retry checks"
+    return [
+        str(telemetry_paths[-1]),
+        *CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:],
+    ]
+
+
+def _matching_current_retry_task_local_telemetry_paths() -> list[Path]:
+    return sorted(
+        CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOT.glob("*-shard-12/TASK_LOCAL_TELEMETRY.generated.json")
+    )
+
+
+def _future_dated_package_feedback_notes() -> list[Path]:
+    notes: list[Path] = []
+    for path in sorted((ROOT / "feedback").glob("*.md")):
+        stem = path.stem
+        if len(stem) < 12:
+            continue
+        date_part = stem[:10]
+        remainder = stem[11:]
+        if date_part > TERMINAL_FEEDBACK_CUTOFF_DATE and remainder.startswith(TERMINAL_FEEDBACK_PREFIXES):
+            notes.append(path)
+    return notes
+
+
+def _same_day_package_feedback_notes() -> list[Path]:
+    notes: list[Path] = []
+    for path in sorted((ROOT / "feedback").glob("2026-04-15-*.md")):
+        remainder = path.stem[11:]
+        if remainder.startswith(TERMINAL_FEEDBACK_PREFIXES):
+            notes.append(path)
+    return notes
 
 
 def _without_keys(value: object, keys_to_drop: set[str]) -> object:
@@ -221,6 +288,7 @@ def test_successor_queue_ea_proof_paths_are_not_stale() -> None:
 
 def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
     pack = _yaml(PACK_PATH)
+    specimens = _yaml(SPECIMENS_PATH)
     queue_item = _find_package(_yaml(QUEUE_STAGING_PATH))
     design_queue_item = _find_package(_yaml(DESIGN_QUEUE_STAGING_PATH))
     milestone = _find_milestone(_yaml(CANONICAL_REGISTRY_PATH), 106)
@@ -336,6 +404,25 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         and "must not become packet proof" in item
         for item in drift_policy
     )
+    assert pack.get("generated_at") == specimens.get("generated_at")
+
+    projection = dict(pack.get("materialized_truth_projection") or {})
+    source_payloads = {
+        "fleet_weekly_governor_packet": _json(FLEET_WEEKLY_GOVERNOR_PACKET_PATH),
+        "fleet_support_packets": _json(FLEET_SUPPORT_PACKETS_PATH),
+        "registry_release_channel": _json(REGISTRY_RELEASE_CHANNEL_PATH),
+    }
+    for source_name, projection_key in {
+        "fleet_weekly_governor_packet": "operator_packet_live_source",
+        "fleet_support_packets": "reporter_followthrough_live_source",
+        "registry_release_channel": "release_truth_live_source",
+    }.items():
+        source_rule = dict(projection.get(projection_key) or {})
+        assert source_rule.get("source_anchor_id") == source_name
+        payload = source_payloads[source_name]
+        _field(payload, "generated_at")
+        for required_field in source_rule.get("required_fields") or []:
+            _field(payload, str(required_field))
 
 
 def test_successor_frontier_closeout_prevents_reopening_completed_ea_slice() -> None:
@@ -453,6 +540,21 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert terminal_policy.get("successor_wave_verification_history_closed") is True
     assert terminal_policy.get("latest_allowed_timestamp_only_verification_at") == "2026-04-15T15:13:15Z"
     assert terminal_policy.get("post_terminal_proof_command_result_required") == _expected_direct_runner_result()
+    assert terminal_policy.get("future_feedback_note_cutoff_date") == TERMINAL_FEEDBACK_CUTOFF_DATE
+    assert tuple(terminal_policy.get("forbidden_future_feedback_note_prefixes") or []) == TERMINAL_FEEDBACK_PREFIXES
+    allowed_same_day_feedback_notes = {
+        str(item) for item in terminal_policy.get("allowed_same_day_feedback_notes") or []
+    }
+    future_feedback_note_rule = str(terminal_policy.get("future_feedback_note_rule") or "")
+    assert "Later-dated feedback files" in future_feedback_note_rule
+    assert "invalid package proof" in future_feedback_note_rule
+    assert "implementation-only retries" in future_feedback_note_rule
+    assert _future_dated_package_feedback_notes() == []
+    assert allowed_same_day_feedback_notes == {
+        str(path.relative_to(ROOT)) for path in _same_day_package_feedback_notes()
+    }
+    assert "feedback/2026-04-15-ea-governor-packets-terminal-repeat-prevention.md" in allowed_same_day_feedback_notes
+    assert "feedback/2026-04-15-chummer-governor-packets-successor-guard.md" in allowed_same_day_feedback_notes
     assert "Do not append a new successor-wave verification note solely because" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
@@ -578,6 +680,28 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "exact task-local telemetry path named by the active prompt" in telemetry_command_rule
     assert "telemetry_path_pattern guard" in telemetry_command_rule
     assert "stale retry run id" in telemetry_command_rule
+    assert prompt_direct_read_contract.get("current_prompt_contract_id") == "2026-04-19-implementation-only-retry"
+    assert (
+        str(prompt_direct_read_contract.get("current_prompt_task_local_telemetry_path_template") or "")
+        == CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE
+    )
+    assert list(prompt_direct_read_contract.get("current_prompt_required_first_command_templates") or []) == (
+        CURRENT_RETRY_FIRST_COMMAND_TEMPLATES
+    )
+    assert list(prompt_direct_read_contract.get("current_prompt_required_direct_read_templates") or []) == (
+        CURRENT_RETRY_DIRECT_READ_TEMPLATES
+    )
+    template_resolution_rule = str(prompt_direct_read_contract.get("template_resolution_rule") or "")
+    assert "Resolve {active_run_id} and {task_local_telemetry_path} from the current prompt" in template_resolution_rule
+    assert "do not pin one retry run id into package proof" in template_resolution_rule
+    assert list(prompt_direct_read_contract.get("current_prompt_target_package_inspection") or []) == (
+        CURRENT_RETRY_TARGET_PACKAGE_INSPECTION
+    )
+    current_prompt_contract_rule = str(prompt_direct_read_contract.get("current_prompt_contract_rule") or "")
+    assert "exact first commands and direct reads" in current_prompt_contract_rule
+    assert "resolve the telemetry placeholder from the current prompt" in current_prompt_contract_rule
+    assert "assignment intake only" in current_prompt_contract_rule
+    assert "do not replace them with helper loops" in current_prompt_contract_rule
     assert list(prompt_direct_read_contract.get("required_prompt_startup_sequence") or []) == [
         "task-local telemetry assignment file first",
         "one listed repo file second",
@@ -595,6 +719,16 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert list(prompt_direct_read_contract.get("prompt_named_direct_reads") or []) == listed_repo_file_candidates
     assert "stale notes" in str(prompt_direct_read_contract.get("stale_status_rule") or "")
     assert "not commands to repeat" in str(prompt_direct_read_contract.get("stale_status_rule") or "")
+    resolved_direct_reads = _resolve_current_retry_direct_reads()
+    telemetry_candidates = _matching_current_retry_task_local_telemetry_paths()
+    assert CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:] == listed_repo_file_candidates
+    assert CURRENT_RETRY_DIRECT_READ_TEMPLATES[0] == "{task_local_telemetry_path}"
+    assert telemetry_candidates
+    assert all(path.is_file() for path in telemetry_candidates)
+    assert resolved_direct_reads[1:] == listed_repo_file_candidates
+    assert resolved_direct_reads[0] not in listed_repo_file_candidates
+    assert all(Path(path).exists() for path in resolved_direct_reads)
+    assert all((ROOT / path).exists() for path in CURRENT_RETRY_TARGET_PACKAGE_INSPECTION)
     assignment_intake_exclusion_rule = dict(
         retry_helper_loop_guard.get("assignment_intake_exclusion_rule") or {}
     )

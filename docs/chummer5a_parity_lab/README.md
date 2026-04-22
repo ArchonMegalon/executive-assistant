@@ -24,11 +24,15 @@ Canonical outputs:
 Artifact extraction shape:
 
 - `oracle_baselines.yaml` now carries a per-screenshot manifest with 17 baseline IDs, corpus routing, veteran task references, compare-family links, and direct oracle tokens.
+- `oracle_baselines.yaml` is synced to the current shard-4 worker-safe assignment context, published readiness packet, and runtime handoff so the package reflects the live successor-wave retry instead of an older pass.
 - `oracle_baselines.yaml` also carries a legacy-form landmark inventory so the screenshot baselines stay tied to the WinForms-era veteran surfaces that defined Chummer5a muscle memory, including the original `ChummerMainForm` shell/menu window.
+- `oracle_baselines.yaml` now includes line-level oracle source proofs for the main shell menus, settings/import routes, and first-class master-index/roster landmarks plus the promoted desktop tuple-to-baseline map used by the desktop client coverage lane.
 - `oracle_baselines.yaml` pins the two supplemental master-index and roster PNGs to the live published screenshot corpus under `/docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots` so the closed EA pack does not point at stale flagship-worktree paths.
 - `veteran_workflow_pack.yaml` now carries first-minute task packs that bind each veteran task to landmarks, screenshot baseline IDs, compare families, and source tokens.
+- `veteran_workflow_pack.yaml` now records the current shard-safe sync context, desktop tuple coverage map, whole-product readiness lanes, and desktop executable-gate snapshot that this EA extraction pack depends on without reopening the promoted-head certification work.
 - `veteran_workflow_pack.yaml` also carries cross-source route packs plus legacy landmark bindings that connect each first-minute veteran task to the matching Chummer5a desktop forms.
 - `compare_packs.yaml` now carries a family artifact matrix so each flagship parity family resolves to baseline IDs, workflow task IDs, oracle fixture IDs, and one source-anchor check family.
+- `compare_packs.yaml` is synced to the same shard-4 worker-safe telemetry and handoff context so compare artifacts stay tied to the current successor-wave assignment.
 - `compare_packs.yaml` also carries legacy-form anchor checks for the WinForms surfaces behind the main shell, settings, master index, roster, import, and export flows.
 
 Proof boundary:

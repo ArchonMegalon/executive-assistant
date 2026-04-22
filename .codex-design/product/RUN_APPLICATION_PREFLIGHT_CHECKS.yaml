@@ -1,0 +1,36 @@
+version: 1
+key: run_application_preflight_checks
+status: proposal
+owner: chummer6-design
+
+statuses:
+  - pass
+  - warn
+  - fail
+  - blocked
+
+checks:
+  - id: account_claimed
+    category: identity
+    description: Applicant has a claimable or claimed Chummer account path.
+  - id: runner_selected_or_quickstart
+    category: roster
+    description: Applicant selected a dossier or approved quickstart runner.
+  - id: community_rule_legality
+    category: rules
+    description: Selected runner is legal for the active CommunityRuleEnvironment.
+  - id: roster_role_fit
+    category: roster
+    description: Runner fills a needed role or at least does not conflict with reserved seat rules.
+  - id: schedule_fit
+    category: scheduling
+    description: Applicant availability overlaps the accepted session posture.
+  - id: table_contract_ack
+    category: consent
+    description: Applicant acknowledged tone, safety, and logistics policy.
+  - id: meeting_platform_readiness
+    category: communication
+    description: Applicant can access the required handoff platform or has a bounded fallback.
+  - id: runner_commitment_conflict
+    category: scheduling
+    description: Selected runner is not already accepted into another conflicting run window.

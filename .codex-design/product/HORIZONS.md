@@ -44,6 +44,7 @@ Current families are:
 * build and simulation
 * governed rules evolution
 * knowledge fabric and explainability
+* campaign-world-state and mission market
 * artifact studio
 * creator press
 * spatial exploration
@@ -73,6 +74,8 @@ Read `horizons/README.md` first, then the relevant lane docs:
 * `horizons/nexus-pan.md`
 * `horizons/alice.md`
 * `horizons/karma-forge.md`
+* `horizons/black-ledger.md`
+* `horizons/shadowcasters-network.md`
 * `horizons/knowledge-fabric.md`
 * `horizons/jackpoint.md`
 * `horizons/runsite.md`

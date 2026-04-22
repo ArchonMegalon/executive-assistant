@@ -1,0 +1,51 @@
+version: 1
+key: intel_report_review_states
+status: proposal
+owner: chummer6-design
+
+states:
+  - id: pending_curator
+    meaning: Submitted and waiting for first review.
+    transitions:
+      - needs_clarification
+      - reviewed
+      - rejected
+
+  - id: needs_clarification
+    meaning: Reviewer needs more scope, consent, or detail before use.
+    transitions:
+      - pending_curator
+      - reviewed
+      - rejected
+
+  - id: reviewed
+    meaning: Usable as fiction input but not yet world truth.
+    transitions:
+      - adopted
+      - merged
+      - rejected
+      - false_flag
+
+  - id: adopted
+    meaning: Accepted into a campaign, district-pressure, or world-tick input path.
+    transitions:
+      - merged
+      - canonized
+
+  - id: merged
+    meaning: Folded into another governed pressure, rumor, or job-input object.
+    transitions:
+      - canonized
+
+  - id: rejected
+    meaning: Not accepted into governed use.
+    transitions: []
+
+  - id: false_flag
+    meaning: Retained only as governed misinformation or propaganda.
+    transitions:
+      - canonized
+
+  - id: canonized
+    meaning: Official truth for the governed world frame or approved public output.
+    transitions: []

@@ -1,11 +1,28 @@
 contract_name: ea.chummer5a_compare_packs
 schema_version: 1
-generated_at: "2026-04-15T08:22:00Z"
+generated_at: "2026-04-19T12:09:26Z"
 milestone:
   id: 103
   package_id: next90-m103-ea-parity-lab
   owned_surfaces:
     - veteran_compare_packs
+worker_safe_resume_context:
+  assignment_mode: implementation_only
+  scope_label: Next 90-day product advance wave
+  frontier_id: 4287684466
+  package_id: next90-m103-ea-parity-lab
+  milestone_id: 103
+  owned_surfaces:
+    - parity_lab:capture
+    - veteran_compare_packs
+  allowed_paths:
+    - skills
+    - tests
+    - feedback
+    - docs
+  readiness_path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  readiness_generated_at: "2026-04-19T11:57:17Z"
+  runtime_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-4/ACTIVE_RUN_HANDOFF.generated.md
 families:
   - id: shell_workbench_orientation
     compare_artifacts:
@@ -363,3 +380,55 @@ family_artifact_packs:
       - rules
       - sources
     source_anchor_family_id: sr6_supplements_designers_and_house_rules
+desktop_tuple_compare_packs:
+  - tuple: avalonia:linux-x64:linux
+    required_family_ids:
+      - shell_workbench_orientation
+      - settings_and_rules_environment_authoring
+      - sourcebooks_reference_and_master_index
+      - roster_dashboards_and_multi_character_ops
+    required_workflow_task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+      - locate_master_index_and_roster
+    required_baseline_ids:
+      - initial_shell
+      - menu_open
+      - settings_open
+      - loaded_runner
+      - master_index_dialog
+      - character_roster_dialog
+  - tuple: avalonia:win-x64:windows
+    required_family_ids:
+      - shell_workbench_orientation
+      - settings_and_rules_environment_authoring
+      - sourcebooks_reference_and_master_index
+      - roster_dashboards_and_multi_character_ops
+    required_workflow_task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+      - locate_master_index_and_roster
+    required_baseline_ids:
+      - initial_shell
+      - menu_open
+      - settings_open
+      - loaded_runner
+      - master_index_dialog
+      - character_roster_dialog
+  - tuple: avalonia:osx-arm64:macos
+    required_family_ids:
+      - shell_workbench_orientation
+      - settings_and_rules_environment_authoring
+      - sourcebooks_reference_and_master_index
+      - roster_dashboards_and_multi_character_ops
+    required_workflow_task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+      - locate_master_index_and_roster
+    required_baseline_ids:
+      - initial_shell
+      - menu_open
+      - settings_open
+      - loaded_runner
+      - master_index_dialog
+      - character_roster_dialog

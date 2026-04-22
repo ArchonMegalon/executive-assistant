@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.domain.models import Artifact, ToolInvocationRequest, ToolInvocationResult
+from app.domain.models import Artifact, ToolDefinition, ToolInvocationRequest, ToolInvocationResult
 from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
 from app.repositories.observation import InMemoryObservationEventRepository
 from app.repositories.artifacts import InMemoryArtifactRepository
@@ -4836,6 +4836,130 @@ def test_tool_execution_service_self_heals_missing_builtin_onemin_image_generate
     assert result.output_json["provider_backend"] == "1min"
     assert result.receipt_json["feature_type"] == "IMAGE_GENERATOR"
     assert tool_runtime.get_tool("provider.onemin.image_generate") is not None
+
+
+def test_tool_execution_service_self_heals_missing_builtin_comfyui_image_generate_definition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMFYUI_URL", "https://images.example")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    def _fake_execute_image_generate(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="image.generate",
+            target_ref="comfyui:test",
+            output_json={
+                "asset_urls": ["https://images.example/view?filename=test.png&type=output"],
+                "provider_backend": "comfyui",
+                "preview_text": "test prompt",
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "provider_key": "comfyui",
+            },
+            model_name="SDXL-Lightning-4step",
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_comfyui_adapter.ComfyUIToolAdapter.execute_image_generate",
+        _fake_execute_image_generate,
+    )
+    registry._rows.pop("provider.comfyui.image_generate", None)  # type: ignore[attr-defined]
+    registry._order = [key for key in registry._order if key != "provider.comfyui.image_generate"]  # type: ignore[attr-defined]
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-comfyui-image-1",
+            step_id="step-comfyui-image-1",
+            tool_name="provider.comfyui.image_generate",
+            action_kind="image.generate",
+            payload_json={"prompt": "Render a cinematic office still."},
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "provider.comfyui.image_generate"
+    assert result.output_json["provider_backend"] == "comfyui"
+    assert tool_runtime.get_tool("provider.comfyui.image_generate") is not None
+
+
+def test_comfyui_tool_adapter_falls_back_to_onemin_when_primary_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.tool_execution_comfyui_adapter import ComfyUIToolAdapter
+
+    monkeypatch.setenv("COMFYUI_URL", "https://images.example")
+    monkeypatch.setenv("COMFYUI_FALLBACK_TO_ONEMIN", "1")
+
+    def _boom_call_comfyui(prompt: str, *, width: int = 1024, height: int = 1408, steps: int = 4) -> dict[str, object]:
+        raise ToolExecutionError("comfyui_connection_failed:timeout")
+
+    def _fake_onemin_execute(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        assert request.tool_name == "provider.onemin.image_generate"
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="image.generate",
+            target_ref="onemin:test",
+            output_json={
+                "asset_urls": ["https://cdn.1min.ai/generated/fallback-image.png"],
+                "provider_backend": "1min",
+                "provider_account_name": "acct-image",
+            },
+            receipt_json={
+                "handler_key": definition.tool_name,
+                "provider_key": "onemin",
+                "provider_backend": "1min",
+            },
+            model_name="gpt-image-1-mini",
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+        )
+
+    monkeypatch.setattr("app.services.tool_execution_comfyui_adapter._call_comfyui", _boom_call_comfyui)
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.OneminToolAdapter.execute_image_generate",
+        _fake_onemin_execute,
+    )
+
+    adapter = ComfyUIToolAdapter()
+    result = adapter.execute_image_generate(
+        ToolInvocationRequest(
+            session_id="session-comfy-fallback",
+            step_id="step-comfy-fallback",
+            tool_name="provider.comfyui.image_generate",
+            action_kind="image.generate",
+            payload_json={"prompt": "Render fallback art.", "width": 1024, "height": 1024},
+            context_json={"principal_id": "exec-1"},
+        ),
+        ToolDefinition(
+            tool_name="provider.comfyui.image_generate",
+            version="v1",
+            input_schema_json={},
+            output_schema_json={},
+            policy_json={"builtin": True, "action_kind": "image.generate"},
+            allowed_channels=(),
+            approval_default="none",
+            enabled=True,
+            updated_at="2026-04-22T00:00:00Z",
+        ),
+    )
+
+    assert result.tool_name == "provider.onemin.image_generate"
+    assert result.output_json["asset_urls"] == ["https://cdn.1min.ai/generated/fallback-image.png"]
+    assert result.receipt_json["provider_key"] == "onemin"
 
 
 def test_onemin_tool_adapter_feature_uses_manager_to_avoid_core_occupied_account(

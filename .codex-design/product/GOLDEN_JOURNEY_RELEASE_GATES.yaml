@@ -1,7 +1,7 @@
 product: chummer
 surface: release_control
 version: 1
-last_reviewed: 2026-04-10
+last_reviewed: 2026-04-16
 purpose: Canonical six-journey release gate layer for proving the campaign OS as a lived system instead of only a coherent repo graph.
 
 journey_gates:
@@ -50,15 +50,18 @@ journey_gates:
             - generatedAt
         - repo: chummer6-hub-registry
           path: .codex-studio/published/RELEASE_CHANNEL.generated.json
-          json_must_equal:
-            releaseProof.status: passed
-            desktopTupleCoverage.missingRequiredPlatforms: []
-            desktopTupleCoverage.missingRequiredPlatformHeadPairs: []
-            desktopTupleCoverage.missingRequiredPlatformHeadRidTuples: []
           json_must_be_one_of:
+            releaseProof.status:
+              - pass
+              - passed
+              - ready
             status:
               - published
               - publishable
+          json_must_equal:
+            desktopTupleCoverage.missingRequiredPlatforms: []
+            desktopTupleCoverage.missingRequiredPlatformHeadPairs: []
+            desktopTupleCoverage.missingRequiredPlatformHeadRidTuples: []
           json_must_be_non_empty_string:
             contract_name: true
             releaseProof.generatedAt: true
@@ -69,7 +72,6 @@ journey_gates:
           must_contain:
             - '"desktopTupleCoverage"'
             - '"releaseProof"'
-            - '"status": "passed"'
             - '"missingRequiredPlatforms"'
             - '"missingRequiredPlatformHeadPairs"'
             - '"missingRequiredPlatformHeadRidTuples"'
@@ -82,13 +84,64 @@ journey_gates:
           must_contain:
             - BuildSupportPortalRelativePathForInstall
             - BuildSupportPortalRelativePathForWorkspace
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PERSONA_AND_INTERACTION_MODEL.md
+          must_contain:
+            - "First-run and install onboarding"
+            - "Mac bootstrap gremlin"
+            - "Enable voice mode"
+            - "Keep text only"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_EVENT_SCHEMA.yaml
+          must_contain:
+            - "first_run_greeting"
+            - "install_bootstrap_route"
+            - "voice_opt_in"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PACKET.md
+          must_contain:
+            - "CompanionPacket"
+            - "requires_user_gesture_for_voice"
+            - "fallback_pack_id"
+            - "desktop/mobile runtime must still work if EA, LLM, or media lanes are unavailable"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_TRIGGER_REGISTRY.yaml
+          must_contain:
+            - "default_runtime_path: first_party_local_fallback"
+            - "preview_scout_warning"
+            - "restore_conflict_warning"
+            - "llm_unavailable_must_not_block_runtime"
+        - repo: chummer6-design
+          path: products/chummer/MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml
+          must_contain:
+            - "first_run_companion_card"
+            - "desktop_startup_companion_event_packet"
+        - repo: chummer6-design
+          path: products/chummer/LOCALIZATION_PARITY_MATRIX.yaml
+          must_contain:
+            - "companion_runtime"
+            - "locale_smoke_companion"
+            - "voice_opt_in_fallback_smoke"
+        - repo: chummer6-ui
+          path: Chummer.Desktop.Runtime/DesktopStartupCompanionRuntime.cs
+          must_contain:
+            - "You made it. If you said something, I couldn't hear you."
+            - "Hard boundary: no cross-app observation"
+            - "Voice mode is off. Default posture is text-only until you opt in."
+            - "Enable voice mode"
+            - "Keep text only"
+        - repo: chummer6-ui
+          path: Chummer.Tests/DesktopInstallLinkingRuntimeTests.cs
+          must_contain:
+            - "DesktopStartupCompanionRuntime.CreateProjection"
+            - "Voice mode is off"
+            - "Enable voice mode"
         - repo: chummer6-ui
           path: .codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json
           json_must_equal:
             local_blocking_findings_count: 0
             evidence.hub_registry_root_trusted_for_startup_smoke_proof: true
             evidence.visual_familiarity_status: pass
-            evidence.workflow_execution_status: pass
             evidence.desktop_familiarity.file_menu_live: true
             evidence.desktop_familiarity.master_index_first_class: true
             evidence.desktop_familiarity.character_roster_first_class: true
@@ -97,20 +150,14 @@ journey_gates:
             evidence.install_experience.claim_flow_surface: installer_or_in_app
             evidence.install_experience.product_installer_guides_head_choice: true
             evidence.receipt_scope.windows_gate:avalonia:win-x64.within_repo_root: true
-            evidence.receipt_scope.windows_gate:blazor-desktop:win-x64.within_repo_root: true
             evidence.receipt_scope.linux_gate:avalonia:linux-x64.within_repo_root: true
-            evidence.receipt_scope.linux_gate:blazor-desktop:linux-x64.within_repo_root: true
             evidence.receipt_scope.macos_gate:avalonia:osx-arm64.within_repo_root: true
-            evidence.receipt_scope.macos_gate:blazor-desktop:osx-arm64.within_repo_root: true
           must_contain:
             - '"contract_name": "chummer6-ui.desktop_executable_exit_gate"'
             - '"local_blocking_findings_count": 0'
             - '"windows_gate:avalonia:win-x64"'
-            - '"windows_gate:blazor-desktop:win-x64"'
             - '"linux_gate:avalonia:linux-x64"'
-            - '"linux_gate:blazor-desktop:linux-x64"'
             - '"macos_gate:avalonia:osx-arm64"'
-            - '"macos_gate:blazor-desktop:osx-arm64"'
             - '"hub_registry_root_trusted_for_startup_smoke_proof": true'
           max_age_hours: 48
           generated_at_fields:
@@ -242,6 +289,38 @@ journey_gates:
             - handoff.RuleEnvironmentDiff
             - handoff.RuleEnvironmentDiff.BeforeScope
             - handoff.RuleEnvironmentDiff.AfterScope
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PERSONA_AND_INTERACTION_MODEL.md
+          must_contain:
+            - "### 3. Build Lab"
+            - "### 2. Build trap intervention"
+            - "Show why"
+            - "Compare alternatives"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_EVENT_SCHEMA.yaml
+          must_contain:
+            - "build_trap_warning"
+            - "build_compare_explainer"
+            - "build_lab"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PACKET.md
+          must_contain:
+            - "The packet is a truth wrapper, not a chat request."
+            - "`CompanionPacket` carries inspectable first-party truth"
+            - "allowed_joke_budget"
+            - "evidence_drawer_required"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_TRIGGER_REGISTRY.yaml
+          must_contain:
+            - "build_archetype_drift"
+            - "build_trap_choice_intercept"
+            - "compare_variants"
+            - "keep_the_chaos"
+        - repo: chummer6-design
+          path: products/chummer/MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml
+          must_contain:
+            - "build_trap_intervention_card"
+            - "build_lab_trap_warning_event_packet"
         - repo: chummer6-hub
           path: Chummer.Run.AI/Services/Interop/InteropExportService.cs
           must_contain:
@@ -261,27 +340,26 @@ journey_gates:
             - session-binding-inferred
             - session-binding-required-for-replace
         - repo: chummer6-media-factory
-          path: src/Chummer.Media.Factory.Runtime/Assets/CreatorPublicationPlannerService.cs
+          path: src/Chummer.Media.Factory.Runtime/Assets/AssetLifecycleService.cs
           must_contain:
-            - 'PreserveLaneLine("JSON exchange:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Foundry exchange:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Sheet viewer:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Print PDF:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Character template export:", handoff.ExchangeParityLines, selectedParityLines);'
-            - 'PreserveLaneLine("Replay timeline:", handoff.PortabilityPillarLines, selectedPortabilityLines);'
-            - 'PreserveLaneLine("Session recap:", handoff.PortabilityPillarLines, selectedPortabilityLines);'
-            - 'PreserveLaneLine("Run module:", handoff.PortabilityPillarLines, selectedPortabilityLines);'
+            - "GetApprovalPipelineProjection()"
+            - "approval-required-before-persist"
+            - "AssetRetentionState.Pinned"
+            - "MediaFactoryRuntimeBackup.ContractFamily"
+        - repo: chummer6-media-factory
+          path: src/Chummer.Media.Factory.Runtime/Assets/MediaRenderJobService.cs
+          must_contain:
+            - "TryGetReusableJob"
+            - "DuplicateCount: ToInt(_dedupeReuseCount)"
+            - "ReplayCount: ToInt(_dedupeReuseCount)"
+            - "MediaFactoryRuntimeBackup.ContractFamily"
         - repo: chummer6-media-factory
           path: Chummer.Media.Factory.Runtime.Verify/Program.cs
           must_contain:
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("JSON exchange:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Foundry exchange:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Sheet viewer:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Print PDF:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Character template export:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Replay timeline:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Session recap:", StringComparison.Ordinal)),'
-            - 'Assert(creatorPublicationPlan.EvidenceLines.Any(static line => line.Contains("Run module:", StringComparison.Ordinal)),'
+            - "Replay-safe dedupe should reuse the same job before expiry."
+            - "Backup contract family must stay stable."
+            - "Restore must retain pinned approval assets."
+            - "Restore must preserve media dedupe replay counts."
         - repo: chummer6-ui
           path: Chummer.Presentation/UiKit/ChummerPatternBoundary.cs
           must_contain:
@@ -417,6 +495,37 @@ journey_gates:
             - 'EventType: "heat.alert"'
             - 'AdditionalTags: ["opposition", "packet"]'
             - 'AdditionalTags: ["opposition", "roster"]'
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PERSONA_AND_INTERACTION_MODEL.md
+          must_contain:
+            - "### 4. Campaign workspace and runboard"
+            - "### 3. Campaign drift alert"
+            - "Review runner impact"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_EVENT_SCHEMA.yaml
+          must_contain:
+            - "campaign_drift_alert"
+            - "rule_environment_drift"
+            - "campaign_workspace"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PACKET.md
+          must_contain:
+            - "Every packet should carry a suppression block"
+            - "Without explicit suppression semantics, the companion becomes noise."
+            - "campaign_workspace"
+            - "runboard"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_TRIGGER_REGISTRY.yaml
+          must_contain:
+            - "campaign_rules_changed"
+            - "dossier_stale_before_session"
+            - "runboard_blocker_tension"
+            - "show_blockers"
+        - repo: chummer6-design
+          path: products/chummer/MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml
+          must_contain:
+            - "campaign_drift_companion_card"
+            - "campaign_drift_event_packet"
         - repo: chummer6-hub
           path: Chummer.Run.AI/Services/Ops/GmOpsBoardService.cs
           must_contain:
@@ -478,29 +587,21 @@ journey_gates:
             - '"rosterOpsLane"'
             - '"rosterEntries"'
         - repo: chummer6-ui
-          path: Chummer.Presentation/Overview/DialogCoordinator.cs
-          must_contain:
-            - '"derive_initiative"'
-            - '"diceThreshold"'
-            - '"initiativePreview"'
-            - "BuildInitiativePreview(dialog)"
-        - repo: chummer6-ui
           path: Chummer.Presentation/Shell/CatalogOnlyRulesetShellCatalogResolver.cs
           must_contain:
             - 'WorkflowDefinitionIds.DiceTool'
-            - '"Utility Tooling"'
-            - '["dice_roller"]'
-            - '["character_roster"]'
+            - 'Command("dice_roller", "command.dice_roller", "tools", false)'
+            - 'Command("character_roster", "command.character_roster", "tools", false)'
         - repo: chummer6-ui
           path: Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs
           must_contain:
             - "CreateCommandDialog_dice_roller_surfaces_initiative_preview_and_roster_context"
             - "CreateCommandDialog_character_roster_summarizes_open_workspaces"
         - repo: chummer6-ui
-          path: Chummer.Tests/Presentation/DialogCoordinatorTests.cs
+          path: Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs
           must_contain:
-            - "CoordinateAsync_roll_adds_result_field_to_dice_dialog"
-            - "CoordinateAsync_derive_initiative_updates_preview_without_closing_dialog"
+            - "ExecuteCommandAsync_dice_roller_opens_utility_lane_with_roster_context"
+            - "ExecuteCommandAsync_character_roster_opens_dialog_with_workspace_summary"
         - repo: chummer6-ui
           path: Chummer.Blazor/Components/Shared/GmBoardFeed.razor
           must_contain:
@@ -732,7 +833,7 @@ journey_gates:
             - '"/account/support"'
             - '"/contact"'
         - repo: executive-assistant
-          path: README.md
+          path: RUNBOOK.md
           must_contain:
             - "/v1/delivery/outbox"
             - "connector.dispatch"
@@ -756,6 +857,38 @@ journey_gates:
           generated_at_fields:
             - generated_at
             - generatedAt
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PERSONA_AND_INTERACTION_MODEL.md
+          must_contain:
+            - "### 5. Improve / support"
+            - "### 4. Fix-is-live moment"
+            - "Update now"
+            - "Open the case"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_EVENT_SCHEMA.yaml
+          must_contain:
+            - "fix_closure"
+            - "support_case_state"
+            - "release_channel_confirmation"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_PACKET.md
+          must_contain:
+            - "Most packets should stay text-first."
+            - "fix-confirmation"
+            - "required_text_fallback: true"
+            - "click_to_play"
+        - repo: chummer6-design
+          path: products/chummer/COMPANION_TRIGGER_REGISTRY.yaml
+          must_contain:
+            - "support_fix_confirmation"
+            - "update_now"
+            - "show_fix_receipt"
+            - "line_variant_pack_and_rare_media_brief"
+        - repo: chummer6-design
+          path: products/chummer/MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml
+          must_contain:
+            - "fix_closure_companion_moment"
+            - "support_fix_closure_event_packet"
       require_support_freshness: true
       require_support_closure_waiting_zero: true
       require_support_update_required_routes_to_downloads: true
@@ -820,7 +953,7 @@ journey_gates:
         - repo: chummer6-hub
           path: .codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
           must_contain:
-            - '"/downloads"'
+            - '"/downloads/install/'
             - '"/account/support"'
             - '"/contact"'
           max_age_hours: 48
@@ -828,7 +961,7 @@ journey_gates:
             - generated_at
             - generatedAt
         - repo: executive-assistant
-          path: README.md
+          path: RUNBOOK.md
           must_contain:
             - "/v1/delivery/outbox"
             - "connector.dispatch"

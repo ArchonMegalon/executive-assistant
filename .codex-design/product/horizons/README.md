@@ -9,6 +9,8 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 * `nexus-pan.md` - matrix, device, and shared-state continuity
 * `alice.md` - build quality and comparative analysis
 * `karma-forge.md` - governed house-rule and alternate-ruleset evolution
+* `black-ledger.md` - persistent campaign-adjacent world-state and mission-market effects
+* `shadowcasters-network.md` - governed open-run recruitment, scheduling, and closeout over a living world map
 * `knowledge-fabric.md` - build-time knowledge projections and grounded explainability
 * `jackpoint.md` - grounded dossier, recap, narrated briefing, and artifact-studio lane
 * `runsite.md` - bounded explorable location packs for GM run sites

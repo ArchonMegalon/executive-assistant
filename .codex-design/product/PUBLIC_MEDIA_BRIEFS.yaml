@@ -23,16 +23,16 @@ render_rules:
 shared_prompt_scaffold:
   applies_to: secondary_guide_art_only
   style_anchor: |
-    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR visibly present and anchored to real gear or anatomy, lived-in materials, visible dirt, bruising, stained bandages, vermin pressure, exhausted posture, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, visible lore pressure through hard street context, textured surfaces, layered physical props, high information density, product-specific semantics, no giant readable signage, no logos
+    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR visibly present and anchored to real gear or anatomy, lived-in materials, visible dirt, bruising, stained bandages, vermin pressure, exhausted posture, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, lifted midtones, readable faces, readable hands, and clear props even when the story beat is bleak, polished poster finish, glossy puddles, reflective tape, rain-slick nylon, scratched chrome, lacquered plastic, and shiny trash detail instead of matte sludge, classic flagship-box cover energy with dynamic diagonals, strong foreground-midground-background staging, crisp anatomy, and painted pulp realism, visible lore pressure through hard street context, textured surfaces, layered physical props, high information density, product-specific semantics, no giant readable signage, no logos
   negative_prompt: |
-    giant readable signage, wall-sized ad copy, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
+    giant readable signage, wall-sized ad copy, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile, underexposed frame, crushed blacks, green-black murk, shadow-hidden faces, unreadable hands, key props lost in darkness, chalky matte grime, flat muddy haze, dead plastic surfaces with no reflective life, film grain, sensor noise, dust pass, speckle overlay, gritty noise texture, or fake print damage
 critical_asset_style_epoch:
   mode: flagship_poster
   overrides_shared_prompt_scaffold: true
   style_anchor: |
-    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, old blood, clinic mess, rust bloom, mold, vermin hints, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, diegetic AR visibly present in-scene and sharpened in post only when needed, scene-led color and lighting rather than a fixed green-dark wash, dense practical props, unmistakably Shadowrun-adjacent runner life, totemic wards and shamanic residues, recognizable 6th-World location pressure, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
+    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, painted rulebook-cover realism with deliberate brush texture and cinematic physical lighting, hard-edged but natural material rendering, dramatic grouping, strong silhouette hierarchy, vivid Shadowrun-rulebook readability, lifted midtones, clear face and hand visibility, readable props at poster distance, saturated but grounded color, visible grime, patched gear, old blood, clinic mess, rust bloom, mold, vermin hints, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, smart-glasses or cybereye intelligence visibly present in-scene and sharpened in post only when needed, polished flagship poster finish, glossy wet surfaces, reflective junk, oily puddles, reflective foil debris, scratched chrome, ad-lit trash, and expensive specular highlights on cheap materials, classic flagship-box cover grammar with ensemble action, dramatic diagonals, heroic perspective without clean superhero polish, premium painted pulp finish, and a premium tabletop-box front read at a glance, scene-led color and lighting rather than a fixed green-dark wash, dense practical props, unmistakably Shadowrun-adjacent runner life, totemic wards and shamanic residues, recognizable 6th-World location pressure, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
   negative_prompt: |
-    stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still
+    stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still, etched contour-map rendering, oversharpened edge tracing, posterized neon linework, comic-book ink outlines, faux blueprint wireframe, cheap HUD wallpaper, underexposed frame, crushed blacks, low-key noir wash hiding the scene, muddy monochrome green, hero action buried in shadow, chalky matte decay, flat non-reflective trash with no poster sheen, generic concept-art haze, static centered figure posing with no cover momentum, film grain, sensor noise, speckled print texture, dust pass, or fake aged-paper grit
 semantic_anchors:
   - dossier papers or briefing packet
   - six-sided dice
@@ -73,10 +73,16 @@ rules:
   - Critical public assets must choose one overlay posture before compositing: ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
   - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
   - Public-facing assets should ship with visible diegetic AR or smart-glasses traces in the frame; generic overlay-free cyberpunk mood art is failure.
+  - Flagship and public-guide poster finishes should read like clean premium print, not distressed film stock: no fake grain layer, dust pass, sensor-noise wash, or crunchy noise texture.
   - Flagship assets should usually carry both a metahuman cue and a body-worn cyberware cue; rain and grime alone do not make the frame feel Shadowrun.
   - Every image should imply a lived story beat with a clear before-and-after, not just a posed concept frame: someone is warning, bargaining, patching, sorting, checking, arguing, recovering, or choosing in the middle of a real moment.
   - Hardship must read through the situation itself: triage, crowding, fear, debt, sickness, rot, exploitation, addiction fallout, bad shelter, or failing infrastructure. A dark green palette without those story cues is a miss.
   - Bright should mean vivid and saturated, not clean white. Use high-chroma city, clinic, market, ad, or corp color when the scene earns it.
+  - Despair should come from the story beat, not from hiding the frame. Lift midtones enough that faces, hands, gear, wounds, and the main action stay readable at thumbnail, banner, and poster distance.
+  - Flagship assets should prefer broad color separation and classic rulebook-cover punch over tasteful noir murk. If the scene feels cool but hard to read, it is still a miss.
+  - Keep the world grimy, not the finish. Dirt, blood, rust, trash, and clinic fallout should stay in the subject matter while the poster treatment stays polished, glossy, and intentionally lit.
+  - Prefer shiny trash over dusty trash: wet wrappers, reflective tape, oil sheen, chrome scuffs, lacquered plastic, rain-bright curbs, and ad-lit garbage are better than flat brown sludge.
+  - When aiming for flagship-box energy, do not imitate a named artist. Use the shared grammar instead: ensemble action, dramatic diagonals, premium painted realism, chrome gleam, saturated edge light, and immediate tabletop-cover readability.
   - If the subject is software behavior, dramatize it as a Sixth World life scene first. Do not solve a public guide image with a raw app screenshot, dashboard wall, or interface capture disguised as art.
   - Lore crumbs should survive in flagship and quality-focus assets: cropped corp packaging, critter photo strips, talismonger ephemera, and parabotany prints are preferred over generic neon clutter.
   - Recognizable lore locations are encouraged when they help the frame: Bug City skyline scars, Arcology shadows, Barrens infrastructure, Underground markets, ash plains, and containment architecture should read as place cues, not tourism postcards.
@@ -89,8 +95,11 @@ rules:
   - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
   - Calm isolated workstation energy is not enough for first contact; show relationships, pressure, and proof props.
   - Horizon surfaces should often feel connected to roleplay dialogue: a frozen in-character warning, hard bargain, bad prognosis, tense briefing, or after-action exchange that the table could immediately speak into.
-  - When AR appears, treat it like smart-glasses or cybereye field intelligence from the Sixth World: smartlink threat brackets, teammate biomon pulse, ammo or heat state, SIN-spoof confidence, ward-boundary bleed, toxin load, drone pings, comms handshake health, exit vectors, route viability, and corp-security risk. Decorative neon fog is failure.
+  - When smart-glasses or cybereye intelligence appears, treat it like a runner-facing decision aid from the Sixth World: smartlink threat brackets, teammate biomon pulse, ammo or heat state, SIN-spoof confidence, ward-boundary bleed, toxin load, drone pings, comms handshake health, exit vectors, route viability, corp-security risk, countermeasure trigger risk, and the next safest useful action. Decorative neon fog is failure.
   - AR must cling to what the wearer is actually looking at: cyberlimb seams, wound sites, weapon lines, door frames, crate edges, rails, totem glows, critter photos, or floor paths. Free-floating holo posters, giant HUD slabs, and generic rectangles are failures.
+  - Verified overlay placement must follow a rendered-image observation pass. Inspect the finished frame first, identify actual geometry or scene evidence, and only then place chips, rails, and labels.
+  - Do not ship semantic overlays that the observed scene cannot support. If no real path, doorway, lane edge, camera, seam, wound, rail, or apparatus is visible, drop or replace the related overlay instead of floating it in empty space.
+  - Route or exit overlays require observed path geometry such as floor route paint, lane edges, barriers, ramps, door frames, tunnel mouths, chokepoints, or visible traversal lines. No generic `route clear` chip may sit over blank floor or midair.
   - Every generated frame must keep decisive action inside the safe center so one master can survive desktop and mobile crops.
 contact_sheet_rejection:
   - giant letterform or centered signboard
@@ -104,70 +113,68 @@ visual_contract:
   first_contact_hero:
     density_target: high
     overlay_density: medium
-    required_overlay_mode: medscan_diagnostic
+    required_overlay_mode: smartlink_tactical
     allowed_overlay_modes:
-      - medscan_diagnostic
+      - smartlink_tactical
     overlay_geometry:
-      - slim attribute rails
+      - slim gear rails
       - capsule chips
       - bracket fragments
       - curved callout splines
       - seam-following anchors
     overlay_priority_order:
-      - attribute rail
-      - subsystem status chips
-      - cyberware calibration
-      - wound stability
-    overlay_actionability_rule: Only show medscan information a streetdoc or teammate would use during active patch-up; reject vague trust/meta labels.
+      - SIN validity
+      - camera hijack odds
+      - cyberware handshake
+      - route window
+    overlay_actionability_rule: >
+      Only show prep info: fake SIN validity, camera hijack odds, comm sync,
+      cyberware readiness, ward risk, route window, and next action, and only
+      when the observed rendered scene shows a real place to anchor each cue.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_or_team
     humor_allowed: false
     pseudo_text_allowed: false
     required_setting_markers:
-      - improvised garage clinic required
-      - hacked med gear required
+      - rain-dark safehouse garage required
+      - prep rail, gear rack, or service wall required
       - tool chest or lift bay residue required
       - cheap fluorescent strips or work lamps required
       - wet concrete, tarp, or extension-cord grime required
-      - visible treatment scars, bruising, or blood residue required
+      - visible route, med, or loadout clutter required
       - visible vermin or rat pressure required
     required_cast_markers:
-      - metahuman clinician required
-      - troll patient required
+      - metahuman quartermaster or support tech required
+      - tusked or chrome-heavy runner required
       - assistant or teammate encouraged
     required_troll_markers:
-      - heavy body mass
-      - coarse visible body hair
-      - tusks
+      - tusks or obvious metahuman physiology
+      - visible chrome or patched gear
       - rough or scarred skin
-      - dermal texture
+      - field-worn texture
     required_render_detail:
-      - visible individual hair strands
-      - visible wet or matted hair clumping
-      - crisp skin and fur microtexture
-      - visible cracked skin, dry throat, or medication fatigue cue
+      - crisp patched-gear microtexture
+      - visible grime and wet reflections
+      - readable chrome seams or worn straps
+      - visible fatigue or pre-run stress cue
     required_overlay_schema:
-      - BOD
-      - AGI
-      - REA
-      - STR
-      - CHA
-      - INT
-      - LOG
-      - WIL
-      - ESS
-      - EDGE
+      - SIN validity
+      - camera hijack odds
+      - smartlink handshake
+      - route window
+      - ward bleed
+      - safest next action
     required_status_labels:
-      - UPGRADING
+      - READY
     forbidden_environment_markers:
       - clean hospital exam room
-      - clean van interior with no garage cues
-      - pristine dental-clinic lighting
-      - white-box medical showroom
+      - clean van interior with no staging cues
+      - pristine showroom lighting
+      - white-box tech showroom
     forbidden_cast_defaults:
-      - lone clean human doctor in white coat
-      - ambiguous hooded figure with no clinical role readability
+      - lone gadget hero posing at camera
+      - ambiguous hooded figure with no team role readability
       - human patient
       - clean shaved patient
       - generic handsome cyberpunk model
@@ -248,7 +255,7 @@ visual_contract:
       - rollback
       - witness lock
       - revert cost
-    overlay_actionability_rule: Only show review instrumentation that a rulesmith or witness would actually use while governing a live rules change.
+    overlay_actionability_rule: Only show review instrumentation that a rulesmith or witness would actually use while governing a live rules change, especially approval confidence, provenance mismatch, rollback path, witness pressure, countermeasure risk, and revert cost.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_preferred
@@ -290,38 +297,35 @@ visual_contract:
 asset_overlay_contracts:
   assets/hero/chummer6-hero.png:
     style_epoch_force_only: true
-    required_overlay_mode: medscan_diagnostic
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.58
     subject_crop_maximum: 0.26
     cast_readability_required: true
     overlay_anchor_required: true
     allowed_overlay_modes:
-      - medscan_diagnostic
+      - smartlink_tactical
     overlay_geometry:
-      - slim attribute rails
+      - slim gear rails
       - seam-following anchors
       - capsule status chips
       - curved callout splines
-      - small radial scan halos
+      - small route halos
     overlay_priority_order:
-      - attribute rail
-      - subsystem status chips
-      - cyberware calibration
-      - wound stability
+      - SIN validity
+      - camera hijack odds
+      - cyberware handshake
+      - route window
     overlay_actionability_rule: >
-      Show only information a runner or streetdoc would actively use while
-      stabilizing and upgrading a patient in the moment.
+      Show only staging info: fake SIN validity, camera hijack odds, comm sync,
+      cyberware readiness, ward risk, route window, and next action.
     overlay_render_strategy: verified_post_composite_only
     render_layers:
       - base_scene
       - verified_overlay
-    status_binding_rule: >
-      Attach UPGRADING only to a concrete attribute or subsystem chip such as
-      AGI or ESS; never float it as a detached headline.
     overlay_attachment_rule: >
-      Anchor chips to the attribute rail or the treated augment zone; avoid
-      face or torso coverage.
+      Anchor chips to visors, wrists, weapon slings, cyberlimbs, prep rails,
+      cases, doors, or route lines; avoid face or torso coverage.
   assets/pages/horizons-index.png:
     overlay_density: high
     world_marker_minimum: 4
@@ -386,7 +390,9 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Show only the review and consequence data needed to understand governed
       rules change in progress, anchored to rails, chamber glass, hanging
-      prototypes, and packet flow.
+      prototypes, and packet flow: approval confidence, provenance mismatch,
+      rollback viability, witness attention, countermeasure trigger risk, and
+      the safest next clamp or revert action.
     overlay_render_strategy: verified_post_composite_only
     render_layers:
       - base_scene
@@ -1079,8 +1085,8 @@ asset_overlay_contracts:
       - verified_overlay_optional
 sections:
   - id: hero
-    brief_family: clinic_intake
-    scene_families: streetdoc_garage_clinic, getaway_van_triage, safehouse_patchup, runner_upgrade_bay, clinic_intake
+    brief_family: service_rack
+    scene_families: safehouse_staging_bay, runner_prep_wall, gear_sync_lane, rain_dark_service_rack, service_rack
     motion_policy: premium_still_or_short_muted_loop
     density_target: high
     overlay_density: medium
@@ -1088,7 +1094,7 @@ sections:
     flash_level: bold
     person_count_target: duo_or_team
     must_show_semantic_anchors: runner-prep truth, inspectable pressure, layered proof props, visible support figure or operator relationship
-    must_not_show: brooding profile, vague clue wall, crate desk, empty neon ambience, single-person dim bay
+    must_not_show: brooding profile, vague clue wall, crate desk, empty neon ambience, single-person dim bay, surgery, hospital room
   - id: what_you_can_do_today
     brief_family: archive_stair
     scene_families: archive_stair, dossier_desk, facility_exterior

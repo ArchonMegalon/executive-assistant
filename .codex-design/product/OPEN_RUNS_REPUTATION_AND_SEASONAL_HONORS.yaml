@@ -1,0 +1,123 @@
+version: 1
+key: open_runs_reputation_and_seasonal_honors
+status: proposal
+owner: chummer6-design
+
+objects:
+  open_runs:
+    - OpenRun
+    - JoinPolicy
+    - CommunityRuleEnvironment
+    - RunApplication
+    - RunApplicationPreflight
+    - RunRoster
+    - SchedulingReceipt
+    - MeetingHandoff
+    - ObserverConsent
+    - TableContract
+    - QuickstartRunnerPack
+    - OppositionPacket
+    - OpenRunResolution
+  reputation:
+    - ReputationEvent
+    - SeasonalBoard
+    - BadgeAward
+    - Season
+    - ReputationSubject
+    - ReputationVisibilityPolicy
+
+workflows:
+  - key: gm_opens_run
+    owner_repo: chummer6-hub
+    steps:
+      - GM selects JobPacket or custom run.
+      - GM edits spoiler-safe listing and table contract.
+      - GM chooses community rule environment, join policy, scheduling, meeting handoff, and observer policy.
+      - Hub publishes the OpenRun marker and listing.
+
+  - key: player_requests_join
+    owner_repo: chummer6-hub
+    steps:
+      - Player opens the map or run board.
+      - Player selects a runner dossier or approved quickstart runner.
+      - Chummer runs community-rule and join-policy preflight.
+      - Player submits RunApplication.
+      - GM accepts, rejects, or waitlists.
+
+  - key: beginner_gm_autopilot
+    owner_repo: chummer6-hub
+    steps:
+      - GM selects a beginner one-shot or starter job packet.
+      - Hub offers quickstart runners, an opposition packet, and a default table contract.
+      - GM publishes, schedules, and later closes the run through guided prompts.
+
+  - key: schedule_and_handoff
+    owner_repo: chummer6-hub
+    external_tools:
+      - Lunacal
+      - Discord
+      - Microsoft Teams
+    steps:
+      - GM locks roster.
+      - Hub starts the scheduling flow.
+      - External provider confirms a slot.
+      - Hub records SchedulingReceipt.
+      - Hub reveals or creates MeetingHandoff.
+      - Accepted players receive a pre-session packet and any allowed play-surface exports.
+    forbidden:
+      - external_calendar_as_run_truth
+      - meeting_url_as_authority
+
+  - key: god_observer_consent
+    owner_repo: chummer6-hub
+    external_tools:
+      - hedy.ai
+      - Nonverbia
+      - Table Pulse
+    steps:
+      - GM proposes an observer mode.
+      - Players receive a consent prompt.
+      - If all required consent is granted, observer mode is enabled.
+      - If any required consent is declined, a fallback mode is applied.
+    forbidden:
+      - automatic_recording
+      - player_scoring
+      - moderation_truth
+      - automatic_world_mutation
+
+  - key: resolution_to_black_ledger
+    owner_repo: chummer6-hub
+    steps:
+      - GM files OpenRunResolution.
+      - Optional Table Pulse assistance stays advisory.
+      - Hub updates the marker to completed.
+      - Fleet queues world-tick input.
+      - Executive Assistant drafts newsreel candidates.
+      - World operator approves publication.
+      - Reputation events are recorded.
+
+  - key: reputation_event_recording
+    owner_repo: chummer6-hub
+    steps:
+      - A typed event source is accepted.
+      - ReputationEvent is generated.
+      - Visibility policy is applied.
+      - Personal reputation pages update.
+      - Seasonal-board candidates update if eligible.
+    forbidden:
+      - direct_table_pulse_public_scoring
+      - public_shame
+      - hidden_punitive_automation
+
+  - key: seasonal_honors_publication
+    owner_repo: chummer6-hub
+    steps:
+      - Season operators select eligible boards.
+      - Hub compiles public-safe board views.
+      - Media Factory generates newsreel or card variants if configured.
+      - Hub publishes the weekly honors page.
+      - Signitic, Taja, or vidBoard may project approved highlights.
+    forbidden:
+      - publishing_spoilers
+      - publishing_sensitive_safety_data
+      - pay_to_win_rank_boosts

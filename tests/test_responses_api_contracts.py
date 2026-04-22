@@ -570,6 +570,33 @@ def test_responses_rejects_unsupported_top_level_fields(field: str, value: objec
     assert "unsupported_fields" in resp.text
 
 
+def test_responses_accepts_client_metadata_compat_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-test")
+    from app.api.routes import responses
+
+    def fake_generate(**_payload: object) -> object:
+        return UpstreamResult(
+            text="client-metadata-ok",
+            provider_key="onemin",
+            model="gpt-5.4",
+            tokens_in=6,
+            tokens_out=7,
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    resp = client.post(
+        "/v1/responses",
+        json={
+            "model": "ea-coder-small",
+            "input": "say hi",
+            "client_metadata": {"editor": "codexea"},
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["output_text"] == "client-metadata-ok"
+
+
 def test_responses_rejects_unsupported_non_text_input_item(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-test")
 

@@ -64,7 +64,10 @@ async function main() {
   const traceDir = String(process.env.TEMPLATE_TRACE_DIR || '').trim();
   const browserHeadless = String(process.env.TEMPLATE_BROWSER_HEADLESS || 'true').trim().toLowerCase() !== 'false';
   const initialRuntimeInputs = Object.assign({}, packet.runtime_inputs_json || {});
-  const proxyServer = String(initialRuntimeInputs.browser_proxy_server || packet.browser_proxy_server || '').trim();
+  const rawProxyServer = String(initialRuntimeInputs.browser_proxy_server || packet.browser_proxy_server || '').trim();
+  const proxyServer = ['direct://', 'direct', 'none', 'off', 'disabled'].includes(rawProxyServer.toLowerCase())
+    ? ''
+    : rawProxyServer;
   const proxyUsername = String(initialRuntimeInputs.browser_proxy_username || packet.browser_proxy_username || '').trim();
   const proxyPassword = String(initialRuntimeInputs.browser_proxy_password || packet.browser_proxy_password || '').trim();
   const proxyBypass = String(initialRuntimeInputs.browser_proxy_bypass || packet.browser_proxy_bypass || '').trim();

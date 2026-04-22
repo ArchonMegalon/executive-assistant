@@ -60,6 +60,7 @@ Flagship bar:
 * live, stale, offline, pending, and conflict posture are visually obvious
 * missing or incompatible rule packs and amend packages are explicit before a resumed device computes against the wrong environment
 * player, GM, and observer flows feel authored for live play rather than recycled workbench layouts
+* finding a table, passing community-rule preflight, and getting into the right session space are part of the same trustworthy run journey
 
 Canonical detail:
 
@@ -70,6 +71,9 @@ Canonical detail:
 * `journeys/recover-from-sync-conflict.md`
 * `journeys/run-a-campaign-and-return.md`
 * `CAMPAIGN_SPINE_AND_CREW_MODEL.md`
+* `WORLD_STATE_AND_MISSION_MARKET_MODEL.md`
+* `OPEN_RUNS_AND_SHADOWCASTERS_NETWORK.md`
+* `SEATTLE_OPEN_RUN_001_VERTICAL_SLICE.md`
 
 ## Publish
 
@@ -86,6 +90,28 @@ Canonical detail:
 
 * `journeys/publish-a-grounded-artifact.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+* `WORLD_STATE_AND_MISSION_MARKET_MODEL.md`
+
+## Join
+
+Goal: find the right table, prove fit, schedule it cleanly, and arrive with the right runner and expectations.
+
+Flagship bar:
+
+* a player can see the active community rule environment before applying
+* preflight explains pass, warn, fail, or blocked instead of silently gatekeeping
+* quickstart runners are good enough for real table entry, especially on mobile
+* Discord, Teams, and VTTs remain projection lanes instead of becoming Chummer truth
+
+Canonical detail:
+
+* `journeys/find-and-join-an-open-run.md`
+* `OPEN_RUNS_AND_SHADOWCASTERS_NETWORK.md`
+* `COMMUNITY_RULE_ENVIRONMENTS_AND_APPROVAL.md`
+* `RUN_APPLICATION_PREFLIGHT_MODEL.md`
+* `QUICKSTART_RUNNER_AND_PREGEN_FLOW.md`
+* `SESSION_ZERO_AND_TABLE_CONTRACT_MODEL.md`
+* `SEATTLE_OPEN_RUN_001_VERTICAL_SLICE.md`
 
 ## Improve
 

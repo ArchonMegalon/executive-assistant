@@ -647,7 +647,20 @@ class ProviderRegistryService:
                         tool_name="provider.onemin.media_transform",
                     ),
                 ),
+            ),            ProviderBinding(
+                provider_key="comfyui",
+                display_name="ComfyUI (Local)",
+                executable=True,
+                capabilities=(
+                    ProviderCapability(
+                        provider_key="comfyui",
+                        capability_key="image_generate",
+                        tool_name="provider.comfyui.image_generate",
+                    ),
+                ),
+                source="runtime",
             ),
+
 
             ProviderBinding(
                 provider_key="browserly",
@@ -1040,6 +1053,7 @@ class ProviderRegistryService:
         mapping = {
             "browseract": ("BROWSERACT_API_KEY", "BROWSERACT_API_KEY_FALLBACK_1"),
             "browserly": ("BROWSERLY_API_KEY",),
+            "comfyui": ("COMFYUI_URL",),
             "gemini_vortex": ("EA_GEMINI_VORTEX_COMMAND",),
             "google_gmail": (
                 "EA_GOOGLE_OAUTH_CLIENT_ID",
@@ -1062,6 +1076,8 @@ class ProviderRegistryService:
             return "internal"
         if binding.provider_key in {"artifact_repository", "connector_dispatch"}:
             return "internal"
+        if binding.provider_key == "comfyui":
+            return "http"
         if binding.provider_key == "gemini_vortex":
             return "cli"
         if binding.provider_key == "google_gmail":

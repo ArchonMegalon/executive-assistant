@@ -1,0 +1,49 @@
+version: 1
+key: opposition_packet_registry
+status: proposal
+owner: chummer6-design
+
+packet_families:
+  - id: ganger_squad
+    label: Ganger Squad
+    exports:
+      - pdf
+      - foundry
+      - roll20
+    intended_use:
+      - beginner_run
+      - district_pressure
+  - id: corp_security_team
+    label: Corp Security Team
+    exports:
+      - pdf
+      - foundry
+      - roll20
+    intended_use:
+      - black_ledger_response
+      - open_run_opposition
+  - id: spirit_cell
+    label: Spirit or Ritual Cell
+    exports:
+      - pdf
+      - foundry
+    intended_use:
+      - occult_pressure
+      - special_asset
+  - id: drone_team
+    label: Drone Team
+    exports:
+      - pdf
+      - foundry
+      - roll20
+    intended_use:
+      - matrix_heat_response
+      - corp_response
+  - id: beginner_one_shot_bundle
+    label: Beginner One-Shot Bundle
+    exports:
+      - pdf
+      - foundry
+    intended_use:
+      - beginner_gm_autopilot
+      - quickstart_table

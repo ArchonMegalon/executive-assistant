@@ -61,6 +61,7 @@ It must carry:
 - dossier freshness and stale-state cues
 - session-start readiness summary
 - GM-ready runboard
+- world pressure overview and mission-market opportunities
 - recent recap and artifact shelf
 - unresolved restore, sync, or continuity conflicts
 - support or known-issue cues that affect this campaign or the active install
@@ -75,10 +76,17 @@ It may project:
 
 - current run and scene
 - objectives and blockers
+- mission packet candidates
 - runner readiness and missing prerequisites
 - rule-environment mismatches that matter before play resumes
 - observer-safe or player-safe views depending on install role
 - recap-safe notes and publication-safe outputs derived from the same continuity spine
+
+For future horizons, the runboard may also expose:
+
+- mission packets awaiting GM adoption into campaign continuity
+- city/district pressure deltas linked to approved outcomes
+- explicit why a packet cannot be adopted due to approvals or policy
 
 The runboard may be rendered differently on desktop, mobile, or observer installs, but it must compile from the same campaign truth.
 
@@ -265,6 +273,8 @@ Should be able to project:
 - `RunboardSummary`
 - `ContinuityConflictCue`
 - `RecapShelfEntry`
+- `WorldPressureCue`
+- `MissionMarketSummary`
 
 ### `Chummer.Control.Contracts`
 
@@ -295,6 +305,7 @@ Owns:
 - home cockpit and campaign workspace projections
 - what-changed-for-me packets
 - roster, rule-environment, dossier, and readiness summaries
+- world pressure and mission-market projection summaries (future-adjacent)
 - organizer and community operator posture built on the same group and entitlement substrate
 
 ### `chummer6-hub-registry`

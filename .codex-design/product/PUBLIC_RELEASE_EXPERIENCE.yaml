@@ -4,7 +4,7 @@ version: 1
 guest_readable_channels:
   - stable
   - preview
-release_notes_summary: The current preview centers one clear public download, a visible proof trail, and support guidance that matches the shelf you can actually use today.
+release_notes_summary: The current preview centers one clear public download, a visible proof trail, and help that matches the shelf you can actually use today.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_flagship_head: Chummer.Avalonia
@@ -47,7 +47,7 @@ public_channel_labels:
     label: Preview channel
 guest_gate_heading: Preview access
 guest_gate_summary: Create a Chummer account first when the current preview requires a linked download handoff, recovery path, or support history from the first launch.
-guest_gate_primary_label: Create account to get preview
+guest_gate_primary_label: Create account to install
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Keep this install linked from the first launch
 signed_in_dispatch_summary: Start the same published download from the signed-in handoff page and follow the platform-specific guided install path that keeps the install linked to your account from the first successful launch.

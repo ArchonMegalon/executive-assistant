@@ -147,6 +147,71 @@ scorecards:
         target: 0
         measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
 
+  - id: open_run_network_health
+    owner_repo: chummer6-hub
+    user_promise: A GM can recruit, schedule, hand off, and close out an open run without leaving Chummer as the organizing truth.
+    metrics:
+      - name: open_run_receipt_coverage
+        target: 100%
+        measurement: Every published open run, accepted roster, scheduling confirmation, and meeting handoff carries a Chummer-owned receipt or projection record rather than relying on third-party state alone.
+      - name: scheduled_open_run_closeout_rate
+        target: ">=90% before promotion"
+        measurement: Scheduled open runs resolve to a resolution report, explicit cancellation, or bounded operator intervention within the canon closeout window.
+      - name: meeting_handoff_truth_conflicts
+        target: 0
+        measurement: Accepted roster, revealed meeting handoff, and scheduling receipt must not silently disagree about who belongs in the session.
+      - name: run_application_preflight_explanation_coverage
+        target: 100%
+        measurement: Every application pass, warn, fail, or blocked result exposes readable reasons and next safe actions instead of hidden gating.
+      - name: accepted_runner_later_rejected_for_known_rule_conflict
+        target: 0
+        measurement: A runner already accepted into an open run must not later fail for a community-rule conflict that preflight could have explained earlier.
+
+  - id: community_rules_and_play_surface_handoff
+    owner_repo: chummer6-hub
+    user_promise: A player can understand whether they fit the table, and a GM can hand the session off to its play surface without losing truth.
+    metrics:
+      - name: active_community_rule_environment_receipt_coverage
+        target: 100%
+        measurement: Every community-scoped open run exposes the active community rule environment or a receipt-bearing pointer to it.
+      - name: quickstart_runner_entry_success
+        target: ">=80% before promotion"
+        measurement: Beginner or mobile-first players using approved quickstart paths should be able to complete application and acceptance without desktop-only repair steps.
+      - name: opposition_packet_export_coverage
+        target: 100%
+        measurement: Beginner-GM and world-pressure prep lanes must expose at least one governed opposition packet export path before promotion.
+      - name: vtt_export_truth_conflicts
+        target: 0
+        measurement: Exported play-surface packets must never silently redefine runner, roster, or run truth when the target surface drifts.
+
+  - id: observer_and_reputation_safety
+    owner_repo: chummer6-hub
+    user_promise: Optional observer assistance and seasonal honors stay consent-safe, explainable, and non-toxic.
+    metrics:
+      - name: observer_without_required_consent
+        target: 0
+        measurement: No observer or transcript-assist mode may activate unless the configured GM and player consent policy for that run is satisfied.
+      - name: public_reputation_events_without_typed_source
+        target: 0
+        measurement: No public-safe honor, badge, or board placement may appear without a typed source object and visibility policy.
+      - name: public_shame_or_spoiler_board_incidents
+        target: 0
+        measurement: Seasonal honors must not expose sensitive safety, moderation, rejection, or spoiler-bearing data.
+      - name: table_pulse_public_scoring_breaches
+        target: 0
+        measurement: Table Pulse, GOD observer, or transcript assistance may not directly assign public reputation points or rankings.
+
+  - id: beginner_gm_autopilot_readiness
+    owner_repo: chummer6-hub
+    user_promise: A first-time GM can open, staff, run, and close out a beginner table without stitching five tools together by hand.
+    metrics:
+      - name: beginner_gm_first_run_closeout_rate
+        target: ">=80% before promotion"
+        measurement: Beginner-GM autopilot runs should end in a resolution report, explicit cancellation, or bounded operator assist within the closeout window.
+      - name: beginner_gm_missing_table_contract_or_safety_notes
+        target: 0
+        measurement: Autopilot should never publish a beginner run without an explicit table contract and safety posture.
+
   - id: flagship_surface_coherence
     owner_repo: product_governor
     user_promise: Downloads, support, status, and in-product flows describe one coherent premium product.

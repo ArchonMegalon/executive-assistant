@@ -12,9 +12,13 @@ defaults:
   render_owner: chummer6-media-factory
   receipt_owner: chummer6-media-factory
   publication_registry_owner: chummer6-hub-registry
+  runtime_companion_owner:
+    - chummer6-ui
+    - chummer6-mobile
   default_preview_lane: PeekShot
   default_document_lane: MarkupGo
   default_narration_lane: Soundmadeseen
+  default_runtime_companion_lane: first_party_runtime_template
   default_approval_bridge:
     - hub_owned_approval_ui
     - ApproveThis
@@ -76,6 +80,87 @@ recipe_families:
       - captions
       - preview_card
       - publication_ref
+  - id: campaign_primer_companion_moment
+    family: first_party_runtime_companion
+    source_pack: campaign_primer_ready_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: campaign_primer_prompt_card
+    fallback_lanes:
+      - tool: vidBoard
+        output: campaign_primer_video
+        when: a_published_primer_video_is_ready_and_user_requests_playback
+      - tool: MarkupGo
+        output: campaign_primer_packet
+        when: inspectable_detail_is_required
+      - tool: Soundmadeseen
+        output: campaign_primer_audio
+        when: audio_is_better_than_video_or_card
+    approval_path: campaign_publish
+    publish_surfaces:
+      - hub_campaign_home
+      - claimed_desktop_home
+      - mobile_campaign_home
+    proof_anchors:
+      - trigger_class
+      - approved_campaign_primer_pack
+      - fallback_pack_id
+      - locale
+      - text_fallback
+      - publication_ref
+  - id: mission_brief_ready_companion_moment
+    family: first_party_runtime_companion
+    source_pack: mission_brief_ready_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: mission_brief_prompt_card
+    fallback_lanes:
+      - tool: vidBoard
+        output: mission_brief_video
+        when: a_published_mission_briefing_is_ready_and_user_requests_playback
+      - tool: MarkupGo
+        output: mission_packet
+        when: inspectable_detail_is_required
+      - tool: Soundmadeseen
+        output: mission_brief_audio
+        when: audio_is_better_than_video_or_card
+    approval_path: campaign_publish
+    publish_surfaces:
+      - hub_campaign_home
+      - claimed_desktop_home
+      - mobile_campaign_home
+    proof_anchors:
+      - trigger_class
+      - approved_mission_brief_packet
+      - fallback_pack_id
+      - locale
+      - text_fallback
+      - publication_ref
+  - id: first_run_companion_card
+    family: first_party_runtime_companion
+    source_pack: desktop_startup_companion_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: startup_companion_card
+    fallback_lanes:
+      - tool: vidBoard
+        output: startup_companion_intro_clip
+        when: a_pre_rendered_intro_clip_is_explicitly_requested
+      - tool: MarkupGo
+        output: install_setup_note
+        when: written_install_context_is_better_than_a_card
+    approval_path: release_owned_ui_copy
+    publish_surfaces:
+      - desktop_install_linking_shell
+      - claimed_desktop_home
+    proof_anchors:
+      - trigger_class
+      - install_bootstrap_route
+      - fallback_pack_id
+      - locale
+      - text_fallback
+      - voice_opt_in_required
+      - dismissability
   - id: build_lab_explain_short
     family: explain_bundle
     source_pack: approved_build_lab_explain_packet
@@ -99,6 +184,59 @@ recipe_families:
       - explain_packet_ref
       - locale
       - preview_card
+  - id: build_trap_intervention_card
+    family: first_party_runtime_companion
+    source_pack: build_lab_trap_warning_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: build_trap_companion_card
+    fallback_lanes:
+      - tool: MarkupGo
+        output: build_compare_packet
+        when: inspectable_detail_is_required
+      - tool: Soundmadeseen
+        output: build_trap_audio_sting
+        when: compact_audio_feedback_is_better_than_a_card
+    approval_path: explain_release
+    publish_surfaces:
+      - build_lab_compare
+      - claimed_desktop_home
+      - mobile_campaign_home
+    proof_anchors:
+      - trigger_class
+      - rule_environment_receipt
+      - explain_packet_ref
+      - fallback_pack_id
+      - locale
+      - text_fallback
+      - dismissability
+      - why_am_i_seeing_this
+  - id: campaign_drift_companion_card
+    family: first_party_runtime_companion
+    source_pack: campaign_drift_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: campaign_drift_companion_card
+    fallback_lanes:
+      - tool: MarkupGo
+        output: campaign_rule_diff_packet
+        when: inspectable_rule_diff_is_required
+      - tool: vidBoard
+        output: campaign_change_host_clip
+        when: a_localized_host_summary_is_explicitly_requested
+    approval_path: campaign_publish
+    publish_surfaces:
+      - hub_campaign_home
+      - claimed_desktop_home
+      - mobile_campaign_home
+    proof_anchors:
+      - trigger_class
+      - campaign_rule_diff_ref
+      - runner_impact_ref
+      - fallback_pack_id
+      - locale
+      - text_fallback
+      - dismissability
   - id: runsite_host_mode
     family: spatial_orientation_bundle
     source_pack: approved_runsite_pack
@@ -154,6 +292,60 @@ recipe_families:
       - approved_structural_digest
       - retention_policy
       - preview_card_if_shared
+  - id: player_safe_recap_companion_moment
+    family: first_party_runtime_companion
+    source_pack: player_safe_recap_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: player_safe_recap_prompt_card
+    fallback_lanes:
+      - tool: MarkupGo
+        output: player_safe_recap_packet
+        when: inspectable_recap_detail_is_required
+      - tool: Soundmadeseen
+        output: player_safe_recap_audio
+        when: narration_is_better_than_a_card
+      - tool: vidBoard
+        output: player_safe_recap_video
+        when: a_bounded_video_prompt_is_explicitly_requested
+    approval_path: campaign_private
+    publish_surfaces:
+      - campaign_workspace
+      - mobile_home
+    proof_anchors:
+      - trigger_class
+      - approved_player_safe_recap_packet
+      - consent_state
+      - retention_policy
+      - fallback_pack_id
+      - text_fallback
+  - id: gm_private_debrief_companion_invite
+    family: first_party_runtime_companion
+    source_pack: gm_private_debrief_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: gm_private_debrief_prompt_card
+    fallback_lanes:
+      - tool: MarkupGo
+        output: gm_debrief_packet
+        when: inspectable_detail_is_required
+      - tool: Soundmadeseen
+        output: gm_private_debrief_audio
+        when: narration_is_better_than_a_card
+      - tool: vidBoard
+        output: gm_private_debrief_video
+        when: a_private_video_walkthrough_is_explicitly_requested_and_approved
+    approval_path: campaign_private
+    publish_surfaces:
+      - campaign_workspace
+      - gm_private_workspace
+    proof_anchors:
+      - trigger_class
+      - approved_gm_debrief_packet
+      - privacy_boundary
+      - retention_policy
+      - fallback_pack_id
+      - text_fallback
   - id: fix_confirmation_and_release_concierge
     family: release_and_support_bundle
     source_pack: approved_support_resolution_summary
@@ -181,6 +373,35 @@ recipe_families:
       - locale
       - captions
       - publication_ref
+  - id: fix_closure_companion_moment
+    family: first_party_runtime_companion
+    source_pack: support_fix_closure_event_packet
+    primary_lane:
+      tool: first_party_runtime_template
+      output: fix_closure_companion_card
+    fallback_lanes:
+      - tool: vidBoard
+        output: support_closure_video
+        when: a_rendered_support_explainer_is_requested
+      - tool: MarkupGo
+        output: support_fix_note
+        when: written_detail_is_required
+      - tool: Soundmadeseen
+        output: support_closure_audio
+        when: compact_audio_is_better_than_video_or_card
+    approval_path: support_resolution
+    publish_surfaces:
+      - signed_in_help
+      - support_case_timeline
+      - claimed_desktop_home
+    proof_anchors:
+      - trigger_class
+      - release_channel_confirmation
+      - support_case_ref
+      - fallback_pack_id
+      - locale
+      - dismissability
+      - text_fallback
   - id: release_explainer_bundle
     family: public_release_bundle
     source_pack: approved_release_summary

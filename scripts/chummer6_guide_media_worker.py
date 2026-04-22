@@ -1444,27 +1444,27 @@ def overlay_mode_prompt_clause(*, target: str, compact: bool = False) -> str:
     mode = overlay_mode_for_target(target)
     if mode == "medscan_diagnostic":
         return (
-            "overlay mode medscan diagnostic: anticipatory streetdoc triage rail, anchored callouts, status capsules, no face-covering panels"
+            "medscan diagnostic: anticipatory streetdoc triage rail, anchored callouts, status capsules, no face-covering panels"
             if compact
-            else "Use medscan diagnostic overlays only. Make the AR visibly present and semantically useful in the painted scene with readable stat rails, calibration callouts, wound-state chips, and subsystem capsules anchored to real anatomy, tools, or cyberware seams. Treat it like a smart field medic anticipating the runner's next questions about mobility, infection, cyberware stress, dosage risk, and extraction readiness. Keep it field-usable and geometry-bound. No face-covering panels or floating generic rectangles."
+            else "Render only smart-lens medscan guidance in the painted scene: readable stat rails, calibration callouts, wound-state chips, and subsystem capsules anchored to real anatomy, tools, or cyberware seams. Treat it like a ruthless field medic already answering the runner's next questions about mobility, infection, cyberware stress, dosage risk, and extraction readiness. Keep it field-usable and geometry-bound. No face-covering panels or floating generic rectangles."
         )
     if mode == "ambient_diegetic":
         return (
-            "overlay mode ambient diegetic: anticipatory route arcs, district markers, path traces, no big UI slabs"
+            "ambient diegetic route intelligence: anticipatory route arcs, district markers, path traces, no big UI slabs"
             if compact
-            else "Use ambient diegetic overlays only. Keep visible lane arcs, district markers, route traces, and sparse short chips anchored to pavement, rails, crowd lanes, doors, gantries, or walls so the frame reads like smart-glasses wayfinding inside a real place. Make it feel like an anticipatory route assistant already surfacing the next lane split, threat drift, cover option, or escape line the runner would want. No big UI slabs or city-wide diagnostic rectangles."
+            else "Render only smart-glasses route intelligence. Keep visible lane arcs, district markers, route traces, and sparse short chips anchored to pavement, rails, crowd lanes, doors, gantries, or walls so the frame reads like a real place being parsed by a next-step route assistant. Make it feel like the system is already surfacing the next lane split, threat drift, cover option, or escape line the runner would want. No big UI slabs or city-wide diagnostic rectangles."
         )
     if mode == "smartlink_tactical":
         return (
-            "overlay mode smartlink tactical: anticipatory threat brackets, ingress cones, biomon and route cues, geometry-anchored"
+            "smartlink tactical: anticipatory threat brackets, ingress cones, biomon and route cues, geometry-anchored"
             if compact
-            else "Use smartlink tactical overlays only. Treat them like Shadowrun smart-glasses field intelligence anticipating the next hostile angle, safe ingress, teammate stress event, or exit vector: threat brackets, ingress cones, teammate biomon cues, route viability, ward bleed, comm health, exit vectors, and terse tactical labels anchored to real geometry. No giant HUD slabs, face-covering panes, or generic floating rectangles."
+            else "Render only smartlink field intelligence. Treat it like Shadowrun smart-glasses anticipating the next hostile angle, safe ingress, teammate stress event, or exit vector: threat brackets, ingress cones, teammate biomon cues, route viability, ward bleed, comm health, exit vectors, and terse tactical labels anchored to real geometry. No giant HUD slabs, face-covering panes, or generic floating rectangles."
         )
     if mode == "forge_review_ar":
         return (
-            "overlay mode forge review AR: anticipatory review rails, provenance seals, rollback vectors, witness chips, no torso-covering boxes"
+            "forge review diagnostic: anticipatory review rails, provenance seals, rollback vectors, witness chips, no torso-covering boxes"
             if compact
-            else "Use forge-review AR overlays only. Make the review language visibly present in the painted scene with approval chips, provenance seals, rollback vectors, witness locks, and compatibility arcs anchored to rails, packet flow, and apparatus geometry. Treat it like a smart review assistant already surfacing the next compatibility break, witness objection, rollback vector, or evidence gap the runner-operator pair would ask about. No torso-covering boxes or generic floating HUD slabs."
+            else "Render only smart-lens review intelligence in the painted scene: approval chips, provenance seals, rollback vectors, witness locks, and compatibility arcs anchored to rails, packet flow, and apparatus geometry. Treat it like a brutally competent 2056 assistant already surfacing the next compatibility break, provenance mismatch, witness objection, countermeasure risk, revert path, or safest clamp action before the operators ask. No torso-covering boxes or generic floating HUD slabs."
         )
     return ""
 
@@ -1473,21 +1473,21 @@ def flagship_prompt_intro(target: str, *, compact: bool = False, fallback: str) 
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
         return (
-            "illustrated cover-grade Shadowrun streetdoc poster scene"
+            "illustrated cover-grade Shadowrun runner-prep poster scene"
             if compact
-            else "Illustrated cover-grade Shadowrun streetdoc poster scene. Poster energy is welcome when it stays tied to a lived scene."
+            else "Illustrated cover-grade Shadowrun runner-prep poster scene with painted rulebook-cover energy. Poster energy is welcome when it stays tied to a lived scene."
         )
     if normalized == "assets/pages/horizons-index.png":
         return (
             "illustrated cover-grade cyberpunk futures crossroads poster scene"
             if compact
-            else "Illustrated cover-grade cyberpunk futures crossroads poster scene. Poster energy is welcome when it stays tied to a lived scene."
+            else "Illustrated cover-grade cyberpunk futures crossroads poster scene with painted rulebook-cover energy. Poster energy is welcome when it stays tied to a lived scene."
         )
     if normalized == "assets/horizons/karma-forge.png":
         return (
             "illustrated cover-grade Shadowrun rules-forge poster scene"
             if compact
-            else "Illustrated cover-grade Shadowrun rules-forge poster scene. Poster energy is welcome when it stays tied to a lived scene."
+            else "Illustrated cover-grade Shadowrun rules-forge poster scene with painted rulebook-cover energy. Poster energy is welcome when it stays tied to a lived scene."
         )
     return fallback
 
@@ -4702,9 +4702,9 @@ def smartlink_overlay_clause(contract: dict[str, object] | None) -> str:
     data = contract if isinstance(contract, dict) else {}
     composition = str(data.get("composition") or "").strip().lower()
     if composition == "horizon_boulevard":
-        return "Treat the AR like smart-glasses wayfinding inside a dangerous district splice: visible lane halos, route arcs, contingent branch markers, threat drift, and sparse short chips anchored to ramps, barriers, gantries, crowd lanes, or tunnel mouths."
+        return "Treat the scene like a runner seeing a dangerous district splice through smart-glasses: visible lane halos, route arcs, contingent branch markers, threat drift, and sparse short chips anchored to ramps, barriers, gantries, crowd lanes, or tunnel mouths."
     if composition == "approval_rail":
-        return "Treat the review instrumentation as visible forge AR in the scene: edge-following rails, seal glows, provenance seals, rollback traces, witness locks, and short approval chips anchored to rails, cassettes, and apparatus geometry."
+        return "Treat the review instrumentation like smart-glasses guidance from a ruthless table-governance assistant: edge-following rails, seal glows, provenance seals, rollback traces, witness locks, and short recommendation chips anchored to rails, cassettes, hanging prototypes, and apparatus geometry."
     if composition in {
         "over_shoulder_receipt",
         "transit_checkpoint",
@@ -4716,7 +4716,7 @@ def smartlink_overlay_clause(contract: dict[str, object] | None) -> str:
         "rule_xray",
         "conspiracy_wall",
     }:
-        return "Treat the AR like a runner's smart-glasses field view: symbolic threat brackets, ingress cones, ghost silhouettes, biomon pings, route viability marks, comm health cues, ward-risk bleed, and sparse readable chips anchored to the real scene; never giant HUD slabs or dashboard walls."
+        return "Treat the scene like a runner's smart-glasses field view: symbolic threat brackets, ingress cones, ghost silhouettes, biomon pings, route viability marks, comm health cues, ward-risk bleed, and sparse readable chips anchored to the real scene; never giant HUD slabs or dashboard walls."
     if composition in {"solo_operator", "service_rack", "review_bay", "clinic_intake", "render_lane", "simulation_lab", "mirror_split", "workshop_bench", "proof_room", "dossier_desk"}:
         return "Treat the diagnostics as visible smart-lens guidance: fit-check glows, calibration halos, seam traces, threat wedges, dose or biomon pips, consequence ghosts, route shards, and terse readable chips anchored to anatomy, tools, rails, or machinery; never a dashboard wall."
     return ""
@@ -5338,7 +5338,7 @@ def _ffmpeg_rgba_color(color: tuple[int, int, int, int]) -> str:
     return f"0x{red:02x}{green:02x}{blue:02x}@{max(0.0, min(1.0, alpha / 255.0)):.3f}"
 
 
-def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> dict[str, list[dict[str, object]]]:
+def _static_first_contact_overlay_layout(*, target: str, width: int, height: int) -> dict[str, list[dict[str, object]]]:
     cyan = (39, 212, 255, 110)
     amber = (255, 166, 87, 95)
     red = (255, 78, 78, 110)
@@ -5348,18 +5348,15 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
         return {
             "fills": [
                 {"x": int(width * 0.028), "y": int(height * 0.16), "w": int(width * 0.004), "h": int(height * 0.46), "color": (39, 212, 255, 88)},
-                {"x": int(width * 0.04), "y": int(height * 0.16), "w": int(width * 0.046), "h": int(height * 0.32), "color": (39, 212, 255, 12)},
                 {"x": int(width * 0.79), "y": int(height * 0.79), "w": int(width * 0.11), "h": int(height * 0.005), "color": (255, 166, 87, 72)},
                 {"x": int(width * 0.04), "y": int(height * 0.84), "w": int(width * 0.12), "h": int(height * 0.005), "color": (255, 166, 87, 60)},
                 {"x": int(width * 0.3), "y": int(height * 0.88), "w": int(width * 0.14), "h": int(height * 0.005), "color": (39, 212, 255, 68)},
             ],
-            "boxes": [
-                {"x": int(width * 0.028), "y": int(height * 0.145), "w": int(width * 0.078), "h": int(height * 0.36), "color": cyan},
-            ],
+            "boxes": [],
             "lines": [
-                {"points": (int(width * 0.108), int(height * 0.24), int(width * 0.25), int(height * 0.35)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.108), int(height * 0.38), int(width * 0.24), int(height * 0.44)), "color": amber, "width": 2},
-                {"points": (int(width * 0.108), int(height * 0.48), int(width * 0.24), int(height * 0.5)), "color": amber, "width": 2},
+                {"points": (int(width * 0.08), int(height * 0.24), int(width * 0.24), int(height * 0.35)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.08), int(height * 0.38), int(width * 0.23), int(height * 0.44)), "color": amber, "width": 2},
+                {"points": (int(width * 0.08), int(height * 0.48), int(width * 0.23), int(height * 0.5)), "color": amber, "width": 2},
                 {"points": (int(width * 0.74), int(height * 0.78), int(width * 0.89), int(height * 0.76)), "color": amber, "width": 2},
                 {"points": (int(width * 0.16), int(height * 0.84), int(width * 0.3), int(height * 0.83)), "color": amber, "width": 2},
                 {"points": (int(width * 0.45), int(height * 0.88), int(width * 0.62), int(height * 0.78)), "color": cyan, "width": 2},
@@ -5369,101 +5366,80 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.62), int(height * 0.6), int(width * 0.96), int(height * 0.94)), "start": 214, "end": 300, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.04), "y": int(height * 0.145), "text": "BOD", "color": cyan, "font_size": 11},
-                {"x": int(width * 0.04), "y": int(height * 0.2), "text": "AGI+", "color": amber, "font_size": 11},
-                {"x": int(width * 0.04), "y": int(height * 0.255), "text": "ESS", "color": amber, "font_size": 11},
-                {"x": int(width * 0.79), "y": int(height * 0.75), "text": "CAL", "color": amber, "font_size": 10},
-                {"x": int(width * 0.04), "y": int(height * 0.81), "text": "STAB", "color": amber, "font_size": 10},
-                {"x": int(width * 0.31), "y": int(height * 0.85), "text": "SYNC", "color": cyan, "font_size": 10},
+                {"x": int(width * 0.04), "y": int(height * 0.145), "text": "SIN maybe fake", "color": amber, "font_size": 10},
+                {"x": int(width * 0.04), "y": int(height * 0.2), "text": "smartlink green", "color": lime, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.255), "text": "ward bleed low", "color": cyan, "font_size": 10},
+                {"x": int(width * 0.76), "y": int(height * 0.75), "text": "cam jack 67%", "color": amber, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.81), "text": "cover route 3.1s", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.28), "y": int(height * 0.85), "text": "next: side door", "color": lime, "font_size": 9},
             ],
         }
     if target == "assets/pages/horizons-index.png":
         return {
             "fills": [
-                {"x": int(width * 0.06), "y": int(height * 0.12), "w": int(width * 0.11), "h": int(height * 0.005), "color": (255, 166, 87, 82)},
-                {"x": int(width * 0.26), "y": int(height * 0.18), "w": int(width * 0.10), "h": int(height * 0.005), "color": (255, 94, 172, 70)},
-                {"x": int(width * 0.41), "y": int(height * 0.10), "w": int(width * 0.13), "h": int(height * 0.005), "color": (39, 212, 255, 84)},
-                {"x": int(width * 0.69), "y": int(height * 0.14), "w": int(width * 0.12), "h": int(height * 0.005), "color": (132, 255, 132, 70)},
-                {"x": int(width * 0.12), "y": int(height * 0.76), "w": int(width * 0.12), "h": int(height * 0.005), "color": (39, 212, 255, 68)},
-                {"x": int(width * 0.38), "y": int(height * 0.81), "w": int(width * 0.11), "h": int(height * 0.005), "color": (255, 94, 172, 64)},
-                {"x": int(width * 0.64), "y": int(height * 0.76), "w": int(width * 0.13), "h": int(height * 0.005), "color": (255, 166, 87, 66)},
+                {"x": int(width * 0.11), "y": int(height * 0.17), "w": int(width * 0.08), "h": int(height * 0.004), "color": (255, 166, 87, 66)},
+                {"x": int(width * 0.41), "y": int(height * 0.11), "w": int(width * 0.11), "h": int(height * 0.004), "color": (39, 212, 255, 76)},
+                {"x": int(width * 0.72), "y": int(height * 0.17), "w": int(width * 0.09), "h": int(height * 0.004), "color": (132, 255, 132, 64)},
+                {"x": int(width * 0.15), "y": int(height * 0.76), "w": int(width * 0.09), "h": int(height * 0.004), "color": (39, 212, 255, 62)},
+                {"x": int(width * 0.64), "y": int(height * 0.75), "w": int(width * 0.10), "h": int(height * 0.004), "color": (255, 166, 87, 60)},
             ],
-            "boxes": [
-                {"x": int(width * 0.38), "y": int(height * 0.09), "w": int(width * 0.15), "h": int(height * 0.03), "color": cyan},
-                {"x": int(width * 0.14), "y": int(height * 0.56), "w": int(width * 0.06), "h": int(height * 0.09), "color": cyan},
-                {"x": int(width * 0.34), "y": int(height * 0.58), "w": int(width * 0.06), "h": int(height * 0.08), "color": magenta},
-                {"x": int(width * 0.58), "y": int(height * 0.48), "w": int(width * 0.06), "h": int(height * 0.08), "color": lime},
-                {"x": int(width * 0.72), "y": int(height * 0.56), "w": int(width * 0.06), "h": int(height * 0.08), "color": amber},
-            ],
+            "boxes": [],
             "lines": [
-                {"points": (int(width * 0.14), int(height * 0.74), int(width * 0.29), int(height * 0.58)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.29), int(height * 0.58), int(width * 0.46), int(height * 0.42)), "color": amber, "width": 2},
-                {"points": (int(width * 0.32), int(height * 0.67), int(width * 0.46), int(height * 0.54), int(width * 0.60), int(height * 0.46)), "color": magenta, "width": 2},
-                {"points": (int(width * 0.48), int(height * 0.42), int(width * 0.66), int(height * 0.24)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.53), int(height * 0.48), int(width * 0.70), int(height * 0.58)), "color": lime, "width": 2},
-                {"points": (int(width * 0.63), int(height * 0.52), int(width * 0.80), int(height * 0.40)), "color": amber, "width": 2},
-                {"points": (int(width * 0.66), int(height * 0.26), int(width * 0.81), int(height * 0.14)), "color": amber, "width": 2},
+                {"points": (int(width * 0.18), int(height * 0.75), int(width * 0.31), int(height * 0.60)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.32), int(height * 0.60), int(width * 0.47), int(height * 0.46)), "color": amber, "width": 2},
+                {"points": (int(width * 0.46), int(height * 0.47), int(width * 0.63), int(height * 0.31)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.53), int(height * 0.50), int(width * 0.69), int(height * 0.59)), "color": lime, "width": 2},
+                {"points": (int(width * 0.66), int(height * 0.31), int(width * 0.79), int(height * 0.17)), "color": amber, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.00), int(height * 0.40), int(width * 0.34), int(height * 0.98)), "start": 248, "end": 334, "color": amber, "width": 2},
-                {"box": (int(width * 0.16), int(height * 0.32), int(width * 0.52), int(height * 0.96)), "start": 236, "end": 316, "color": cyan, "width": 2},
-                {"box": (int(width * 0.28), int(height * 0.26), int(width * 0.68), int(height * 0.86)), "start": 220, "end": 308, "color": magenta, "width": 2},
-                {"box": (int(width * 0.44), int(height * 0.22), int(width * 0.92), int(height * 0.94)), "start": 212, "end": 302, "color": amber, "width": 2},
+                {"box": (int(width * 0.02), int(height * 0.46), int(width * 0.34), int(height * 0.98)), "start": 248, "end": 332, "color": amber, "width": 2},
+                {"box": (int(width * 0.18), int(height * 0.34), int(width * 0.54), int(height * 0.96)), "start": 236, "end": 316, "color": cyan, "width": 2},
+                {"box": (int(width * 0.44), int(height * 0.26), int(width * 0.92), int(height * 0.92)), "start": 214, "end": 300, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.1), "text": "CLN", "color": amber, "font_size": 10},
-                {"x": int(width * 0.28), "y": int(height * 0.14), "text": "VICE", "color": magenta, "font_size": 10},
-                {"x": int(width * 0.41), "y": int(height * 0.08), "text": "ARC", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.71), "y": int(height * 0.12), "text": "BUG", "color": lime, "font_size": 10},
-                {"x": int(width * 0.59), "y": int(height * 0.45), "text": "WARD", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.14), "y": int(height * 0.74), "text": "RLY", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.39), "y": int(height * 0.79), "text": "HEX", "color": magenta, "font_size": 10},
-                {"x": int(width * 0.65), "y": int(height * 0.74), "text": "MED", "color": amber, "font_size": 10},
+                {"x": int(width * 0.11), "y": int(height * 0.13), "text": "clinic 44m", "color": amber, "font_size": 9},
+                {"x": int(width * 0.38), "y": int(height * 0.07), "text": "cover route 2.4s", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.70), "y": int(height * 0.12), "text": "cam crack 67%", "color": lime, "font_size": 9},
+                {"x": int(width * 0.20), "y": int(height * 0.72), "text": "SIN maybe fake", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.62), "y": int(height * 0.72), "text": "heat rising east", "color": amber, "font_size": 9},
             ],
         }
     if target == "assets/horizons/karma-forge.png":
         return {
             "fills": [
-                {"x": int(width * 0.05), "y": int(height * 0.12), "w": int(width * 0.1), "h": int(height * 0.005), "color": (255, 166, 87, 82)},
-                {"x": int(width * 0.79), "y": int(height * 0.11), "w": int(width * 0.11), "h": int(height * 0.005), "color": (255, 78, 78, 88)},
-                {"x": int(width * 0.05), "y": int(height * 0.81), "w": int(width * 0.12), "h": int(height * 0.005), "color": (39, 212, 255, 80)},
-                {"x": int(width * 0.68), "y": int(height * 0.81), "w": int(width * 0.15), "h": int(height * 0.005), "color": (255, 166, 87, 76)},
-                {"x": int(width * 0.74), "y": int(height * 0.47), "w": int(width * 0.13), "h": int(height * 0.005), "color": (39, 212, 255, 70)},
+                {"x": int(width * 0.20), "y": int(height * 0.57), "w": int(width * 0.08), "h": int(height * 0.004), "color": (39, 212, 255, 72)},
+                {"x": int(width * 0.42), "y": int(height * 0.15), "w": int(width * 0.10), "h": int(height * 0.004), "color": (255, 166, 87, 76)},
+                {"x": int(width * 0.67), "y": int(height * 0.22), "w": int(width * 0.09), "h": int(height * 0.004), "color": (255, 78, 78, 74)},
+                {"x": int(width * 0.68), "y": int(height * 0.46), "w": int(width * 0.10), "h": int(height * 0.004), "color": (39, 212, 255, 66)},
+                {"x": int(width * 0.59), "y": int(height * 0.72), "w": int(width * 0.10), "h": int(height * 0.004), "color": (255, 166, 87, 64)},
             ],
-            "boxes": [
-                {"x": int(width * 0.05), "y": int(height * 0.09), "w": int(width * 0.065), "h": int(height * 0.038), "color": amber},
-                {"x": int(width * 0.79), "y": int(height * 0.08), "w": int(width * 0.1), "h": int(height * 0.038), "color": red},
-            ],
+            "boxes": [],
             "lines": [
-                {"points": (int(width * 0.12), int(height * 0.14), int(width * 0.34), int(height * 0.25)), "color": amber, "width": 2},
-                {"points": (int(width * 0.2), int(height * 0.82), int(width * 0.36), int(height * 0.69)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.85), int(height * 0.14), int(width * 0.68), int(height * 0.24)), "color": red, "width": 2},
-                {"points": (int(width * 0.86), int(height * 0.2), int(width * 0.62), int(height * 0.34)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.86), int(height * 0.32), int(width * 0.62), int(height * 0.42)), "color": amber, "width": 2},
-                {"points": (int(width * 0.84), int(height * 0.46), int(width * 0.58), int(height * 0.53)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.82), int(height * 0.82), int(width * 0.58), int(height * 0.72)), "color": amber, "width": 2},
+                {"points": (int(width * 0.24), int(height * 0.58), int(width * 0.37), int(height * 0.52), int(width * 0.45), int(height * 0.50)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.47), int(height * 0.17), int(width * 0.50), int(height * 0.29)), "color": amber, "width": 2},
+                {"points": (int(width * 0.71), int(height * 0.24), int(width * 0.63), int(height * 0.30), int(width * 0.57), int(height * 0.34)), "color": red, "width": 2},
+                {"points": (int(width * 0.72), int(height * 0.48), int(width * 0.63), int(height * 0.50), int(width * 0.57), int(height * 0.52)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.63), int(height * 0.74), int(width * 0.56), int(height * 0.66), int(width * 0.53), int(height * 0.60)), "color": amber, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.6), int(height * 0.08), int(width * 0.96), int(height * 0.37)), "start": 188, "end": 292, "color": red, "width": 2},
-                {"box": (int(width * 0.56), int(height * 0.46), int(width * 0.97), int(height * 0.88)), "start": 220, "end": 296, "color": amber, "width": 2},
-                {"box": (int(width * 0.06), int(height * 0.58), int(width * 0.64), int(height * 1.02)), "start": 232, "end": 306, "color": cyan, "width": 2},
+                {"box": (int(width * 0.30), int(height * 0.10), int(width * 0.72), int(height * 0.44)), "start": 202, "end": 330, "color": amber, "width": 2},
+                {"box": (int(width * 0.44), int(height * 0.18), int(width * 0.86), int(height * 0.64)), "start": 186, "end": 288, "color": red, "width": 2},
+                {"box": (int(width * 0.12), int(height * 0.48), int(width * 0.70), int(height * 0.94)), "start": 226, "end": 306, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.07), "y": int(height * 0.09), "text": "DIFF", "color": amber, "font_size": 10},
-                {"x": int(width * 0.05), "y": int(height * 0.78), "text": "APPR", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.8), "y": int(height * 0.08), "text": "ROLL", "color": red, "font_size": 10},
-                {"x": int(width * 0.79), "y": int(height * 0.18), "text": "PROV", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.78), "y": int(height * 0.31), "text": "WIT", "color": amber, "font_size": 10},
-                {"x": int(width * 0.75), "y": int(height * 0.44), "text": "COMP", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.71), "y": int(height * 0.78), "text": "COST", "color": amber, "font_size": 10},
+                {"x": int(width * 0.24), "y": int(height * 0.54), "text": "clamp now", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.39), "y": int(height * 0.11), "text": "seal drift 14%", "color": amber, "font_size": 9},
+                {"x": int(width * 0.63), "y": int(height * 0.18), "text": "witness lock weak", "color": red, "font_size": 8},
+                {"x": int(width * 0.63), "y": int(height * 0.42), "text": "rollback safe 62%", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.56), "y": int(height * 0.68), "text": "blast cone 12m", "color": amber, "font_size": 9},
             ],
         }
     if target in {"assets/pages/horizons-index.png", "assets/pages/parts-index.png"}:
-        left_label = "CLN" if target == "assets/pages/horizons-index.png" else "CORE"
-        center_label = "ARC" if target == "assets/pages/horizons-index.png" else "DSGN"
-        right_label = "ROOF" if target == "assets/pages/horizons-index.png" else "REG"
-        lower_right = "APPR" if target == "assets/pages/horizons-index.png" else "UI"
-        lower_left = "RLY" if target == "assets/pages/horizons-index.png" else "MOB"
+        left_label = "clinic 44m" if target == "assets/pages/horizons-index.png" else "rules core live"
+        center_label = "cover route 2.4s" if target == "assets/pages/horizons-index.png" else "design pressure high"
+        right_label = "cam crack 67%" if target == "assets/pages/horizons-index.png" else "registry trust 82%"
+        lower_right = "heat rising east" if target == "assets/pages/horizons-index.png" else "ui in one glance"
+        lower_left = "SIN maybe fake" if target == "assets/pages/horizons-index.png" else "mobile fallback ready"
         return {
             "fills": [
                 {"x": int(width * 0.08), "y": int(height * 0.12), "w": int(width * 0.10), "h": int(height * 0.005), "color": amber},
@@ -5489,40 +5465,37 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.45), int(height * 0.28), int(width * 0.90), int(height * 0.93)), "start": 214, "end": 300, "color": lime, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.08), "text": left_label, "color": amber, "font_size": 10},
-                {"x": int(width * 0.41), "y": int(height * 0.07), "text": center_label, "color": cyan, "font_size": 10},
-                {"x": int(width * 0.71), "y": int(height * 0.11), "text": right_label, "color": lime, "font_size": 10},
-                {"x": int(width * 0.66), "y": int(height * 0.74), "text": lower_right, "color": amber, "font_size": 10},
-                {"x": int(width * 0.14), "y": int(height * 0.74), "text": lower_left, "color": cyan, "font_size": 10},
+                {"x": int(width * 0.08), "y": int(height * 0.08), "text": left_label, "color": amber, "font_size": 8},
+                {"x": int(width * 0.34), "y": int(height * 0.07), "text": center_label, "color": cyan, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.11), "text": right_label, "color": lime, "font_size": 8},
+                {"x": int(width * 0.63), "y": int(height * 0.74), "text": lower_right, "color": amber, "font_size": 8},
+                {"x": int(width * 0.12), "y": int(height * 0.74), "text": lower_left, "color": cyan, "font_size": 8},
             ],
         }
     if target == "assets/horizons/alice.png":
         return {
             "fills": [
-                {"x": int(width * 0.07), "y": int(height * 0.11), "w": int(width * 0.11), "h": int(height * 0.005), "color": red},
-                {"x": int(width * 0.07), "y": int(height * 0.79), "w": int(width * 0.10), "h": int(height * 0.005), "color": cyan},
-                {"x": int(width * 0.76), "y": int(height * 0.17), "w": int(width * 0.11), "h": int(height * 0.005), "color": amber},
-                {"x": int(width * 0.70), "y": int(height * 0.75), "w": int(width * 0.15), "h": int(height * 0.005), "color": lime},
+                {"x": int(width * 0.13), "y": int(height * 0.17), "w": int(width * 0.10), "h": int(height * 0.004), "color": red},
+                {"x": int(width * 0.16), "y": int(height * 0.74), "w": int(width * 0.10), "h": int(height * 0.004), "color": cyan},
+                {"x": int(width * 0.68), "y": int(height * 0.20), "w": int(width * 0.11), "h": int(height * 0.004), "color": amber},
+                {"x": int(width * 0.64), "y": int(height * 0.66), "w": int(width * 0.12), "h": int(height * 0.004), "color": lime},
             ],
-            "boxes": [
-                {"x": int(width * 0.06), "y": int(height * 0.09), "w": int(width * 0.12), "h": int(height * 0.035), "color": red},
-                {"x": int(width * 0.68), "y": int(height * 0.71), "w": int(width * 0.14), "h": int(height * 0.03), "color": lime},
-            ],
+            "boxes": [],
             "lines": [
-                {"points": (int(width * 0.18), int(height * 0.14), int(width * 0.36), int(height * 0.23)), "color": red, "width": 2},
-                {"points": (int(width * 0.17), int(height * 0.80), int(width * 0.38), int(height * 0.68)), "color": cyan, "width": 2},
-                {"points": (int(width * 0.79), int(height * 0.19), int(width * 0.60), int(height * 0.29)), "color": amber, "width": 2},
-                {"points": (int(width * 0.76), int(height * 0.76), int(width * 0.58), int(height * 0.63)), "color": lime, "width": 2},
+                {"points": (int(width * 0.18), int(height * 0.19), int(width * 0.41), int(height * 0.30)), "color": red, "width": 2},
+                {"points": (int(width * 0.20), int(height * 0.76), int(width * 0.41), int(height * 0.63)), "color": cyan, "width": 2},
+                {"points": (int(width * 0.73), int(height * 0.22), int(width * 0.60), int(height * 0.31), int(width * 0.54), int(height * 0.38)), "color": amber, "width": 2},
+                {"points": (int(width * 0.70), int(height * 0.68), int(width * 0.58), int(height * 0.60), int(width * 0.54), int(height * 0.55)), "color": lime, "width": 2},
             ],
             "arcs": [
-                {"box": (int(width * 0.24), int(height * 0.20), int(width * 0.66), int(height * 0.86)), "start": 210, "end": 310, "color": cyan, "width": 2},
-                {"box": (int(width * 0.48), int(height * 0.12), int(width * 0.96), int(height * 0.72)), "start": 182, "end": 272, "color": amber, "width": 2},
+                {"box": (int(width * 0.22), int(height * 0.22), int(width * 0.66), int(height * 0.88)), "start": 210, "end": 308, "color": cyan, "width": 2},
+                {"box": (int(width * 0.46), int(height * 0.14), int(width * 0.94), int(height * 0.74)), "start": 182, "end": 272, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.08), "text": "BIO", "color": red, "font_size": 10},
-                {"x": int(width * 0.08), "y": int(height * 0.76), "text": "TOX", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.74), "y": int(height * 0.13), "text": "WARD", "color": amber, "font_size": 10},
-                {"x": int(width * 0.68), "y": int(height * 0.70), "text": "RISK", "color": lime, "font_size": 10},
+                {"x": int(width * 0.13), "y": int(height * 0.13), "text": "shock window 12s", "color": red, "font_size": 9},
+                {"x": int(width * 0.23), "y": int(height * 0.71), "text": "kill torque now", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.61), "y": int(height * 0.16), "text": "ward leak near spine", "color": amber, "font_size": 8},
+                {"x": int(width * 0.60), "y": int(height * 0.63), "text": "left arm salvage 78%", "color": lime, "font_size": 8},
             ],
         }
     if target == "assets/horizons/runsite.png":
@@ -5548,10 +5521,10 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.44), int(height * 0.22), int(width * 0.96), int(height * 0.92)), "start": 208, "end": 290, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.06), "y": int(height * 0.09), "text": "THR2", "color": red, "font_size": 10},
-                {"x": int(width * 0.76), "y": int(height * 0.13), "text": "LOS", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.73), "y": int(height * 0.72), "text": "EXIT", "color": amber, "font_size": 10},
-                {"x": int(width * 0.16), "y": int(height * 0.75), "text": "BIO", "color": lime, "font_size": 10},
+                {"x": int(width * 0.06), "y": int(height * 0.09), "text": "hostile 2 floors up", "color": red, "font_size": 8},
+                {"x": int(width * 0.72), "y": int(height * 0.13), "text": "camera blind spot", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.71), "y": int(height * 0.72), "text": "service exit clear", "color": amber, "font_size": 8},
+                {"x": int(width * 0.16), "y": int(height * 0.75), "text": "biomon live", "color": lime, "font_size": 9},
             ],
         }
     if target == "assets/horizons/nexus-pan.png":
@@ -5582,16 +5555,14 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.48), int(height * 0.20), int(width * 0.98), int(height * 0.92)), "start": 212, "end": 298, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.06), "text": "SYNC", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.40), "y": int(height * 0.15), "text": "PING", "color": magenta, "font_size": 10},
-                {"x": int(width * 0.74), "y": int(height * 0.11), "text": "ROUTE", "color": amber, "font_size": 10},
-                {"x": int(width * 0.12), "y": int(height * 0.75), "text": "BIO", "color": lime, "font_size": 10},
-                {"x": int(width * 0.68), "y": int(height * 0.74), "text": "DROP", "color": magenta, "font_size": 10},
+                {"x": int(width * 0.08), "y": int(height * 0.06), "text": "link stable", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.39), "y": int(height * 0.15), "text": "handshake lost 1x", "color": magenta, "font_size": 8},
+                {"x": int(width * 0.72), "y": int(height * 0.11), "text": "safe reroute live", "color": amber, "font_size": 8},
+                {"x": int(width * 0.12), "y": int(height * 0.75), "text": "user spoof risk", "color": lime, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.74), "text": "drop loss 3%", "color": magenta, "font_size": 9},
             ],
         }
     if target == "assets/parts/mobile.png":
-        primary = "LINK"
-        secondary = "COMM"
         return {
             "fills": [
                 {"x": int(width * 0.08), "y": int(height * 0.11), "w": int(width * 0.12), "h": int(height * 0.005), "color": cyan},
@@ -5614,16 +5585,13 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.50), int(height * 0.24), int(width * 0.96), int(height * 0.90)), "start": 214, "end": 298, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.06), "text": primary, "color": cyan, "font_size": 10},
-                {"x": int(width * 0.74), "y": int(height * 0.13), "text": secondary, "color": amber, "font_size": 10},
-                {"x": int(width * 0.12), "y": int(height * 0.75), "text": "BIO", "color": lime, "font_size": 10},
-                {"x": int(width * 0.70), "y": int(height * 0.74), "text": "EXIT", "color": magenta, "font_size": 10},
+                {"x": int(width * 0.08), "y": int(height * 0.06), "text": "signal bounce 42ms", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.70), "y": int(height * 0.13), "text": "comms stable", "color": amber, "font_size": 9},
+                {"x": int(width * 0.12), "y": int(height * 0.75), "text": "biomonitor live", "color": lime, "font_size": 8},
+                {"x": int(width * 0.67), "y": int(height * 0.74), "text": "fast exit 9m", "color": magenta, "font_size": 9},
             ],
         }
     if target in {"assets/horizons/jackpoint.png", "assets/horizons/runbook-press.png"}:
-        left = "AUTH" if target == "assets/horizons/jackpoint.png" else "PROV"
-        right = "DROP" if target == "assets/horizons/jackpoint.png" else "PRESS"
-        lower = "WIT" if target == "assets/horizons/jackpoint.png" else "RISK"
         return {
             "fills": [
                 {"x": int(width * 0.08), "y": int(height * 0.12), "w": int(width * 0.11), "h": int(height * 0.005), "color": amber},
@@ -5646,10 +5614,10 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.50), int(height * 0.34), int(width * 0.98), int(height * 0.94)), "start": 214, "end": 300, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.08), "text": left, "color": amber, "font_size": 10},
-                {"x": int(width * 0.74), "y": int(height * 0.11), "text": right, "color": cyan, "font_size": 10},
-                {"x": int(width * 0.13), "y": int(height * 0.75), "text": "ROUTE", "color": red, "font_size": 10},
-                {"x": int(width * 0.66), "y": int(height * 0.74), "text": lower, "color": lime, "font_size": 10},
+                {"x": int(width * 0.08), "y": int(height * 0.08), "text": "source trust 61%", "color": amber, "font_size": 8},
+                {"x": int(width * 0.71), "y": int(height * 0.11), "text": "quiet drop ready", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.13), "y": int(height * 0.75), "text": "safe route two blocks", "color": red, "font_size": 7},
+                {"x": int(width * 0.65), "y": int(height * 0.74), "text": "witness risk low", "color": lime, "font_size": 8},
             ],
         }
     if target == "assets/horizons/table-pulse.png":
@@ -5675,10 +5643,10 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.48), int(height * 0.26), int(width * 0.96), int(height * 0.94)), "start": 212, "end": 300, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.09), "y": int(height * 0.08), "text": "HEAT", "color": red, "font_size": 10},
-                {"x": int(width * 0.74), "y": int(height * 0.12), "text": "ECHO", "color": amber, "font_size": 10},
-                {"x": int(width * 0.14), "y": int(height * 0.76), "text": "EDGE", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.67), "y": int(height * 0.74), "text": "GHOST", "color": magenta, "font_size": 10},
+                {"x": int(width * 0.09), "y": int(height * 0.08), "text": "spotlight imbalance", "color": red, "font_size": 8},
+                {"x": int(width * 0.72), "y": int(height * 0.12), "text": "table fatigue 32%", "color": amber, "font_size": 8},
+                {"x": int(width * 0.14), "y": int(height * 0.76), "text": "edge spend too late", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.65), "y": int(height * 0.74), "text": "ghost player 1 seat", "color": magenta, "font_size": 8},
             ],
         }
     if target == "assets/parts/core.png":
@@ -5709,12 +5677,12 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.48), int(height * 0.28), int(width * 0.96), int(height * 0.94)), "start": 212, "end": 298, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.06), "y": int(height * 0.08), "text": "W3", "color": red, "font_size": 10},
-                {"x": int(width * 0.40), "y": int(height * 0.15), "text": "COV", "color": magenta, "font_size": 10},
-                {"x": int(width * 0.78), "y": int(height * 0.12), "text": "LOS", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.12), "y": int(height * 0.76), "text": "R2", "color": amber, "font_size": 10},
-                {"x": int(width * 0.52), "y": int(height * 0.54), "text": "BIO", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.68), "y": int(height * 0.74), "text": "E+", "color": lime, "font_size": 10},
+                {"x": int(width * 0.06), "y": int(height * 0.08), "text": "rules drift low", "color": red, "font_size": 9},
+                {"x": int(width * 0.37), "y": int(height * 0.15), "text": "cover math explained", "color": magenta, "font_size": 8},
+                {"x": int(width * 0.75), "y": int(height * 0.12), "text": "line of fire clear", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.12), "y": int(height * 0.76), "text": "reroute in 2 taps", "color": amber, "font_size": 8},
+                {"x": int(width * 0.48), "y": int(height * 0.54), "text": "biomonitor attached", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.74), "text": "edge spend ready", "color": lime, "font_size": 8},
             ],
         }
     if target == "assets/parts/design.png":
@@ -5740,10 +5708,10 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.46), int(height * 0.24), int(width * 0.98), int(height * 0.92)), "start": 212, "end": 300, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.07), "text": "SCOPE", "color": cyan, "font_size": 12},
-                {"x": int(width * 0.76), "y": int(height * 0.11), "text": "OWNR", "color": amber, "font_size": 12},
-                {"x": int(width * 0.12), "y": int(height * 0.75), "text": "THRT", "color": red, "font_size": 12},
-                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "ROUTE", "color": lime, "font_size": 12},
+                {"x": int(width * 0.08), "y": int(height * 0.07), "text": "scope creep blocked", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.72), "y": int(height * 0.11), "text": "owner decision due", "color": amber, "font_size": 8},
+                {"x": int(width * 0.12), "y": int(height * 0.75), "text": "threat if delayed", "color": red, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "safest route live", "color": lime, "font_size": 8},
             ],
         }
     if target == "assets/parts/hub-registry.png":
@@ -5769,10 +5737,10 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.46), int(height * 0.24), int(width * 0.96), int(height * 0.92)), "start": 214, "end": 298, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.07), "y": int(height * 0.08), "text": "INTAKE", "color": amber, "font_size": 12},
-                {"x": int(width * 0.76), "y": int(height * 0.12), "text": "QUAR", "color": red, "font_size": 12},
-                {"x": int(width * 0.12), "y": int(height * 0.76), "text": "BIO", "color": cyan, "font_size": 12},
-                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "MATCH", "color": lime, "font_size": 12},
+                {"x": int(width * 0.07), "y": int(height * 0.08), "text": "first intake clear", "color": amber, "font_size": 8},
+                {"x": int(width * 0.73), "y": int(height * 0.12), "text": "quarantine likely", "color": red, "font_size": 8},
+                {"x": int(width * 0.12), "y": int(height * 0.76), "text": "biometrics live", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "identity match 82%", "color": lime, "font_size": 8},
             ],
         }
     if target == "assets/parts/media-factory.png":
@@ -5803,19 +5771,14 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.48), int(height * 0.24), int(width * 0.96), int(height * 0.92)), "start": 212, "end": 298, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.07), "text": "RND", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.42), "y": int(height * 0.12), "text": "RPR", "color": magenta, "font_size": 10},
-                {"x": int(width * 0.76), "y": int(height * 0.11), "text": "PRV", "color": amber, "font_size": 10},
-                {"x": int(width * 0.13), "y": int(height * 0.75), "text": "SNP", "color": red, "font_size": 10},
-                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "APR", "color": lime, "font_size": 10},
+                {"x": int(width * 0.08), "y": int(height * 0.07), "text": "rerender queued", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.41), "y": int(height * 0.12), "text": "repair pass clean", "color": magenta, "font_size": 8},
+                {"x": int(width * 0.74), "y": int(height * 0.11), "text": "provenance intact", "color": amber, "font_size": 8},
+                {"x": int(width * 0.13), "y": int(height * 0.75), "text": "snapshot reusable", "color": red, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "approval safe", "color": lime, "font_size": 8},
             ],
         }
     if target in {"assets/parts/hub.png", "assets/parts/ui.png", "assets/parts/ui-kit.png"}:
-        labels = {
-            "assets/parts/hub.png": ("HOST", "QUEUE", "LINK", "RTT"),
-            "assets/parts/ui.png": ("CMP", "DLTA", "TRST", "FIT"),
-            "assets/parts/ui-kit.png": ("ALGN", "SHLL", "WARD", "ECHO"),
-        }[target]
         return {
             "fills": [
                 {"x": int(width * 0.08), "y": int(height * 0.11), "w": int(width * 0.10), "h": int(height * 0.005), "color": cyan},
@@ -5838,25 +5801,364 @@ def _first_contact_overlay_layout(*, target: str, width: int, height: int) -> di
                 {"box": (int(width * 0.48), int(height * 0.24), int(width * 0.96), int(height * 0.92)), "start": 212, "end": 298, "color": cyan, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.08), "y": int(height * 0.07), "text": labels[0], "color": cyan, "font_size": 10},
-                {"x": int(width * 0.76), "y": int(height * 0.11), "text": labels[1], "color": amber, "font_size": 10},
-                {"x": int(width * 0.13), "y": int(height * 0.75), "text": labels[2], "color": red, "font_size": 10},
-                {"x": int(width * 0.68), "y": int(height * 0.73), "text": labels[3], "color": lime, "font_size": 10},
+                {"x": int(width * 0.08), "y": int(height * 0.07), "text": "host health good" if target == "assets/parts/hub.png" else ("receipt explains itself" if target == "assets/parts/ui.png" else "shell fit locked"), "color": cyan, "font_size": 8},
+                {"x": int(width * 0.70), "y": int(height * 0.11), "text": "queue aging low" if target == "assets/parts/hub.png" else ("delta diff clear" if target == "assets/parts/ui.png" else "token map stable"), "color": amber, "font_size": 8},
+                {"x": int(width * 0.13), "y": int(height * 0.75), "text": "link trust solid" if target == "assets/parts/hub.png" else ("trust cue visible" if target == "assets/parts/ui.png" else "ward clash low"), "color": red, "font_size": 8},
+                {"x": int(width * 0.68), "y": int(height * 0.73), "text": "reply in 82ms" if target == "assets/parts/hub.png" else ("fits one glance" if target == "assets/parts/ui.png" else "echo bleed gone"), "color": lime, "font_size": 8},
             ],
         }
     return {"boxes": [], "chips": []}
 
 
-def _apply_first_contact_overlay_postpass_ffmpeg(*, image_path: Path, target: str, width: int, height: int) -> str:
-    layout = _first_contact_overlay_layout(target=target, width=width, height=height)
+def _overlay_semantic_kind(text: str) -> str:
+    cleaned = str(text or "").strip().lower()
+    if not cleaned:
+        return "generic"
+    if any(token in cleaned for token in ("route", "exit", "lane", "branch", "path", "door", "reroute", "cover ")):
+        return "route"
+    if any(token in cleaned for token in ("cam ", "camera", "blind spot", "crack 67", "jack 67")):
+        return "camera"
+    if any(token in cleaned for token in ("sin", "identity", "trust")):
+        return "identity"
+    if any(token in cleaned for token in ("ward", "astral", "totem")):
+        return "ward"
+    if any(token in cleaned for token in ("shock", "torque", "salvage", "biomon", "med", "wound", "stab", "dose", "clinic")):
+        return "medical"
+    if any(token in cleaned for token in ("prov", "approval", "rollback", "witness", "diff", "comp", "seal", "blast", "clamp", "revert")):
+        return "forge"
+    if any(token in cleaned for token in ("link", "signal", "queue", "drop", "loss", "comms", "host", "reply", "spoof", "sync")):
+        return "network"
+    if any(token in cleaned for token in ("smartlink", "handshake", "gear", "loadout", "fit", "shell", "ready", "los", "agi", "ess", "cal", "w3", "r2", "e+")):
+        return "gear"
+    return "generic"
+
+
+def _overlay_semantic_tags(kind: str) -> tuple[str, ...]:
+    return {
+        "route": ("path", "frame"),
+        "camera": ("fixture", "apparatus"),
+        "identity": ("subject", "apparatus"),
+        "ward": ("subject", "apparatus"),
+        "medical": ("subject", "apparatus"),
+        "forge": ("apparatus", "frame"),
+        "network": ("apparatus", "fixture"),
+        "gear": ("subject", "apparatus"),
+        "generic": ("subject", "apparatus", "frame"),
+    }.get(kind, ("subject", "apparatus", "frame"))
+
+
+def _overlay_kind_requires_observed_anchor(kind: str) -> bool:
+    return kind in {"route", "camera"}
+
+
+def _clamp_int(value: float, *, lower: int, upper: int) -> int:
+    return max(lower, min(int(round(value)), upper))
+
+
+def _chip_text_extent(text: str, *, font_size: int) -> tuple[int, int]:
+    size = max(8, int(font_size))
+    width = max(58, int(len(str(text or "").strip()) * size * 0.62))
+    height = max(18, int(size * 1.45))
+    return width, height
+
+
+def _scene_overlay_observations(*, image_path: Path, target: str) -> list[dict[str, object]]:
+    if cv2 is None or np is None or not image_path.exists():
+        return []
+    frame = cv2.imread(str(image_path))
+    if frame is None:
+        return []
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    height, width = gray.shape[:2]
+    if width < 64 or height < 64:
+        return []
+
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 48, 140)
+    edges = cv2.dilate(edges, None, iterations=1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=1)
+    contours, _hierarchy = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    canvas_area = float(width * height)
+    observations: list[dict[str, object]] = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if w < max(18, int(width * 0.04)) or h < max(18, int(height * 0.04)):
+            continue
+        area_ratio = float(w * h) / canvas_area if canvas_area else 0.0
+        if area_ratio < 0.004 or area_ratio > 0.28:
+            continue
+        region = edges[y : y + h, x : x + w]
+        if region.size == 0:
+            continue
+        edge_density = float(cv2.countNonZero(region)) / float(region.size)
+        if edge_density < 0.025:
+            continue
+        luminance = gray[y : y + h, x : x + w]
+        mean_luma = float(luminance.mean()) if luminance.size else 0.0
+        tags: set[str] = set()
+        aspect = float(w) / float(max(h, 1))
+        center_x = x + (w / 2.0)
+        center_y = y + (h / 2.0)
+
+        if y + h >= int(height * 0.72) and aspect >= 1.45 and w >= int(width * 0.16):
+            tags.add("path")
+        if h >= int(height * 0.28) and w <= int(width * 0.20) and (x <= int(width * 0.22) or x + w >= int(width * 0.78)):
+            tags.add("frame")
+        if y <= int(height * 0.34) and w <= int(width * 0.22) and h <= int(height * 0.22):
+            tags.add("fixture")
+        if h >= int(height * 0.24) and w >= int(width * 0.10) and center_y <= float(height) * 0.80:
+            tags.add("subject")
+        if area_ratio >= 0.035 or edge_density >= 0.11:
+            tags.add("apparatus")
+        if center_x <= float(width) * 0.44:
+            tags.add("left")
+        elif center_x >= float(width) * 0.56:
+            tags.add("right")
+        else:
+            tags.add("center")
+        if center_y <= float(height) * 0.36:
+            tags.add("upper")
+        elif center_y >= float(height) * 0.64:
+            tags.add("lower")
+        else:
+            tags.add("mid")
+        if mean_luma >= 128.0:
+            tags.add("bright")
+
+        if not (tags & {"path", "frame", "fixture", "subject", "apparatus"}):
+            continue
+
+        score = area_ratio * 3000.0 + edge_density * 220.0
+        if "path" in tags:
+            score += 110.0
+        if "frame" in tags:
+            score += 92.0
+        if "fixture" in tags:
+            score += 84.0
+        if "subject" in tags:
+            score += 68.0
+        if "apparatus" in tags:
+            score += 76.0
+        if target == "assets/hero/chummer6-hero.png" and "path" in tags:
+            score += 56.0
+        observations.append(
+            {
+                "x": int(x),
+                "y": int(y),
+                "w": int(w),
+                "h": int(h),
+                "cx": float(center_x),
+                "cy": float(center_y),
+                "mean_luma": float(mean_luma),
+                "score": float(score),
+                "tags": tuple(sorted(tags)),
+            }
+        )
+    observations.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    return observations[:18]
+
+
+def _choose_overlay_candidate(
+    observations: list[dict[str, object]],
+    *,
+    kind: str,
+    chip_x: int,
+    chip_y: int,
+    width: int,
+    height: int,
+) -> dict[str, object] | None:
+    wanted = set(_overlay_semantic_tags(kind))
+    side_hint = "left" if chip_x < int(width * 0.48) else "right"
+    best: dict[str, object] | None = None
+    best_score = float("-inf")
+    for candidate in observations:
+        tags = set(str(entry).strip() for entry in (candidate.get("tags") or ()))
+        if not (wanted & tags):
+            continue
+        score = float(candidate.get("score") or 0.0)
+        if side_hint in tags:
+            score += 72.0
+        if kind == "route" and "path" in tags:
+            score += 140.0
+        if kind == "camera" and "fixture" in tags:
+            score += 150.0
+        if kind in {"identity", "gear", "medical", "ward"} and "subject" in tags:
+            score += 88.0
+        if kind in {"forge", "network"} and "apparatus" in tags:
+            score += 96.0
+        score -= abs((float(candidate.get("cx") or 0.0) / max(float(width), 1.0)) - (float(chip_x) / max(float(width), 1.0))) * 80.0
+        score -= abs((float(candidate.get("cy") or 0.0) / max(float(height), 1.0)) - (float(chip_y) / max(float(height), 1.0))) * 24.0
+        if score > best_score:
+            best = candidate
+            best_score = score
+    return best
+
+
+def _overlay_chip_placement(
+    *,
+    chip: dict[str, object],
+    candidate: dict[str, object],
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int, int, int]:
+    text = str(chip.get("text") or "").strip()
+    font_size = max(8, int(chip.get("font_size") or 18))
+    chip_w, chip_h = _chip_text_extent(text, font_size=font_size)
+    x = int(candidate.get("x") or 0)
+    y = int(candidate.get("y") or 0)
+    w = int(candidate.get("w") or 0)
+    h = int(candidate.get("h") or 0)
+    tags = set(str(entry).strip() for entry in (candidate.get("tags") or ()))
+    side_hint = "left" if int(chip.get("x") or 0) < int(width * 0.48) else "right"
+    if "path" in tags:
+        chip_x = _clamp_int(x + (w / 2.0) - (chip_w / 2.0), lower=18, upper=max(18, width - chip_w - 18))
+        chip_y = _clamp_int(y - chip_h - 18, lower=18, upper=max(18, height - chip_h - 18))
+        anchor_x = _clamp_int(x + (w / 2.0), lower=0, upper=width - 1)
+        anchor_y = _clamp_int(y + min(h * 0.32, 28.0), lower=0, upper=height - 1)
+    else:
+        if side_hint == "left":
+            chip_x = _clamp_int(x - chip_w - 18, lower=18, upper=max(18, width - chip_w - 18))
+            anchor_x = _clamp_int(x, lower=0, upper=width - 1)
+        else:
+            chip_x = _clamp_int(x + w + 18, lower=18, upper=max(18, width - chip_w - 18))
+            anchor_x = _clamp_int(x + w, lower=0, upper=width - 1)
+        chip_y = _clamp_int(y + (h / 2.0) - (chip_h / 2.0), lower=18, upper=max(18, height - chip_h - 18))
+        anchor_y = _clamp_int(y + (h / 2.0), lower=0, upper=height - 1)
+    return chip_x, chip_y, chip_w, chip_h, anchor_x, anchor_y
+
+
+def _observed_overlay_layout(
+    *,
+    layout: dict[str, list[dict[str, object]]],
+    observations: list[dict[str, object]],
+    target: str,
+    width: int,
+    height: int,
+) -> dict[str, list[dict[str, object]]]:
+    if not observations:
+        return layout
+    relaid = copy.deepcopy(layout)
+    dynamic_boxes: list[dict[str, object]] = []
+    dynamic_lines: list[dict[str, object]] = []
+    dynamic_chips: list[dict[str, object]] = []
+    seen_box_keys: set[tuple[int, int, int, int]] = set()
+
+    for chip in relaid.get("chips", []):
+        text = str(chip.get("text") or "").strip()
+        kind = _overlay_semantic_kind(text)
+        candidate = _choose_overlay_candidate(
+            observations,
+            kind=kind,
+            chip_x=int(chip.get("x") or 0),
+            chip_y=int(chip.get("y") or 0),
+            width=width,
+            height=height,
+        )
+        if candidate is None:
+            if _overlay_kind_requires_observed_anchor(kind):
+                continue
+            dynamic_chips.append(chip)
+            continue
+        chip_x, chip_y, chip_w, chip_h, anchor_x, anchor_y = _overlay_chip_placement(
+            chip=chip,
+            candidate=candidate,
+            width=width,
+            height=height,
+        )
+        chip["x"] = chip_x
+        chip["y"] = chip_y
+        dynamic_chips.append(chip)
+        dynamic_lines.append(
+            {
+                "points": (
+                    chip_x + (chip_w // 2),
+                    chip_y + chip_h,
+                    anchor_x,
+                    anchor_y,
+                ),
+                "color": tuple(chip.get("color") or (39, 212, 255, 110)),
+                "width": 2,
+            }
+        )
+        candidate_tags = set(str(entry).strip() for entry in (candidate.get("tags") or ()))
+        if "path" in candidate_tags:
+            continue
+        box = (
+            max(8, int(candidate.get("x") or 0) - 6),
+            max(8, int(candidate.get("y") or 0) - 6),
+            min(width - 8, int(candidate.get("x") or 0) + int(candidate.get("w") or 0) + 6),
+            min(height - 8, int(candidate.get("y") or 0) + int(candidate.get("h") or 0) + 6),
+        )
+        if box in seen_box_keys:
+            continue
+        seen_box_keys.add(box)
+        dynamic_boxes.append(
+            {
+                "x": box[0],
+                "y": box[1],
+                "w": max(12, box[2] - box[0]),
+                "h": max(12, box[3] - box[1]),
+                "color": tuple(chip.get("color") or (39, 212, 255, 110)),
+                "width": 2,
+                "radius": 8,
+            }
+        )
+    relaid["chips"] = dynamic_chips
+    if dynamic_lines:
+        relaid["lines"] = dynamic_lines
+    if dynamic_boxes:
+        relaid["boxes"] = dynamic_boxes[:5]
+    if target == "assets/hero/chummer6-hero.png":
+        relaid["fills"] = [fill for fill in relaid.get("fills", []) if int(fill.get("w") or 0) <= int(width * 0.14)]
+    return relaid
+
+
+def _first_contact_overlay_layout(
+    *,
+    target: str,
+    width: int,
+    height: int,
+    image_path: Path | None = None,
+    spec: dict[str, object] | None = None,
+) -> dict[str, list[dict[str, object]]]:
+    del spec
+    layout = copy.deepcopy(_static_first_contact_overlay_layout(target=target, width=width, height=height))
+    if image_path is None:
+        return layout
+    observations = _scene_overlay_observations(image_path=image_path, target=target)
+    return _observed_overlay_layout(
+        layout=layout,
+        observations=observations,
+        target=target,
+        width=width,
+        height=height,
+    )
+
+
+def _apply_first_contact_overlay_postpass_ffmpeg(
+    *,
+    image_path: Path,
+    target: str,
+    width: int,
+    height: int,
+    layout: dict[str, list[dict[str, object]]] | None = None,
+) -> str:
+    resolved_layout = copy.deepcopy(layout) if isinstance(layout, dict) else _first_contact_overlay_layout(
+        target=target,
+        width=width,
+        height=height,
+        image_path=image_path,
+    )
     filters: list[str] = []
-    for fill in layout.get("fills", []):
+    for fill in resolved_layout.get("fills", []):
         filters.append(
             "drawbox="
             f"x={int(fill['x'])}:y={int(fill['y'])}:w={int(fill['w'])}:h={int(fill['h'])}:"
             f"color={_ffmpeg_rgba_color(fill['color'])}:t=fill"
         )
-    for box in layout["boxes"]:
+    for box in resolved_layout["boxes"]:
         filters.append(
             "drawbox="
             f"x={int(box['x'])}:y={int(box['y'])}:w={int(box['w'])}:h={int(box['h'])}:"
@@ -5864,7 +6166,7 @@ def _apply_first_contact_overlay_postpass_ffmpeg(*, image_path: Path, target: st
         )
     fontfile = _ffmpeg_overlay_fontfile()
     escaped_fontfile = fontfile.replace("\\", "\\\\").replace(":", "\\:")
-    for chip in layout["chips"]:
+    for chip in resolved_layout["chips"]:
         if not fontfile:
             continue
         font_size = max(14, int(chip.get("font_size") or 18))
@@ -6169,51 +6471,53 @@ def _public_asset_finish_focus_mask(*, target: str, size: tuple[int, int]):
 
 def _public_asset_finish_profile(*, target: str, mean_luma: float, std_luma: float, edge_mean: float) -> dict[str, float]:
     normalized = str(target or "").replace("\\", "/").strip()
-    brightness = 1.06
-    contrast = 1.14
-    color = 1.04
-    sharpness = 1.50
-    unsharp_percent = 155.0
+    brightness = 1.09
+    contrast = 1.16
+    color = 1.08
+    sharpness = 1.28
+    unsharp_percent = 124.0
 
     if normalized.startswith("assets/pages/"):
-        brightness = 1.08
-        contrast = 1.18
-        color = 1.06
-        sharpness = 1.65
-        unsharp_percent = 170.0
+        brightness = 1.11
+        contrast = 1.20
+        color = 1.10
+        sharpness = 1.34
+        unsharp_percent = 132.0
     elif normalized.startswith("assets/parts/"):
-        brightness = 1.06
-        contrast = 1.14
-        color = 1.04
-        sharpness = 1.55
-        unsharp_percent = 160.0
-    elif normalized.startswith("assets/horizons/details/"):
-        brightness = 1.07
+        brightness = 1.09
         contrast = 1.16
-        color = 1.05
-        sharpness = 1.60
-        unsharp_percent = 165.0
-    elif normalized.startswith("assets/horizons/"):
-        brightness = 1.08
-        contrast = 1.18
-        color = 1.06
-        sharpness = 1.65
-        unsharp_percent = 175.0
-    elif normalized == "assets/hero/poc-warning.png":
+        color = 1.08
+        sharpness = 1.30
+        unsharp_percent = 126.0
+    elif normalized.startswith("assets/horizons/details/"):
         brightness = 1.10
         contrast = 1.18
-        color = 1.04
-        sharpness = 1.70
-        unsharp_percent = 180.0
+        color = 1.09
+        sharpness = 1.32
+        unsharp_percent = 128.0
+    elif normalized.startswith("assets/horizons/"):
+        brightness = 1.11
+        contrast = 1.20
+        color = 1.10
+        sharpness = 1.34
+        unsharp_percent = 134.0
+    elif normalized == "assets/hero/poc-warning.png":
+        brightness = 1.12
+        contrast = 1.20
+        color = 1.10
+        sharpness = 1.38
+        unsharp_percent = 138.0
 
     if mean_luma < 35.0:
-        brightness += 0.08
+        brightness += 0.10
         contrast += 0.06
+        color += 0.02
     elif mean_luma < 48.0:
-        brightness += 0.04
+        brightness += 0.05
         contrast += 0.03
+        color += 0.01
     elif mean_luma > 78.0:
-        brightness -= 0.03
+        brightness -= 0.01
 
     if std_luma < 38.0:
         contrast += 0.08
@@ -6221,20 +6525,20 @@ def _public_asset_finish_profile(*, target: str, mean_luma: float, std_luma: flo
         contrast += 0.04
 
     if edge_mean < 7.0:
-        sharpness += 0.35
-        unsharp_percent += 30.0
-        contrast += 0.04
-    elif edge_mean < 10.0:
         sharpness += 0.18
-        unsharp_percent += 18.0
+        unsharp_percent += 16.0
+        contrast += 0.03
+    elif edge_mean < 10.0:
+        sharpness += 0.10
+        unsharp_percent += 10.0
 
     return {
-        "brightness": max(0.95, min(1.22, brightness)),
+        "brightness": max(0.98, min(1.24, brightness)),
         "contrast": max(1.00, min(1.30, contrast)),
-        "color": max(1.00, min(1.10, color)),
-        "sharpness": max(1.20, min(2.10, sharpness)),
+        "color": max(1.02, min(1.14, color)),
+        "sharpness": max(1.12, min(1.72, sharpness)),
         "unsharp_radius": 2.0,
-        "unsharp_percent": max(120.0, min(220.0, unsharp_percent)),
+        "unsharp_percent": max(88.0, min(168.0, unsharp_percent)),
         "unsharp_threshold": 1.0,
     }
 
@@ -6281,9 +6585,6 @@ def _apply_public_asset_finish_postpass_pillow(*, image_path: Path, target: str)
         lifted = ImageEnhance.Contrast(lifted).enhance(min(1.10, max(1.03, profile["contrast"] * 0.96)))
         lifted = ImageEnhance.Color(lifted).enhance(min(1.08, profile["color"] * 1.02))
         image = Image.composite(lifted, image, focus_mask)
-    if target != "assets/horizons/alice.png":
-        image = image.filter(ImageFilter.DETAIL)
-
     if alpha is not None:
         image = image.convert("RGBA")
         image.putalpha(alpha)
@@ -6307,7 +6608,7 @@ def _apply_public_asset_finish_postpass_ffmpeg(*, image_path: Path, target: str)
         raise RuntimeError(f"public_asset_finish_postpass:missing_image:{image_path}")
     with tempfile.NamedTemporaryFile(suffix=image_path.suffix, delete=False) as handle:
         temp_path = Path(handle.name)
-    filtergraph = "unsharp=7:7:1.05:3:3:0.0,eq=contrast=1.10:saturation=1.05:brightness=0.02"
+    filtergraph = "unsharp=5:5:0.50:3:3:0.0,eq=contrast=1.09:saturation=1.05:brightness=0.02"
     try:
         subprocess.run(
             [
@@ -6356,8 +6657,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.03)
         image = ImageEnhance.Contrast(image).enhance(1.06)
         image = ImageEnhance.Color(image).enhance(1.04)
-        image = ImageEnhance.Sharpness(image).enhance(1.16)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=118, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.08)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=78, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.05)
@@ -6365,40 +6666,40 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
             lifted = ImageEnhance.Color(lifted).enhance(1.02)
             image = Image.composite(lifted, image, focus_mask)
     elif target == "assets/horizons/karma-forge.png":
-        image = ImageEnhance.Brightness(image).enhance(1.05)
-        image = ImageEnhance.Contrast(image).enhance(1.10)
-        image = ImageEnhance.Color(image).enhance(1.09)
-        image = ImageEnhance.Sharpness(image).enhance(1.20)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=126, threshold=2))
+        image = ImageEnhance.Brightness(image).enhance(1.04)
+        image = ImageEnhance.Contrast(image).enhance(1.07)
+        image = ImageEnhance.Color(image).enhance(1.07)
+        image = ImageEnhance.Sharpness(image).enhance(1.06)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=64, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
-            lifted = ImageEnhance.Brightness(image).enhance(1.07)
-            lifted = ImageEnhance.Contrast(lifted).enhance(1.04)
-            lifted = ImageEnhance.Color(lifted).enhance(1.03)
+            lifted = ImageEnhance.Brightness(image).enhance(1.05)
+            lifted = ImageEnhance.Contrast(lifted).enhance(1.03)
+            lifted = ImageEnhance.Color(lifted).enhance(1.02)
             image = Image.composite(lifted, image, focus_mask)
     elif target == "assets/pages/horizons-index.png":
-        image = ImageEnhance.Brightness(image).enhance(1.05)
+        image = ImageEnhance.Brightness(image).enhance(1.04)
+        image = ImageEnhance.Contrast(image).enhance(1.08)
+        image = ImageEnhance.Color(image).enhance(1.09)
+        image = ImageEnhance.Sharpness(image).enhance(1.06)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=66, threshold=3))
+        focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
+        if focus_mask is not None:
+            lifted = ImageEnhance.Brightness(image).enhance(1.06)
+            lifted = ImageEnhance.Contrast(lifted).enhance(1.03)
+            lifted = ImageEnhance.Color(lifted).enhance(1.03)
+            image = Image.composite(lifted, image, focus_mask)
+    elif target == "assets/horizons/alice.png":
+        image = ImageEnhance.Brightness(image).enhance(1.06)
         image = ImageEnhance.Contrast(image).enhance(1.10)
-        image = ImageEnhance.Color(image).enhance(1.11)
-        image = ImageEnhance.Sharpness(image).enhance(1.16)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=124, threshold=2))
+        image = ImageEnhance.Color(image).enhance(1.10)
+        image = ImageEnhance.Sharpness(image).enhance(1.06)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=68, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.08)
             lifted = ImageEnhance.Contrast(lifted).enhance(1.04)
-            lifted = ImageEnhance.Color(lifted).enhance(1.04)
-            image = Image.composite(lifted, image, focus_mask)
-    elif target == "assets/horizons/alice.png":
-        image = ImageEnhance.Brightness(image).enhance(1.076)
-        image = ImageEnhance.Contrast(image).enhance(1.137)
-        image = ImageEnhance.Color(image).enhance(1.117)
-        image = ImageEnhance.Sharpness(image).enhance(1.198)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=136, threshold=2))
-        focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
-        if focus_mask is not None:
-            lifted = ImageEnhance.Brightness(image).enhance(1.097)
-            lifted = ImageEnhance.Contrast(lifted).enhance(1.049)
-            lifted = ImageEnhance.Color(lifted).enhance(1.033)
+            lifted = ImageEnhance.Color(lifted).enhance(1.03)
             image = Image.composite(lifted, image, focus_mask)
         image.save(image_path)
         return "flagship_finish_postpass:applied_pillow_alice_custom"
@@ -6406,8 +6707,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.07)
         image = ImageEnhance.Contrast(image).enhance(1.11)
         image = ImageEnhance.Color(image).enhance(1.09)
-        image = ImageEnhance.Sharpness(image).enhance(1.20)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=128, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.10)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=88, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.09)
@@ -6418,8 +6719,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.07)
         image = ImageEnhance.Contrast(image).enhance(1.12)
         image = ImageEnhance.Color(image).enhance(1.10)
-        image = ImageEnhance.Sharpness(image).enhance(1.22)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=130, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.10)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=90, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.09)
@@ -6430,8 +6731,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.10)
         image = ImageEnhance.Contrast(image).enhance(1.13)
         image = ImageEnhance.Color(image).enhance(1.13)
-        image = ImageEnhance.Sharpness(image).enhance(1.24)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=136, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.11)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=94, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.13)
@@ -6442,8 +6743,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.06)
         image = ImageEnhance.Contrast(image).enhance(1.10)
         image = ImageEnhance.Color(image).enhance(1.04)
-        image = ImageEnhance.Sharpness(image).enhance(1.18)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=124, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.09)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=84, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.07)
@@ -6454,8 +6755,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.05)
         image = ImageEnhance.Contrast(image).enhance(1.10)
         image = ImageEnhance.Color(image).enhance(1.03)
-        image = ImageEnhance.Sharpness(image).enhance(1.18)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=126, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.09)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=84, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.06)
@@ -6466,8 +6767,8 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         image = ImageEnhance.Brightness(image).enhance(1.06)
         image = ImageEnhance.Contrast(image).enhance(1.10)
         image = ImageEnhance.Color(image).enhance(1.10)
-        image = ImageEnhance.Sharpness(image).enhance(1.18)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=124, threshold=2))
+        image = ImageEnhance.Sharpness(image).enhance(1.09)
+        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=84, threshold=3))
         focus_mask = _flagship_finish_focus_mask(target=target, size=image.size)
         if focus_mask is not None:
             lifted = ImageEnhance.Brightness(image).enhance(1.07)
@@ -6489,20 +6790,20 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
         brightness = 1.04
         contrast = 1.08
         color = 1.05
-        sharpness = 1.16
-        unsharp_percent = 120
+        sharpness = 1.08
+        unsharp_percent = 82
         if target in {"assets/horizons/jackpoint.png", "assets/horizons/table-pulse.png", "assets/parts/media-factory.png"}:
             brightness = 1.05
             contrast = 1.09
             color = 1.06
-            sharpness = 1.18
-            unsharp_percent = 124
+            sharpness = 1.09
+            unsharp_percent = 84
         elif target in {"assets/parts/mobile.png", "assets/parts/ui.png"}:
             brightness = 1.05
             contrast = 1.10
             color = 1.06
-            sharpness = 1.20
-            unsharp_percent = 128
+            sharpness = 1.10
+            unsharp_percent = 88
         image = ImageEnhance.Brightness(image).enhance(brightness)
         image = ImageEnhance.Contrast(image).enhance(contrast)
         image = ImageEnhance.Color(image).enhance(color)
@@ -6517,7 +6818,6 @@ def _apply_flagship_finish_postpass_pillow(*, image_path: Path, target: str) -> 
     else:
         return "flagship_finish_postpass:skipped"
 
-    image = image.filter(ImageFilter.DETAIL)
     if alpha is not None:
         image = image.convert("RGBA")
         image.putalpha(alpha)
@@ -6546,8 +6846,8 @@ def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> 
         "eq=contrast=1.04:saturation=1.04:brightness=0.01:gamma=1.01,"
         "vibrance=intensity=0.08,"
         "colorbalance=rs=0.012:bs=-0.01:rm=0.006:bm=-0.004,"
-        "cas=strength=0.18,"
-        "unsharp=5:5:0.58:3:3:0.0"
+        "cas=strength=0.10,"
+        "unsharp=5:5:0.38:3:3:0.0"
     )
     if target == "assets/hero/chummer6-hero.png":
         filtergraph = (
@@ -6555,8 +6855,8 @@ def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> 
             "eq=contrast=1.08:saturation=1.12:brightness=0.022:gamma=1.028,"
             "vibrance=intensity=0.18,"
             "colorbalance=rs=0.018:bs=-0.016:rm=0.010:bm=-0.008,"
-            "cas=strength=0.24,"
-            "unsharp=5:5:0.66:3:3:0.0"
+            "cas=strength=0.12,"
+            "unsharp=5:5:0.42:3:3:0.0"
         )
     elif target == "assets/horizons/karma-forge.png":
         filtergraph = (
@@ -6564,8 +6864,8 @@ def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> 
             "eq=contrast=1.10:saturation=1.09:brightness=0.020:gamma=1.020,"
             "vibrance=intensity=0.14,"
             "colorbalance=rs=0.018:bs=-0.014:rm=0.010:bm=-0.006,"
-            "cas=strength=0.24,"
-            "unsharp=5:5:0.70:3:3:0.0"
+            "cas=strength=0.12,"
+            "unsharp=5:5:0.44:3:3:0.0"
         )
     elif target == "assets/pages/horizons-index.png":
         filtergraph = (
@@ -7231,9 +7531,13 @@ def apply_public_asset_finish_postpass(*, image_path: Path, spec: dict[str, obje
 
 def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, object], width: int, height: int) -> str:
     target = str(spec.get("target") or "").strip()
-    if target == "assets/horizons/alice.png":
-        return "first_contact_overlay:skipped_alice"
-    layout = _first_contact_overlay_layout(target=target, width=width, height=height)
+    layout = _first_contact_overlay_layout(
+        target=target,
+        width=width,
+        height=height,
+        image_path=image_path,
+        spec=spec,
+    )
     if not any(layout.get(key) for key in ("fills", "boxes", "lines", "arcs", "chips")):
         return "first_contact_overlay:skipped"
     if not review_overlay_enabled(spec=spec, image_path=image_path):
@@ -7244,6 +7548,7 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
             target=target,
             width=width,
             height=height,
+            layout=layout,
         )
     if not image_path.exists():
         raise RuntimeError(f"first_contact_overlay:missing_image:{image_path}")
@@ -7251,7 +7556,13 @@ def apply_first_contact_overlay_postpass(*, image_path: Path, spec: dict[str, ob
     with Image.open(image_path).convert("RGBA") as base:
         overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-        layout = _first_contact_overlay_layout(target=target, width=base.size[0], height=base.size[1])
+        layout = _first_contact_overlay_layout(
+            target=target,
+            width=base.size[0],
+            height=base.size[1],
+            image_path=image_path,
+            spec=spec,
+        )
         for fill in layout.get("fills", []):
             x = int(fill["x"])
             y = int(fill["y"])
@@ -8116,7 +8427,7 @@ def apply_text_suppression_repair_postpass(*, image_path: Path, spec: dict[str, 
     if not target:
         return "text_suppression_repair_postpass:skipped"
     if target == "assets/horizons/karma-forge.png":
-        return _apply_forge_overlay_sanitization_postpass_pillow(image_path=image_path)
+        return "text_suppression_repair_postpass:skipped_karma_forge"
     if target == "assets/horizons/alice.png":
         return "text_suppression_repair_postpass:skipped_alice"
     if target not in {
@@ -8369,10 +8680,10 @@ def ensure_troll_clause(*, prompt: str, spec: dict[str, object]) -> str:
     if "not a static title card" not in lowered and "cover-grade framing" not in lowered:
         additions.append(scene_integrity_instruction_set(contract, target=target))
     if target == "assets/hero/chummer6-hero.png" and not any(
-        token in lowered for token in ("troll patient", "troll runner", "hairy troll", "troll on a hacked surgical recliner")
+        token in lowered for token in ("troll runner", "ork runner", "tusked runner", "chrome-heavy runner")
     ):
         additions.append(
-            "The patient must read clearly as an ugly hairy troll runner with tusks, heavy body mass, rough scarred skin, dermal texture, and individually visible wet or matted hair strands."
+            "The runner must read clearly as a tusked or chrome-heavy metahuman with field-worn gear, rough skin, and visible prep pressure."
         )
     if (
         media_row_requests_easter_egg(target=target, row=row)
@@ -8430,6 +8741,7 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
     contract = target_visual_contract(target)
     if not contract:
         return []
+    normalized = str(target or "").replace("\\", "/").strip()
     density = str(contract.get("density_target") or "").strip().lower()
     overlay_density = str(contract.get("overlay_density") or "").strip().lower()
     negative_space_cap = str(contract.get("negative_space_cap") or "").strip().lower()
@@ -8624,9 +8936,17 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
         joined = "; ".join(entry for entry in troll_markers if entry)
         if joined:
             parts.append(
-                f"The troll patient must read clearly through: {joined}."
+                (
+                    f"The metahuman runner must read clearly through: {joined}."
+                    if normalized == "assets/hero/chummer6-hero.png"
+                    else f"The troll patient must read clearly through: {joined}."
+                )
                 if not compact
-                else f"troll markers {joined}"
+                else (
+                    f"runner markers {joined}"
+                    if normalized == "assets/hero/chummer6-hero.png"
+                    else f"troll markers {joined}"
+                )
             )
     if render_detail:
         joined = "; ".join(entry for entry in render_detail if entry)
@@ -8821,8 +9141,8 @@ def build_safe_pollinations_prompt(*, prompt: str, spec: dict[str, object]) -> s
     hard_block = ""
     if target == "assets/hero/chummer6-hero.png":
         hard_block = (
-            "standing prep wall or clinic intake rail, no crate desk, no tabletop, no seated alley brood, "
-            "no dominant face crop, no readable storefront signs"
+            "standing prep rail or service rack in a rain-dark safehouse bay, no surgery, no crate desk, no tabletop, "
+            "no seated alley brood, no dominant face crop, no readable storefront signs"
         )
     elif target in {"assets/pages/horizons-index.png", "assets/pages/parts-index.png"}:
         hard_block = (
@@ -8912,13 +9232,13 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
         return (
-            "Ultra-wide 16:9 illustrated flagship Shadowrun streetdoc poster scene inside a lived-in runner clinic carved out of a barrens auto garage. "
-            "Set the camera several meters back and slightly above eye level. An ork streetdoc with visible chrome works on a huge ugly hairy troll patient with tusks and a treated cyberlimb in a hacked repair recliner while a second teammate crowds the far edge with tools or hard light. "
-            "The full treatment bay must stay visible at once: open garage door with rain outside, parked wreck, ceiling fixtures, tool wall, shelf of old chrome limbs, cloudy organ jar, off-brand med bags, side bench clutter, hanging cables, sputtering caf machine, wet concrete, and improvised work lights. "
-            "The room must tell as much of the story as the people, with the bay, shelves, floor, and doorway occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. "
-            "Add discarded cyberlimbs, broken tool-jack scaffolding, rat tracks and a rat-trap corner, one hidden Renraku or Ares med shell with a blurred logo, and a weak astral shamanic totem portrait near the wall. "
-            "Make the after-shift cost legible with stale recovery bottle residue, spent stim debris, used wraps, and recovery smears while keeping the palette dirty-bright and vividly punctured by cyan medscan spill, hot amber task light, and magenta or acid-green neon or astral bleed instead of grayscale olive murk. "
-            "More surroundings than portrait anatomy, more clutter than clean surfaces, no human patient, no readable screens, no ECG monitor, no hospital showroom, and no blown-out doorway turning into a blank white panel."
+            "Ultra-wide 16:9 illustrated flagship Shadowrun runner-prep poster scene inside a lived-in safehouse garage staging bay. "
+            "Set the camera several meters back and slightly above eye level. A visibly augmented metahuman quartermaster or fixer works a standing prep rail while a tusked troll or ork runner locks in gear and cyberware fit, with a third teammate crowding the opposite edge with route help, med patches, or hard practical light. "
+            "The full staging bay must stay visible at once: open garage door with rain outside, parked wreck or bike, ceiling fixtures, tool wall, armor rack, weapon cases, cable nests, med kit, ammo trays, patched coats, fake-ID sticks, hanging straps, comm gear, wet concrete, and improvised work lights. "
+            "The room must tell as much of the story as the people, with the bay, shelves, floor, doorway, and prep hardware occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. "
+            "Add lived Sixth World clutter: six-sided dice, med-gel, a commlink cradle, route scribbles, spent stim debris, a devil-rat trap, one hidden blurred megacorp shell, and a faint magical focus or totem clue near the wall. "
+            "Keep the palette dirty-bright and vividly punctured by cyan tactical spill, hot amber task light, and magenta or acid-green neon or astral bleed instead of grayscale olive murk. "
+            "More surroundings than portrait anatomy, more prep clutter than clean surfaces, no surgery, no hospital showroom, no desk tableau, no readable screens, and no blown-out doorway turning into a blank white panel."
         )
     if normalized == "assets/pages/horizons-index.png":
         return (
@@ -8927,8 +9247,8 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
             "The environment must dominate over any one figure, sign, or object, but at least three small metahuman life beats should survive inside it: a limping ork or troll courier with patched cyberleg heading for a streetdoc awning, a fixer or buyer trading a dossier sleeve near a packet-choked stair, and a cable-buried rigger or shaman lookout working a signal-sick underpass under pressure. "
             "Seed clear Sixth World place pressure: Chicago Bug City tower scars in the distance, Arcology shadow blocks, Redmond Barrens tilework, Underground transfer cues, one totemic residue or critter-photo clue buried in the lane clutter, and at least one obvious body-worn cyberware cue outside the foreground. "
             "Use vivid saturated lane color, dirty daylight, and sodium-cyan-magenta contrasts with rain and grime rather than a single dark-key look. "
-            "Visible route AR should already cling to ramps, barriers, tunnel mouths, tram wires, puddles, and lane edges through branch markers, threat drift, biomon pings, and sparse smart-glasses chips. "
-            "No centered hero figure, no trio of back-facing silhouettes marching toward center, no kiosk centerpiece, no billboard, no single corridor vanishing point, no retail street canyon, no lane-name signage, no vertical shop-word sign like HOTEL or CLINIC, and no lettered sign forest replacing the district."
+            "Visible route guidance should already cling to ramps, barriers, tunnel mouths, tram wires, puddles, and lane edges through branch markers, threat drift, biomon pings, sparse smart-glasses chips, and one or two next-step suggestions a runner would actually use. "
+            "Keep the finish in painted rulebook-cover realism instead of etched linework or posterized contour maps. No centered hero figure, no trio of back-facing silhouettes marching toward center, no kiosk centerpiece, no billboard, no single corridor vanishing point, no retail street canyon, no lane-name signage, no vertical shop-word sign like HOTEL or CLINIC, and no lettered sign forest replacing the district."
         )
     if normalized == "assets/horizons/karma-forge.png":
         return (
@@ -8936,8 +9256,8 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
             "Set the camera several meters back and slightly off-axis. A tusked ork rulesmith with obvious chrome leans into the left approval rail while a severe elf reviewer or shamanic witness works the right rollback station, both clearly readable but still secondary to the machinery. "
             "The whole lab must read as an industrial proving bay: approval rail, rollback rig, consequence chamber, assay cage, crucible bed, occult sample lockers, cassette bins, gantry hooks, seal bands, floor cables, cyberlimb prototypes, smoke, sparks, and heat-scored machinery around the operators. "
             "Seed hard Sixth World crumbs like a cropped Ares or Saeder-Krupp shell fragment, reagent canisters, talis shards, scorched proof tabs, and one ugly clinic-wrap bundle near the floor. "
-            "AR approval rails, rollback vectors, witness locks, and compatibility halos should already cling to clamps, cassettes, chamber glass, and the test hardware. "
-            "The apparatus and room must occupy well over half the frame and clearly outweigh the people. No handheld tablet, no paperwork, no seated table, no checkmark panel, no perfect centered shrine symmetry, and no generic workshop conversation."
+            "Approval rails, rollback vectors, witness locks, compatibility halos, and terse next-action cues should already cling to clamps, cassettes, chamber glass, hanging prototypes, and the test hardware as if a ruthless smart-glasses assistant is surfacing seal drift, safe revert, blast radius, witness pressure, and clamp timing. "
+            "Paint it like expensive Shadowrun rulebook cover art with natural material depth and crisp silhouettes rather than etched contour-map rendering or cheap HUD wallpaper. The apparatus and room must occupy well over half the frame and clearly outweigh the people. No handheld tablet, no paperwork, no seated table, no checkmark panel, no perfect centered shrine symmetry, and no generic workshop conversation."
         )
     if normalized == "assets/horizons/alice.png":
         return (
@@ -8945,7 +9265,7 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
             "Set the camera several meters back and off-axis across a deterministic test lane where rig hardware dominates the room. "
             "A battered ork crash volunteer or scorched metahuman test rig with a failing cyberlimb is strapped into a restraint cradle while a scarred technician and skeptical witness work the lane under pressure. "
             "The apparatus must tell most of the story: harness rails, restraint arms, floor tracks, suspended clamps, probe ladders, hazard chips, calibration hoops, ceiling cabling, sealed test pods, sensor bars, med-wrap debris, and drain-grime should occupy well over half the frame. "
-            "Visible hazard AR should already cling to the rig, glass shields, cyberlimb, and floor lanes as short chips and brackets, not as a wall display. Seed Sixth World clues like a cropped DocWagon trauma wrap, Renraku sensor shell, devil-rat trap, and stale stim debris. "
+            "Visible hazard guidance should already cling to the rig, glass shields, cyberlimb, and floor lanes as short chips and brackets about load spike, torque risk, ward bleed, and safest intervention, not as a wall display. Keep the finish in painted rulebook-cover realism instead of a dim office still, blurry photo, or etched contour pass. Seed Sixth World clues like a cropped DocWagon trauma wrap, Renraku sensor shell, devil-rat trap, and stale stim debris. "
             "No giant wall screen, no booth window, no framed display panel, no verdict sign, and no centered gallery mannequin posed like a product shot."
         )
     if normalized == "assets/horizons/nexus-pan.png":
@@ -9026,24 +9346,24 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
         return clip_prompt_text(
             " ".join(
                 [
-                    "Illustrated cover-grade cyberpunk-fantasy streetdoc cover art.",
+                    "Illustrated cover-grade cyberpunk-fantasy runner-prep cover art.",
                     "Ultra-wide establishing shot, environment first, camera several meters back and slightly above eye level, the room occupies well over half the frame, and figures occupy less than one quarter of frame.",
                     lived_story_clause(normalized),
                     chummer_dev_clause(normalized),
-                    "Make the frame read like a short Shadowrun story with three beats visible at once: the runner arrived broken, the streetdoc is making the hard call now, and the next ugly move back into the sprawl is already hanging over the room.",
-                    "In-game streetdoc clinic inside a barrens auto garage, unmistakably Shadowrun-adjacent, with a full treatment bay instead of a bedside crop.",
-                    "An ork or dwarf streetdoc with obvious chrome operates on a huge ugly hairy troll patient with tusks, scarred skin, matted hair, and a treated cyberlimb in a hacked repair recliner while a second teammate assists from the far edge.",
-                    "Fill the room wall to wall: open garage door with rain spill, wet reflective floor, doorway, shelves, tool wall, side bench, old chrome limbs, cloudy organ jar, off-brand med bags, dangling cables, sputtering caf machine, storage cages, tarps, injector trays, and improvised work lights.",
-                    "Anchor the scene with hard Shadowrun crumbs: one clipped Ares or Renraku med shell with blurred logos, a blood-soaked treatment wrap, a Blood Orchid leaf plate, stacked cyberlimb housings, devil rat bait tin, and a totemic ward portrait as a faint astral residue on wall paint.",
-                    "Keep the social cost in frame with rat tracks, dropped inhaler or cough syrup bottle, old gauze, and visible bruising.",
-                    "Force a dirty-bright color triad in the rendered scene itself: cyan medscan spill, hot amber work-light bloom, and vivid magenta or acid-green neon or astral bleed must all register on props, walls, chrome, or wet floor reflections; do not let the palette collapse into olive mud or monochrome shadow.",
-                    "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and med clutter; avoid blank dark wall or empty negative space.",
+                    "Make the frame read like a short Shadowrun story with three beats visible at once: the crew is staging now, the hard readiness call is being made now, and the next ugly move back into the sprawl is already hanging over the room.",
+                    "In-game runner safehouse staging bay inside a barrens auto garage, unmistakably Shadowrun-adjacent, with a full prep lane instead of a bedside crop.",
+                    "A visibly augmented metahuman quartermaster or fixer with obvious chrome checks a tusked troll or ork runner's field gear and cyberware readiness at a standing prep rail while a second teammate assists from the far edge with route help, med patches, or hard practical light.",
+                    "Fill the room wall to wall: open garage door with rain spill, wet reflective floor, doorway, shelves, tool wall, armor rack, weapon cases, patched coats, fake-ID sticks, commlink cradle, ammo trays, dangling cables, sputtering caf machine, storage cages, tarps, and improvised work lights.",
+                    "Anchor the scene with hard Shadowrun crumbs: one clipped Ares or Renraku shell with blurred logos, a Blood Orchid leaf plate, stacked cyberlimb housings, devil rat bait tin, a magical focus or totemic ward residue on wall paint, and route scribbles tucked into the clutter.",
+                    "Keep the social cost in frame with rat tracks, spent stim patch, old gauze, chipped armor, and visible fatigue.",
+                    "Force a dirty-bright color triad in the rendered scene itself: cyan smart-glasses spill, hot amber work-light bloom, and vivid magenta or acid-green neon or astral bleed must all register on props, walls, chrome, or wet floor reflections; do not let the palette collapse into olive mud or monochrome shadow.",
+                    "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and prep clutter; avoid blank dark wall or empty negative space.",
                     "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy, and cast roles must read clearly at a glance.",
                     "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, saturated civic color highlights, and bold silhouette grouping.",
-                    "AR posture is medscan diagnostic; readable rails, calibration callouts, wound chips, and subsystem status should already exist in-scene and stay anchored to anatomy, tool, or rail. Make it feel like a smart triage assistant already answering the next questions about limb viability, infection, blood loss, dosage risk, and extraction readiness. Verified post-composite may sharpen them, not invent them.",
-                    "Negative constraints: medium shot, bedside crop, close portrait, clean clinic, hospital showroom, medbay monitor wall, human patient, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces, back-view idle pair, or a blown-out doorway panel.",
-                    "Do not paint signage, title text, or public-facing UI walls into the scene. No pseudo monitors and no dashboard-style medical screens.",
-                    "Short medscan chips are allowed when welded to anatomy, tools, or rail geometry. No watermark. 16:9.",
+                    "AR posture is smartlink tactical; readable rails, sync callouts, route chips, and readiness status should already exist in-scene and stay anchored to visor lines, cyberware seams, gear cases, wrists, doors, or prep rail geometry. Make it feel like a smart assistant already answering the next questions about fake SIN confidence, comm health, gear handshake, route viability, injury risk, and safest next action. Verified post-composite may sharpen them, not invent them.",
+                    "Negative constraints: medium shot, bedside crop, close portrait, surgery, gore, clean clinic, hospital showroom, medbay monitor wall, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces, back-view idle pair, or a blown-out doorway panel.",
+                    "Do not paint signage, title text, or public-facing UI walls into the scene. No pseudo monitors and no dashboard-style screens.",
+                    "Short tactical chips are allowed when welded to anatomy, tools, rail geometry, or route lines. No watermark. 16:9.",
                 ]
             ),
             limit=3200,
@@ -9061,8 +9381,8 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "Keep the frame packed with route clutter, partial crowds, vehicle traces, tram wires, barrier posts, maintenance gantries, wet reflections, cable halos, depot edges, transit hardware, and district pressure.",
                     "Seed the location with unmistakable lore pressure: Chicago Bug City tower scars on the horizon, Ork Underground tilework edges, Arcology silhouette breaks, Redmond Barrens transit remnants, and at least one critter photo, Paper Lotus charm, or totem residue hiding in the scene. Use bright, saturated lane color accents (magenta, cyan, acid green, amber) with grime rather than monochrome gloom.",
                     "The frame must read as a place before it reads as a person, with no centered hero, no trio of back-facing silhouettes marching toward center, no kiosk centerpiece, no glowing rectangle, no billboard, no retail shopfront canyon, no vertical hotel-like word sign, and no single corridor vanishing point.",
-                    "Ambient smart-glasses AR should already be visible in-scene through anchored lane arcs, threat drift, branch markers, biomon pings, and sparse short chips welded to ramps, barriers, crowd lanes, puddles, or tunnel mouths; make it feel like a smart route assistant already surfacing the next branch, threat lane, cover option, or escape line a runner would want before asking. No diagnostic HUD slabs, floating cards, or giant center boxes.",
-                    "Poster-grade realism with sharp street texture, brighter lane highlights, stronger rain reflections, bolder branch color separation, harder silhouette grouping, and richer city-depth layering.",
+                    "Ambient smart-glasses guidance should already be visible in-scene through anchored lane arcs, threat drift, branch markers, biomon pings, and sparse short chips welded to ramps, barriers, crowd lanes, puddles, or tunnel mouths; make it feel like a smart route assistant already surfacing the next branch, threat lane, cover option, escape line, or better route choice a runner would want before asking. No diagnostic HUD slabs, floating cards, or giant center boxes.",
+                    "Poster-grade realism with sharp street texture, brighter lane highlights, stronger rain reflections, bolder branch color separation, richer city-depth layering, and painted rulebook-cover finish instead of etched contour maps.",
                     "Do not paint ad copy, title text, or public-facing UI walls into the scene. Avoid readable signs, menu boards, pseudo map walls, shop windows, storefront logos, vertical kana-like sign pillars, or lane names such as clinic, relay, tactical, archive, or approval rendered inside the art.",
                     "Sparse route chips are allowed when welded to real geometry. No watermark. 16:9.",
                 ]
@@ -9084,9 +9404,9 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "The middle and upper frame must be owned by machinery, racks, and test architecture, not by faces, handheld screens, or a desk-like workstation crop.",
                     "Keep the camera slightly off-axis so the forge reads like an industrial proving bay under pressure instead of a perfect centered altar shot.",
                     "Keep any base-scene review instrumentation abstract and nonverbal: no right-margin callout stacks, no corner label tabs, no boxed overlay words, no provenance tags, and no readable approval or rollback language baked into the art.",
-                    "Poster-grade realism with harder edges, denser industrial clutter, brighter hot highlights, harder sodium-and-cyan lighting, clearer machinery silhouettes, and more apparatus than faces.",
-                    "AR posture is forge-review diagnostic; approval, provenance, rollback, witness, and compatibility chips should already be visible in-scene and anchored to apparatus, rails, packet flow, hanging prototypes, or machine geometry. Make them feel like a smart review assistant surfacing the next compatibility break, witness objection, rollback path, or provenance gap before the operators ask. Verified post-composite may sharpen them, not invent them.",
-                    "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, empty dark ceiling, soft promotional still, painterly blur.",
+                    "Poster-grade realism with harder edges, denser industrial clutter, brighter hot highlights, harder sodium-and-cyan lighting, clearer machinery silhouettes, more apparatus than faces, and painted rulebook-cover finish instead of etched contour maps.",
+                    "Forge-review guidance should already be visible in-scene and anchored to apparatus, rails, packet flow, hanging prototypes, or machine geometry. Make it feel like a smart review assistant surfacing seal drift, safe revert, witness pressure, countermeasure risk, blast radius, or provenance gap before the operators ask. Verified post-composite may sharpen them, not invent them.",
+                    "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, empty dark ceiling, soft promotional still, painterly blur, etched contour-map rendering, or posterized linework.",
                     "Do not paint title text, generic logos, signage, or public-facing UI walls into the scene. No big approved screens, no pseudo dashboard walls, and no header wordmarks.",
                     "Short approval chips are allowed when anchored to rails or apparatus. No watermark. 16:9.",
                 ]
@@ -9103,10 +9423,10 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     chummer_dev_clause(normalized),
                     "Shadowrun-adjacent sim bench and crash chamber used to compare risky build outcomes, with a battered ork crash volunteer or scorched metahuman test rig strapped into the lane, one active technician off to the side, and a second witness or medic nearby so the scene reads like one bad test night, not a clean mannequin display.",
                     "Pack the room with harness rails, restraint arms, floor tracks, suspended clamps, side safety frame, probe ladders, calibration hoops, ceiling cabling, sealed test pods, sensor bars, hazard chips, diagnostic cart, wall conduit, floor striping, med-wrap debris, and drain grime so every third of the frame carries rig hardware or consequence.",
-                    "Branching hazard arcs, cyberlimb stress halos, mannequin or patient brackets, test-lane markers, outcome ghost traces, and sparse readable hazard chips should cling to glass shields, the rig, rails, cyberware, or floor lane, never as a giant wall screen, giant glowing display rectangle, or centered verdict panel.",
+                    "Branching hazard arcs, cyberlimb stress halos, mannequin or patient brackets, test-lane markers, outcome ghost traces, and sparse readable hazard chips should cling to glass shields, the rig, rails, cyberware, or floor lane as if a smart-lens assistant is warning about load spike, torque risk, ward bleed, and safest intervention, never as a giant wall screen, giant glowing display rectangle, or centered verdict panel.",
                     "Seed the bay with Sixth World residue: a cropped DocWagon wrap, Renraku sensor shell, devil-rat trap, stale stim litter, and one ugly maintenance shirt reading chummer-dev somewhere minor in frame if it fits naturally.",
                     "Keep the camera off-axis so this reads like a dangerous sim bay under analysis, not a centered altar, gallery mannequin display, conference room, or social huddle.",
-                    "Poster-grade realism with sharper rig silhouettes, denser lab clutter, stronger cold-cyan and amber highlights, clearer operator relationship, and harder material finish.",
+                    "Poster-grade realism with sharper rig silhouettes, denser lab clutter, stronger cold-cyan and amber highlights, clearer operator relationship, harder material finish, and painted rulebook-cover finish instead of dim office stills or etched contour maps.",
                     "Negative constraints: no desk in the foreground, no wall monitor, no booth window, no glass cube, no framed display panel, no FAIL sign, no result word, no lightbox pillars, no poster placard, no clean empty box, and no readable screens.",
                     "Do not paint signage, verdict placards, or public-facing UI walls into the scene.",
                     "Sparse rig-anchored hazard chips are allowed. No watermark. 16:9.",
@@ -9436,7 +9756,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
     if target == "assets/hero/chummer6-hero.png":
-        hard_block += " The hero must show at least two people: a metahuman streetdoc or support figure beside a wounded runner in a prep chair or intake rail. The environment must read as an improvised garage clinic, patch-up bay, or getaway-van triage space with hacked med gear, tool-chest grime, work lamps, and runner clutter. Show the full bay and its surroundings, including floor, shelves, and doorway, not a tight bedside crop. No crate desk, bench, tabletop, seated brood, dominant face crop, hallway symmetry, blown-out doorway panel, or pristine hospital energy."
+        hard_block += " The hero must show at least two people: a visibly augmented metahuman quartermaster, fixer, or support figure beside a tusked runner at a standing prep rail or service rack. The environment must read as a rain-dark safehouse bay with tool-chest grime, armor or gear racks, open cases, work lamps, wet floor, and runner clutter. Show the full bay and its surroundings, including floor, shelves, and doorway, not a tight bedside crop. No surgery, no hospital energy, no crate desk, bench, tabletop, seated brood, dominant face crop, hallway symmetry, or blown-out doorway panel."
     elif target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
     elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
@@ -9779,21 +10099,21 @@ def ooda_variant_prompt(
     if normalized == "assets/hero/chummer6-hero.png" and (correction_tags or variant >= 1):
         _add_correction(
             "hero_cast_clarity",
-            "Hero-specific correction: the troll patient must read clearly with visible tusks, heavy hairy body mass, rough scarred skin, treated chrome, and a distinct assistant or teammate separated from the streetdoc."
+            "Hero-specific correction: the metahuman runner must read clearly with visible tusks or obvious chrome, patched field gear, and a distinct quartermaster or teammate separated from them."
         )
         _add_correction(
             "hero_room_story",
-            "Hero-specific correction: keep more visible clinic geography, chrome clutter, side bench, open bay door, tool wall, wet floor, hanging lights, and improvised med hardware in frame."
+            "Hero-specific correction: keep more visible safehouse geometry, gear clutter, open bay door, prep rail, tool wall, wet floor, hanging lights, and route-readiness hardware in frame."
         )
         if "text_suppression" in correction_tags:
             _add_correction(
                 "hero_no_label_props",
-                "Hero-specific correction: no clipboard text, no whiteboard, no posted note, no labeled med bag, no instrument panel with letters, and no wall placard. Use blank forms, symbol stickers, and cropped paper edges only."
+                "Hero-specific correction: no clipboard text, no whiteboard, no posted note, no labeled med bag, no instrument panel with letters, and no wall placard. Use blank gear tags, symbol stickers, and cropped paper edges only."
             )
         if variant >= 2:
             _add_correction(
                 "hero_reframe",
-                "Hero-specific correction: use a wider diagonal garage-clinic establishing angle, control any blown-out doorway glare, and keep the left half busy with shelving, doorway, and floor reflections instead of a blank dark wall."
+                "Hero-specific correction: use a wider diagonal safehouse establishing angle, control any blown-out doorway glare, and keep the left half busy with shelving, doorway, prep hardware, and floor reflections instead of a blank dark wall."
             )
     elif normalized == "assets/horizons/karma-forge.png" and (correction_tags or variant >= 1):
         _add_correction(
@@ -10587,23 +10907,23 @@ def asset_specs() -> list[dict[str, object]]:
 
     target_scene_policies: dict[str, dict[str, object]] = {
         "assets/hero/chummer6-hero.png": {
-            "required": "clinic_intake",
+            "required": "service_rack",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
             "flash_level": "bold",
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious ork or other metahuman streetdoc anatomy, an ugly hairy troll patient with readable tusks and dermal texture, wounded-runner trust pressure, hacked med gear, magic-tech coexistence, and strong foreground-midground-background layering. Pull the camera far enough back that the full treatment bay, doorway, floor, shelves, machinery, and clutter are obvious at a glance. Push harder on poster energy with stronger orange-cyan contrast, vivid magenta or acid-green accent spill, harsher rim light, wetter reflections, sharper prop detail, and a real barrens patch-up feel. The scene should be harsh in content but dirty-bright in color, never grayscale murk. This is an improvised streetdoc garage clinic or getaway-van triage lane with at least two active people in frame, not alley-brooding at a crate, not desk glamour, not a clean hospital exam room, not a lonely human doctor in a tidy white coat, and not a monitor-heavy medbay with framed diagnostic screens.",
-            "environment": "an improvised streetdoc garage clinic carved into a rain-soaked barrens auto bay, with a hacked surgical recliner made from a mechanic chair, tool chests, lift-bay residue, hanging cables, med-gel, injector trays, cyberlimb parts, an old chrome limb on a shelf, a cloudy organ jar, off-brand med bags, ammo trays, six-sided dice, a magical focus, tarp dividers, extension cords, rust, oil stains, wet concrete, a sputtering caf machine, a side bench of improvised tools, an open bay door, and hard fluorescent strips fighting with amber work lamps across the room",
-            "subject": "an obvious ork or other metahuman streetdoc with visible chrome on arm, neck, or temple actively stabilizing an ugly hairy troll runner with visible chrome on the treated limb while a teammate crowds the opposite side with tools or hard practical light",
-            "action": "the streetdoc is physically calibrating cyberware fit, checking recovery traces, or stabilizing post-run strain while the troll runner braces in the chair with visible tusks, rough scarred skin, matted hair, and chrome under work light, and the support figure reaches into frame with tool handoff, physical prep traces, and proof anchors spread through the improvised garage clinic",
-            "metaphor": "trust becoming visible through physical prep traces",
-            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-life scene in an improvised streetdoc garage clinic inside a rain-soaked barrens auto bay. Set the camera several meters back so the room tells at least half the story: open bay door, wet floor, shelves, tool walls, a side bench, an old chrome limb on a shelf, a cloudy organ jar, off-brand med bags, cable bundles, tarp dividers, a sputtering caf machine, hanging work lamps, and deep bay hardware must stay visible around the figures. An ork streetdoc with visible tusks and chrome is actively stabilizing and calibrating an ugly hairy troll runner on a hacked surgical recliner built from an old mechanic chair while one assistant or teammate crowds the opposite edge with tools or hard practical light. The troll patient must read clearly through heavy body mass, coarse visible hair, wet or matted hair clumping, rough scarred skin, dermal texture, readable tusks, and visible chrome on the treated limb. Layer physical props everywhere: tool chest, hacked med gear, med-gel, cyberarm parts, ammo tray, six-sided dice, commlink, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, tarp divider, rust, oil stains, wet concrete, and three vivid light families inside the scene itself: electric-cyan medscan spill, hot amber work light, and saturated magenta or acid-green neon or astral bleed reflecting off chrome and puddles. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun streetdoc culture, runner-life recovery pressure, character-build trust, and cyberware calibration instead of generic sci-fi medicine. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and no murky monochrome shadow wash. Show at least two active people clearly in frame with visible hands doing work and more room, floor, doorway, and hardware than portrait anatomy. No human patient, no clean-shaved patient, no back-facing idle pair, no hallway symmetry, no clean van interior with no garage cues, no clean hospital room, no pristine dental-clinic lighting, no lonely human doctor in a white coat, no desk, no bench, no crate, no lone gadget hero prop, no framed monitors, no number readouts, no ECG display, and no medical-screen centerpiece.",
-            "framing": "ultra-wide establishing garage-clinic triage shot with strong diagonal composition, the reclined runner crossing the lower-middle frame, the ork streetdoc leaning in from one side, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, shelf props, tool storage, visible floor and doorway, and deep background bay hardware visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
-            "avoid": "extreme face crop, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone clean human doctor in a white coat, a human patient, a clean-shaved patient, soft watercolor blur, broad painterly smearing, chest labels, sleeve patches, badge plates, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, a clean suburban clinic, a floating ECG line, or a stabilization screen panel",
-            "overlay_hint": "medscan attribute rail anchors, cyberlimb calibration cues, wound stabilization, neural-link resync, and subsystem fit brackets",
-            "props": ["tool chest", "med-gel", "injector tray", "cyberware part", "ammo tray", "prep chair", "magical focus", "six-sided dice"],
-            "overlays": ["BOD rail", "AGI rail", "REA rail", "STR rail", "ESS state", "EDGE readout", "cyberlimb calibration", "wound stabilized"],
-            "visual_motifs": ["garage clinic grime", "streetdoc assist", "attribute rail", "triage action", "runner life", "cyberware surgery", "medscan posture"],
-            "overlay_callouts": ["BOD", "AGI", "REA", "STR", "ESS", "EDGE", "UPGRADING", "CYBERLIMB CALIBRATION", "WOUND STABILIZED", "NEURAL LINK RESYNC"],
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious metahuman presence, pre-run trust pressure, gear calibration, smart-glasses intelligence, and strong foreground-midground-background layering. One foreground body must read unmistakably as an ork or troll at banner scale, with visible tusks and heavy metahuman proportions; a baseline-human trio is failure. Pull the camera far enough back that the full staging bay, doorway, floor, racks, machinery, and clutter are obvious at a glance. Push harder on poster energy with stronger orange-cyan contrast, vivid magenta or acid-green accent spill, harsher rim light, wetter reflections, sharper prop detail, and a real safehouse prep feel. The scene should feel urgent and dirty-bright, never grayscale murk. This is a rain-dark garage safehouse or back-room staging lane with at least two active people in frame, not surgery, not desk glamour, not a clean hospital exam room, and not a monitor-heavy tech showroom. No readable words on clothing, props, signs, or back patches.",
+            "environment": "a rain-dark runner safehouse garage staging bay with an open roll-up door, tool chests, armor rack, weapon cases, hanging cables, med-gel, ammo trays, fake-ID sticks, patched coats, commlink cradles, six-sided dice, a magical focus, extension cords, rust, oil stains, wet concrete, a sputtering caf machine, and hard fluorescent strips fighting with amber work lamps across the room",
+            "subject": "a tusked ork or troll runner with visible chrome dominating the left foreground while a metahuman quartermaster or fixer checks the loadout from center-right frame",
+            "action": "the crew is locking in fake SIN validity, camera hijack options, cyberware readiness, ward risk, and route timing before rolling out",
+            "metaphor": "trust becoming visible before the run",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-prep scene in a rain-dark safehouse garage staging bay. Set the camera several meters back so the room tells at least half the story: open roll-up door, wet floor, shelves, tool walls, armor rack, weapon cases, cable bundles, patched coats, commlink cradle, ammo tray, med kit, side bench clutter, hanging work lamps, and deep bay hardware must stay visible around the figures. Put an unmistakably tusked ork or troll runner with heavy metahuman mass, scarred skin, patched street gear, and visible chrome in the left foreground at a standing prep rail or service rack. A visibly augmented metahuman quartermaster or fixer must be actively checking that runner's gear and cyberware readiness from center or right frame while one assistant or teammate crowds the opposite edge with route help, med patches, or hard practical light. Do not let a slim baseline-human figure become the apparent lead. Layer physical props everywhere: open case, patched jacket, ammo tray, commlink, med-gel, fake-ID stick, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, rust, oil stains, wet concrete, and three vivid light families inside the scene itself: electric-cyan smart-glasses spill, hot amber task light, and saturated magenta or acid-green neon or astral bleed reflecting off chrome and puddles. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun runner-life pressure, team trust, visible prep work, and gear readiness instead of generic sci-fi maintenance. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and no murky monochrome shadow wash. Show at least two active people clearly in frame with visible hands doing work and more room, floor, doorway, and hardware than portrait anatomy. No readable words, slogans, jacket patches, or back text anywhere in frame. No surgery, no gore, no clinic exam room, no clean hospital room, no desk, no bench, no crate, no lone gadget hero prop, no framed monitors, no number readouts, and no dashboard wall.",
+            "framing": "ultra-wide establishing safehouse-prep shot with strong diagonal composition, the keyed-up ork or troll runner anchored in the left foreground, the quartermaster or fixer readable in center-right, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, shelf props, tool storage, visible floor and doorway, and deep background bay hardware visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
+            "avoid": "extreme face crop, surgery, gore, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, a clean suburban clinic, a floating ECG line, a human-looking trio, a slim central baseline-human lead, readable jacket text, readable back patch slogans, or any CHUMMER DEV text",
+            "overlay_hint": "SIN validity, camera hijack odds, smartlink readiness, route window, ward bleed, and safest-next-action cues",
+            "props": ["tool chest", "armor rack", "weapon case", "ammo tray", "med kit", "commlink cradle", "fake-ID stick", "six-sided dice"],
+            "overlays": ["SIN maybe fake", "cam jack 67%", "smartlink green", "cover route 3.1s", "ward bleed low", "next: side door"],
+            "visual_motifs": ["safehouse prep", "runner crew", "gear rail", "team trust", "smart-glasses guidance", "loadout check", "wet garage grime"],
+            "overlay_callouts": ["SIN maybe fake", "cam jack 67%", "smartlink green", "cover route 3.1s", "ward bleed low", "next: side door"],
             "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
@@ -10856,8 +11176,8 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "simulation_lab",
             "banned": TABLEAU_COMPOSITIONS,
             "person_count_target": "duo_or_team",
-            "prompt_nudge": "This horizon belongs in an off-axis crash lab or deterministic sim lane with hardware everywhere, a harsh failure story in progress, and obvious cyberware consequences; never another social huddle, never a giant failure screen, and never a centered mannequin shrine.",
-            "replace_visual_prompt": "A deterministic crash lab or sim lane seen from an oblique room corner where a battered ork crash volunteer or scorched metahuman test rig with a failing cyberlimb is strapped into the lane while one scarred technician and one skeptical witness work around the apparatus under pressure. Harness rails, restraint arms, floor tracks, side safety frames, probe ladders, suspended clamps, calibration hoops, ceiling cabling, sealed test pods, sensor bars, translucent hazard chips, med-wrap debris, drain grime, and sparse readable risk markers must crowd all three thirds of the frame. The risk should be obvious through branching light, posture, rig geometry, cyberlimb stress halos, and silhouette ghosts attached to the hardware, never through a giant result word, lab screen, wall display, booth window, or report panel. Seed Sixth World residue like a cropped DocWagon wrap, Renraku sensor shell, stale stim litter, a devil-rat trap, and one minor ugly shirt or patch reading chummer-dev if it lands naturally. The room cannot read as a blank box or a stage set. No FAIL sign, no glass-wall status board, no framed display cube, and no poster-like placards.",
+            "prompt_nudge": "This horizon belongs in an off-axis crash lab or deterministic sim lane with hardware everywhere, a harsh failure story in progress, obvious cyberware consequences, and the painted urgency of a classic Shadowrun rulebook cover; never another social huddle, never a giant failure screen, never a centered mannequin shrine, and never etched contour-map rendering.",
+            "replace_visual_prompt": "A deterministic crash lab or sim lane seen from an oblique room corner where a battered ork crash volunteer or scorched metahuman test rig with a failing cyberlimb is strapped into the lane while one scarred technician and one skeptical witness work around the apparatus under pressure. Harness rails, restraint arms, floor tracks, side safety frames, probe ladders, suspended clamps, calibration hoops, ceiling cabling, sealed test pods, sensor bars, translucent hazard cues, med-wrap debris, drain grime, and runner-grade repair clutter must crowd all three thirds of the frame. The risk should be obvious through branching light, posture, rig geometry, cyberlimb stress halos, and machine-attached warning cues that feel like smart-glasses guidance about load spike, torque risk, ward bleed, and safest intervention, never through a giant result word, lab screen, wall display, booth window, or report panel. Paint it like expensive cover art for a lived Sixth World catastrophe, with crisp materials and human stakes, not a blurry photo, not a posterized edge map, and not a neat stage set. Seed Sixth World residue like a cropped DocWagon wrap, Renraku sensor shell, stale stim litter, a devil-rat trap, and one minor ugly shirt or patch reading chummer-dev if it lands naturally. No FAIL sign, no glass-wall status board, no framed display cube, and no poster-like placards.",
             "framing": "ultra-wide oblique view across the crash lane with layered rig hardware in foreground, midground, and rear walls; the restrained subject, technician, and witness stay secondary to the apparatus",
             "avoid": "giant result word, FAIL sign, wall display, lab report panel, glass booth signage, placard wall, centered mannequin shrine, clean empty box room, or a neat social huddle",
             "overlay_hint": "hazard arcs, cyberlimb stress halos, and test-lane brackets",
@@ -10889,12 +11209,12 @@ def asset_specs() -> list[dict[str, object]]:
             "required": "approval_rail",
             "banned": TABLEAU_COMPOSITIONS,
             "person_count_target": "duo_preferred",
-            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not two people doing paperwork at a table. Pull the camera back so the approval rail, rollback rig, consequence chamber, materials-test apparatus, cyberlimb prototypes, and surrounding lab dominate at least as much as the people. This should feel like an industrial Shadowrun research forge for dangerous cyber or awakened materials, dense, graphic, dangerous, and high-pressure, with obvious approval, rollback, provenance, consequence, and compatibility logic in the frame. Prefer a standing rulesmith plus reviewer or witness in motion over one isolated operator or any seated tableau. Keep AR short, rail-bound, and geometry-anchored rather than as right-margin callout boxes or corner label tabs.",
+            "prompt_nudge": "Make governed rules evolution legible at a glance, not literal blacksmith cosplay, not forge-hands wallpaper, and not two people doing paperwork at a table. Pull the camera back so the approval rail, rollback rig, consequence chamber, materials-test apparatus, cyberlimb prototypes, and surrounding lab dominate at least as much as the people. This should feel like an industrial Shadowrun research forge for dangerous cyber or awakened materials, dense, graphic, dangerous, high-pressure, and painted like a major rulebook cover, with obvious approval, rollback, provenance, consequence, and compatibility logic in the frame. Prefer a standing rulesmith plus reviewer or witness in motion over one isolated operator or any seated tableau. The scene should read like it is being watched through smart glasses by an extremely capable assistant that only surfaces the next meaningful break, risk, or safe action. Never drift into right-margin callout stacks, corner label tabs, or etched contour-map rendering.",
             "subject": "a standing rulesmith and skeptical reviewer reconciling a volatile house-rule pack through review, diff, rollback, and consequence pressure inside a much larger industrial apparatus",
             "environment": "an improvised industrial rules lab built around a long approval rail, rollback rig, provenance seals, rule cassettes, consequence chutes, cassette bins, suspended seal bands, gantry hooks, floor cables, compatibility halos, assay racks, sample lockers, crucible hardware, occult-material containment, and heat-scored control hardware under hard sodium spill",
             "action": "the rulesmith drives diff controls and cassette clamps while a reviewer leans into the approval rail and rollback rig under visible pressure, witness locks, consequence markers, and compatibility arcs as the apparatus crowds the room around them",
             "metaphor": "governed rules evolution under approval and rollback pressure",
-            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab used to test dangerous cyber or awakened materials. Set the camera several meters back so the approval rail, rollback rig, consequence chamber, sample racks, assay cage, crucible hardware, cassette bins, gantry hardware, floor cables, seal bands, hanging cyberlimb prototypes, and hot industrial room all stay visible around the people. A tusked ork rulesmith with obvious chrome and a skeptical elf reviewer or shamanic witness work at an approval rail, rollback rig, and active test chamber while they reconcile a volatile house-rule pack through color-banded diff strips, clipped approval tabs, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, visible control hardware, and short readable approval chips under hard sodium spill and cyan overlay rails. Seed the room with reagent jars, talis shards, scorched proof tabs, grime, and one cropped Ares or Saeder-Krupp shell fragment so the frame immediately sells governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, bounded experimentation, materials testing, and Sixth World identity all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show more apparatus than faces, with the hardware, floor, and room occupying at least half the storytelling space, and push stronger mythic poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use rail-bound chips, seal bands, cassette housings, clipped approval tabs, and smartlink-like overlay traces instead of pages, printouts, checkmark panels, or glowing text sheets. Keep the base image free of right-margin callout stacks, corner label tabs, and detached boxed UI slabs. This is not a literal blacksmith shop, not a seated bench-table moment, and not generic glowing-card tinkering.",
+            "replace_visual_prompt": "16:9 illustrated flagship horizon cover poster inside an improvised industrial rules lab used to test dangerous cyber or awakened materials. Set the camera several meters back so the approval rail, rollback rig, consequence chamber, sample racks, assay cage, crucible hardware, cassette bins, gantry hardware, floor cables, seal bands, hanging cyberlimb prototypes, and hot industrial room all stay visible around the people. A tusked ork rulesmith with obvious chrome and a skeptical elf reviewer or shamanic witness work at an approval rail, rollback rig, and active test chamber while they reconcile a volatile house-rule pack through color-banded diff strips, clipped approval tabs, rule cassettes, provenance seals, consequence markers, compatibility arcs, witness locks, visible control hardware, and sparse decision cues that feel like smart-glasses guidance about seal drift, safe revert, witness lock, blast radius, and clamp timing. Seed the room with reagent jars, talis shards, scorched proof tabs, grime, and one cropped Ares or Saeder-Krupp shell fragment so the frame immediately sells governed rules evolution for a Shadowrun table: approval, rollback, provenance, consequence, danger, bounded experimentation, materials testing, and Sixth World identity all need to be legible before anyone reads a caption. Keep both people standing and engaged with rails, clamps, cassette housings, and diff controls rather than holding papers or cards toward camera. Show more apparatus than faces, with the hardware, floor, and room occupying at least half the storytelling space, and push stronger mythic painted poster energy, not anonymous forge hands over flame, not one isolated operator in a glow void, and not two people sitting at a workbench doing paperwork. Use rail-bound chips, seal bands, cassette housings, clipped approval tabs, and machine-bound guidance traces instead of pages, printouts, checkmark panels, or glowing text sheets. Keep the base image free of right-margin callout stacks, corner label tabs, detached boxed UI slabs, and etched contour-line posterization. This is not a literal blacksmith shop, not a seated bench-table moment, and not generic glowing-card tinkering.",
             "framing": "ultra-wide industrial-room two-person standing shot with approval rails, rollback rig hardware, consequence chamber, assay cage, sample racks, cassette bins, witness locks, visible floor, and several layered control cues visible together; not a face crop, not anonymous hand macro, and not a quiet sparse bench still",
             "avoid": "literal medieval forge cliché, anonymous blacksmith close-up, generic fire-and-anvil shot, forge hands over flame, handheld slate glamour, tablet close-up, page-with-text hero prop, glowing text sheet, loose paper stack, paper held in hand, generic card tinkering, sparse desk still life, one operator at a console, two people sitting at a table, generic paperwork workshop, approval tablet glamour, giant checkmark panel, or any scene without publication-control cues",
             "overlay_hint": "approval rails, provenance seals, rollback vectors, witness locks, compatibility arcs, and consequence-path anchors",
@@ -11161,7 +11481,7 @@ def asset_specs() -> list[dict[str, object]]:
         if surface_heavy_count > 4:
             raise RuntimeError(f"whole_pack_audit_failed:surface_scene_monoculture:{surface_heavy_count}")
         for expected_target, required in (
-            ("assets/hero/chummer6-hero.png", "clinic_intake"),
+            ("assets/hero/chummer6-hero.png", "service_rack"),
             ("assets/pages/horizons-index.png", "horizon_boulevard"),
             ("assets/parts/ui.png", "mirror_split"),
             ("assets/parts/mobile.png", "platform_edge"),
@@ -11403,9 +11723,11 @@ def render_specs(*, specs: list[dict[str, object]], output_dir: Path, build_rele
             }
         reference_image: Path | None = None
         champion_path = Path(str(champion_entry.get("output_path") or "")).expanduser() if champion_entry else None
+        explicit_reference = spec.get("allow_reference_image")
         allow_flagship_reference = (
-            (not first_contact_target(target) and not quality_focus_target(target))
-            or review_overlay_enabled(spec=spec)
+            _boolish(explicit_reference, default=False)
+            if explicit_reference is not None
+            else (not first_contact_target(target) and not quality_focus_target(target))
         )
         if allow_flagship_reference and isinstance(champion_path, Path) and champion_path.exists():
             reference_image = champion_path

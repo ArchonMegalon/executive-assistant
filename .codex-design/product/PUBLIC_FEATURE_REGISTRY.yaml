@@ -300,6 +300,42 @@ cards:
     payoff: Grounded primers become first-class artifacts instead of random PDFs.
     proof_note: "Proof: RUNBOOK PRESS already points at first-party primer packet and primer-video previews instead of only future-facing copy."
     microproof: Primer packet|Primer-video lane|First-party detail page
+  - id: horizon_shadowcasters_network
+    bucket: coming_next
+    title: SHADOWCASTERS NETWORK
+    summary: Find a run, see the rules, get scheduled cleanly, and let the world remember the outcome.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/shadowcasters-network.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/shadowcasters-network
+    render_mode: external_explainer
+    action_label: Read the network horizon
+    detail_primary_href: /roadmap/black-ledger
+    detail_primary_label: See the world-state foundation
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/shadowcasters-network.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Finding a table still means juggling community rules, approvals, chats, calendars, and follow-up by hand.
+    payoff: Chummer becomes the structured layer above community chats, calendars, and play surfaces instead of another disconnected app.
+  - id: horizon_black_ledger
+    bucket: coming_next
+    title: BLACK LEDGER
+    summary: Keep city pressure, faction motion, and mission-market drift visible between runs.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/black-ledger
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/replay-after-action
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: World pressure vanishes when campaigns cannot project consequences beyond the last scene.
+    payoff: Consequence, faction posture, and mission pressure remain inspectable instead of turning into GM-only folklore.
   - id: horizon_ghostwire
     bucket: coming_next
     title: GHOSTWIRE
@@ -364,13 +400,13 @@ cards:
     asset_slot: release_current_build
     detail_route: /artifacts/mac-codex-release-pipeline
     action_label: Open the Mac release runbook
-    detail_primary_href: /artifacts/mac-codex-release-pipeline/bootstrap.sh
+    detail_primary_href: /downloads/release-upload/bootstrap.sh
     detail_primary_label: Open the Mac bootstrap script
     fallback_route: /artifacts/mac-codex-release-pipeline/readme.md
     fallback_label: Read the full runbook
     pain: Mac release work falls apart when cloning, signing, notarization, publication, and live verification live in separate tribal steps.
     payoff: One truthful bootstrap turns a Mac Codex session into a repeatable public-release lane instead of a manual operator ritual.
-    proof_note: "Paste `bash <(curl -fsSL https://chummer.run/artifacts/mac-codex-release-pipeline/bootstrap.sh)` into the Mac shell, then let the bootstrap build, sign, notarize, publish, and verify the release with the current supported chummer.run topology."
+    proof_note: "Paste `bash <(curl -fsSL https://chummer.run/downloads/release-upload/bootstrap.sh)` into the Mac shell, then let the bootstrap build, sign, notarize, publish, and verify the release with the current supported chummer.run topology."
     microproof: Clone and pin refs|Codesign and notarize|Publish and verify live shelf
   - id: artifact_rules_receipt
     bucket: featured_artifacts
@@ -504,7 +540,7 @@ cards:
   - id: release_latest
     bucket: release_shelf
     title: Current preview build
-    summary: Current preview installer, release notes, and integrity details in one shelf.
+    summary: Current published installers, release notes, and integrity details in one shelf.
     href: /downloads
     badge: Preview
     audience: public

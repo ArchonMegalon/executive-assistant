@@ -933,6 +933,7 @@ class _ResponsesCreateRequest(BaseModel):
     instructions: str | None = None
     text: Any | None = None
     metadata: dict[str, object] | None = None
+    client_metadata: dict[str, object] | None = None
     max_output_tokens: int | None = None
     stream: bool = False
     store: bool | None = None
@@ -1884,8 +1885,21 @@ def _parse_input_payload(raw_input: object | None) -> _ParsedResponseInput:
 
 
 def _parse_create_request(payload: dict[str, object]) -> tuple[_ResponsesCreateRequest, _ParsedResponseInput]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid_request")
+
+    normalized_payload = dict(payload)
+    known_fields = set(_ResponsesCreateRequest.model_fields)
+    unknown_fields = [field for field in normalized_payload.keys() if field not in known_fields]
+    legacy_compat_fields = {"client_metadata"}
+    rejected_fields = [field for field in unknown_fields if field not in legacy_compat_fields]
+    if rejected_fields:
+        raise HTTPException(status_code=400, detail=f"unsupported_fields:{','.join(rejected_fields)}")
+    for field in unknown_fields:
+        normalized_payload.pop(field, None)
+
     try:
-        request = _ResponsesCreateRequest.model_validate(payload)
+        request = _ResponsesCreateRequest.model_validate(normalized_payload)
     except ValidationError as exc:
         extra_fields = [
             ".".join(str(part) for part in error.get("loc", ()))

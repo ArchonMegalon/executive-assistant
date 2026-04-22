@@ -1,0 +1,24 @@
+version: 1
+key: community_rule_environment_registry
+status: proposal
+owner: chummer6-design
+
+environments:
+  - id: cre_shadowcasters_seattle_01
+    community_ref: shadowcasters_network
+    season_ref: season_seattle_001
+    world_ref: seattle_shared_01
+    base_rule_environment_ref: sr6_shadowcasters_seattle
+    approval_policy: character_review_required
+    quickstart_allowed: true
+    export_targets:
+      - pdf
+      - foundry
+      - roll20
+    player_entry_paths:
+      - approved_runner_dossier
+      - quickstart_runner_pack
+    review_roles:
+      - gm
+      - organizer
+      - character_curator

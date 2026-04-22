@@ -7,7 +7,7 @@ GMs spend too long describing spaces, and players still misread compounds, clubs
 ## What it would do
 
 Chummer would publish explorable location packs linked to mission briefings.
-They could include floor plans, hotspots, route overlays, optional narration, and static map context, but they stay focused on pre-run orientation rather than live combat truth or VTT replacement.
+They could include floor plans, hotspots, route overlays, optional narration, and static map context, but they stay focused on helping you understand the space before the run starts, not on replacing live combat tools or a VTT.
 RUNSITE is for briefing, planning, and spatial understanding before things go loud.
 
 ## Likely owners

@@ -1,0 +1,117 @@
+version: 1
+key: black_ledger_map_intel_newsreel_workflows
+status: proposal
+owner: chummer6-design
+
+workflows:
+  - key: gm_adopts_and_schedules_run
+    owner_repo: chummer6-hub
+    external_tools:
+      - Lunacal
+    steps:
+      - GM reviews a JobPacket in Mission Market.
+      - GM adopts the JobPacket into a RunPlan.
+      - Hub opens the Lunacal scheduling flow with player-safe context.
+      - Lunacal returns a booked, rescheduled, or cancelled booking event.
+      - Hub records a SchedulingReceipt.
+      - Campaign workspace shows a planned-run marker tied to the RunPlan.
+    non_goals:
+      - Lunacal does not own run truth.
+      - Booking does not imply mission success or campaign authority.
+
+  - key: user_reports_intel
+    owner_repo: chummer6-hub
+    external_tools:
+      - FacePop
+      - Deftform
+      - Icanpreneur
+    steps:
+      - User enters through Hub or a bounded FacePop public concierge.
+      - Deftform captures structured intel fields.
+      - Optional Icanpreneur discovery expands high-signal world-input themes.
+      - Hub stores an IntelReport in pending review.
+      - Curator reviews consent, spoiler class, and intended use.
+      - Approved intel becomes a marker candidate, job-seed input, or rumor/news candidate.
+    non_goals:
+      - User intel does not become canon automatically.
+      - Public concierge does not bypass Chummer-owned receipts or review.
+
+  - key: world_tick_to_newsreel
+    owner_repo: fleet
+    external_tools:
+      - NextStep
+      - vidBoard
+      - Taja
+      - PeekShot
+      - MarkupGo
+      - Signitic
+    steps:
+      - Fleet drafts a WorldTick packet from governed inputs.
+      - NextStep runs the operator approval process.
+      - Executive Assistant drafts news candidates and copy variants.
+      - Hub or a world operator approves visibility grade and publication class.
+      - Media Factory renders ticker cards, short host reels, printable bulletins, and social-safe cuts.
+      - Hub publishes the public, campaign, faction, or GM variants.
+      - Signitic may rotate approved outbound CTA campaigns to first-party world pages.
+    non_goals:
+      - Media outputs do not become world truth.
+      - Signitic metrics do not become canonical product analytics truth.
+
+  - key: gm_publishes_open_run
+    owner_repo: chummer6-hub
+    external_tools:
+      - Lunacal
+      - Discord
+      - Microsoft Teams
+    steps:
+      - GM selects a JobPacket, custom run, or creator module as the source.
+      - Hub drafts a spoiler-safe OpenRun listing with visibility, join-policy, and table-contract controls.
+      - The listing binds to a CommunityRuleEnvironment when the run is community or season scoped.
+      - GM publishes the listing onto the world map or network run board.
+      - Players submit dossier-aware join requests and GM curates the roster.
+      - Hub records scheduling and meeting-handoff receipts when the roster locks.
+    non_goals:
+      - Meeting providers do not own run or roster truth.
+      - Open-run discoverability does not bypass GM authority or visibility policy.
+
+  - key: player_applies_to_open_run
+    owner_repo: chummer6-hub
+    steps:
+      - Player opens an OpenRun and reviews the table contract.
+      - Player selects a living dossier or approved quickstart runner.
+      - Hub evaluates CommunityRuleEnvironment legality and run-application preflight.
+      - Player sees pass, warn, fail, or blocked reasons before submission.
+      - GM reviews the same preflight summary when accepting or waitlisting the applicant.
+    non_goals:
+      - Preflight does not silently reject players through hidden heuristics.
+      - Quickstart runners do not bypass rule-environment or consent policy.
+
+  - key: beginner_gm_launches_first_open_run
+    owner_repo: chummer6-hub
+    external_tools:
+      - Lunacal
+      - Discord
+    steps:
+      - A beginner GM chooses a starter job and community rule environment.
+      - Hub offers quickstart runner packs and an opposition packet.
+      - Hub generates a table contract and scheduling setup.
+      - The GM publishes the run, fills the roster, and receives a closeout prompt after play.
+    non_goals:
+      - Autopilot does not seize outcome authority from the GM.
+      - Generated prep does not become canonical world truth without run resolution.
+
+  - key: open_run_resolution_and_honors
+    owner_repo: chummer6-hub
+    external_tools:
+      - hedy.ai
+      - Nonverbia
+      - Table Pulse
+    steps:
+      - GM files the run resolution after play.
+      - Optional debrief assistance may draft recap or follow-up notes behind consent gates.
+      - Hub updates the map marker and feeds the result into BLACK LEDGER.
+      - Typed reputation events and seasonal-honor candidates are generated.
+      - Public-safe honors and newsreel variants route through operator approval.
+    non_goals:
+      - Observer or transcript tools do not directly assign public scores.
+      - Reputation events do not become public without typed sources and visibility policy.

@@ -6,7 +6,7 @@ GMs, creators, and publishers need consistent long-form books such as primers, c
 
 ## What it would do
 
-Chummer would help teams turn approved source material into primers, handbooks, district guides, campaign books, and convention modules without making third-party dashboards the source of truth.
+Chummer would help teams turn approved material into primers, handbooks, district guides, campaign books, and convention modules without forcing creators to juggle a pile of third-party dashboards.
 It complements JACKPOINT instead of duplicating it.
 
 ## Likely owners
@@ -39,4 +39,4 @@ The publication move should now read as a staged artifact factory, not only as l
 
 ## Why it is not ready yet
 
-Long-form output only matters if the approved source, edit trail, and publication package stay intact from draft to release.
+Long-form output only matters if the draft, edit trail, and final package stay consistent from first draft to release.

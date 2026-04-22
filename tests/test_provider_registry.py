@@ -313,6 +313,35 @@ def test_provider_registry_exposes_executable_onemin_specialist_binding(
     assert "media_transform" in state.capabilities
 
 
+def test_provider_registry_marks_comfyui_unconfigured_without_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("COMFYUI_URL", raising=False)
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("comfyui")
+
+    assert state is not None
+    assert state.auth_mode == "http"
+    assert state.state == "unconfigured"
+    assert state.secret_configured is False
+
+
+def test_provider_registry_marks_comfyui_ready_with_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMFYUI_URL", "https://images.example")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("comfyui")
+
+    assert state is not None
+    assert state.auth_mode == "http"
+    assert state.state == "ready"
+    assert state.secret_configured is True
+    assert "image_generate" in state.capabilities
+
+
 def test_provider_registry_exposes_google_gmail_oauth_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
