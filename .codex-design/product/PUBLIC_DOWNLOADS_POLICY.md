@@ -15,7 +15,7 @@ The downloads surface is a proof shelf first:
 
 Allowed primary CTA labels include:
 
-* `Get preview build`
+* `Create account to install`
 * `Install the current preview`
 * `Download for Windows`
 * `Download for Linux`

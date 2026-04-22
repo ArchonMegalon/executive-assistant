@@ -1,6 +1,10 @@
 # Project Chummer
 
-Project Chummer is a multi-repo modernization of the legacy Chummer 5 application into a deterministic engine, workbench experience, campaign and living-dossier spine, play/mobile session shell, hosted relationship/orchestration plane, shared design system, artifact registry, and dedicated media execution service.
+Project Chummer is a multi-repo modernization of the legacy Chummer 5 application into the explainable Shadowrun campaign OS: a deterministic rules engine, an authored workbench, a campaign and living-dossier spine, a play/mobile session shell, and the hosted/support/publication layers needed to keep long campaigns coherent.
+
+The entry wedge is still character build and explain.
+The retention engine is campaign continuity.
+The product wins when Shadowrun math, session state, and recovery all stay understandable under pressure.
 
 ## Product entry
 
@@ -21,7 +25,7 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 3. Repo and contract boundaries:
    `ARCHITECTURE.md` -> `PRODUCT_BACKBONE_WORKSPACE.md` -> `PRODUCT_BACKBONE_WORKSPACE.yaml` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `PROVIDER_AND_ROUTE_STEWARDSHIP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
 4. Delivery and release control:
-   `RELEASE_PIPELINE.md` -> `DESKTOP_CLIENT_PRODUCT_CUT.md` -> `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` -> `LOCALIZATION_PARITY_MATRIX.yaml` -> `PRODUCT_USAGE_TELEMETRY_MODEL.md` -> `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md` -> `PRIVACY_AND_RETENTION_BOUNDARIES.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
+   `RELEASE_PIPELINE.md` -> `REPO_HYGIENE_RELEASE_TRUST_AND_AUTOMATION_SAFETY.md` -> `REPO_HARDENING_CHECKLIST.yaml` -> `DESKTOP_CLIENT_PRODUCT_CUT.md` -> `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` -> `LOCALIZATION_PARITY_MATRIX.yaml` -> `PRODUCT_USAGE_TELEMETRY_MODEL.md` -> `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md` -> `PRIVACY_AND_RETENTION_BOUNDARIES.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
    `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `HORIZON_SIGNAL_POLICY.md` -> `LTD_DISCOVERY_OUTREACH_AND_VALIDATION_INTEGRATION_GUIDE.md` -> `ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md` -> `KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md` -> `HOUSE_RULE_DISCOVERY_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `FLAGSHIP_PRODUCT_BAR.md` -> `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md` -> `CHUMMER5A_FAMILIARITY_BRIDGE.md` -> `DENSE_WORKBENCH_BUDGET.yaml` -> `VETERAN_FIRST_MINUTE_GATE.yaml` -> `PRIMARY_ROUTE_REGISTRY.yaml` -> `DESKTOP_EXECUTABLE_EXIT_GATES.md` -> `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` -> `NEXT_12_BIGGEST_WINS_GUIDE.md` -> `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` -> `FLAGSHIP_PARITY_REGISTRY.yaml` -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
 
@@ -273,6 +277,8 @@ The queued successor wave after the current flagship closeout is `NEXT_90_DAY_PR
 `PARTICIPATION_AND_BOOSTER_WORKFLOW.md` is the first-class canon for user language, ownership, state transitions, receipts, recognition, and package/bootstrap truth for the bounded participation lane.
 
 `COMMUNITY_SPONSORSHIP_BACKLOG.md` is the implementation-ordered source for the Hub-first community/accounting wave. It distinguishes what already landed in Hub/Fleet/EA from the remaining durable-storage, convergence, and product-depth deltas.
+
+`REPO_HYGIENE_RELEASE_TRUST_AND_AUTOMATION_SAFETY.md` and `REPO_HARDENING_CHECKLIST.yaml` are the active hardening canon for public repo hygiene, signed release-manifest truth, declarative boundary lint, workflow safety, Fleet blast-radius limits, boring user-loop proof, and explicit public support lanes.
 
 `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`, `PROVIDER_AND_ROUTE_STEWARDSHIP.md`, `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`, and `PRODUCT_HEALTH_SCORECARD.yaml` are the operating loop for turning product reality into governed course correction instead of leaving that work as scattered feedback notes.
 

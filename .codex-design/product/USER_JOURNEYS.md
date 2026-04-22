@@ -5,7 +5,7 @@
 This file is the top-level product map for the journeys users actually live inside.
 
 The detailed happy-path and failure-mode canon still lives under `journeys/*.md`.
-This file keeps the center of gravity legible as one product story:
+This file keeps the center of gravity legible as one product story for the explainable campaign OS:
 
 * Build
 * Explain
@@ -52,7 +52,7 @@ Canonical detail:
 
 ## Run
 
-Goal: keep the same runner, crew, campaign, and recent workspace alive across live play, claimed-device handoff, reconnect, and recovery.
+Goal: keep the same runner, crew, campaign, and campaign ledger alive across live play, claimed-device handoff, reconnect, and recovery.
 
 Flagship bar:
 
@@ -61,6 +61,7 @@ Flagship bar:
 * missing or incompatible rule packs and amend packages are explicit before a resumed device computes against the wrong environment
 * player, GM, and observer flows feel authored for live play rather than recycled workbench layouts
 * finding a table, passing community-rule preflight, and getting into the right session space are part of the same trustworthy run journey
+* the campaign ledger is a named first-class surface rather than hidden continuity glue
 
 Canonical detail:
 
@@ -135,3 +136,4 @@ Canonical detail:
 
 If a repo changes one of these cross-head journeys, it must update the detailed journey doc and this top-level map before implementation lands.
 If a release claim depends on these journeys, the same change must keep `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` and `METRICS_AND_SLOS.yaml` honest.
+If a horizon or extension makes the story harder to explain than `build correctly, explain clearly, run reliably, recover calmly, carry the campaign forward`, the horizon is ahead of the product center of gravity.

@@ -1,7 +1,7 @@
 mode: append
 program_wave: next_90_day_product_advance
 status: live_parallel_successor
-source_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+source_registry_path: /docker/chummercomplete/chummer6-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
 activation_rule: Use these items immediately on shards whose current flagship closeout slice is empty; do not let them replace active shards already assigned to the current closeout frontier.
 items:
   - title: Unify claim, install, update, and support recovery into one desktop-native flow
@@ -412,86 +412,86 @@ items:
     completion_action: verify_closed_package_only
     do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.
     proof:
-      - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
-      - /docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py
-      - /docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py
-      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md
-      - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md
-      - /docker/chummercomplete/chummer-core-engine commit fd15fe87 tightens row-scoped allowed-path authority for src, tests, docs, and scripts.
-      - /docker/chummercomplete/chummer-core-engine commit 44fdda0f fail-closes non-resolving successor queue proof anchors so stale closeout evidence cannot keep the proof pack passed.
-      - /docker/chummercomplete/chummer-core-engine commit cfc465a5 adds checked-in receipt reproducibility proof for ENGINE_PROOF_PACK.generated.json.
-      - /docker/chummercomplete/chummer-core-engine commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces for this completed package.
-      - /docker/chummercomplete/chummer-core-engine commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof so future shards verify this closed package instead of repeating it.
-      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.
-      - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.
-      - /docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so future shards verify the closed package instead of repeating it.
-      - /docker/chummercomplete/chummer-core-engine commit d4b3b0ba requires the current 769e7259 guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit a2173476 requires the current d4b3b0ba guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in receipt to active-run hygiene guard 4a56911d.
-      - /docker/chummercomplete/chummer-core-engine commit b488d109 pins the latest M104 proof pack authority so future shards verify the closed package instead of repeating it.
-      - /docker/chummercomplete/chummer-core-engine commit b6fddf74 tightens the current M104 proof pack authority guard so future shards verify the latest closed package.
-      - /docker/chummercomplete/chummer-core-engine commit f6608678 tightens the latest M104 proof pack local guard so future shards verify the closed package.
-      - /docker/chummercomplete/chummer-core-engine commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard tightening.
-      - /docker/chummercomplete/chummer-core-engine commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify the latest closed package.
-      - /docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.
-      - /docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit e10f2739 pins the current cd30503f queue proof floor in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit 18365058 pins the current ea449f7b queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit 5031ee41 pins the current 18365058 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit cbce6a19 pins the current 5031ee41 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
-      - /docker/chummercomplete/chummer-core-engine commit 71441924 pins the current cbce6a19 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must resolve locally.
-      - /docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.
-      - /docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 05e47cff binds the M104 proof guard to successor queues so future shards verify the current closed-package guard.
-      - /docker/chummercomplete/chummer-core-engine commit 93d06011 pins the current 05e47cff queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 31aec38a pins the current 93d06011 queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit ceccc309 pins the current 31aec38a queue-bound proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 5dff1a2e tightens worker-safe closure evidence guards for task-local files and run-control helper transcripts.
-      - /docker/chummercomplete/chummer-core-engine commit 2301a043 pins the current 5dff1a2e worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 5c75316f pins the current 2301a043 worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 28be988f pins the current 5c75316f proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit c6a2ee8e pins the current 28be988f proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 6684fc89 pins the current c6a2ee8e proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit ccbfc6b2 pins the current 6684fc89 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 2a3ebcb9 pins the current ccbfc6b2 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 7501f49a pins the current 2a3ebcb9 proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 36311e16 pins the current ac961fe1 local proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit be5755a6 pins the current db3cc033 queue-cited proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 8ffec2b1 pins the latest be5755a6 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 1bcb9b7e pins the current M104 proof pack guard.
-      - /docker/chummercomplete/chummer-core-engine commit e04d7b88 binds the current M104 proof pack guard into the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 51bb2d8f pins the current a404b474 proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 6d25fb18 pins the current 06a2e06a proof floor receipt in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit cc6cf25b pins the M104 current proof floor guard.
-      - /docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit 2f430d09 pins the current 498dff3d queue mirror proof floor in the generator, unit tests, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.
-      - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-      - /docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.
-      - /docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
-      - /docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
-      - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
+      - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
+      - /docker/chummercomplete/chummer6-core/scripts/generate-engine-proof-pack.py
+      - /docker/chummercomplete/chummer6-core/tests/test_engine_proof_pack_generator.py
+      - /docker/chummercomplete/chummer6-core/docs/ENGINE_PROOF_PACK.md
+      - /docker/chummercomplete/chummer6-core/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md
+      - /docker/chummercomplete/chummer6-core commit fd15fe87 tightens row-scoped allowed-path authority for src, tests, docs, and scripts.
+      - /docker/chummercomplete/chummer6-core commit 44fdda0f fail-closes non-resolving successor queue proof anchors so stale closeout evidence cannot keep the proof pack passed.
+      - /docker/chummercomplete/chummer6-core commit cfc465a5 adds checked-in receipt reproducibility proof for ENGINE_PROOF_PACK.generated.json.
+      - /docker/chummercomplete/chummer6-core commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces for this completed package.
+      - /docker/chummercomplete/chummer6-core commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof so future shards verify this closed package instead of repeating it.
+      - /docker/chummercomplete/chummer6-core commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.
+      - /docker/chummercomplete/chummer6-core commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.
+      - /docker/chummercomplete/chummer6-core commit 769e7259 pins local commit proof through guard 56048971 so future shards verify the closed package instead of repeating it.
+      - /docker/chummercomplete/chummer6-core commit d4b3b0ba requires the current 769e7259 guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit a2173476 requires the current d4b3b0ba guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in receipt to active-run hygiene guard 4a56911d.
+      - /docker/chummercomplete/chummer6-core commit b488d109 pins the latest M104 proof pack authority so future shards verify the closed package instead of repeating it.
+      - /docker/chummercomplete/chummer6-core commit b6fddf74 tightens the current M104 proof pack authority guard so future shards verify the latest closed package.
+      - /docker/chummercomplete/chummer6-core commit f6608678 tightens the latest M104 proof pack local guard so future shards verify the closed package.
+      - /docker/chummercomplete/chummer6-core commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard tightening.
+      - /docker/chummercomplete/chummer6-core commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify the latest closed package.
+      - /docker/chummercomplete/chummer6-core commit 8574f63f pins the M104 proof pack receipt guard.
+      - /docker/chummercomplete/chummer6-core commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit e10f2739 pins the current cd30503f queue proof floor in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit 18365058 pins the current ea449f7b queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit 5031ee41 pins the current 18365058 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit cbce6a19 pins the current 5031ee41 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
+      - /docker/chummercomplete/chummer6-core commit 71441924 pins the current cbce6a19 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must resolve locally.
+      - /docker/chummercomplete/chummer6-core commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.
+      - /docker/chummercomplete/chummer6-core commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 05e47cff binds the M104 proof guard to successor queues so future shards verify the current closed-package guard.
+      - /docker/chummercomplete/chummer6-core commit 93d06011 pins the current 05e47cff queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 31aec38a pins the current 93d06011 queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit ceccc309 pins the current 31aec38a queue-bound proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 5dff1a2e tightens worker-safe closure evidence guards for task-local files and run-control helper transcripts.
+      - /docker/chummercomplete/chummer6-core commit 2301a043 pins the current 5dff1a2e worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 5c75316f pins the current 2301a043 worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 28be988f pins the current 5c75316f proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit c6a2ee8e pins the current 28be988f proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 6684fc89 pins the current c6a2ee8e proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit ccbfc6b2 pins the current 6684fc89 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 2a3ebcb9 pins the current ccbfc6b2 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 7501f49a pins the current 2a3ebcb9 proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 36311e16 pins the current ac961fe1 local proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit be5755a6 pins the current db3cc033 queue-cited proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 8ffec2b1 pins the latest be5755a6 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 1bcb9b7e pins the current M104 proof pack guard.
+      - /docker/chummercomplete/chummer6-core commit e04d7b88 binds the current M104 proof pack guard into the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 51bb2d8f pins the current a404b474 proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 6d25fb18 pins the current 06a2e06a proof floor receipt in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit cc6cf25b pins the M104 current proof floor guard.
+      - /docker/chummercomplete/chummer6-core commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit 2f430d09 pins the current 498dff3d queue mirror proof floor in the generator, unit tests, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.
+      - /docker/chummercomplete/chummer6-core commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+      - /docker/chummercomplete/chummer6-core commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.
+      - /docker/chummercomplete/chummer6-core commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
+      - /docker/chummercomplete/chummer6-core commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
+      - /docker/chummercomplete/chummer6-core commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
     allowed_paths:
       - src
       - tests
@@ -854,47 +854,47 @@ items:
     completion_action: verify_closed_package_only
     do_not_reopen_reason: M101 chummer6-hub-registry promotion discipline is complete; future shards must verify the release-channel truth receipt, registry row, queue row, and design-queue row instead of reopening the desktop route rationale package.
     proof:
-      - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
-      - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
-      - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
-      - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m101_registry_promotion_discipline.py
-      - /docker/chummercomplete/chummer-hub-registry/docs/RELEASE_CHANNEL_PIPELINE.md
-      - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.proof.yaml
-      - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.closeout.md
-      - /docker/chummercomplete/chummer-hub-registry commit 5d948b1 pins the latest M101 tuple self-test proof floor into the verifier, proof receipt, and closeout note.
-      - /docker/chummercomplete/chummer-hub-registry commit e91fe39 tightens the M101 self-test so completed queue proof fails on wrong successor frontier or non-complete package status.
-      - /docker/chummercomplete/chummer-hub-registry commit 1586dfc pins the M101 queue authority guard so future shards verify the completed package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit f1d0763 pins the latest M101 queue authority proof so future shards verify the current completed-package floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit e88ac6c tightens the M101 guardrail commit self-test so future shards verify the current completed-package floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 8391bdb tightens M101 canonical proof hygiene so future shards reject active-run helper evidence in canonical registry and queue authority rows.
-      - /docker/chummercomplete/chummer-hub-registry commit 868f85b pins the M101 closeout headline guard so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 87cfff0 pins the current M101 registry proof floor so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit df3587f tightens M101 authority helper proof self-test so future shards prove canonical registry, Fleet queue, and design queue rows all reject active-run helper evidence.
-      - /docker/chummercomplete/chummer-hub-registry commit 2cd1872 pins the M101 authority helper proof guard so future shards verify the current completed-package floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit d8f3911 pins the M101 authority helper proof floor so future shards verify the latest completed-package guard instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 894c200 pins the M101 authority proof floor so future shards verify the latest completed-package guard instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 061cc27 tightens the M101 helper proof casing guard so canonical registry, Fleet queue, design queue, proof receipt, and closeout helper-evidence scans are case-insensitive.
-      - /docker/chummercomplete/chummer-hub-registry commit 66564d4 pins the M101 mixed-case helper proof guard so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 800b65d pins M101 mixed-case helper proof floor so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit e16f6aa tightens M101 design queue proof guard so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 5c799e0 pins M101 design queue proof floor so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 572b677 pins the repo-local M101 proof receipt and closeout to the 5c799e0 proof floor.
-      - /docker/chummercomplete/chummer-hub-registry commit f2b4ef6 tightens M101 queue scope guard so future shards verify exact allowed paths and owned surfaces instead of repeating or widening this completed package.
-      - /docker/chummercomplete/chummer-hub-registry commit d1c9a12 pins the M101 queue-scope proof floor into the verifier, proof receipt, and closeout note.
-      - /docker/chummercomplete/chummer-hub-registry commit cfb928b pins the M101 queue proof citation floor so canonical registry and queue staging cite the current completed-package proof floor.
-      - /docker/chummercomplete/chummer-hub-registry commit 2f7a422 tightens the M101 duplicate route-truth guard so future shards reject repeated desktopTupleCoverage.desktopRouteTruth tuple ids instead of repeating the completed package.
-      - /docker/chummercomplete/chummer-hub-registry commit b3a945b tightens the M101 tuple rationale and encoded helper proof floor so future shards verify the current completed-package proof instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit c8829ac tightens the M101 closed queue proof so Fleet and design queue rows must carry verify_closed_package_only plus a package-specific do-not-reopen reason before future shards trust the completed package row.
-      - /docker/chummercomplete/chummer-hub-registry commit 2dbbd5e tightens the M101 duplicate closed queue row guard so Fleet and design queue staging cannot carry copied completed-package rows that make future shards repeat or fork this package.
-      - /docker/chummercomplete/chummer-hub-registry commit 75a248f tightens the M101 queue identity guard so Fleet and design queue staging must keep the assigned title, task, and wave on the completed package row.
-      - /docker/chummercomplete/chummer-hub-registry commit d767fba pins M101 route proof command floor so future shards verify the current completed-package proof floor instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 63a5583 tightens M101 desktop rollback route truth so primary rollback posture must match sibling fallback route truth before future shards trust the completed package row.
-      - /docker/chummercomplete/chummer-hub-registry commit 0b52f5f tightens M101 sibling fallback rollback rationale so primary rollback reasons name the exact fallback route id before future shards trust the completed package row.
-      - /docker/chummercomplete/chummer-hub-registry commit 98f8b88 pins the M101 fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 1cf64e1 pins M101 current fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
-      - /docker/chummercomplete/chummer-hub-registry commit 49dd07a tightens the M101 route-truth row-shape guard so future shards reject non-object desktop route-truth rows instead of repeating the current completed-package guard.
-      - /docker/chummercomplete/chummer-hub-registry commit acb881d tightens the M101 projection alias proof guard so future shards reject release-channel versus compatibility-shelf alias drift on generatedAt/generated_at and keep the documented six-tuple successor matrix aligned with the completed-package guard.
-      - /docker/chummercomplete/chummer-hub-registry commit a1da9ca tightens the M101 exact route-tuple rationale proof so future shards reject platform-only desktop route rationale and verify the direct regression tests together with the canonical release-channel rows.
+      - /docker/chummercomplete/chummer6-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+      - /docker/chummercomplete/chummer6-hub-registry/.codex-studio/published/releases.json
+      - /docker/chummercomplete/chummer6-hub-registry/scripts/verify_public_release_channel.py
+      - /docker/chummercomplete/chummer6-hub-registry/scripts/verify_next90_m101_registry_promotion_discipline.py
+      - /docker/chummercomplete/chummer6-hub-registry/docs/RELEASE_CHANNEL_PIPELINE.md
+      - /docker/chummercomplete/chummer6-hub-registry/docs/next90-m101-registry-promotion-discipline.proof.yaml
+      - /docker/chummercomplete/chummer6-hub-registry/docs/next90-m101-registry-promotion-discipline.closeout.md
+      - /docker/chummercomplete/chummer6-hub-registry commit 5d948b1 pins the latest M101 tuple self-test proof floor into the verifier, proof receipt, and closeout note.
+      - /docker/chummercomplete/chummer6-hub-registry commit e91fe39 tightens the M101 self-test so completed queue proof fails on wrong successor frontier or non-complete package status.
+      - /docker/chummercomplete/chummer6-hub-registry commit 1586dfc pins the M101 queue authority guard so future shards verify the completed package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit f1d0763 pins the latest M101 queue authority proof so future shards verify the current completed-package floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit e88ac6c tightens the M101 guardrail commit self-test so future shards verify the current completed-package floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 8391bdb tightens M101 canonical proof hygiene so future shards reject active-run helper evidence in canonical registry and queue authority rows.
+      - /docker/chummercomplete/chummer6-hub-registry commit 868f85b pins the M101 closeout headline guard so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 87cfff0 pins the current M101 registry proof floor so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit df3587f tightens M101 authority helper proof self-test so future shards prove canonical registry, Fleet queue, and design queue rows all reject active-run helper evidence.
+      - /docker/chummercomplete/chummer6-hub-registry commit 2cd1872 pins the M101 authority helper proof guard so future shards verify the current completed-package floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit d8f3911 pins the M101 authority helper proof floor so future shards verify the latest completed-package guard instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 894c200 pins the M101 authority proof floor so future shards verify the latest completed-package guard instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 061cc27 tightens the M101 helper proof casing guard so canonical registry, Fleet queue, design queue, proof receipt, and closeout helper-evidence scans are case-insensitive.
+      - /docker/chummercomplete/chummer6-hub-registry commit 66564d4 pins the M101 mixed-case helper proof guard so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 800b65d pins M101 mixed-case helper proof floor so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit e16f6aa tightens M101 design queue proof guard so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 5c799e0 pins M101 design queue proof floor so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 572b677 pins the repo-local M101 proof receipt and closeout to the 5c799e0 proof floor.
+      - /docker/chummercomplete/chummer6-hub-registry commit f2b4ef6 tightens M101 queue scope guard so future shards verify exact allowed paths and owned surfaces instead of repeating or widening this completed package.
+      - /docker/chummercomplete/chummer6-hub-registry commit d1c9a12 pins the M101 queue-scope proof floor into the verifier, proof receipt, and closeout note.
+      - /docker/chummercomplete/chummer6-hub-registry commit cfb928b pins the M101 queue proof citation floor so canonical registry and queue staging cite the current completed-package proof floor.
+      - /docker/chummercomplete/chummer6-hub-registry commit 2f7a422 tightens the M101 duplicate route-truth guard so future shards reject repeated desktopTupleCoverage.desktopRouteTruth tuple ids instead of repeating the completed package.
+      - /docker/chummercomplete/chummer6-hub-registry commit b3a945b tightens the M101 tuple rationale and encoded helper proof floor so future shards verify the current completed-package proof instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit c8829ac tightens the M101 closed queue proof so Fleet and design queue rows must carry verify_closed_package_only plus a package-specific do-not-reopen reason before future shards trust the completed package row.
+      - /docker/chummercomplete/chummer6-hub-registry commit 2dbbd5e tightens the M101 duplicate closed queue row guard so Fleet and design queue staging cannot carry copied completed-package rows that make future shards repeat or fork this package.
+      - /docker/chummercomplete/chummer6-hub-registry commit 75a248f tightens the M101 queue identity guard so Fleet and design queue staging must keep the assigned title, task, and wave on the completed package row.
+      - /docker/chummercomplete/chummer6-hub-registry commit d767fba pins M101 route proof command floor so future shards verify the current completed-package proof floor instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 63a5583 tightens M101 desktop rollback route truth so primary rollback posture must match sibling fallback route truth before future shards trust the completed package row.
+      - /docker/chummercomplete/chummer6-hub-registry commit 0b52f5f tightens M101 sibling fallback rollback rationale so primary rollback reasons name the exact fallback route id before future shards trust the completed package row.
+      - /docker/chummercomplete/chummer6-hub-registry commit 98f8b88 pins the M101 fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 1cf64e1 pins M101 current fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
+      - /docker/chummercomplete/chummer6-hub-registry commit 49dd07a tightens the M101 route-truth row-shape guard so future shards reject non-object desktop route-truth rows instead of repeating the current completed-package guard.
+      - /docker/chummercomplete/chummer6-hub-registry commit acb881d tightens the M101 projection alias proof guard so future shards reject release-channel versus compatibility-shelf alias drift on generatedAt/generated_at and keep the documented six-tuple successor matrix aligned with the completed-package guard.
+      - /docker/chummercomplete/chummer6-hub-registry commit a1da9ca tightens the M101 exact route-tuple rationale proof so future shards reject platform-only desktop route rationale and verify the direct regression tests together with the canonical release-channel rows.
     allowed_paths:
       - Chummer.Hub.Registry
       - scripts

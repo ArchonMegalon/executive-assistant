@@ -5,20 +5,20 @@ cards:
   - id: product_story
     bucket: start_here
     title: Build
-    summary: Create and inspect a character without mystery math.
+    summary: Create and inspect a character inside the explainable Shadowrun campaign OS.
     href: /downloads
     badge: Workflow
     audience: public
     image_family: solo_operator
     asset_slot: capability_build_runner
-    action_label: Get the preview build
+    action_label: Create account to install
     proof_note: "Proof: a real preview build exists now, not just a story about one."
     pain: Clean dossiers, visible tradeoffs, and no hidden modifier stack.
     payoff: Deterministic totals stay readable before you ever take the character to the table.
   - id: see_whats_real
     bucket: start_here
     title: Explain
-    summary: See exactly why the number changed.
+    summary: See exactly why the number changed and what the table should trust.
     href: /now#real-rules-truth
     badge: Workflow
     audience: public
@@ -31,15 +31,15 @@ cards:
   - id: get_the_poc
     bucket: start_here
     title: Run
-    summary: Keep the session moving when devices or networks drift.
+    summary: Keep the session and campaign state coherent when devices or networks drift.
     href: /now#real-mobile-prep
     badge: Workflow
     audience: public
     image_family: streetfront
     action_label: See continuity in preview
     proof_note: "Proof: continuity survives device drift without hiding the current product limits."
-    pain: Carry the same dossier and session state across devices without losing trust.
-    payoff: Local-first continuity keeps the table moving even when the network does not cooperate.
+    pain: Carry the same dossier, ledger, and session state across devices without losing trust.
+    payoff: Receipt-backed continuity keeps the table moving even when the network does not cooperate.
   - id: publish_grounded_artifacts
     bucket: start_here
     title: Publish
@@ -111,7 +111,7 @@ cards:
   - id: lane_gm
     bucket: choose_your_lane
     title: GM
-    summary: Run faster, recover state, and brief the team.
+    summary: Run from a reliable campaign ledger, recover state, and brief the team.
     href: /now#real-mobile-prep
     badge: Mixed
     audience: public

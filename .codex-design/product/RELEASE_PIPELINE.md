@@ -165,6 +165,30 @@ Forbidden posture:
 7. Desktop clients poll registry-backed channel/feed truth and apply updates through UI-owned helpers.
 8. `Chummer6` and other downstream guide surfaces read registry-backed release projections; they do not become build authorities.
 
+## Canonical release-manifest rule
+
+Every promoted desktop release head must have one canonical release manifest.
+
+Minimum manifest scope:
+
+* product and channel identity
+* per-repo commit set for the promoted build
+* artifact digests and signature or notarization references
+* embedded runtime-bundle fingerprint
+* contract or package version floor where relevant
+* registry publication receipt
+
+Authority rule:
+
+* Fleet prepares and verifies the candidate manifest during promotion.
+* `chummer6-hub-registry` publishes the promoted manifest as canonical release truth.
+* GitHub releases, `/downloads`, updater feeds, and downstream guide/status surfaces are projections from that registry-owned manifest.
+
+Failure rule:
+
+* promotion must fail if GitHub release notes, public downloads, updater metadata, or guide projections disagree with the canonical registry manifest for the same promoted head
+* GitHub releases and public file shelves must never be treated as the authority that overrides registry channel truth
+
 ## Initial ship rule
 
 Do not explode the first release wave into every theoretical combination.

@@ -2,7 +2,10 @@
 
 ## Mission
 
-`executive-assistant` is the governed synthesis/runtime substrate adjacent to the Chummer release train.
+`executive-assistant` is the private chief-of-staff system for one executive and one operator.
+Its product center of gravity is the daily command brief, decision queue, commitment ledger, approved-action workflow, and evidence-backed audit trail.
+
+Inside the Chummer estate, it is also the governed synthesis/runtime substrate adjacent to the release train.
 It exists to turn mirrored canon and bounded product signals into petitions, synthesis briefs, and operator aids without becoming a second product authority.
 
 ## Governance posture
@@ -22,6 +25,7 @@ That does not mean:
 
 ## Owns
 
+* morning-brief, decision-queue, commitment-ledger, and approved-action workflow posture for the EA product itself
 * provider-aware runtime substrate for governed assistant execution
 * petition-packet and design-synthesis helper flows downstream of mirrored canon
 * proactive horizon scans and signal briefs
@@ -64,3 +68,4 @@ That does not mean:
 * a hidden contract package owner
 * a release authority
 * a parallel roadmap or queue system
+* a generic chatbot that asks the user to trust unsupported memory

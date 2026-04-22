@@ -25,8 +25,8 @@ secondary_highlights:
   - Rules receipts
   - Local-first continuity
 product_proof_eyebrow: Real product proof
-product_proof_intro: Install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
-product_proof_primary_label: Install the current preview
+product_proof_intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+product_proof_primary_label: Create account to install
 product_proof_primary_href: /downloads
 product_proof_secondary_label: Inspect the proof trail
 product_proof_secondary_href: /now#real-rules-truth
@@ -528,7 +528,7 @@ sections:
   - id: product_proof
     eyebrow: Real product proof
     title: One concrete result, one visible trail, one current build
-    intro: Install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+    intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
     audience: public
     route: /
   - id: start_here

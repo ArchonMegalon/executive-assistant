@@ -53,9 +53,9 @@ It must normalize into Chummer-owned outputs such as:
 
 Detailed workflow canon:
 
-* [KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md](/docker/chummercomplete/chummer-design/products/chummer/KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md)
-* [HOUSE_RULE_DISCOVERY_REGISTRY.yaml](/docker/chummercomplete/chummer-design/products/chummer/HOUSE_RULE_DISCOVERY_REGISTRY.yaml)
-* [ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md](/docker/chummercomplete/chummer-design/products/chummer/ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md)
+* [KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md](/docker/chummercomplete/chummer6-design/products/chummer/KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md)
+* [HOUSE_RULE_DISCOVERY_REGISTRY.yaml](/docker/chummercomplete/chummer6-design/products/chummer/HOUSE_RULE_DISCOVERY_REGISTRY.yaml)
+* [ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md](/docker/chummercomplete/chummer6-design/products/chummer/ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md)
 
 ## Tool posture
 
