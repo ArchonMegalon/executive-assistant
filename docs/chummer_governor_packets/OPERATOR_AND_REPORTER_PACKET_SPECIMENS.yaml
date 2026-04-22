@@ -1,0 +1,257 @@
+artifact_name: ea.chummer_governor_packet_specimens
+package_id: next90-m106-ea-governor-packets
+milestone_id: 106
+generated_at: "2026-04-18T20:05:00Z"
+status: task_proven
+purpose: Provide bounded operator and reporter packet specimens compiled from the same EA-local readiness, parity, support, and release-truth anchors.
+source_pack: docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+shared_evidence_anchor_ids:
+  - weekly_pulse
+  - parity_lab_pack
+  - fleet_weekly_governor_packet
+  - fleet_support_packets
+  - registry_release_channel
+  - feedback_release_gate
+  - progress_email_workflow
+normalized_truth_bundle:
+  bundle_id: ea-m106-governor-readiness-parity-support-release-v1
+  source_pack_field: normalized_truth_bundle
+  input_anchor_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - fleet_weekly_governor_packet
+    - fleet_support_packets
+    - registry_release_channel
+    - feedback_release_gate
+    - progress_email_workflow
+  projected_signal_families:
+    - release_health
+    - flagship_readiness
+    - journey_gate_health
+    - support_closure
+    - parity_evidence
+    - reporter_followthrough
+    - release_channel_truth
+    - governor_decision_projection
+    - support_followthrough_receipts
+  use_rule: Operator packet and reporter followthrough specimens must carry the same truth_bundle_id before any launch, canary, rollback, or fix-available copy is valid.
+shared_evidence_bindings:
+  weekly_pulse:
+    path: .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json
+    projected_fields:
+      - generated_at
+      - release_health
+      - flagship_readiness
+      - journey_gate_health
+      - top_support_or_feedback_clusters
+  parity_lab_pack:
+    path: docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml
+    projected_fields:
+      - status
+      - required_outputs
+      - readiness_evidence
+  fleet_weekly_governor_packet:
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    projected_fields:
+      - generated_at
+      - decision_board.current_launch_action
+      - decision_alignment.actual_action
+      - measured_rollout_loop.decision_action_routes.status
+      - measured_rollout_loop.decision_receipts.status
+      - decision_gate_ledger.launch_expand
+  fleet_support_packets:
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    projected_fields:
+      - generated_at
+      - summary.closure_waiting_on_release_truth
+      - summary.reporter_followthrough_ready_count
+      - reporter_followthrough_plan.ready_count
+      - followthrough_receipt_gates.required_gates
+      - followthrough_receipt_gates.source_rule
+  registry_release_channel:
+    path: /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+    projected_fields:
+      - generated_at
+      - status
+      - rolloutState
+      - supportabilityState
+      - fixAvailabilitySummary
+  feedback_release_gate:
+    path: .codex-design/product/FEEDBACK_LOOP_RELEASE_GATE.yaml
+    projected_fields:
+      - thresholds
+      - requirements
+      - status_spine
+  progress_email_workflow:
+    path: .codex-design/product/FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml
+    projected_fields:
+      - delivery_plane
+      - stages
+      - e2e_gate
+packet_projection_bindings:
+  operator_packet:
+    recommended_decision_source_fields:
+      - fleet_weekly_governor_packet.decision_alignment.actual_action
+      - fleet_weekly_governor_packet.decision_board.current_launch_action
+    action_normalization:
+      launch_expand: launch
+      freeze_launch: freeze
+      canary: canary
+      rollback: rollback
+      focus_shift: focus_shift
+    gate_summary_source_fields:
+      - fleet_weekly_governor_packet.measured_rollout_loop.decision_action_routes.rows
+      - fleet_weekly_governor_packet.measured_rollout_loop.decision_receipts.rows
+    support_followthrough_source_fields:
+      - fleet_support_packets.summary.reporter_followthrough_ready_count
+      - fleet_support_packets.reporter_followthrough_plan.ready_count
+    use_rule: The operator packet must normalize Fleet's live launch action into EA's launch, freeze, canary, rollback, or focus_shift vocabulary without inventing a parallel decision state.
+  reporter_followthrough:
+    closure_waiting_source_field: fleet_support_packets.summary.closure_waiting_on_release_truth
+    ready_count_source_fields:
+      - fleet_support_packets.summary.reporter_followthrough_ready_count
+      - fleet_support_packets.reporter_followthrough_plan.ready_count
+    receipt_gate_source_fields:
+      - fleet_support_packets.followthrough_receipt_gates.required_gates
+      - fleet_support_packets.followthrough_receipt_gates.source_rule
+    release_truth_source_fields:
+      - registry_release_channel.status
+      - registry_release_channel.rolloutState
+      - registry_release_channel.supportabilityState
+      - registry_release_channel.fixAvailabilitySummary
+    use_rule: Reporter followthrough must use the same support packet and release-channel truth window as the operator packet, especially before fix_available is permitted.
+  same_window_rule: Operator and reporter specimens must bind to one live truth window even when the specimen payloads show illustrative posture or workflow examples.
+operator_packet_specimen:
+  packet_kind: operator_packets:weekly_governor
+  packet_id_template: ea-weekly-governor-synthesis-{yyyy-mm-dd}
+  truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
+  example_kind: illustrative_launch_when_all_launch_gates_clear
+  authority_statement: EA recommends posture only; Fleet lands weekly governor packets and design owns canonical milestone meaning.
+  required_inputs:
+    - truth_bundle_id
+    - release_health_state
+    - flagship_readiness_state
+    - journey_gate_state
+    - support_closure_state
+    - parity_evidence_status
+    - reporter_followthrough_gate
+    - cited_signal_ids
+    - recommended_decision
+    - exit_condition
+    - downstream_action
+  specimen_payload:
+    truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
+    release_health_state: ready
+    flagship_readiness_state: ready
+    journey_gate_state: ready
+    support_closure_state: clear
+    parity_evidence_status: task_proven
+    reporter_followthrough_gate: satisfied_or_not_applicable
+    cited_signal_ids:
+      - weekly_pulse
+      - parity_lab_pack
+      - fleet_weekly_governor_packet
+      - fleet_support_packets
+      - registry_release_channel
+      - feedback_release_gate
+      - progress_email_workflow
+    recommended_decision: launch
+    exit_condition: Keep launch only while release, journey, support, parity, and reporter followthrough gates continue to cite current source truth.
+    downstream_action: Fleet may publish the weekly governor packet; Hub, Registry, and design-owned lanes retain their source-of-truth responsibilities.
+  downgrade_examples:
+    freeze:
+      trigger: Missing support packet currency, release truth, or required reporter workflow receipt.
+      required_copy: Name the blocking signal and the next evidence needed.
+    canary:
+      trigger: Release and journey gates are passable, but rollout evidence needs bounded cohort confirmation.
+      required_copy: Name the cohort, rollback trigger, support posture, and next readout point.
+    rollback:
+      trigger: Promoted tuple or reporter-channel release truth is affected by a verified release regression.
+      required_copy: Name the affected tuple or channel plus the Registry, Fleet, or Hub recovery route.
+    focus_shift:
+      trigger: Current gates are stable and the highest risk has moved to a successor milestone or cluster.
+      required_copy: Name the successor milestone or risk cluster, owner repo, and next lane.
+reporter_followthrough_specimen:
+  packet_kind: reporter_followthrough:release_truth
+  packet_id_template: ea-reporter-followthrough-release-truth-{yyyy-mm-dd}
+  truth_bundle_id: ea-m106-governor-readiness-parity-support-release-v1
+  example_kind: illustrative_stage_contracts_using_the_live_support_and_release_truth_window
+  authority_statement: EA may queue reporter mail only from Hub case truth and Registry release-channel truth that satisfy the mirrored workflow.
+  sender_identity:
+    from_email: wageslave@chummer.run
+    reply_to: support@chummer.run
+    provider: emailit
+    dispatch_tool: connector.dispatch
+  required_stage_sequence:
+    - request_received
+    - audited_decision
+    - fix_available
+  source_signal_ids:
+    - weekly_pulse
+    - parity_lab_pack
+    - fleet_weekly_governor_packet
+    - fleet_support_packets
+    - registry_release_channel
+    - feedback_release_gate
+    - progress_email_workflow
+  specimen_stage_payloads:
+    request_received:
+      allowed_trigger_statuses:
+        - received
+      exactly_once_rule: exactly_once_per_case
+      required_fields:
+        - case_id
+        - case_kind
+        - reporter_summary
+        - support_url
+      release_truth_required: false
+    audited_decision:
+      allowed_trigger_statuses:
+        - accepted
+        - rejected
+        - deferred
+        - known_issue
+        - needs_info
+      exactly_once_rule: exactly_once_per_decision_change
+      required_fields:
+        - case_id
+        - decision_status
+        - decision_reason
+        - implementation_posture
+        - eta_text
+        - award_label
+        - next_owner
+        - next_lane
+      release_truth_required: false
+    fix_available:
+      allowed_trigger_statuses:
+        - released_to_reporter_channel
+      exactly_once_rule: exactly_once_per_reporter_channel_release
+      required_fields:
+        - case_id
+        - fixed_version
+        - fixed_channel
+        - download_url
+        - please_test_cta
+      release_truth_required: true
+      required_truth_planes:
+        - Registry release-channel truth
+        - Hub reporter-channel linkage
+      forbidden_resolution_sources:
+        - reproduced_bug
+        - drafted_patch
+        - merged_pr
+        - preview_build
+  dispatch_receipt_fields:
+    - delivery_id
+    - stage_id
+    - case_id
+    - recipient
+    - from_email
+    - subject
+    - provider
+runtime_safety:
+  do_not_invoke_operator_telemetry_or_active_run_helpers: true
+  active_run_helper_commands_invoked: []
+  operator_telemetry_commands_invoked: []
+closeout_note: This specimen proves EA can project operator-ready and reporter-ready packet shapes from the same anchors without becoming release authority, support database, or canonical product truth.

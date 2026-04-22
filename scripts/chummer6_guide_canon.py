@@ -190,7 +190,7 @@ def _critical_asset_target(target_path: str) -> tuple[str, str, str]:
 def _critical_overlay_mode(target_path: str) -> str:
     normalized = str(target_path or "").replace("\\", "/").strip()
     if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
-        return "medscan_diagnostic"
+        return "smartlink_tactical"
     if normalized == "assets/pages/horizons-index.png":
         return "ambient_diegetic"
     if normalized == "assets/horizons/karma-forge.png":

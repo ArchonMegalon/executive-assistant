@@ -52,7 +52,6 @@ def test_load_horizon_canon_tracks_live_design_horizons() -> None:
         "jackpoint",
         "runsite",
         "runbook-press",
-        "table-pulse",
     }
     assert "ghostwire" not in catalog
     assert "knowledge-fabric" not in catalog
@@ -130,7 +129,8 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert horizons["subject_crop_maximum"] == 0.18
     assert horizons["overlay_anchor_required"] is True
     assert "lane arcs" in " ".join(horizons["overlay_geometry"]).lower()
-    assert horizons["overlay_render_strategy"] == "verified_post_composite_optional"
+    assert horizons["overlay_render_strategy"] == "verified_post_composite_public"
+    assert "none" not in horizons["allowed_overlay_modes"]
     assert "branching futures" in " ".join(horizons["must_show_semantic_anchors"]).lower()
     assert forge["visual_density_profile"] == "flagship_horizon"
     assert forge["required_person_count"] == "duo_preferred"
@@ -138,9 +138,9 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert forge["style_epoch_force_only"] is True
     assert forge["overlay_render_strategy"] == "verified_post_composite_only"
     assert forge["render_layers"] == ["base_scene", "verified_overlay"]
-    assert forge["world_marker_minimum"] == 3
+    assert forge["world_marker_minimum"] == 4
     assert forge["environment_share_minimum"] == 0.60
-    assert forge["apparatus_share_minimum"] == 0.50
+    assert forge["apparatus_share_minimum"] == 0.52
     assert forge["subject_crop_maximum"] == 0.24
     assert forge["cast_readability_required"] is True
     assert forge["overlay_anchor_required"] is True

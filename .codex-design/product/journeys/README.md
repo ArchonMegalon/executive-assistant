@@ -12,6 +12,7 @@ Each journey answers four questions:
 Current canonical journeys:
 
 * `build-and-inspect-a-character.md`
+* `find-and-join-an-open-run.md`
 * `rejoin-after-disconnect.md`
 * `continue-on-a-second-claimed-device.md`
 * `install-and-update.md`

@@ -6,6 +6,8 @@ rules:
 - Horizon docs in `products/chummer/horizons/*.md` remain the long-form human-readable canon.
 - A horizon listed here is a future-capability lane, not a shipment promise.
 - A horizon must define an eventual build path before it is treated as more than public storytelling.
+- A horizon does not count as flagship or near-term release scope until its build path advances beyond `horizon`, its owner handoff gate is materially satisfied, and owning repos can cite executable proof instead of public-guide ambition.
+- Open flagship blockers and lived-system release blockers outrank horizon storytelling; horizons must not dilute or outrun current release truth.
 optional_fields:
 - family
 - wow_promise
@@ -30,7 +32,7 @@ horizons:
     order: 10
   pain_label: My devices drift and the table loses confidence.
   wow_promise: Shared state survives device churn without the table losing trust.
-  table_scene: A player reconnects mid-session and catches up without the GM reconstructing state by memory.
+  table_scene: A player reconnects in the middle of a session and gets back in step without the GM rebuilding everything by memory.
   build_path:
     intent: eventual_product_lane
     current_state: horizon
@@ -65,8 +67,8 @@ horizons:
     enabled: true
     order: 20
   pain_label: We only discover weak builds after they explode in public.
-  wow_promise: Builders get grounded what-if analysis without trusting black-box suggestions.
-  table_scene: A player compares two builds and sees grounded tradeoffs with the math and the source trail still visible.
+  wow_promise: Builders get grounded what-if checks instead of vague AI advice.
+  table_scene: A player compares two builds and sees the tradeoffs, the math, and the likely trouble spots before the session starts.
   build_path:
     intent: eventual_product_lane
     current_state: horizon
@@ -123,15 +125,26 @@ horizons:
   - D2
   tool_posture:
     promoted:
-    - Prompting Systems
+    - Icanpreneur
+    - Deftform
+    - Lunacal
     - MetaSurvey
-    - ApproveThis
+    - NextStep
     bounded:
+    - FacePop
+    - Signitic
+    - Taja
+    - vidBoard
+    - ApproveThis
+    - Prompting Systems
     - AI Magicx
   success_signals:
+  - House-rule demand packets are normalized into Chummer-owned packets before backlog routing.
+  - Product Governor classifies repeated demand into preset, amend-package, campaign-overlay, world-offer, or reject/defer routes.
   - Rule-pack proposals carry receipts and approval state.
   - Published alternates do not fork canonical mechanics ownership.
   artifact_types:
+  - house-rule demand packet
   - rule-pack diff
   - approval packet
   - compatibility projection
@@ -183,7 +196,7 @@ horizons:
   - cited rules answer
   - explain receipt pack
   - searchable rules projection
-  public_signal_eligible: true
+  public_signal_eligible: false
   owner_handoff_gate: Knowledge projections must be visibly derived, cited, and non-authoritative before promotion out of horizon.
 - id: jackpoint
   title: JACKPOINT
@@ -238,6 +251,148 @@ horizons:
   free_later_intent: Long-run intent is broader access after editorial, narration, and provenance loops become cheaper and safer to operate at scale.
   recognition_eligible: true
   owner_handoff_gate: Registry manifests and media receipts must survive format changes before the studio is promoted beyond horizon.
+- id: black-ledger
+  title: BLACK LEDGER
+  status: horizon
+  family: campaign_world_state
+  canon_doc: products/chummer/horizons/black-ledger.md
+  public_guide:
+    enabled: true
+    order: 85
+  pain_label: I want the city to matter between sessions without needing a metagame spreadsheet to prep the next run.
+  wow_promise: The world gives the GM a live job board, practical prep hooks, and a visible memory of what the table changed.
+  table_scene: A GM opens Seattle, sees which districts are hot, picks a job with grounded opposition and consequences, runs it, and later watches the map remember the fallout.
+  build_path:
+    intent: eventual_product_lane
+    current_state: horizon
+    next_state: bounded_research
+  owning_repos:
+  - chummer6-hub
+  - chummer6-core
+  - chummer6-ui
+  - chummer6-mobile
+  - chummer6-media-factory
+  - chummer6-hub-registry
+  - executive-assistant
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - C0
+  - C1
+  - D0
+  - D1
+  - D2
+  - E2b
+  - F1
+  tool_posture:
+    promoted:
+    - vidBoard
+    - MarkupGo
+    - PeekShot
+    - Soundmadeseen
+    - MetaSurvey
+    - Deftform
+    - Lunacal
+    - NextStep
+    bounded:
+    - Unmixr AI
+    - BrowserAct
+    - ApproveThis
+    - Browserly
+    - Documentation.AI
+    - FacePop
+    - Icanpreneur
+    - Signitic
+    - Taja
+  success_signals:
+  - GM-only pilots can adopt job packets without semantic confusion between campaign and world objects.
+  - World-linked offers and modifiers stay explicit, explainable, and receipt-backed.
+  - District pressure can become concrete job, opposition, and prep inputs instead of blank-page prep.
+  - campaign and world consequences can be previewed before becoming campaign-owned truth.
+  - Reviewed intel can influence the map or mission market without becoming automatic canon.
+  - One world-tick operator loop can publish player-safe outputs without leaking GM-only or faction-secret truth.
+  - Completed runs and adopted intel leave visible world-memory outputs that players can understand later.
+  artifact_types:
+  - city ticker
+  - district heat snapshot
+  - mission packet brief
+  - mission briefing reel
+  - season recap packet
+  - world map marker bundle
+  public_signal_eligible: true
+  access_posture: booster_first
+  resource_burden: high
+  booster_nudge: World-state effects, city-tied artifacts, and authority transitions should start behind GM-only pilots before any player-facing seat mode.
+  free_later_intent: Long-run intent is broad community access after operator seams, authority policy, and publication safety prove stable.
+  recognition_eligible: false
+  owner_handoff_gate: Keep campaign truth and world truth separate; GM or organizer authority must be explicit before shared-city scale features are promoted.
+- id: shadowcasters-network
+  title: SHADOWCASTERS NETWORK
+  status: horizon
+  family: campaign_world_state
+  canon_doc: products/chummer/horizons/shadowcasters-network.md
+  public_guide:
+    enabled: true
+    order: 86
+  pain_label: Finding a table still means juggling community rules, approvals, chats, calendars, and follow-up by hand.
+  wow_promise: A GM opens a run, Chummer preflights the right players and rule environment, gets the table scheduled, and the world remembers the outcome.
+  table_scene: A player finds a beginner-friendly run, applies with a legal runner or quickstart decker, gets scheduled, and the finished session changes the city.
+  build_path:
+    intent: eventual_product_lane
+    current_state: horizon
+    next_state: bounded_research
+  owning_repos:
+  - chummer6-hub
+  - chummer6-ui
+  - chummer6-mobile
+  - fleet
+  - executive-assistant
+  - chummer6-media-factory
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - C0
+  - C1
+  - D0
+  - D1
+  - D2
+  - E2b
+  - F1
+  tool_posture:
+    promoted:
+    - Lunacal
+    - Deftform
+    - NextStep
+    - MetaSurvey
+    bounded:
+    - FacePop
+    - Signitic
+    - vidBoard
+    - Taja
+    - hedy.ai
+    - Nonverbia
+    - ApproveThis
+    - BrowserAct
+  success_signals:
+  - Players can see community-rule conflicts and next safe actions before the GM reviews the application.
+  - GMs can publish an open run from a job packet and fill the table without third-party tools becoming the source of truth.
+  - Quickstart and mobile-first entry paths let new players join without a Windows-only chokepoint.
+  - Scheduling receipts, meeting handoff, and accepted roster stay aligned and repairable.
+  - GMs can publish, staff, prep, schedule, and close a beginner run without third-party tools becoming the source of operational truth.
+  - Observer assistance stays opt-in and falls back cleanly when any required participant declines.
+  - Seasonal honors feel motivating without becoming a toxic or spoiler-rich ranking surface.
+  artifact_types:
+  - open-run listing
+  - scheduling receipt
+  - player-safe recap
+  - seasonal honors page
+  public_signal_eligible: true
+  access_posture: booster_first
+  resource_burden: high
+  booster_nudge: Open-run moderation, scheduling support, and seasonal honors need real operator effort, so early access should stay curated before widening into a broad network promise.
+  free_later_intent: Long-run intent is wider network access after moderation, roster fit, and consent-safe closeout loops become cheaper and safer to operate at scale.
+  recognition_eligible: true
+  owner_handoff_gate: Open-run listing, accepted roster, meeting handoff, observer consent, and reputation events must stay Chummer-owned even when third-party meeting or analysis tools are in the loop.
 - id: runsite
   title: RUNSITE
   status: horizon
@@ -290,8 +445,8 @@ horizons:
     enabled: true
     order: 60
   pain_label: I want real primers, handbooks, and campaign books without duct-taping ten tools together.
-  wow_promise: Long-form publishing becomes governed, reusable, and materially better than one-off document hacks.
-  table_scene: A creator turns approved Chummer source material into a district guide or campaign book without making vendor dashboards the source of truth.
+  wow_promise: Long-form publishing becomes something you can actually reuse instead of a ten-tool scramble.
+  table_scene: A creator turns approved Chummer material into a district guide or campaign book without juggling a pile of unrelated publishing tools.
   build_path:
     intent: eventual_product_lane
     current_state: horizon
@@ -373,7 +528,7 @@ horizons:
   - after-action report
   - what-if comparison
   - forensics receipt packet
-  public_signal_eligible: true
+  public_signal_eligible: false
   owner_handoff_gate: Replay must prove reducer-safe, receipt-backed reconstruction before it can leave horizon status.
 - id: table-pulse
   title: TABLE PULSE
@@ -381,7 +536,7 @@ horizons:
   family: table_coaching_social_dynamics
   canon_doc: products/chummer/horizons/table-pulse.md
   public_guide:
-    enabled: true
+    enabled: false
     order: 75
   pain_label: I know the table drifted, but I cannot say where the energy, pacing, or spotlight balance broke.
   wow_promise: GMs get opt-in post-session coaching about table dynamics without turning Chummer into surveillance.

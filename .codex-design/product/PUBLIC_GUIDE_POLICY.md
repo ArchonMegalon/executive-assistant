@@ -15,10 +15,13 @@ It is not a second design authority.
 * `Chummer6` must not outrun `products/chummer/HORIZONS.md` or `products/chummer/horizons/*.md`.
 * `Chummer6` must not outrun `products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md`.
 * `Chummer6` must not invent a public feature map that contradicts `PUBLIC_LANDING_MANIFEST.yaml` or `PUBLIC_FEATURE_REGISTRY.yaml`.
+* When a horizon already has preview-proof artifact cards or artifact routes in `PUBLIC_FEATURE_REGISTRY.yaml`, public guide copy should point readers at those first-party proofs before sending them deeper into horizon prose.
 * `Chummer6` must compile page classes from public-safe guide registries instead of scraping implementation scopes for public prose.
 * `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` is the contract for page classes, allowed sources, forbidden sources, and depth limits.
 * `PUBLIC_PART_REGISTRY.yaml` is the source of truth for public part pages.
 * `PUBLIC_FAQ_REGISTRY.yaml` and `PUBLIC_HELP_COPY.md` are the source of truth for FAQ/help participation copy.
+* The root `products/chummer/HORIZON_REGISTRY.yaml` is the only source of truth for horizon existence, order, and public-guide eligibility.
+* `products/chummer/horizons/HORIZON_REGISTRY.yaml` is a derived guide-routing index only; it may not widen eligibility, reorder horizons, or create a second canon. It must preserve the root registry order exactly.
 * If the guide and design canon disagree, the guide is wrong and must be corrected.
 * Generated public guide output must include a human-facing help/support lane that explains the guided contribution concept and points readers at the Hub participation endpoint.
 * The guided-contribution support lane must describe opt-in premium help on top of the cheap baseline, not a return to premium-by-default execution.

@@ -18,6 +18,7 @@ It is the short-to-medium-form publishing studio, not a replacement for full boo
 ## Key tool posture
 
 * `MarkupGo` - document/render adapter lane
+* `vidBoard` - structured presenter-video and multilingual briefing lane
 * `Soundmadeseen` - narrated recap and briefing media lane
 * `Unmixr AI` - candidate voice lane until proven
 * `PeekShot` - preview/share-card adapter
@@ -33,6 +34,11 @@ It is the short-to-medium-form publishing studio, not a replacement for full boo
 * registry and media working together cleanly
 * source classification
 * reliable publication workflows
+
+## Current proof posture
+
+JACKPOINT is still a horizon, but it is no longer only prose.
+The public artifact registry already carries first-party preview shapes for dossier briefs and mission-brief video lanes so the publication move stays inspectable before the full studio is promoted.
 
 ## Why it is not ready yet
 

@@ -2,24 +2,71 @@
 
 ## North star
 
-Chummer becomes a complete digital Shadowrun operating environment built on hard architectural boundaries.
+Chummer becomes the explainable Shadowrun campaign OS.
 
-The finished product is:
+The product wedge is still character building, but the finished product is not merely a next character builder.
+The finished product is the system players and GMs trust when Shadowrun gets complicated:
 
-* a deterministic character and rules engine
-* a workbench for building, inspecting, comparing, publishing, and moderating
-* a session OS for players and GMs across desktop, web, and mobile
-* a build-time knowledge fabric for grounded, cited rules understanding
-* a hosted campaign and assistant orchestration plane
-* a runsite explorer for bounded mission-space artifacts
-* an artifact studio for dossiers, recaps, narrated briefings, and evidence-bearing outputs
-* a creator press for primers, handbooks, district guides, campaign books, and modules
-* a reusable registry/publication ecosystem
-* a bounded media studio for artifacts, portraits, and video
-* an explainable replay ecosystem for receipts, reconstruction, and after-action review
-* a fully explainable system where derived values can always be grounded
-* a GM coaching and table-pulse lane for bounded post-session spotlight, pacing, and engagement guidance
-* an optional local co-processor lane where local acceleration helps without becoming mandatory
+* build and advance a character without mistrusting the math
+* inspect every important number, legality result, and state change with readable provenance
+* run sessions and campaigns without losing context, continuity, or table flow
+* recover calmly when devices, imports, updates, or rules disputes go sideways
+* carry long campaigns forward with receipts instead of memory
+
+## Center of gravity
+
+The emotional center of Chummer is trust under complexity.
+
+For players:
+
+* I can build and advance my character without mistrusting the math.
+
+For GMs:
+
+* I can run the campaign without losing state, context, or table flow.
+
+For groups:
+
+* When something goes wrong, we recover calmly with receipts.
+
+## Three rings
+
+### Ring 1 — Must be excellent first
+
+This is the product users judge immediately:
+
+* build
+* explain
+* validate
+* import and migrate
+* save and sync
+* install and update
+* support and diagnostic export
+
+### Ring 2 — The campaign OS
+
+This is the durable differentiation:
+
+* campaign ledger
+* GM session console
+* player mobile and session shell
+* roster and advancement continuity
+* downtime, travel, and state history
+* replay and recovery
+* cross-device continuation
+* conflict resolution with receipts
+
+### Ring 3 — Horizons and extensions
+
+These remain valuable, but they must not blur the core product promise before the trust loops are boring:
+
+* runsite explorer
+* artifact studio and JACKPOINT
+* creator press and RUNBOOK PRESS
+* table pulse
+* media factory and video
+* local co-processor lanes
+* hosted assistant extensions
 
 ## Product promises
 
@@ -31,36 +78,56 @@ No repo other than `chummer6-core` computes canonical rules math.
 
 Every important derived value, legality outcome, or state transition can be explained with structured provenance.
 
-### 3. Workbench and play are different products
+### 3. Campaign continuity is first-class
+
+The character builder is the acquisition wedge.
+The campaign ledger is the retention engine.
+Roster, runs, scenes, objectives, debts, downtime, advancement, rules environment, session receipts, and recovery state are product surfaces, not side notes.
+
+### 4. Workbench and play are different products
 
 `chummer6-ui` is the builder/workbench/admin surface.
 `chummer6-mobile` is the live session shell.
 
-### 4. Hosted orchestration is not rules truth
+### 5. AI is subordinate to deterministic truth
+
+AI may summarize, suggest, coach, draft, and explain.
+It must not become rules truth, campaign truth, or release truth.
+
+### 6. Hosted orchestration is not rules truth
 
 `chummer6-hub` coordinates identity, relay, memory, approvals, and assistants, but it does not own duplicate mechanics.
 
-### 5. Shared UI is a package, not a rumor
+### 7. Shared UI is a package, not a rumor
 
 `chummer6-ui-kit` becomes the only reusable cross-head UI boundary.
 
-### 6. Registry and media are real services
+### 8. Registry and media are real services
 
 Publication/catalog concerns and render/media concerns do not remain hidden inside run-services forever.
 
-### 7. Legacy is an oracle, not a shadow product
+### 9. Legacy is an oracle, not a shadow product
 
 `chummer5a` exists to support migration and regression confidence, not to compete with vNext architecture.
+
+### 10. Flagship-grade craft is part of done
+
+Chummer is not finished when the code merely works.
+It is finished when the whole product feels deliberate, trustworthy, fast under real use, honest on the public shelf, and authored enough that SR4, SR5, and SR6 do not collapse into one generic lowest-common-denominator experience.
 
 ## Finished-state experience
 
 ### Player
 
-A player can build, sync, inspect, and play from a modern shell that works across devices and survives intermittent connectivity.
+A player can build, inspect, advance, sync, and play from a modern shell that works across devices, survives intermittent connectivity, and never hides why the number changed.
 
 ### GM
 
-A GM can run live sessions, inspect grounded state, receive Spider/Coach support, review generated assets, manage play flow without juggling unrelated tools, and optionally receive post-session coaching about pacing, spotlight balance, and engagement drift without confusing that analysis for session truth.
+A GM can run live sessions and long campaigns from a reliable campaign ledger and session console: roster, runs, scenes, objectives, contacts, debts, downtime, advancement, rules environment, session receipts, and recap history stay coherent enough that the table does not need to rebuild context from memory.
+
+### Group
+
+A group can survive disconnects, imports, updates, house-rule drift, and disputed modifiers without panic because the recovery path is receipt-backed, inspectable, and calm.
 
 ### Creator / publisher
 
@@ -82,10 +149,10 @@ A maintainer can tell:
 
 Every canonical number, legality outcome, and reducer transition is deterministic, explainable, and grounded in Chummer-owned receipts.
 
-### Session OS
+### Campaign OS
 
-Reconnect, replay, resume, and table continuity are first-class.
-The shell should let the table recover state without panic and settle disputes with receipts instead of memory.
+Reconnect, replay, resume, campaign continuity, and the campaign ledger are first-class.
+The shell should let the table recover state without panic, settle disputes with receipts instead of memory, and carry campaign context forward across sessions and devices.
 
 ### Knowledge Fabric
 
@@ -128,6 +195,7 @@ Chummer is not:
 * one repo pretending to be many
 * a rules engine hidden in UI code
 * an AI-first product with fuzzy authority
+* a giant Shadowrun everything-suite with no center of gravity
 * a design system copied into each frontend
 * a media generator welded directly to play or workbench
 * a registry buried inside orchestration services

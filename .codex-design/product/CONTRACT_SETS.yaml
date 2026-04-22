@@ -117,6 +117,26 @@ packages:
       - chummer6-ui
       - chummer6-mobile
 
+  - id: Chummer.World.Contracts
+    owner_repo: chummer6-hub
+    purpose: World-state, mission-market, and campaign-adjacent consequence contracts.
+    status: in_progress
+    versioning_policy: SemVer. Breaking world-frame semantics, packet ownership rules, or consequence receipts is major; additive world object fields and cosmetic metadata are minor; compatible clarifications are patch.
+    deprecation_policy: Deprecations are announced in design and hub with rollback guidance and are applied only when replacement contracts carry equivalent campaign/world observability contracts.
+    consumers:
+      - chummer6-hub
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-media-factory
+      - executive-assistant
+      - fleet
+    forbidden_source_copies:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-mobile
+      - chummer6-media-factory
+      - chummer6-hub-registry
+
 contract_sets:
   - id: runtime_dtos_vnext
     canonical_package: Chummer.Engine.Contracts
@@ -215,12 +235,140 @@ contract_sets:
     status: complete
     includes:
       - source pack refs
+      - preset refs
       - house-rule pack refs
+      - amend package refs
       - option toggles
       - compatibility fingerprint
+      - activation receipt refs
       - owner scope
       - approval state
+      - community rule environment refs
+      - export target allowlist
     rule: "`Chummer.Engine.Contracts` owns ruleset and pack provenance atoms, but the chosen person, campaign, or group rule environment that a workspace restores is long-lived product truth in `Chummer.Campaign.Contracts`."
+
+  - id: community_rule_environment_vnext
+    canonical_package: Chummer.Campaign.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - community-scoped rule environment identity
+      - review and approval policy
+      - blocked or required content sets
+      - quickstart compatibility posture
+      - export-target policy
+    rule: "A CommunityRuleEnvironment composes existing rule-environment and amend-package truth for one community or season. It may narrow eligibility and export posture, but it may not redefine engine semantics outside governed rule packages."
+
+  - id: world_frame_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - world frame identity
+      - city/faction/project state
+      - seasonal frame and world tick metadata
+      - governance and operator references
+      - compatibility-facing constraints for campaign handoff
+
+  - id: mission_market_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - mission market seed packet families
+      - world offers and scenario modifiers
+      - job seed and job packet projection rules
+      - GM approval and campaign-consumption links
+      - city pressure and district progression tags
+
+  - id: intel_economy_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - intel report intake and review decisions
+      - spoiler-aware visibility and consent posture
+      - contribution credit and provenance
+      - conversion rules from reviewed intel into pressure, jobs, and rumor/news candidates
+
+  - id: world_tick_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Control.Contracts
+    status: in_progress
+    includes:
+      - world tick identity and cadence
+      - operator approval state
+      - input and output summaries
+      - publication and rollback receipts
+    rule: "Hub owns world-tick semantic truth. Control workflows may route approvals or operator decisions, but they may not redefine world-tick meaning."
+
+  - id: resolution_report_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - campaign-linked resolution reports
+      - outcome classes and consequence deltas
+      - approval-aware consequence handoff
+      - campaign-facing consequence summary projections
+
+  - id: world_newsreel_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Media.Contracts
+    status: in_progress
+    includes:
+      - newsreel and city-ticker item semantics
+      - audience and truth-grade variants
+      - source-object linkage
+      - publication approval and visibility posture
+    rule: "Hub owns world-news and truth-grade semantics; Media renders approved variants but may not redefine audience, source, or spoiler posture."
+
+  - id: opposition_packet_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Media.Contracts
+    status: in_progress
+    includes:
+      - reusable opposition-packet identity
+      - faction and heat-trigger linkage
+      - beginner-run and world-pressure prep families
+      - export-ready play-surface variants
+    rule: "Opposition packets may project to PDF or play surfaces, but their semantic linkage to world pressure, factions, and governed prep posture stays Chummer-owned."
+
+  - id: open_run_network_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Run.Contracts
+    status: in_progress
+    includes:
+      - open-run listing and join-policy semantics
+      - run-application and roster decisions
+      - run-application preflight and conflict explanation
+      - quickstart runner options
+      - table-contract acknowledgement
+      - scheduling receipt and meeting-handoff projections
+      - observer-consent policy and fallback modes
+      - resolution handoff back into BLACK LEDGER
+    rule: "For now the open-run network sits adjacent to `Chummer.World.Contracts`. If it grows into a larger product boundary later, it may justify `Chummer.Network.Contracts`, but external meeting or calendar tools must never own run, roster, consent, or closeout truth."
+
+  - id: seasonal_honors_vnext
+    canonical_package: Chummer.World.Contracts
+    semantic_owner: chummer6-hub
+    consumer_wrappers:
+      - Chummer.Media.Contracts
+    status: in_progress
+    includes:
+      - typed reputation-event ledger semantics
+      - seasonal boards and badge awards
+      - public-safe runner legend and faction momentum projections
+      - anti-toxicity and visibility policy
+    rule: "Seasonal honors may consume debrief or recap assistance, but public reputation derives only from typed source events and approved visibility policy. If the lane becomes large enough later, it may justify `Chummer.Reputation.Contracts` rather than remaining folded into the world layer."
 
   - id: roaming_workspace_vnext
     canonical_package: Chummer.Campaign.Contracts
@@ -252,6 +400,7 @@ contract_sets:
       - round-trip provenance
       - import mode and import result
       - compatibility annotations for dossier and campaign package handoff
+      - play-surface export targets for runner, opposition, handout, and run packets
     rule: "Interop package semantics are first-class product truth. `Chummer.Play.Contracts.Interop` owns the active round-trip package family, `Chummer.Campaign.Contracts` owns long-lived dossier and campaign meaning, and registry/media metadata may annotate the package without redefining the semantic object being moved."
 
   - id: support_intake_vnext

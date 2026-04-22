@@ -79,6 +79,106 @@ def env_value(name: str) -> str:
     return str(os.environ.get(name) or LOCAL_ENV.get(name) or POLICY_ENV.get(name) or "").strip()
 
 
+def _onemin_manifest_payload() -> object:
+    inline = env_value("ONEMIN_DIRECT_API_KEYS_JSON")
+    if inline:
+        try:
+            return json.loads(inline)
+        except Exception:
+            return None
+    raw_path = env_value("ONEMIN_DIRECT_API_KEYS_JSON_FILE")
+    if not raw_path:
+        return None
+    try:
+        configured_path = Path(raw_path)
+    except Exception:
+        return None
+    candidates: list[Path] = []
+    if configured_path.is_absolute():
+        candidates.append(configured_path)
+        if str(configured_path).startswith("/config/"):
+            candidates.append(EA_ROOT / "config" / configured_path.name)
+    else:
+        candidates.extend([EA_ROOT / configured_path, configured_path])
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve(strict=False)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if normalized.exists():
+            try:
+                return json.loads(normalized.read_text(encoding="utf-8"))
+            except Exception:
+                return None
+    return None
+
+
+def _onemin_manifest_account_names() -> list[str]:
+    payload = _onemin_manifest_payload()
+    if isinstance(payload, dict):
+        if isinstance(payload.get("slots"), list):
+            items = payload.get("slots") or []
+        elif isinstance(payload.get("keys"), list):
+            items = payload.get("keys") or []
+        elif isinstance(payload.get("accounts"), list):
+            items = payload.get("accounts") or []
+        else:
+            items = []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+    fallback_numbers: set[int] = set()
+    for mapping in (os.environ, LOCAL_ENV, POLICY_ENV):
+        for env_name in mapping:
+            match = _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+            if match is None:
+                continue
+            try:
+                fallback_numbers.add(int(match.group(1)))
+            except Exception:
+                continue
+    next_fallback = max(fallback_numbers, default=0) + 1
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        slot = ""
+        account_name = ""
+        key = ""
+        if isinstance(item, str):
+            key = str(item or "").strip()
+        elif isinstance(item, dict):
+            key = str(
+                item.get("key")
+                or item.get("secret")
+                or item.get("api_key")
+                or item.get("value")
+                or item.get("token")
+                or ""
+            ).strip()
+            slot = str(item.get("slot") or item.get("slot_name") or "").strip()
+            account_name = str(item.get("account_name") or item.get("name") or "").strip()
+        if not key:
+            continue
+        if not account_name:
+            lowered = str(slot or "").strip().lower()
+            if lowered == "primary":
+                account_name = "ONEMIN_AI_API_KEY"
+            else:
+                match = re.fullmatch(r"fallback_?(\d+)", lowered.replace("-", "_").replace(" ", "_"))
+                if match is not None:
+                    account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{int(match.group(1))}"
+                else:
+                    account_name = f"ONEMIN_AI_API_KEY_FALLBACK_{next_fallback}"
+                    next_fallback += 1
+        if account_name in seen:
+            continue
+        seen.add(account_name)
+        names.append(account_name)
+    return names
+
+
 def raw_key_names(provider_name: str) -> list[str]:
     if provider_name != "onemin":
         return RAW_KEY_NAMES.get(provider_name, [])
@@ -94,6 +194,9 @@ def raw_key_names(provider_name: str) -> list[str]:
                 continue
     names = ["ONEMIN_AI_API_KEY"]
     names.extend(f"ONEMIN_AI_API_KEY_FALLBACK_{index}" for index in sorted(fallback_numbers))
+    for account_name in _onemin_manifest_account_names():
+        if account_name not in names:
+            names.append(account_name)
     return names
 
 

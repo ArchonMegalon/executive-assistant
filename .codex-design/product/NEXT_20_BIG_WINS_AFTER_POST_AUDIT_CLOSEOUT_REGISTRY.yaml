@@ -1,9 +1,9 @@
 product: chummer
 version: 1
-last_reviewed: 2026-03-30
+last_reviewed: 2026-04-02
 program_wave: next_20_big_wins_after_post_audit_closeout
 goal: make the campaign OS indispensable, widen Build and Explain, elevate exchange and publication, and turn trust plus operator depth into launch-scale product truth.
-status: in_progress
+status: complete
 
 waves:
   - id: W1
@@ -17,7 +17,7 @@ waves:
       - 5
   - id: W2
     name: Widen the Build and Explain moat
-    status: in_progress
+    status: complete
     milestone_ids:
       - 6
       - 7
@@ -26,7 +26,7 @@ waves:
       - 10
   - id: W3
     name: Make exchange, output, and publication a second pillar
-    status: in_progress
+    status: complete
     milestone_ids:
       - 11
       - 12
@@ -162,7 +162,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Sandbox, campaign-approved, and published rule-environment states are real product flows with lineage and rollback.
       - Promotion, rollback, and lineage posture are visible in both canon and runtime flows.
@@ -191,7 +191,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-hub-registry
-    status: not_started
+    status: complete
     exit_criteria:
       - Import and export behaves as a real ecosystem seam with receipts and compatibility notes.
       - Portable dossier and campaign exchange no longer reads like a backup-only sidecar.
@@ -206,7 +206,7 @@ milestones:
       - chummer6-mobile
       - chummer6-media-factory
       - chummer6-hub-registry
-    status: not_started
+    status: complete
     exit_criteria:
       - Runs can emit durable replay and recap packages that survive publication, return, and audit.
       - Replay and recap artifacts carry provenance that survives formatting, review, and shelf projection.
@@ -221,7 +221,7 @@ milestones:
       - chummer6-hub
       - chummer6-hub-registry
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Creator outputs are discoverable, comparable, and provenance-ranked without collapsing into popularity fog.
       - Moderation, lineage, and trust-ranking posture are explicit and governable end to end.
@@ -236,7 +236,7 @@ milestones:
       - chummer6-hub
       - chummer6-ui
       - chummer6-design
-    status: not_started
+    status: complete
     exit_criteria:
       - Campaigns, primers, dossiers, and run modules publish through one coherent governed path.
       - Publication flow reuses shared artifact truth instead of branching into one-off creator-only lanes.

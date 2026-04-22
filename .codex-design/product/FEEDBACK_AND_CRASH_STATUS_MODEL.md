@@ -117,6 +117,28 @@ Forbidden outbound message:
 
 * resolved, when the fix is not yet available to that reporter's install/channel
 
+Whole-product release control enforces that rule through `FEEDBACK_LOOP_RELEASE_GATE.yaml`.
+`released_to_reporter_channel`, `user_notified`, and `closed` only count as healthy closure when support packets and registry release truth agree.
+
+## Progress email workflow
+
+Reporter-facing progress mail must follow `FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml`.
+
+The minimum staged email spine is:
+
+* `request_received`
+* `audited_decision`
+* `fix_available`
+
+`audited_decision` must include the bounded reason, implementation posture, ETA text or explicit no-ETA posture, next owner, and next lane.
+
+Decision awards must stay stable:
+
+* accepted, known-issue, and needs-info paths may award `Clad Feedbacker`
+* rejected and deferred paths must award `Denied`
+
+`fix_available` must only fire after `released_to_reporter_channel` is true for that reporter and the notice can name a real download or update route.
+
 ## Survey rule
 
 Survey invites are downstream follow-up signals.

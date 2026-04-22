@@ -1,0 +1,140 @@
+version: 1
+key: seasonal_honors_registry
+status: proposal
+owner: chummer6-design
+
+season_defaults:
+  public_ranks_reset: true
+  historical_honors_persist: true
+  default_visibility: network_summary
+
+boards:
+  - id: gm_honors
+    subject_type: gm_profile
+    title: GM Honors
+    axes:
+      - reliability
+      - table_trust
+      - world_impact
+      - onboarding
+    visibility: network_summary
+    anti_toxicity:
+      - no_public_shame
+      - no_raw_popularity_scoring
+      - context_required_for_attendance_penalties
+
+  - id: player_cred
+    subject_type: player_profile
+    title: Player Cred
+    axes:
+      - reliability
+      - table_support
+      - debrief_quality
+    visibility: network_summary
+    anti_toxicity:
+      - no_public_rejection_history
+      - no_sensitive_safety_disclosure
+
+  - id: runner_legends
+    subject_type: runner_dossier
+    title: Runner Legends
+    axes:
+      - public_safe_story_impact
+      - survival
+      - faction_impact
+      - legend_tags
+    visibility: public_safe
+    anti_toxicity:
+      - opt_in_required
+      - spoiler_scrub_required
+
+  - id: faction_momentum
+    subject_type: faction
+    title: Faction Momentum
+    axes:
+      - objectives
+      - influence
+      - heat_management
+      - sponsored_run_outcomes
+    visibility: public_safe
+    anti_toxicity:
+      - no_pay_to_win
+      - no_single_metric_dominance
+
+  - id: intel_contributors
+    subject_type: intel_contributor
+    title: Intel Contributors
+    axes:
+      - accepted_reports
+      - adopted_reports
+      - newsworthy_reports
+      - district_enrichment
+    visibility: network_summary
+    anti_toxicity:
+      - no_spam_volume_rewards
+      - reviewed_reports_only
+
+  - id: faction_manager_honors
+    subject_type: faction_seat
+    title: Faction Manager Honors
+    axes:
+      - timely_turns
+      - adopted_job_seeds
+      - balanced_play
+      - clean_closeout
+    visibility: network_summary
+    anti_toxicity:
+      - no_griefing_rewards
+      - no_pay_to_win
+
+  - id: creator_spotlight
+    subject_type: creator_profile
+    title: Creator Spotlight
+    axes:
+      - adopted_packets
+      - feedback_quality
+      - update_responsiveness
+      - low_support_burden
+    visibility: network_summary
+    anti_toxicity:
+      - no_volume_only_rewards
+      - spoiler_scrub_required
+
+badge_families:
+  gm:
+    - reliable_closeout
+    - beginner_friendly
+    - consent_safe_table
+    - black_ledger_host
+  player:
+    - always_ready
+    - good_debriefer
+    - team_glue
+  runner:
+    - heat_magnet
+    - ghosted_it
+    - corp_problem
+    - street_legend
+  intel:
+    - fixers_source
+    - adopted_intel
+    - rumor_became_real
+  faction:
+    - quiet_quarter
+    - hostile_takeover
+    - asset_unlocked
+  faction_manager:
+    - best_schemer
+    - job_market_maker
+    - rivalry_builder
+  creator:
+    - most_played_packet
+    - best_new_creator
+    - best_playtest_host
+
+rules:
+  - Seasonal honors are seasonal by default; permanent all-user ladders are out of scope.
+  - Public-safe reputation requires typed source events and visibility policy.
+  - Table Pulse and GOD observer outputs may assist private debriefs but may not directly publish scores.
+  - No board may act as a public shame surface.
+  - Quickstart or beginner-friendly participation should be rewarded for reliability and closeout quality, not penalized as lower-status play.

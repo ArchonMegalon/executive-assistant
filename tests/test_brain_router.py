@@ -35,6 +35,22 @@ def test_brain_router_falls_through_to_magixai_when_gemini_is_unavailable(monkey
     assert decision.health_provider_key == "magixai"
 
 
+def test_brain_router_repair_falls_through_to_onemin_when_cheap_providers_are_unavailable(monkeypatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.delenv("AI_MAGICX_API_KEY", raising=False)
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(principal_id="exec-1", provider_key="gemini_vortex", status="disabled")
+    repo.upsert(principal_id="exec-1", provider_key="magixai", status="disabled")
+    router = BrainRouterService(provider_registry=ProviderRegistryService(provider_binding_repo=repo))
+
+    decision = router.resolve_profile("repair", principal_id="exec-1")
+
+    assert decision.profile == "repair"
+    assert decision.provider_hint_order == ("onemin",)
+    assert decision.backend_key == "onemin"
+    assert decision.health_provider_key == "onemin"
+
+
 def test_brain_router_merges_contract_profile_and_provider_hints(monkeypatch) -> None:
     contracts = TaskContractService(InMemoryTaskContractRepository())
     bindings = InMemoryProviderBindingRepository()

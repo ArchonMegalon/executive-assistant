@@ -1,0 +1,55 @@
+contract_name: ea.chummer5a_parity_lab_pack
+package_id: next90-m103-ea-parity-lab
+milestone_id: 103
+generated_at: "2026-04-19T12:09:26Z"
+status: task_proven
+owned_surfaces:
+  - parity_lab:capture
+  - veteran_compare_packs
+source_repos:
+  chummer5a: /docker/chummer5a
+  chummer6_ui: /docker/chummercomplete/chummer6-ui
+required_outputs:
+  screenshot_corpora:
+    path: docs/chummer5a_parity_lab/oracle_baselines.yaml
+    present: true
+    proof_level: captured_corpus_plus_closed_flagship_supplement
+  workflow_maps:
+    path: docs/chummer5a_parity_lab/veteran_workflow_pack.yaml
+    present: true
+    proof_level: source_backed
+  compare_packs:
+    path: docs/chummer5a_parity_lab/compare_packs.yaml
+    present: true
+    proof_level: source_backed
+  compare_source_anchors:
+    path: docs/chummer5a_parity_lab/compare_packs.yaml
+    present: true
+    proof_level: source_token_guarded
+    source_paths:
+      - /docker/chummer5a/Chummer.Web/wwwroot/index.html
+      - /docker/chummer5a/docs/PARITY_ORACLE.json
+      - /docker/chummer5a/docs/PARITY_AUDIT.md
+  import_export_fixture_inventory:
+    path: docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml
+    present: true
+    proof_level: source_backed
+oracle_sources:
+  parity_oracle_json: /docker/chummer5a/docs/PARITY_ORACLE.json
+  parity_checklist_md: /docker/chummer5a/docs/PARITY_CHECKLIST.md
+  parity_audit_md: /docker/chummer5a/docs/PARITY_AUDIT.md
+readiness_evidence:
+  flagship_readiness: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  flagship_readiness_status: pass
+  flagship_readiness_generated_at: "2026-04-19T11:29:41Z"
+  external_host_proof_status: pass
+  unresolved_external_host_proof_requests: 0
+  successor_registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+notes:
+  - This pack captures and normalizes Chummer5a oracle baselines and veteran first-minute task maps.
+  - Compare packs include source-token anchors for every flagship parity family so the veteran workflow handoff stays tied to the oracle repo rather than prose-only parity claims.
+  - Oracle baseline and veteran workflow outputs also normalize WinForms-era landmark sources so veteran compare packs can prove the original Chummer5a route shape instead of only the web oracle shell tokens.
+  - Desktop publishability and host-specific startup-smoke proofs remain gated in chummer6-ui/chummer-hub-registry and are out of scope for this package.
+  - The flagship readiness status here is the observed packet snapshot at flagship_readiness_generated_at; the live top-level readiness packet may move between pass and fail without reopening the closed EA extraction scope.
+  - Master-index and character-roster screenshots are cited from the closed flagship UI proof worktree as supplemental corpus evidence; the successor UI package still owns promoted-head veteran certification.

@@ -44,3 +44,13 @@ def load_runtime_overrides() -> dict[str, str]:
         for key, value in overrides.items()
         if str(key).strip() and str(value).strip()
     }
+
+
+def resolve_env_value(name: str, local_env: dict[str, str] | None = None, policy_env: dict[str, str] | None = None) -> str:
+    if name in os.environ:
+        return str(os.environ.get(name) or "").strip()
+    if local_env is not None and name in local_env:
+        return str(local_env.get(name) or "").strip()
+    if policy_env is not None and name in policy_env:
+        return str(policy_env.get(name) or "").strip()
+    return ""

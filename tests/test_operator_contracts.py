@@ -265,9 +265,39 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     assert released_caps == required_released
     assert overlay.get("mode") == "append"
     items = overlay.get("items") or []
-    assert items == [
-        "Sync the approved Chummer design bundle into `ea` under `.codex-design/` and refresh repo-local review context."
+    assert isinstance(items, list)
+    lowered_items = [str(item).lower() for item in items]
+    forbidden_fragments = (
+        "docs, env scaffolding, and deployment configuration still lag the actual router and provider surface",
+        "startup can still resolve into a mixed durability/auth profile instead of one authoritative runtime mode",
+        "provider capability-routing",
+        "typed task-contract and skill metadata",
+    )
+    for fragment in forbidden_fragments:
+        assert not any(fragment in item for item in lowered_items), (
+            "Published queue overlay should not re-queue already materialized uncovered scope: " + fragment
+        )
+
+    mirror_items = [
+        item
+        for item in items
+        if isinstance(item, dict) and item.get("audit_finding_key") == "project.design_mirror_missing_or_stale"
     ]
+    assert len(mirror_items) == 1, "Published queue overlay should keep exactly one bounded mirror-drift queue slice."
+
+    mirror_item = mirror_items[0]
+    assert mirror_item["package_id"] == "audit-task-4257456"
+    assert mirror_item["audit_scope_id"] == "ea"
+    assert mirror_item["source_ref"] == "audit_task_candidates[4257456]"
+    assert mirror_item["owned_surfaces"] == ["design_mirror:ea"]
+    assert mirror_item["allowed_paths"] == [".codex-design"]
+    assert mirror_item["source_items"] == [
+        "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    ]
+    assert (
+        "keep one bounded queue slice" in str(mirror_item["task"]).lower()
+    ), "Mirror-drift queue slice should encode the non-reopen intent."
 
 
 def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
@@ -275,10 +305,9 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "EA_ROLE" in dockerfile
-    assert "worker','scheduler" in dockerfile
-    assert "http://127.0.0.1:8090/health" in dockerfile
-    assert ".status != 200" in dockerfile
-    assert ".status < 500" not in dockerfile
+    assert 'role=${EA_ROLE:-api}; case \\"$role\\" in' in dockerfile
+    assert "worker|scheduler)" in dockerfile
+    assert "http://127.0.0.1:8090/health/live" in dockerfile
     assert "EA_ROLE=api" in compose
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose

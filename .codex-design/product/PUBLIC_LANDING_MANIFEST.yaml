@@ -7,7 +7,7 @@ proof_line: Public preview, honest status, and clear proof of what works today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
-  - label: Create account to get preview
+  - label: Create account to install
     href: /signup?next=/downloads
     emphasis: primary
   - label: See what works today
@@ -25,8 +25,8 @@ secondary_highlights:
   - Rules receipts
   - Local-first continuity
 product_proof_eyebrow: Real product proof
-product_proof_intro: Install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
-product_proof_primary_label: Install the current preview
+product_proof_intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+product_proof_primary_label: Create account to install
 product_proof_primary_href: /downloads
 product_proof_secondary_label: Inspect the proof trail
 product_proof_secondary_href: /now#real-rules-truth
@@ -165,6 +165,33 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: artifact detail only
+  - path: /artifacts/mac-codex-release-pipeline
+    title: Mac Codex release pipeline detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/mac-codex-release-pipeline
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /downloads/release-upload/bootstrap.sh
+    title: Mac Codex release bootstrap script
+    audience: public
+    purpose: artifact_support_file
+    requires_auth: false
+    guest_fallback: /downloads/release-upload/bootstrap.sh
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: static bootstrap script only
+  - path: /artifacts/mac-codex-release-pipeline/readme.md
+    title: Mac Codex release runbook markdown
+    audience: public
+    purpose: artifact_support_file
+    requires_auth: false
+    guest_fallback: /artifacts/mac-codex-release-pipeline/readme.md
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: static markdown instructions only
   - path: /artifacts/explanation-receipt-trail
     title: Explanation receipt trail detail
     audience: public
@@ -198,6 +225,24 @@ public_routes:
     purpose: artifact_detail
     requires_auth: false
     guest_fallback: /artifacts/campaign-primer
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/campaign-primer-video
+    title: Campaign primer video detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/campaign-primer-video
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: artifact detail only
+  - path: /artifacts/mission-brief-video
+    title: Mission briefing video detail
+    audience: public
+    purpose: artifact_detail
+    requires_auth: false
+    guest_fallback: /artifacts/mission-brief-video
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: artifact detail only
@@ -270,6 +315,24 @@ public_routes:
     purpose: roadmap_detail
     requires_auth: false
     guest_fallback: /roadmap/runbook-press
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/shadowcasters-network
+    title: SHADOWCASTERS NETWORK detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/shadowcasters-network
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: roadmap detail only
+  - path: /roadmap/black-ledger
+    title: BLACK LEDGER detail
+    audience: public
+    purpose: roadmap_detail
+    requires_auth: false
+    guest_fallback: /roadmap/black-ledger
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: roadmap detail only
@@ -465,7 +528,7 @@ sections:
   - id: product_proof
     eyebrow: Real product proof
     title: One concrete result, one visible trail, one current build
-    intro: Install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+    intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
     audience: public
     route: /
   - id: start_here
@@ -499,15 +562,15 @@ sections:
     audience: public
     route: /now
   - id: coming_next
-    eyebrow: Coming next
-    title: Coming next
-    intro: Each horizon names the pain, the payoff, and the next place to read deeper.
+    eyebrow: Opening next
+    title: Opening next
+    intro: Each horizon names the pain, the payoff, and the preview artifact or detail page that already makes the next wave inspectable.
     audience: public
     route: /horizons
   - id: featured_artifacts
     eyebrow: Proof, not promises
     title: Artifacts that make the product tangible
-    intro: The gallery starts with live proof, then shows which artifacts are preview-only and which ones are still opening next.
+    intro: The gallery starts with live proof, then shows preview packets, briefing reels, primers, and run-prep artifacts that already make the factory visible.
     audience: public
     route: /artifacts
 registered_overlays:

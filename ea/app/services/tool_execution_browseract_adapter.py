@@ -930,9 +930,24 @@ class BrowserActToolAdapter:
     ) -> dict[str, object]:
         normalized_payload = cls._browseract_normalization_payload(response)
         scalar_map = cls._browseract_scalar_map(normalized_payload)
-        raw_text = "\n\n".join(cls._browseract_text_candidates(normalized_payload)).strip()
+        structured_response = dict(response.get("structured_output_json") or {}) if isinstance(response, dict) else {}
+        extract_texts: dict[str, str] = {}
+        raw_text_candidates = cls._browseract_text_candidates(normalized_payload)
+        extracts_payload = structured_response.get("extracts")
+        if isinstance(extracts_payload, dict):
+            for raw_key, raw_value in extracts_payload.items():
+                text_value = str(raw_value or "").strip()
+                if not text_value:
+                    continue
+                extract_texts[cls._normalize_lookup_key(raw_key)] = text_value
+                if text_value not in raw_text_candidates:
+                    raw_text_candidates.append(text_value)
+        raw_text = "\n\n".join(raw_text_candidates).strip()
         label_map = dict(scalar_map)
         section_rows = cls._extract_onemin_billing_sections(normalized_payload)
+        billing_settings_text = extract_texts.get("billing_settings_page", "")
+        usage_records_text = extract_texts.get("usage_records_page", "")
+        billing_bonus_text = extract_texts.get("billing_usage_bonus_page", "")
         json_rows = cls._extract_onemin_json_rows_from_text(raw_text)
         for row in json_rows:
             inferred_section = cls._infer_onemin_billing_section_name(row)
@@ -969,6 +984,12 @@ class BrowserActToolAdapter:
         ):
             if section_rows.get(section_name) and tab_label not in visible_tabs:
                 visible_tabs.append(tab_label)
+        if billing_settings_text and "Subscription" not in visible_tabs:
+            visible_tabs.append("Subscription")
+        if usage_records_text and "Usage Records" not in visible_tabs:
+            visible_tabs.append("Usage Records")
+        if billing_bonus_text and "Voucher" not in visible_tabs:
+            visible_tabs.append("Voucher")
         for alias in (
             "manage_subscription_button_text",
             "top_up_credits_button_text",
@@ -992,6 +1013,13 @@ class BrowserActToolAdapter:
                 "current_balance",
             )
         )
+        if settings_remaining_credits is None and billing_settings_text:
+            settings_remaining_credits = cls._parse_credit_int(
+                cls._find_label_value(
+                    billing_settings_text,
+                    ("Credit", "Current Credit", "Available Credit", "Remaining Credits"),
+                )
+            )
 
         remaining_credits = settings_remaining_credits or cls._parse_credit_int(
             cls._first_scalar_for_aliases(
@@ -1012,6 +1040,13 @@ class BrowserActToolAdapter:
                 ),
             )
         )
+        if remaining_credits is None and billing_settings_text:
+            remaining_credits = cls._parse_credit_int(
+                cls._find_label_value(
+                    billing_settings_text,
+                    ("Credit", "Current Credit", "Available Credit", "Remaining Credits"),
+                )
+            )
         if remaining_credits is None:
             remaining_credits = cls._latest_onemin_usage_remaining(usage_rows)
         if remaining_credits is None:
@@ -1085,6 +1120,7 @@ class BrowserActToolAdapter:
             ).strip()
             or
             cls._first_scalar_for_aliases(scalar_map, "plan_name", "plan", "subscription_plan")
+            or (cls._find_label_value(billing_settings_text, ("Plan",)) if billing_settings_text else "")
             or cls._find_label_value(raw_text, ("Plan",))
         )
         billing_cycle = (
@@ -1100,6 +1136,7 @@ class BrowserActToolAdapter:
             ).strip()
             or
             cls._first_scalar_for_aliases(scalar_map, "billing_cycle", "cycle", "subscription_cycle")
+            or (cls._find_label_value(billing_settings_text, ("Billing Cycle", "Cycle")) if billing_settings_text else "")
             or cls._find_label_value(raw_text, ("Billing Cycle", "Cycle"))
         )
         subscription_status = (
@@ -1114,6 +1151,7 @@ class BrowserActToolAdapter:
             ).strip()
             or
             cls._first_scalar_for_aliases(scalar_map, "subscription_status", "status")
+            or (cls._find_label_value(billing_settings_text, ("Subscription Status", "Status")) if billing_settings_text else "")
             or cls._find_label_value(raw_text, ("Subscription Status", "Status"))
         )
         daily_bonus_cta_text = str(
@@ -1633,6 +1671,12 @@ class BrowserActToolAdapter:
                     "timeout_seconds": timeout_seconds,
                 }
             )
+            local_payload.update(
+                self._browser_proxy_settings(
+                    local_payload,
+                    binding_metadata=binding_metadata,
+                )
+            )
             requested_inputs = self._build_browseract_ui_runtime_inputs(
                 payload=local_payload,
                 service=template_service,
@@ -1830,6 +1874,12 @@ class BrowserActToolAdapter:
                     "timeout_seconds": timeout_seconds,
                 }
             )
+            local_payload.update(
+                self._browser_proxy_settings(
+                    local_payload,
+                    binding_metadata=binding_metadata,
+                )
+            )
             requested_inputs = self._build_browseract_ui_runtime_inputs(
                 payload=local_payload,
                 service=template_service,
@@ -1967,7 +2017,7 @@ class BrowserActToolAdapter:
         for key, value in values.items():
             normalized = str(key or "").strip()
             lowered = normalized.lower()
-            if not normalized or any(marker in lowered for marker in ("password", "secret", "token", "cookie")):
+            if not normalized or any(marker in lowered for marker in ("password", "secret", "token", "cookie", "proxy")):
                 continue
             if lowered in {
                 "login_email",
@@ -2976,6 +3026,70 @@ class BrowserActToolAdapter:
             or binding_metadata.get("password")
             or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
         ).strip()
+
+    @staticmethod
+    def _browser_proxy_setting(
+        payload: dict[str, object],
+        *,
+        binding_metadata: dict[str, object],
+        env_name: str,
+        payload_keys: tuple[str, ...],
+        metadata_keys: tuple[str, ...],
+    ) -> str:
+        for key in payload_keys:
+            value = payload.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        for key in metadata_keys:
+            value = binding_metadata.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return str(os.getenv(env_name) or "").strip()
+
+    @classmethod
+    def _browser_proxy_settings(
+        cls,
+        payload: dict[str, object],
+        *,
+        binding_metadata: dict[str, object],
+    ) -> dict[str, str]:
+        settings = {
+            "browser_proxy_server": cls._browser_proxy_setting(
+                payload,
+                binding_metadata=binding_metadata,
+                env_name="EA_UI_BROWSER_PROXY_SERVER",
+                payload_keys=("browser_proxy_server", "proxy_server"),
+                metadata_keys=("browser_proxy_server", "proxy_server"),
+            ),
+            "browser_proxy_username": cls._browser_proxy_setting(
+                payload,
+                binding_metadata=binding_metadata,
+                env_name="EA_UI_BROWSER_PROXY_USERNAME",
+                payload_keys=("browser_proxy_username", "proxy_username"),
+                metadata_keys=("browser_proxy_username", "proxy_username"),
+            ),
+            "browser_proxy_password": cls._browser_proxy_setting(
+                payload,
+                binding_metadata=binding_metadata,
+                env_name="EA_UI_BROWSER_PROXY_PASSWORD",
+                payload_keys=("browser_proxy_password", "proxy_password"),
+                metadata_keys=("browser_proxy_password", "proxy_password"),
+            ),
+            "browser_proxy_bypass": cls._browser_proxy_setting(
+                payload,
+                binding_metadata=binding_metadata,
+                env_name="EA_UI_BROWSER_PROXY_BYPASS",
+                payload_keys=("browser_proxy_bypass", "proxy_bypass"),
+                metadata_keys=("browser_proxy_bypass", "proxy_bypass"),
+            ),
+        }
+        return {key: value for key, value in settings.items() if value}
 
     @classmethod
     def _execute_ui_service_worker_direct(

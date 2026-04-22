@@ -28,6 +28,14 @@ def _load_module():
     return module
 
 
+def _clear_onemin_runtime_policy(media, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", raising=False)
+    monkeypatch.delenv("CHUMMER6_ONEMIN_ALLOW_RESERVE", raising=False)
+    for env in (media.LOCAL_ENV, media.POLICY_ENV):
+        env.pop("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", None)
+        env.pop("CHUMMER6_ONEMIN_ALLOW_RESERVE", None)
+
+
 def test_provider_order_filters_fallback_render_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.setenv(
@@ -108,6 +116,54 @@ def test_onemin_model_candidates_ignore_low_tier_policy_override(monkeypatch: py
         "gpt-image-1",
         "black-forest-labs/flux-schnell",
     ]
+
+
+def test_onemin_credit_floor_guard_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "_onemin_min_total_credits", lambda: 0)
+    monkeypatch.setattr(media, "_onemin_total_remaining_credits", lambda: None)
+
+    assert media._onemin_credit_guard_reason() == ""
+
+
+def test_onemin_credit_floor_guard_returns_unknown_when_aggregate_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", "500")
+    monkeypatch.setattr(media, "_onemin_total_remaining_credits", lambda: None)
+
+    assert media._onemin_credit_guard_reason() == "onemin:credit_floor_unknown:500"
+
+
+def test_onemin_credit_floor_guard_returns_floor_violation_when_total_is_low(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", "500")
+    monkeypatch.setattr(media, "_onemin_total_remaining_credits", lambda: 120)
+
+    assert media._onemin_credit_guard_reason() == "onemin:credit_floor_guard:120<500"
+
+
+def test_onemin_credit_floor_guard_allows_when_total_meets_floor(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setenv("CHUMMER6_ONEMIN_MIN_TOTAL_CREDITS", "500")
+    monkeypatch.setattr(media, "_onemin_total_remaining_credits", lambda: 750)
+
+    assert media._onemin_credit_guard_reason() == ""
+
+
+def test_run_onemin_api_provider_short_circuits_when_credit_floor_guard_trips(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "_onemin_credit_guard_reason", lambda: "onemin:credit_floor_guard:120<500")
+    monkeypatch.setattr(media, "resolve_onemin_image_slots", lambda: (_ for _ in ()).throw(AssertionError("must not resolve slots")))
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is False
+    assert detail == "onemin:credit_floor_guard:120<500"
 
 
 def test_routed_provider_order_prefers_onemin_for_direct_room_recovery_targets_even_with_no_health_skip(
@@ -327,6 +383,54 @@ def test_run_magixai_api_provider_respects_spec_model_priority(monkeypatch: pyte
     assert seen_models[0] == "fal-ai/flux-pro/v1.1-ultra"
 
 
+def test_run_magixai_api_provider_omits_quality_for_flux_2_pro(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setattr(media, "LOCAL_ENV", {})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+    payloads: list[dict[str, object]] = []
+
+    class _JsonResponse:
+        def __init__(self, body: dict[str, object]) -> None:
+            self.status = 200
+            self.headers = {"Content-Type": "application/json"}
+            self._body = json.dumps(body).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self._body
+
+    def fake_urlopen(request, timeout=0):
+        payload = json.loads(request.data.decode("utf-8"))
+        payloads.append(payload)
+        return _JsonResponse({"data": [{"url": "https://example.test/magix-image.png"}]})
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="magixai": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    ok, detail = media.run_magixai_api_provider(
+        prompt="van reconnect lane",
+        output_path=tmp_path / "nexus.png",
+        width=1280,
+        height=720,
+        spec={"magixai_models": ["fal-ai/flux-2-pro"]},
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert payloads
+    assert all("quality" not in payload for payload in payloads if payload.get("model") == "fal-ai/flux-2-pro")
+
+
 def test_run_magixai_api_provider_continues_past_forbidden_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
     monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
@@ -385,6 +489,9 @@ def test_run_magixai_api_provider_continues_past_forbidden_model(monkeypatch: py
 
 def test_run_onemin_api_provider_uses_manager_reserved_slot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -462,6 +569,9 @@ def test_run_onemin_api_provider_uses_local_manager_fallback_when_http_manager_i
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -543,6 +653,7 @@ def test_run_onemin_api_provider_trips_no_output_watchdog(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -611,6 +722,9 @@ def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reserva
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
     monkeypatch.setattr(
         media,
         "resolve_onemin_image_slots",
@@ -704,6 +818,93 @@ def test_run_onemin_api_provider_walks_other_slots_after_synthetic_local_reserva
     assert seen_api_keys == ["empty-key", "good-key"]
     assert released_http[0] == ("lease-local", "released", 900, "")
     assert released_local[0] == (local_manager, "lease-local", "released", 900, "")
+
+
+def test_run_onemin_api_provider_walks_other_slots_after_local_no_lease_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
+    monkeypatch.setattr(media, "_refresh_onemin_manager_selection_snapshot", lambda: (True, set(), set()))
+    monkeypatch.setattr(media, "_onemin_slot_health_hints", lambda: {})
+    monkeypatch.setattr(
+        media,
+        "resolve_onemin_image_slots",
+        lambda: [
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_48", "key": "stale-key"},
+            {"env_name": "ONEMIN_AI_API_KEY_FALLBACK_3", "key": "good-key"},
+        ],
+    )
+    monkeypatch.setattr(media, "_reserve_onemin_image_slot", lambda **kwargs: None)
+    monkeypatch.setattr(
+        media,
+        "_reserve_onemin_image_slot_locally",
+        lambda **kwargs: (
+            {
+                "lease_id": "",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_48",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_48",
+            },
+            None,
+        ),
+    )
+    monkeypatch.setattr(media, "_release_onemin_image_slot", lambda **kwargs: None)
+    monkeypatch.setattr(media, "_release_onemin_image_slot_locally", lambda **kwargs: None)
+    monkeypatch.setattr(media, "onemin_model_candidates", lambda: ["gpt-image-1-mini"])
+    monkeypatch.setattr(
+        media,
+        "onemin_payloads",
+        lambda model, **kwargs: [{"type": "IMAGE_GENERATOR", "model": model, "promptObject": {"size": "1024x1024"}}],
+    )
+    monkeypatch.setattr(media, "_estimate_onemin_image_credits", lambda **kwargs: 900)
+    monkeypatch.setattr(
+        media,
+        "_download_remote_image",
+        lambda url, output_path, name="onemin": ((output_path.write_bytes(b"png"), True)[1], "downloaded"),
+    )
+
+    class _SuccessResponse:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps({"url": "https://example.test/image.png"}).encode("utf-8")
+
+    seen_api_keys: list[str] = []
+
+    def fake_urlopen(request, timeout=0):
+        headers = {str(key).lower(): value for key, value in request.header_items()}
+        api_key = str(headers.get("api-key", ""))
+        seen_api_keys.append(api_key)
+        if api_key == "stale-key":
+            raise media.urllib.error.HTTPError(
+                request.full_url,
+                406,
+                "Not Acceptable",
+                hdrs={},
+                fp=io.BytesIO(
+                    b'{"errorCode":"INSUFFICIENT_CREDITS","message":"The feature requires 4800 credits, but the Singapore Office team only has 46 credits"}'
+                ),
+            )
+        return _SuccessResponse()
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+
+    ok, detail = media.run_onemin_api_provider(
+        prompt="render scene",
+        output_path=tmp_path / "out.png",
+        width=1024,
+        height=1024,
+    )
+
+    assert ok is True
+    assert detail == "downloaded"
+    assert seen_api_keys == ["stale-key", "good-key"]
 
 
 def test_run_command_provider_returns_timeout_when_subprocess_times_out(
@@ -1155,6 +1356,7 @@ def test_render_targets_keep_release_build_opt_in(monkeypatch: pytest.MonkeyPatc
 
 def test_reserve_onemin_image_slot_allows_reserve_pool_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
+    _clear_onemin_runtime_policy(media, monkeypatch)
     seen: list[tuple[str, dict[str, object]]] = []
 
     monkeypatch.setattr(
@@ -1701,7 +1903,7 @@ def test_build_safe_onemin_prompt_uses_direct_scene_prompts_for_alice_nexus_and_
     )
 
     assert "deterministic crash-lab poster art" in alice_prompt.lower()
-    assert "no wall monitor" in alice_prompt.lower()
+    assert "cyberlimb stress halos" in alice_prompt.lower()
     assert "reconnect-rig poster art" in nexus_prompt.lower()
     assert "no readable exterior shop signs" in nexus_prompt.lower()
     assert "six chummer parts become six physical stations" in parts_prompt.lower()
@@ -1730,7 +1932,7 @@ def test_build_safe_media_factory_prompt_uses_compact_flagship_scene_prompt() ->
     lowered = hero_prompt.lower()
     assert "illustrated cover-grade cyberpunk-fantasy streetdoc cover art." in lowered
     assert "figures occupy less than one quarter of frame" in lowered
-    assert "added in post" in lowered or "painted scene may only carry faint abstract scan glows" in lowered
+    assert "verified post-composite may sharpen them, not invent them" in lowered
     assert "hacked repair recliner" in lowered
 
 
@@ -1763,7 +1965,7 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     lowered = hero_prompt.lower()
     assert "hairy troll" in lowered
     assert "full treatment bay" in lowered or "wet floor" in lowered or "tool wall" in lowered
-    assert "added in post" in lowered or "post-composited later" in lowered
+    assert "verified post-composite may sharpen them, not invent them" in lowered
     assert "medscan diagnostic" in lowered
     assert "cyberlimb calibration" not in lowered
     assert "bod rail" not in lowered
@@ -1798,7 +2000,7 @@ def test_overlay_mode_for_target_maps_flagship_assets() -> None:
     assert media.overlay_mode_for_target("assets/hero/chummer6-hero.png") == "medscan_diagnostic"
     assert media.overlay_mode_for_target("assets/pages/horizons-index.png") == "ambient_diegetic"
     assert media.overlay_mode_for_target("assets/horizons/karma-forge.png") == "forge_review_ar"
-    assert media.overlay_mode_for_target("assets/pages/start-here.png") == ""
+    assert media.overlay_mode_for_target("assets/pages/start-here.png") == "ambient_diegetic"
 
 
 def test_page_media_row_does_not_literalize_page_id_as_metaphor() -> None:
@@ -1974,12 +2176,13 @@ def test_first_contact_target_variant_count_and_overlay_gate() -> None:
     assert media.first_contact_variant_count(target="assets/horizons/alice.png") == 10
     assert media.first_contact_variant_count(target="assets/horizons/nexus-pan.png") == 8
     assert media.first_contact_variant_count(target="assets/horizons/runsite.png") == 8
-    assert media.first_contact_variant_count(target="assets/parts/hub.png") == 6
+    assert media.first_contact_variant_count(target="assets/parts/hub.png") == 8
     assert media.first_contact_variant_count(target="assets/pages/parts-index.png") == 10
     assert media.quality_focus_target("assets/parts/ui.png") is True
-    assert media.first_contact_variant_count(target="assets/parts/ui.png") == 5
-    assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png"}) is False
+    assert media.first_contact_variant_count(target="assets/parts/ui.png") == 8
+    assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png"}) is True
     assert media.review_overlay_enabled(spec={"target": "assets/hero/chummer6-hero.png", "review_overlay": True}) is True
+    assert media.review_overlay_enabled(spec={"target": "assets/parts/core.png"}) is True
 
 
 def test_first_contact_target_variant_count_honors_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1994,6 +2197,9 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
 
     hero_contract = media.target_visual_contract("assets/hero/chummer6-hero.png")
     contract = media.target_visual_contract("assets/horizons/karma-forge.png")
+    core_contract = media.target_visual_contract("assets/parts/core.png")
+    horizons_contract = media.target_visual_contract("assets/pages/horizons-index.png")
+    alice_contract = media.target_visual_contract("assets/horizons/alice.png")
 
     assert hero_contract["person_count_target"] == "duo_or_team"
     assert any("improvised garage clinic" in marker for marker in hero_contract["required_setting_markers"])
@@ -2004,8 +2210,13 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     assert contract["overlay_density"] == "high"
     assert contract["person_count_target"] == "duo_preferred"
     assert "DIFF" in contract["required_overlay_schema"]
+    assert core_contract["required_overlay_mode"] == "smartlink_tactical"
+    assert core_contract["overlay_render_strategy"] == "verified_post_composite_public"
+    assert core_contract["overlay_anchor_required"] is True
     assert contract["required_overlay_mode"] == "forge_review_ar"
     assert "approval or provenance logic" in contract["must_show_semantic_anchors"]
+    assert "none" not in horizons_contract["allowed_overlay_modes"]
+    assert "none" not in alice_contract["allowed_overlay_modes"]
     assert media.humor_allowed_for_target(target="assets/horizons/karma-forge.png", contract={}) is False
 
 
@@ -2021,7 +2232,7 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
     assert any("do not fall back to the softer secondary guide-still epoch" in part.lower() for part in hero_parts)
     assert any("overlay posture to medscan diagnostic" in part.lower() for part in hero_parts)
-    assert any("clean scene plate" in part.lower() and "composited after the art render" in part.lower() for part in hero_parts)
+    assert any("visibly present in the base artwork" in part.lower() and "introducing ar from nothing" in part.lower() for part in hero_parts)
     assert any("overlay render strategy: verified post composite only" in part.lower() for part in hero_parts)
     assert any("pipeline layers: base scene, verified overlay" in part.lower() for part in hero_parts)
     assert any("troll patient must read clearly" in part.lower() for part in hero_parts)
@@ -2033,10 +2244,10 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     assert any("any overlay chip, rail, or callout must clearly anchor" in part.lower() or "all overlays must visibly anchor" in part.lower() for part in hero_parts)
     assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
-    assert any("rules lab" in part.lower() or "approval rail" in part.lower() for part in forge_parts)
+    assert any("prototype cyberlimb assembly" in part.lower() or "chrome-bearing ork rulesmith" in part.lower() for part in forge_parts)
     assert any("cover-grade promo poster" in part.lower() or "flagship poster" in part.lower() for part in forge_parts)
     assert any("overlay posture to forge review ar" in part.lower() for part in forge_parts)
-    assert any("apparatus, rails, machinery, or proving hardware occupy at least about 50% of the readable frame" in part.lower() for part in forge_parts)
+    assert any("apparatus, rails, machinery, or proving hardware occupy at least about 52% of the readable frame" in part.lower() for part in forge_parts)
     assert any("single figure or tight subject cluster read larger than about 24% of the frame" in part.lower() for part in forge_parts)
     assert any("approval state" in part.lower() and "rollback" in part.lower() for part in forge_parts)
     assert any("attach overlays to rails" in part.lower() or "avoid floating torso or face coverage" in part.lower() for part in forge_parts)
@@ -2285,26 +2496,26 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
 
     assert result == "first_contact_overlay:applied_ffmpeg"
     assert "drawtext=" in seen["command"][7]
-    assert "UPGRADING" in seen["command"][7]
+    assert "SIN maybe fake" in seen["command"][7]
+    assert "smartlink green" in seen["command"][7]
     assert "TRUST CHECK" not in seen["command"][7]
-    assert "NEURAL LINK RESYNC" in seen["command"][7]
     assert "boxborderw=3" in seen["command"][7]
     assert "borderw=1" in seen["command"][7]
 
 
-def test_apply_first_contact_overlay_postpass_skips_public_assets_by_default(tmp_path: Path) -> None:
+def test_apply_first_contact_overlay_postpass_skips_targets_without_overlay_layout(tmp_path: Path) -> None:
     media = _load_module()
     image_path = tmp_path / "hero.png"
     image_path.write_bytes(b"png")
 
     result = media.apply_first_contact_overlay_postpass(
         image_path=image_path,
-        spec={"target": "assets/hero/chummer6-hero.png"},
+        spec={"target": "assets/pages/start-here.png"},
         width=960,
         height=540,
     )
 
-    assert result == "first_contact_overlay:skipped_public_clean"
+    assert result == "first_contact_overlay:skipped"
 
 
 def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
@@ -2317,16 +2528,16 @@ def test_karma_forge_overlay_layout_prefers_rails_and_arcs() -> None:
     )
 
     assert len(layout["fills"]) >= 5
-    assert len(layout["chips"]) >= 7
-    assert len(layout["lines"]) >= 6
+    assert len(layout["chips"]) >= 5
+    assert len(layout["lines"]) >= 5
     assert len(layout["arcs"]) >= 3
-    assert any(chip["text"] == "COMPATIBILITY ARC" for chip in layout["chips"])
-    provenance = next(chip for chip in layout["chips"] if chip["text"] == "PROVENANCE")
-    rollback = next(chip for chip in layout["chips"] if chip["text"] == "ROLLBACK")
-    compatibility = next(chip for chip in layout["chips"] if chip["text"] == "COMPATIBILITY ARC")
+    assert any(chip["text"] == "seal drift 14%" for chip in layout["chips"])
+    provenance = next(chip for chip in layout["chips"] if chip["text"] == "seal drift 14%")
+    rollback = next(chip for chip in layout["chips"] if chip["text"] == "rollback safe 62%")
+    compatibility = next(chip for chip in layout["chips"] if chip["text"] == "witness lock weak")
     assert int(provenance["x"]) > int(0.72 * 960)
-    assert int(rollback["x"]) > int(0.78 * 960)
-    assert int(compatibility["x"]) > int(0.7 * 960)
+    assert int(rollback["x"]) > int(0.60 * 960)
+    assert int(compatibility["x"]) > int(0.6 * 960)
 
 
 def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
@@ -2339,16 +2550,61 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     )
 
     total_box_area = sum(int(box["w"]) * int(box["h"]) for box in layout["boxes"])
-    calibration = next(chip for chip in layout["chips"] if chip["text"] == "CYBERLIMB CALIBRATION")
-    wound = next(chip for chip in layout["chips"] if chip["text"] == "WOUND STABILIZED")
+    calibration = next(chip for chip in layout["chips"] if chip["text"] == "cam jack 67%")
+    wound = next(chip for chip in layout["chips"] if chip["text"] == "cover route 3.1s")
 
     assert total_box_area < int(0.07 * 960 * 540)
-    assert any(chip["text"] == "AGI 4 ↑ UPGRADING" for chip in layout["chips"])
-    assert any(chip["text"] == "ESS 2.8 ↑ UPGRADING" for chip in layout["chips"])
+    assert any(chip["text"] == "SIN maybe fake" for chip in layout["chips"])
+    assert any(chip["text"] == "smartlink green" for chip in layout["chips"])
     assert int(calibration["x"]) > int(0.78 * 960)
-    assert int(calibration["y"]) > int(0.64 * 540)
-    assert int(wound["x"]) < int(0.12 * 960)
+    assert int(calibration["y"]) > int(0.68 * 540)
+    assert int(wound["x"]) < int(0.16 * 960)
     assert int(wound["y"]) > int(0.68 * 540)
+
+
+def test_core_overlay_layout_uses_smartlink_style_chips() -> None:
+    media = _load_module()
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/parts/core.png",
+        width=960,
+        height=540,
+    )
+
+    assert len(layout["chips"]) >= 4
+    assert any(chip["text"] == "rules drift low" for chip in layout["chips"])
+    assert any(chip["text"] == "line of fire clear" for chip in layout["chips"])
+    assert any(chip["text"] == "reroute in 2 taps" for chip in layout["chips"])
+    assert any(chip["text"] == "edge spend ready" for chip in layout["chips"])
+
+
+def test_hero_overlay_layout_drops_route_and_camera_chips_without_observed_geometry(tmp_path: Path) -> None:
+    media = _load_module()
+    if media.cv2 is None or media.np is None:
+        pytest.skip("cv2 unavailable")
+    image_mod = pytest.importorskip("PIL.Image")
+    draw_mod = pytest.importorskip("PIL.ImageDraw")
+
+    image_path = tmp_path / "hero-no-route.png"
+    image = image_mod.new("RGB", (960, 540), (18, 22, 28))
+    draw = draw_mod.Draw(image)
+    draw.rectangle((80, 120, 300, 458), fill=(66, 102, 132))
+    draw.rectangle((600, 120, 860, 430), fill=(58, 86, 116))
+    image.save(image_path)
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/hero/chummer6-hero.png",
+        width=960,
+        height=540,
+        image_path=image_path,
+    )
+
+    texts = {str(chip["text"]) for chip in layout["chips"]}
+    assert "SIN maybe fake" in texts
+    assert "smartlink green" in texts
+    assert "cover route 3.1s" not in texts
+    assert "next: side door" not in texts
+    assert "cam jack 67%" not in texts
 
 
 def test_apply_flagship_finish_postpass_uses_pillow_when_available(tmp_path: Path) -> None:
@@ -2408,7 +2664,7 @@ def test_apply_flagship_finish_postpass_supports_alice(tmp_path: Path) -> None:
         spec={"target": "assets/horizons/alice.png"},
     )
 
-    assert result == "flagship_finish_postpass:applied_pillow"
+    assert result == "flagship_finish_postpass:applied_pillow_alice_custom"
 
 
 def test_apply_flagship_finish_postpass_supports_parts_index(tmp_path: Path) -> None:
@@ -2440,6 +2696,36 @@ def test_apply_flagship_ambient_cue_postpass_supports_runsite(tmp_path: Path) ->
     result = media.apply_flagship_ambient_cue_postpass(
         image_path=image_path,
         spec={"target": "assets/horizons/runsite.png"},
+    )
+
+    assert result == "flagship_ambient_cue_postpass:applied"
+    assert image_path.read_bytes() != before
+
+
+def test_apply_flagship_ambient_cue_postpass_supports_core(tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "core.png"
+    media.Image.new("RGB", (960, 540), (24, 26, 30)).save(image_path)
+    before = image_path.read_bytes()
+
+    result = media.apply_flagship_ambient_cue_postpass(
+        image_path=image_path,
+        spec={"target": "assets/parts/core.png"},
+    )
+
+    assert result == "flagship_ambient_cue_postpass:applied"
+    assert image_path.read_bytes() != before
+
+
+def test_apply_flagship_ambient_cue_postpass_supports_media_factory(tmp_path: Path) -> None:
+    media = _load_module()
+    image_path = tmp_path / "media-factory.png"
+    media.Image.new("RGB", (960, 540), (26, 24, 28)).save(image_path)
+    before = image_path.read_bytes()
+
+    result = media.apply_flagship_ambient_cue_postpass(
+        image_path=image_path,
+        spec={"target": "assets/parts/media-factory.png"},
     )
 
     assert result == "flagship_ambient_cue_postpass:applied"
@@ -2592,9 +2878,9 @@ def test_apply_flagship_finish_postpass_uses_ffmpeg_when_pillow_is_unavailable(
     )
 
     assert result == "flagship_finish_postpass:applied_ffmpeg"
-    assert "cas=strength=0.22" in seen["command"][7]
-    assert "vibrance=intensity=0.10" in seen["command"][7]
-    assert "unsharp=5:5:0.64:3:3:0.0" in seen["command"][7]
+    assert "cas=strength=0.24" in seen["command"][7]
+    assert "vibrance=intensity=0.18" in seen["command"][7]
+    assert "unsharp=5:5:0.66:3:3:0.0" in seen["command"][7]
 
 
 def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
@@ -2611,7 +2897,8 @@ def test_asset_specs_use_vivid_auto_first_flagship_onemin_lane() -> None:
     assert horizons["onemin_sizes"] == ["auto", "1536x1024"]
     assert horizons["onemin_image_style"] == "vivid"
     assert horizons["onemin_models"] == ["gpt-image-1"]
-    assert horizons["providers"][0] == "media_factory"
+    assert horizons["providers"][0] == "magixai"
+    assert "media_factory" in horizons["providers"]
     assert forge["onemin_sizes"] == ["auto", "1536x1024"]
     assert forge["onemin_image_style"] == "vivid"
     assert forge["onemin_models"] == ["gpt-image-1"]
@@ -2627,15 +2914,15 @@ def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> 
     hero_prompt = str(hero_spec["prompt"])
     karma_prompt = str(karma_spec["prompt"])
 
-    assert "clean base-scene plate" in hero_prompt
+    assert "make the ar visibly present in the base artwork" in hero_prompt.lower()
     assert "deterministic post-composite overlay layer" in hero_prompt
-    assert "Reserve the scene-specific overlay semantics for the verified composite layer only" in hero_prompt
-    assert "Do not paint readable stat names, subsystem labels, approval words, or status text into the base artwork." in hero_prompt
+    assert "keep the scene-specific overlay semantics visible in-scene" in hero_prompt.lower()
+    assert "short readable chips or terse labels are allowed" in hero_prompt.lower()
     assert "troll patient must read clearly" in hero_prompt
     assert "Trust Check" not in hero_prompt
-    assert "clean base-scene plate" in karma_prompt
+    assert "make the ar visibly present in the base artwork" in karma_prompt.lower()
     assert "Keep the shared guide continuity in palette, texture, and world feel without softening the flagship poster finish." in karma_prompt
-    assert "readable approval" in karma_prompt
+    assert "approval" in karma_prompt.lower()
 
 
 def test_critical_visual_gate_failures_reject_sparse_first_contact_candidates() -> None:
@@ -2708,6 +2995,40 @@ def test_render_with_ooda_skips_provider_on_rate_limit_cooldown(
     assert second["provider"] == "media_factory"
 
 
+def test_render_with_ooda_waits_for_busy_provider_queue(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    media._PROVIDER_RATE_LIMIT_COOLDOWNS.clear()
+    output_path = tmp_path / "render.png"
+    cooldown_checks = {"count": 0}
+    sleeps: list[int] = []
+
+    def _cooldown_remaining(provider: str) -> int:
+        cooldown_checks["count"] += 1
+        return 9 if cooldown_checks["count"] == 1 else 0
+
+    def _run_onemin_api_provider(**kwargs: object) -> tuple[bool, str]:
+        Path(str(kwargs["output_path"])).write_bytes(b"png")
+        return True, "onemin:rendered"
+
+    monkeypatch.setattr(media, "_provider_cooldown_remaining_seconds", _cooldown_remaining)
+    monkeypatch.setattr(media, "run_onemin_api_provider", _run_onemin_api_provider)
+    monkeypatch.setattr(media.time, "sleep", lambda seconds: sleeps.append(int(seconds)))
+
+    result = media.render_with_ooda(
+        prompt="render the room",
+        output_path=output_path,
+        width=960,
+        height=540,
+        spec={"providers": ["onemin"]},
+    )
+
+    assert result["provider"] == "onemin"
+    assert "queue_wait:9s" in result["attempts"]
+    assert sleeps == [9]
+
+
 def test_render_with_ooda_skips_provider_when_scheduler_slot_is_held(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -2746,6 +3067,39 @@ def test_render_with_ooda_skips_provider_when_scheduler_slot_is_held(
 
     assert any(item.startswith("onemin:cooldown:") or item.startswith("onemin:scheduled_wait:") for item in result["attempts"])
     assert result["provider"] == "media_factory"
+
+
+def test_acquire_provider_scheduler_slot_reclaims_dead_owner_pid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "PROVIDER_SCHEDULER_OUT", tmp_path / "scheduler.json")
+    media.write_json_file(
+        media.PROVIDER_SCHEDULER_OUT,
+        {
+            "providers": {
+                "onemin": {
+                    "active_until_epoch": media._scheduler_now_epoch() + 120.0,
+                    "active_target": "assets/other.png",
+                    "active_owner_pid": 999999,
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(media, "_pid_is_alive", lambda pid: False)
+
+    acquired, wait_seconds = media._acquire_provider_scheduler_slot(
+        provider="onemin",
+        target="assets/pages/current-status.png",
+        hold_seconds=60,
+    )
+    scheduler = media.load_provider_scheduler()
+    entry = scheduler["providers"]["onemin"]
+
+    assert acquired is True
+    assert wait_seconds == 0
+    assert entry["active_target"] == "assets/pages/current-status.png"
+    assert int(entry["active_owner_pid"]) > 0
 
 
 def test_render_with_ooda_skips_provider_when_family_health_is_stalled(
@@ -3212,7 +3566,7 @@ def test_asset_specs_propagate_onemin_strict_models_for_direct_targets() -> None
     assert alice["onemin_strict_models"] is True
     assert nexus["onemin_models"] == ["gpt-image-1"]
     assert nexus["onemin_strict_models"] is True
-    assert nexus["providers"] == ["onemin", "media_factory"]
+    assert nexus["providers"] == ["magixai", "onemin", "media_factory"]
 
 
 def test_visual_audit_dominant_panel_risk_flags_large_wall_panel(tmp_path: Path) -> None:
@@ -3482,7 +3836,7 @@ def test_refine_prompt_with_ooda_uses_external_refiner_when_available_without_re
     monkeypatch.setattr(media, "env_value", lambda name: "wf-123" if name == "CHUMMER6_BROWSERACT_PROMPTING_SYSTEMS_REFINE_WORKFLOW_ID" else "")
     monkeypatch.setattr(media, "shlex_command", lambda name: ["python3", "-c", "print('refined prompt from external lane')"])
 
-    refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/start-here.png")
+    refined = media.refine_prompt_with_ooda(prompt="base prompt", target="assets/pages/low-stakes-preview.png")
 
     assert refined == "refined prompt from external lane"
 

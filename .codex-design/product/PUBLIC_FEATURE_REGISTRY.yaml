@@ -5,20 +5,20 @@ cards:
   - id: product_story
     bucket: start_here
     title: Build
-    summary: Create and inspect a character without mystery math.
+    summary: Create and inspect a character inside the explainable Shadowrun campaign OS.
     href: /downloads
     badge: Workflow
     audience: public
     image_family: solo_operator
     asset_slot: capability_build_runner
-    action_label: Get the preview build
+    action_label: Create account to install
     proof_note: "Proof: a real preview build exists now, not just a story about one."
     pain: Clean dossiers, visible tradeoffs, and no hidden modifier stack.
     payoff: Deterministic totals stay readable before you ever take the character to the table.
   - id: see_whats_real
     bucket: start_here
     title: Explain
-    summary: See exactly why the number changed.
+    summary: See exactly why the number changed and what the table should trust.
     href: /now#real-rules-truth
     badge: Workflow
     audience: public
@@ -31,26 +31,26 @@ cards:
   - id: get_the_poc
     bucket: start_here
     title: Run
-    summary: Keep the session moving when devices or networks drift.
+    summary: Keep the session and campaign state coherent when devices or networks drift.
     href: /now#real-mobile-prep
     badge: Workflow
     audience: public
     image_family: streetfront
     action_label: See continuity in preview
     proof_note: "Proof: continuity survives device drift without hiding the current product limits."
-    pain: Carry the same dossier and session state across devices without losing trust.
-    payoff: Local-first continuity keeps the table moving even when the network does not cooperate.
+    pain: Carry the same dossier, ledger, and session state across devices without losing trust.
+    payoff: Receipt-backed continuity keeps the table moving even when the network does not cooperate.
   - id: publish_grounded_artifacts
     bucket: start_here
     title: Publish
-    summary: Turn grounded dossiers, packets, and primers into finished artifacts with provenance.
+    summary: Turn grounded dossiers, packets, videos, and primers into finished artifacts with provenance.
     href: /artifacts
     badge: Workflow
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
     action_label: See creator outputs
-    proof_note: "Proof: publication and artifact lanes are defined around manifests, previews, and provenance rather than copy-paste folklore."
+    proof_note: "Proof: publication now has first-party packet and video artifact families, preview routes, and provenance rules instead of only horizon prose."
     pain: Mission packets and creator outputs are usually manual, fragile, and hard to trust.
     payoff: Finished artifacts stay tied to manifests, previews, and receipts.
   - id: improve_the_product
@@ -111,7 +111,7 @@ cards:
   - id: lane_gm
     bucket: choose_your_lane
     title: GM
-    summary: Run faster, recover state, and brief the team.
+    summary: Run from a reliable campaign ledger, recover state, and brief the team.
     href: /now#real-mobile-prep
     badge: Mixed
     audience: public
@@ -121,9 +121,9 @@ cards:
   - id: lane_creator
     bucket: choose_your_lane
     title: Creator
-    summary: Publish primers, packs, and artifacts with provenance.
+    summary: Publish primers, briefing reels, and artifact bundles with provenance.
     href: /artifacts
-    badge: Coming next
+    badge: Preview lane
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
@@ -245,7 +245,7 @@ cards:
     title: JACKPOINT
     summary: Dossiers, recaps, and briefings that feel finished without severing provenance.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
-    badge: Designing
+    badge: Preview lane
     audience: public
     image_family: dossier_desk
     detail_route: /roadmap/jackpoint
@@ -258,12 +258,14 @@ cards:
     external_ok: true
     pain: I want mission packets that do not feel like a copy-paste graveyard.
     payoff: Grounded artifacts can feel polished without becoming fictional truth.
+    proof_note: "Proof: JACKPOINT already points at first-party dossier and mission-brief artifact previews instead of reading like an empty teaser."
+    microproof: Dossier preview|Mission-brief lane|First-party detail page
   - id: horizon_runsite
     bucket: coming_next
     title: RUNSITE
     summary: Walk the job before the team walks into it.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
-    badge: Preparing
+    badge: Preview lane
     audience: public
     image_family: facility_exterior
     detail_route: /roadmap/runsite
@@ -283,7 +285,7 @@ cards:
     title: RUNBOOK PRESS
     summary: Bring new players in without the two-hour lecture.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
-    badge: Designing
+    badge: Preview lane
     audience: public
     image_family: prop_cluster
     detail_route: /roadmap/runbook-press
@@ -296,6 +298,44 @@ cards:
     external_ok: true
     pain: Table onboarding still depends on heroic patience.
     payoff: Grounded primers become first-class artifacts instead of random PDFs.
+    proof_note: "Proof: RUNBOOK PRESS already points at first-party primer packet and primer-video previews instead of only future-facing copy."
+    microproof: Primer packet|Primer-video lane|First-party detail page
+  - id: horizon_shadowcasters_network
+    bucket: coming_next
+    title: SHADOWCASTERS NETWORK
+    summary: Find a run, see the rules, get scheduled cleanly, and let the world remember the outcome.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/shadowcasters-network.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/shadowcasters-network
+    render_mode: external_explainer
+    action_label: Read the network horizon
+    detail_primary_href: /roadmap/black-ledger
+    detail_primary_label: See the world-state foundation
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/shadowcasters-network.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Finding a table still means juggling community rules, approvals, chats, calendars, and follow-up by hand.
+    payoff: Chummer becomes the structured layer above community chats, calendars, and play surfaces instead of another disconnected app.
+  - id: horizon_black_ledger
+    bucket: coming_next
+    title: BLACK LEDGER
+    summary: Keep city pressure, faction motion, and mission-market drift visible between runs.
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
+    badge: Research
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /roadmap/black-ledger
+    render_mode: external_explainer
+    action_label: See the related artifact preview
+    detail_primary_href: /artifacts/replay-after-action
+    detail_primary_label: See the related artifact preview
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: World pressure vanishes when campaigns cannot project consequences beyond the last scene.
+    payoff: Consequence, faction posture, and mission pressure remain inspectable instead of turning into GM-only folklore.
   - id: horizon_ghostwire
     bucket: coming_next
     title: GHOSTWIRE
@@ -349,6 +389,25 @@ cards:
     payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
     proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, and a first-party download path."
     microproof: Installer shelf|Preview channel|Account-aware handoff
+  - id: artifact_mac_codex_release_pipeline
+    bucket: featured_artifacts
+    title: Mac Codex release pipeline
+    summary: A Mac Codex session can clone the release repos, build the mac desktop artifact, sign and notarize it, publish it to chummer.run, and verify the live shelf from one public runbook.
+    href: /artifacts/mac-codex-release-pipeline
+    badge: Available today
+    audience: public
+    image_family: facility_exterior
+    asset_slot: release_current_build
+    detail_route: /artifacts/mac-codex-release-pipeline
+    action_label: Open the Mac release runbook
+    detail_primary_href: /downloads/release-upload/bootstrap.sh
+    detail_primary_label: Open the Mac bootstrap script
+    fallback_route: /artifacts/mac-codex-release-pipeline/readme.md
+    fallback_label: Read the full runbook
+    pain: Mac release work falls apart when cloning, signing, notarization, publication, and live verification live in separate tribal steps.
+    payoff: One truthful bootstrap turns a Mac Codex session into a repeatable public-release lane instead of a manual operator ritual.
+    proof_note: "Paste `bash <(curl -fsSL https://chummer.run/downloads/release-upload/bootstrap.sh)` into the Mac shell, then let the bootstrap build, sign, notarize, publish, and verify the release with the current supported chummer.run topology."
+    microproof: Clone and pin refs|Codesign and notarize|Publish and verify live shelf
   - id: artifact_rules_receipt
     bucket: featured_artifacts
     title: Explanation receipt trail
@@ -397,6 +456,30 @@ cards:
     detail_route: /artifacts/campaign-primer
     action_label: Inspect the campaign primer
     detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
+  - id: artifact_campaign_primer_video
+    bucket: featured_artifacts
+    title: Campaign primer video
+    summary: Pair the written primer with a short multilingual walkthrough that gets players oriented fast.
+    href: /roadmap/runbook-press
+    badge: Preview
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /artifacts/campaign-primer-video
+    action_label: Inspect the primer-video lane
+    detail_primary_href: /roadmap/runbook-press
+    detail_primary_label: See related roadmap item
+  - id: artifact_mission_brief_video
+    bucket: featured_artifacts
+    title: Mission briefing video
+    summary: Turn approved run packets into a short host-led briefing instead of relying on a cold PDF alone.
+    href: /roadmap/jackpoint
+    badge: Preview
+    audience: public
+    image_family: dossier_desk
+    detail_route: /artifacts/mission-brief-video
+    action_label: Inspect the mission-brief lane
+    detail_primary_href: /roadmap/jackpoint
     detail_primary_label: See related roadmap item
   - id: artifact_after_action
     bucket: featured_artifacts
@@ -457,7 +540,7 @@ cards:
   - id: release_latest
     bucket: release_shelf
     title: Current preview build
-    summary: Current preview installer, release notes, and integrity details in one shelf.
+    summary: Current published installers, release notes, and integrity details in one shelf.
     href: /downloads
     badge: Preview
     audience: public

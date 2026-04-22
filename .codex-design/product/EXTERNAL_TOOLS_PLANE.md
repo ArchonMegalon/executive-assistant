@@ -24,7 +24,9 @@ without allowing any external tool to become canonical product truth.
 
 ## Core rule
 
-External tools may assist, route, render, summarize, visualize, archive, notify, or project. They may not become the canonical source of rules truth, session truth, approval truth, registry truth, media truth, or canon truth.
+External tools may assist, route, render, summarize, visualize, archive, notify, project, interview, or schedule. They may not become the canonical source of rules truth, session truth, approval truth, registry truth, media truth, or canon truth.
+
+Research and interview tools may collect interviews and produce synthesis outputs, but they may not become feature truth, implementation priority, or backlog ownership.
 
 Chummer-owned repos and Chummer-owned manifests/stores remain authoritative.
 Owning an LTD does not obligate Chummer to integrate it.
@@ -38,10 +40,12 @@ Current known external-tool inventory includes:
 * Prompting Systems
 * ChatPlayground AI
 * Soundmadeseen
+* vidBoard
 * AI Magicx
 * FastestVPN PRO
 * OneAir
 * Headway
+* hedy.ai
 * Internxt Cloud Storage
 * ApiX-Drive
 * ApproveThis
@@ -49,15 +53,22 @@ Current known external-tool inventory includes:
 * BrowserAct
 * Browserly
 * Crezlo Tours
+* Deftform
 * Documentation.AI
+* FacePop
 * First Book ai
+* Icanpreneur
 * Invoiless
+* Lunacal
 * MarkupGo
 * MetaSurvey
 * Mootion
+* NextStep
 * Nonverbia
 * Paperguide
 * PeekShot
+* Signitic
+* Taja
 * Teable
 * Unmixr AI
 * Vizologi
@@ -85,10 +96,25 @@ The horizon docs decide whether a lane is active; this document decides which ki
 
 Current horizon-facing posture:
 
-* `jackpoint` - narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
-* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
-* `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
-* `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, with bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
+* `jackpoint` - structured presenter-video and multilingual briefing lanes may use `vidBoard`; narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
+* `karma-forge` - governed house-rule discovery may use `Icanpreneur` for interviews and synthesis, `Deftform` for pre-screening, `Lunacal` for follow-up clinics, `MetaSurvey` for quant validation, `NextStep` for sprint/process execution, and bounded `FacePop` / `Signitic` / `vidBoard` / `Taja` for recruitment and approved discovery explainers
+* `shadowcasters-network` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `NextStep`, `MetaSurvey`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
+* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
+* `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
+* `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with later bounded player-safe recap / GM-private debrief video from `vidBoard`, plus bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
+
+## Public trust and concierge posture
+
+Public trust surfaces may consume owned LTDs only through bounded public-concierge lanes that route into first-party Chummer truth.
+
+Current public-surface posture:
+
+* Hub-owned public trust surfaces such as `/downloads`, `/now`, public help entry pages, artifact pages, creator pages, and tokenized invite pages that expose no private truth may use `FacePop` as a bounded public concierge or trust-widget lane
+* public intake or guided escalation may use `Deftform` for structured intake and `Lunacal` for human booking only when Chummer-owned fallback paths and receipt mirroring remain intact
+* public or network-visible open-run discovery may use `FacePop`, `Deftform`, and `Lunacal` for first contact, application intake, and booking projection only when accepted-roster truth, meeting-handoff truth, and observer-consent truth remain first-party
+* community-run play surfaces such as Discord, Teams, Foundry, Roll20, or generic meeting URLs may receive handoff and export packages only when Chummer remains the first-party authority for run, roster, rule-environment, and closeout truth
+* passive outreach and recruitment projection may use `Signitic` only when the CTA lands on first-party Chummer pages and any resulting intake still lands in Chummer-owned receipts or routes
+* public concierge flows may use `vidBoard`, `MarkupGo`, `PeekShot`, and `Soundmadeseen` as sibling explainer and artifact lanes, but those companions remain downstream of Chummer-owned release, support, invite, and publication truth
 
 ## Classification model
 
@@ -133,6 +159,37 @@ Examples:
 * review inboxes
 * release dashboards
 
+### Class C1 - Public trust / concierge widgets
+
+These are bounded public-surface widgets that humanize first contact and route visitors into Chummer-owned truth paths without becoming truth themselves.
+
+Examples:
+
+* optional concierge greetings on `/downloads` or `/now`
+* public booking wrappers for setup or creator consult lanes
+* moderated testimonial capture on public proof or follow-up pages
+
+### Class C2 - Passive outreach projection integrations
+
+These amplify public invitations or release campaigns, but only by routing people toward first-party Chummer destinations.
+
+Examples:
+
+* email-signature CTA campaigns
+* passive recruitment banners
+* release-campaign link rotations
+
+### Class C3 - Operator process execution integrations
+
+These execute runbooks, closeout loops, or checklist discipline for operators, but they do not become the canonical process truth.
+
+Examples:
+
+* discovery sprint SOP runners
+* media publication checklists
+* release closeout checklists
+* localization or review gates
+
 ### Class D - Research / eval / prompt-tooling integrations
 
 These inform product quality, content quality, or design quality, but they do not directly own end-user truth.
@@ -144,6 +201,17 @@ Examples:
 * cited synthesis
 * product strategy ideation
 * bounded coaching and social-dynamics analysis
+
+### Class D1 - Discovery / interview integrations
+
+These collect adaptive interviews, research intake, or validation loops, but they do not directly own feature truth or implementation priority.
+
+Examples:
+
+* discovery interviews
+* follow-up validation calls
+* concept-sprint synthesis
+* post-cluster ranking surveys
 
 ### Class E - Non-product utilities
 
@@ -198,9 +266,31 @@ Anything that re-enters Chummer from an external tool must carry:
 
 Every integration must be disableable without corrupting product truth.
 
-### Rule 5 - no client-side vendor coupling
+### Rule 5 - no client-side vendor coupling on authenticated or truth-bearing surfaces
 
-No browser, mobile, or desktop repo may embed vendor credentials or call vendor SDKs directly.
+No browser, mobile, or desktop repo may embed vendor credentials or rely on vendor SDKs on authenticated, truth-bearing, or runtime-critical surfaces.
+
+This includes:
+
+* signed-in home surfaces
+* campaign workspace
+* support case views
+* install/update flows
+* crash/bug submission forms
+* desktop/mobile runtime UX
+* admin/operator surfaces
+
+### Rule 5a - public concierge widget exception
+
+A bounded external widget may appear on a Hub-owned public surface only when all of the following are true:
+
+* the surface is public, low-risk, and not the owner of canonical truth
+* the widget is optional and removable via kill switch
+* the widget has a graceful first-party fallback path
+* no vendor secret or private access token is exposed client-side
+* the widget does not become the system of record for support, install, auth, publication, or campaign truth
+* every meaningful submission or route result is mirrored back into Chummer-owned receipts or first-party destinations
+* accessibility and locale review are complete
 
 ### Rule 6 - archive is not canon
 
@@ -222,6 +312,44 @@ The first support plane must work without a chat assistant or support widget.
 
 Crash reporting, structured bug reporting, and lightweight feedback must be first-class Chummer-owned flows before any support assistant becomes user-facing.
 No new AppSumo LTD is required or assumed for the core crash path.
+
+### Rule 9a - concierge widgets may route to support; they may not replace support
+
+A public concierge widget may:
+
+* help the user choose between help paths
+* route to Deftform or Hub support intake
+* route to Lunacal for human escalation
+* show a short human greeting or explainer
+
+A public concierge widget may not:
+
+* claim to resolve support cases itself
+* become the support ticket or case record
+* hide the first-party support path
+* block access to first-party support when disabled
+
+## Allowed and forbidden public concierge surfaces
+
+Allowed:
+
+* public landing pages
+* `/downloads`
+* `/now`
+* public help entry pages
+* public artifact and creator pages
+* tokenized invite pages that expose no private truth
+
+Forbidden:
+
+* desktop app
+* mobile app
+* signed-in home
+* authenticated campaign workspace
+* updater dialogs
+* claim-code entry forms
+* case timeline and support-thread views
+* admin, governor, or operator surfaces
 
 ## Repo ownership
 
@@ -501,6 +629,32 @@ Docs/help plane.
 * not an unreviewed source of policy
 * not the required crash-report path
 
+## Icanpreneur
+
+### Role
+
+Adaptive discovery interview and synthesis lane.
+
+### Architectural use
+
+* KARMA FORGE house-rule discovery
+* GM Companion persona validation
+* BLACK LEDGER discovery
+* creator and onboarding message validation
+* packet-oriented demand synthesis
+
+### Owner
+
+* lane policy: `chummer6-design`
+* packet normalization and synthesis support: `executive-assistant`
+
+### Hard boundary
+
+* not canonical feature truth
+* not canonical backlog ownership
+* not direct implementation priority
+* not a raw rulebook-text capture surface
+
 ## MetaSurvey
 
 ### Role
@@ -525,6 +679,30 @@ Feedback loop.
 * not canonical analytics warehouse
 * not canonical moderation state
 * not canonical bug, crash, or support-ticket truth
+
+## NextStep
+
+### Role
+
+Operator process execution layer.
+
+### Architectural use
+
+* discovery sprint SOPs
+* world-tick and BLACK LEDGER procedures
+* media publication checklists
+* release closeout and verification steps
+* localization and review gates
+
+### Owner
+
+* `fleet`
+
+### Hard boundary
+
+* not canonical process truth by itself
+* not support, campaign, or world truth
+* not design canon
 
 ## Nonverbia
 
@@ -601,6 +779,77 @@ Automation bridge.
 * not a required hop for approval truth
 * not a required hop for media truth
 
+## FacePop
+
+### Role
+
+Public trust widget, concierge, and recruitment lane.
+
+### Architectural use
+
+* public recruitment prompts
+* low-risk branching CTAs
+* moderated testimonial capture
+* routing to Deftform, Lunacal, Hub pages, or approved artifact pages
+
+### Owner
+
+* `chummer6-hub`
+
+### Hard boundary
+
+* not support-case truth
+* not install or account truth
+* not campaign truth
+* not desktop or mobile runtime UX
+
+## Deftform
+
+### Role
+
+Structured prescreen and intake lane.
+
+### Architectural use
+
+* role and edition classification
+* rule-category intake
+* consent capture
+* support or discovery enrichment
+* safe follow-up routing
+
+### Owner
+
+* `chummer6-hub`
+
+### Hard boundary
+
+* not canonical backlog truth
+* not support-case truth
+* not rules truth
+
+## Lunacal
+
+### Role
+
+Follow-up booking and human-escalation lane.
+
+### Architectural use
+
+* GM follow-up calls
+* creator clinics
+* setup or onboarding calls
+* organizer or BLACK LEDGER pilot sessions
+
+### Owner
+
+* `chummer6-hub`
+
+### Hard boundary
+
+* not support-case truth
+* not campaign truth
+* not final approval truth
+
 ## Paperguide
 
 ### Role
@@ -623,6 +872,31 @@ Cited research and synthesis support.
 
 * not live rules truth
 * not canon writer
+
+## Signitic
+
+### Role
+
+Passive outreach and signature-campaign projection lane.
+
+### Architectural use
+
+* public recruitment CTAs
+* release or launch campaign amplification
+* KARMA FORGE, BLACK LEDGER, or companion discovery campaigns
+* creator-program CTA rotation
+
+### Owner
+
+* destination shaping: `chummer6-hub`
+* bounded measurement review: `fleet`
+
+### Hard boundary
+
+* not notification truth
+* not support-case notification truth
+* not analytics interpretation truth
+* not campaign or world truth
 
 ## Vizologi
 
@@ -696,6 +970,58 @@ Narrated media and explainer adapter.
 * not canon writer
 * not source of briefing truth
 * not archive truth
+
+## Taja
+
+### Role
+
+Approved media repurposing and distribution adapter.
+
+### Architectural use
+
+* approved short-form clip repurposing
+* discovery and launch snippet extraction
+* creator/publisher promo derivative drafts
+* first-party distribution copy support
+
+### Owner
+
+* `chummer6-media-factory`
+
+### Hard boundary
+
+* not source of media truth
+* not an approval bypass
+* not allowed to mint unapproved product claims
+
+## vidBoard
+
+### Role
+
+Structured presenter-video and multilingual walkthrough adapter.
+
+### Architectural use
+
+* public release explainers
+* campaign primer videos
+* mission briefing videos
+* runsite orientation clips
+* support closure videos
+* creator promo videos
+* later bounded player-safe recap or GM-private debrief videos
+
+### Owner
+
+* execution: `chummer6-media-factory`
+* orchestration, approvals, locale routing, and publication shaping: `chummer6-hub`
+
+### Hard boundary
+
+* not canonical rules truth
+* not canonical support truth
+* not canonical session truth
+* not direct-to-client vendor coupling
+* not unapproved public publication
 
 ## PeekShot
 

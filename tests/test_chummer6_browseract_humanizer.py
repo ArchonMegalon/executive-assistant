@@ -135,6 +135,77 @@ def test_extract_humanized_text_accepts_generic_text_list_and_skips_original_clo
     assert humanized != original
 
 
+def test_extract_humanized_text_accepts_full_page_markdown_shape() -> None:
+    module = _load_module()
+    original = (
+        "Chummer6 gives Shadowrun players and GMs a local-first workspace for character prep, "
+        "rules references, and session bookkeeping. The useful part is that the math stays "
+        "inspectable, the receipts stay attached to the result, and the workflow does not ask "
+        "you to trust a black box when you are trying to keep a campaign moving."
+    )
+    markdown = "\n".join(
+        [
+            "Advanced AI Humanizer:Humanize AI Text Instantly and Score as Human in Detectors",
+            "Basic",
+            "General WritingEssayArticleMarketing MaterialStory",
+            f"×{original}",
+            original,
+            "54Words",
+            (
+                "Chummer6 isa great tool for Shadowrun players and gamemasters, as it provides "
+                "a local workspace wheretheycan prepare characters, look up rules, and keeptrack "
+                "of sessions. What'sreally useful aboutit is that it keeps all the math "
+                "transparent,so you can see how things are calculated."
+            ),
+            "133Words",
+            "[Switch to Undetectable](https://undetectable.ai//pricing)",
+            "Changed words / phrases",
+            "### UD AI Humanized Text",
+            "The Soul of New York City: More Than Just a Travel Destination",
+        ]
+    )
+    body = {"output": {"string": json.dumps([{"content": markdown}])}}
+
+    humanized = module.extract_humanized_text(body, original)
+
+    assert "gamemasters" in humanized.lower()
+    assert "New York City" not in humanized
+
+
+def test_repair_spacing_artifacts_fixes_current_browseract_joining() -> None:
+    module = _load_module()
+    original = (
+        "Chummer6 gives Shadowrun players and GMs a local-first workspace for character prep, "
+        "rules references, and session bookkeeping. The useful part is that the math stays "
+        "inspectable, the receipts stay attached to the result, and the workflow does not ask "
+        "you to trust a black box when you are trying to keep a campaign moving."
+    )
+    broken = (
+        "Chummer6 isa great tool for Shadowrun players and gamemasters, as it provides a local "
+        "workspace wheretheycan prepare characters, look up rules, and keeptrack of sessions. "
+        "What'sreally useful aboutit is that it keeps all the math transparent,so you can see "
+        "how things are calculated, andit also keeps receipts attached to the results, "
+        "whichhelps you keep track of everything. Plus, the workflow isdesignedtobe "
+        "trustworthy, so you don't have to worryaboutrelying on some mysterious \"black box\"that "
+        "you don't understand - it's all out in the open, which is really helpful when "
+        "you'retrying to keep your campaign organized and moving forward."
+    )
+
+    repaired = module._repair_spacing_artifacts(broken, original)
+
+    assert "is a great tool" in repaired
+    assert "where they can" in repaired
+    assert "keep track of sessions" in repaired
+    assert "What's really useful about it" in repaired
+    assert "transparent, so" in repaired
+    assert "which helps you keep track" in repaired
+    assert "is designed to be trustworthy" in repaired
+    assert "worry about relying" in repaired
+    assert "black box\" that" in repaired
+    assert "you're trying" in repaired
+    assert "wheretheycan" not in repaired
+
+
 def test_cmd_check_reports_unhealthy_when_probe_fails(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     module = _load_module()
     monkeypatch.setattr(module, "resolve_workflow", lambda: ("wf-1", "broken-humanizer"))
@@ -211,6 +282,56 @@ def test_cmd_check_uses_humanizer_timeout(monkeypatch: pytest.MonkeyPatch, capsy
     assert rc == 0
     assert captured["status"] == "ready"
     assert waited["timeout_seconds"] == 123
+
+
+def test_env_value_allows_empty_env_to_clear_stale_local_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "LOCAL_ENV", {"CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID": "stale-workflow"})
+    monkeypatch.setattr(module, "POLICY_ENV", {"CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID": "policy-workflow"})
+    monkeypatch.setenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID", "")
+
+    assert module.env_value("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID") == ""
+
+
+def test_resolve_workflow_prefers_query_when_explicit_env_is_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "LOCAL_ENV", {"CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID": "stale-workflow"})
+    monkeypatch.setattr(module, "POLICY_ENV", {})
+    monkeypatch.setenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID", "")
+    monkeypatch.setenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY", "humanizer runtime")
+    monkeypatch.setattr(
+        module,
+        "list_workflows",
+        lambda: [
+            {"workflow_id": "wf-runtime", "name": "Humanizer Runtime"},
+            {"workflow_id": "wf-stale", "name": "Stale Workflow"},
+        ],
+    )
+
+    workflow_id, workflow_name = module.resolve_workflow()
+
+    assert workflow_id == "wf-runtime"
+    assert workflow_name == "Humanizer Runtime"
+
+
+def test_resolve_workflow_falls_back_from_stale_query_to_default_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "LOCAL_ENV", {})
+    monkeypatch.setattr(module, "POLICY_ENV", {})
+    monkeypatch.delenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_ID", raising=False)
+    monkeypatch.setenv("CHUMMER6_BROWSERACT_HUMANIZER_WORKFLOW_QUERY", "chummer6 undetectable humanizer")
+    monkeypatch.setattr(
+        module,
+        "list_workflows",
+        lambda: [
+            {"workflow_id": "wf-live", "name": "undetectable_humanizer_live"},
+        ],
+    )
+
+    workflow_id, workflow_name = module.resolve_workflow()
+
+    assert workflow_id == "wf-live"
+    assert workflow_name == "undetectable_humanizer_live"
 
 
 def test_emit_builder_packet_creates_builder_packet(tmp_path: Path) -> None:

@@ -1,0 +1,37 @@
+version: 1
+key: vtt_export_targets
+status: proposal
+owner: chummer6-design
+
+targets:
+  - id: foundry
+    class: play_surface_projection
+    exports:
+      - runner_dossier
+      - opposition_packet
+      - run_handout
+    authority_rule: Chummer-owned truth, Foundry-owned projection.
+
+  - id: roll20
+    class: play_surface_projection
+    exports:
+      - runner_dossier
+      - opposition_packet
+      - player_safe_handout
+    authority_rule: Chummer-owned truth, Roll20-owned projection.
+
+  - id: discord_dice_summary
+    class: communication_projection
+    exports:
+      - player_safe_summary
+      - session_ready_reference
+    authority_rule: Discord bots may project summaries but do not own run or dossier truth.
+
+  - id: pdf
+    class: portable_projection
+    exports:
+      - runner_dossier
+      - opposition_packet
+      - player_safe_handout
+      - run_packet
+    authority_rule: PDF is a portable artifact, not canonical mutable truth.

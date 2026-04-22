@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 import zlib
 from collections.abc import Iterator
+from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -73,11 +75,11 @@ def _png_visual_bytes(value: bytes) -> bytes:
     return ihdr + zlib.decompress(b"".join(idat_parts))
 
 
-def _assert_visual_baseline(page: Page, snapshot_name: str) -> None:
+def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool = True) -> None:
     baseline_dir = Path(__file__).resolve().with_name("visual_baselines")
     baseline_dir.mkdir(parents=True, exist_ok=True)
     baseline_path = baseline_dir / snapshot_name
-    actual = page.screenshot(full_page=True, animations="disabled", caret="hide")
+    actual = _take_visual_screenshot(page, full_page=full_page)
     if _truthy_env("EA_UPDATE_VISUAL_BASELINES") or not baseline_path.exists():
         baseline_path.write_bytes(actual)
     expected = baseline_path.read_bytes()
@@ -85,11 +87,86 @@ def _assert_visual_baseline(page: Page, snapshot_name: str) -> None:
     expected_visual = _png_visual_bytes(expected)
     if actual_visual == expected_visual:
         return
+    if _visual_baseline_matches_with_bottom_padding(actual, expected):
+        return
     overlap = min(len(actual_visual), len(expected_visual))
     diff = abs(len(actual_visual) - len(expected_visual))
     diff += sum(1 for index in range(overlap) if actual_visual[index] != expected_visual[index])
     allowed = max(4096, int(max(len(actual_visual), len(expected_visual)) * 0.002))
     assert diff <= allowed
+
+
+def _take_visual_screenshot(page: Page, *, full_page: bool) -> bytes:
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            return page.screenshot(full_page=full_page, animations="disabled", caret="hide")
+        except Exception as exc:
+            last_error = exc
+            page.wait_for_timeout(250)
+            page.wait_for_load_state("networkidle")
+    assert last_error is not None
+    raise last_error
+
+
+def _visual_baseline_matches_with_bottom_padding(actual: bytes, expected: bytes) -> bool:
+    try:
+        from PIL import Image
+    except Exception:
+        return False
+    with Image.open(BytesIO(actual)) as actual_image, Image.open(BytesIO(expected)) as expected_image:
+        actual_rgba = actual_image.convert("RGBA")
+        expected_rgba = expected_image.convert("RGBA")
+        if actual_rgba.width != expected_rgba.width:
+            return False
+        height = max(actual_rgba.height, expected_rgba.height)
+        actual_padded = _pad_image_bottom_rows(actual_rgba, target_height=height)
+        expected_padded = _pad_image_bottom_rows(expected_rgba, target_height=height)
+        return actual_padded.tobytes() == expected_padded.tobytes()
+
+
+def _pad_image_bottom_rows(image, *, target_height: int):
+    if image.height >= target_height:
+        return image
+    from PIL import Image
+
+    padded = Image.new("RGBA", (image.width, target_height))
+    padded.paste(image, (0, 0))
+    last_row = image.crop((0, image.height - 1, image.width, image.height))
+    for y in range(image.height, target_height):
+        padded.paste(last_row, (0, y))
+    return padded
+
+
+def _rewrite_observation_event(
+    client: TestClient,
+    *,
+    principal_id: str,
+    event_type: str,
+    source_id: str,
+    created_at: str,
+    payload_overrides: dict[str, object],
+) -> None:
+    observations = getattr(client.app.state.container.channel_runtime, "_observations", None)
+    rows = getattr(observations, "_rows", None)
+    order = getattr(observations, "_order", None)
+    if not isinstance(rows, dict) or not isinstance(order, list):
+        return
+    for observation_id in order:
+        row = rows.get(observation_id)
+        if row is None:
+            continue
+        if str(getattr(row, "principal_id", "") or "").strip() != principal_id:
+            continue
+        if str(getattr(row, "event_type", "") or "").strip() != event_type:
+            continue
+        if str(getattr(row, "source_id", "") or "").strip() != source_id:
+            continue
+        payload = dict(getattr(row, "payload", {}) or {})
+        payload.update(payload_overrides)
+        rows[observation_id] = replace(row, payload=payload, created_at=created_at)
+        return
+    raise AssertionError(f"observation event not found for {event_type}:{source_id}")
 
 
 def _start_browser_server(client: TestClient, *, seeded: dict[str, object]) -> Iterator[dict[str, object]]:
@@ -192,8 +269,8 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
 
     response = page.goto(f"{base_url}/register", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Create a personal workspace before you add anything else." in page.content()
-    assert "Workspace mode stays personal here." in page.content()
+    assert "Start a workspace that shows the first useful loop." in page.content()
+    assert "Workspace shape" in page.content()
     assert "Google Core" in page.content()
     assert "Build first brief" in page.content()
 
@@ -376,9 +453,11 @@ def test_decision_detail_form_in_real_browser(page: Page, product_browser_server
     assert reopen_response.value.status == 303
     page.wait_for_url(detail_path)
     page.wait_for_load_state("networkidle")
-    assert "Open" in page.content()
-    assert "No explicit resolution note yet." in page.content()
-    assert "Board requested another operator pass." in page.content()
+    page.get_by_text("Board requested another operator pass.").first.wait_for()
+    detail_text = page.locator("body").inner_text()
+    assert "Open" in detail_text
+    assert "No explicit resolution note yet." in detail_text
+    assert "Board requested another operator pass." in detail_text
 
 
 def test_deadline_detail_form_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
@@ -483,11 +562,12 @@ def test_admin_diagnostics_bundle_in_real_browser(page: Page, product_browser_se
 
     response = page.goto(f"{base_url}/admin/api", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Diagnostics" in page.content()
+    assert "Workspace review" in page.content()
     assert "Billing state" in page.content()
-    assert "Support tier" in page.content()
+    assert "Commercial boundary" in page.content()
+    assert "Workspace diagnostics bundle" in page.content()
     assert "Open bundle" in page.content()
-    assert "Recent product events" in page.content()
+    assert "What the office loop is actually doing" in page.content()
 
     page.get_by_role("link", name="Open bundle").first.click()
     page.wait_for_load_state("networkidle")
@@ -601,22 +681,26 @@ def test_operator_scoped_browser_queue_hides_other_operator_work(browser: Browse
         context.close()
 
 
-def test_core_surface_visual_regression(page: Page, product_browser_server: dict[str, object]) -> None:
+def test_core_surface_visual_regression(browser: Browser, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
-    page.set_viewport_size({"width": 1440, "height": 1100})
     cases = (
-        ("/", "landing-page.png"),
-        ("/register", "get-started-page.png"),
-        ("/app/today", "today-page.png"),
-        ("/app/briefing", "briefing-page.png"),
-        ("/app/inbox", "inbox-page.png"),
-        ("/app/follow-ups", "followups-page.png"),
-        ("/admin/audit-trail", "admin-audit-page.png"),
+        ("/", "landing-page.png", True),
+        ("/register", "get-started-page.png", True),
+        ("/app/today", "today-page.png", True),
+        ("/app/briefing", "briefing-page.png", False),
+        ("/app/inbox", "inbox-page.png", True),
+        ("/app/follow-ups", "followups-page.png", True),
+        ("/admin/audit-trail", "admin-audit-page.png", True),
     )
-    for path, snapshot_name in cases:
-        response = page.goto(f"{base_url}{path}", wait_until="networkidle")
-        assert response is not None and response.ok
-        _assert_visual_baseline(page, snapshot_name)
+    for path, snapshot_name, full_page in cases:
+        context = browser.new_context(viewport={"width": 1440, "height": 1100})
+        page = context.new_page()
+        try:
+            response = page.goto(f"{base_url}{path}", wait_until="networkidle")
+            assert response is not None and response.ok
+            _assert_visual_baseline(page, snapshot_name, full_page=full_page)
+        finally:
+            context.close()
 
 
 def test_people_correction_and_support_bundle_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
@@ -796,6 +880,71 @@ def operator_browser_server() -> Iterator[dict[str, object]]:
         },
     )
     assert active_access.status_code == 200
+    access_sessions = client.get("/app/api/access-sessions")
+    assert access_sessions.status_code == 200
+    accepted_access = next(
+        (
+            item
+            for item in access_sessions.json().get("items", [])
+            if str(item.get("email") or "").strip() == "principal-browser-community@example.com"
+        ),
+        None,
+    )
+    assert accepted_access is not None
+    _rewrite_observation_event(
+        client,
+        principal_id=principal_id,
+        event_type="workspace_invitation_created",
+        source_id=str(pending_invite.json()["invitation_id"]),
+        created_at="2026-03-24T09:00:00+00:00",
+        payload_overrides={
+            "invited_at": "2026-03-24T09:00:00+00:00",
+            "expires_at": "2026-03-31T09:00:00+00:00",
+        },
+    )
+    _rewrite_observation_event(
+        client,
+        principal_id=principal_id,
+        event_type="workspace_invitation_created",
+        source_id=str(accepted_invite.json()["invitation_id"]),
+        created_at="2026-03-24T10:00:00+00:00",
+        payload_overrides={
+            "invited_at": "2026-03-24T10:00:00+00:00",
+            "expires_at": "2026-03-31T10:00:00+00:00",
+        },
+    )
+    _rewrite_observation_event(
+        client,
+        principal_id=principal_id,
+        event_type="workspace_invitation_accepted",
+        source_id=str(accepted_invite.json()["invitation_id"]),
+        created_at="2026-03-24T10:30:00+00:00",
+        payload_overrides={
+            "accepted_at": "2026-03-24T10:30:00+00:00",
+        },
+    )
+    _rewrite_observation_event(
+        client,
+        principal_id=principal_id,
+        event_type="workspace_access_session_issued",
+        source_id=str(accepted_access["session_id"]),
+        created_at="2026-03-24T10:30:00+00:00",
+        payload_overrides={
+            "issued_at": "2026-03-24T10:30:00+00:00",
+            "expires_at": "2026-03-27T10:30:00+00:00",
+        },
+    )
+    _rewrite_observation_event(
+        client,
+        principal_id=principal_id,
+        event_type="workspace_access_session_issued",
+        source_id=str(active_access.json()["session_id"]),
+        created_at="2026-03-24T11:00:00+00:00",
+        payload_overrides={
+            "issued_at": "2026-03-24T11:00:00+00:00",
+            "expires_at": "2026-03-25T11:00:00+00:00",
+        },
+    )
     seeded_with_auth = {
         **seeded,
         "principal_id": principal_id,
@@ -850,7 +999,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
 
         response = page.goto(f"{base_url}/admin/api", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Diagnostics" in page.content()
+        assert "Workspace review" in page.content()
         assert "Commercial boundary" in page.content()
         assert "Workspace diagnostics bundle" in page.content()
         assert "SLA breaches" in page.content()

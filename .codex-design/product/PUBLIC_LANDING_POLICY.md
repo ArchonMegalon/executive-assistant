@@ -84,7 +84,7 @@ The early-access shell may keep registered overlays thin, but the split must be 
 
 The landing page must always provide at least these public actions:
 
-* one primary acquisition action such as `Get preview build` or `Request early access`
+* one primary acquisition action such as `Create account to install` or `Request early access`
 * one proof action such as `See what works today`
 * participate / help
 * sign in

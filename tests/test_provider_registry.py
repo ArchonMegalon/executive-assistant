@@ -261,6 +261,40 @@ def test_provider_registry_onemin_secret_rotation_includes_declared_fallback_slo
     ]
 
 
+def test_provider_registry_onemin_secret_rotation_includes_json_manifest_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_ACTIVE_SLOTS", "primary,fallback_1,fallback_55")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_RESERVE_SLOTS", "fallback_56")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-key-1")
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps(
+            [
+                {
+                    "slot": "fallback_55",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_55",
+                    "key": "onemin-key-55",
+                },
+                {
+                    "slot": "fallback_56",
+                    "account_name": "ONEMIN_AI_API_KEY_FALLBACK_56",
+                    "key": "onemin-key-56",
+                },
+            ]
+        ),
+    )
+    registry = ProviderRegistryService()
+    state = registry.binding_state("onemin")
+    assert state is not None
+    assert list(state.secret_env_names) == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_55",
+        "ONEMIN_AI_API_KEY_FALLBACK_56",
+    ]
+
+
 def test_provider_registry_exposes_executable_onemin_specialist_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -277,6 +311,35 @@ def test_provider_registry_exposes_executable_onemin_specialist_binding(
     assert "reasoned_patch_review" in state.capabilities
     assert "image_generate" in state.capabilities
     assert "media_transform" in state.capabilities
+
+
+def test_provider_registry_marks_comfyui_unconfigured_without_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("COMFYUI_URL", raising=False)
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("comfyui")
+
+    assert state is not None
+    assert state.auth_mode == "http"
+    assert state.state == "unconfigured"
+    assert state.secret_configured is False
+
+
+def test_provider_registry_marks_comfyui_ready_with_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("COMFYUI_URL", "https://images.example")
+
+    registry = ProviderRegistryService()
+    state = registry.binding_state("comfyui")
+
+    assert state is not None
+    assert state.auth_mode == "http"
+    assert state.state == "ready"
+    assert state.secret_configured is True
+    assert "image_generate" in state.capabilities
 
 
 def test_provider_registry_exposes_google_gmail_oauth_binding(
@@ -547,6 +610,53 @@ def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch:
     browseract = next(item for item in payload["providers"] if item["provider_key"] == "browseract")
     assert browseract["health_provider_key"] == "chatplayground"
     assert any(capability["capability_key"] == "account_inventory" for capability in browseract["capabilities"])
+
+
+def test_provider_registry_prefers_ready_fallback_provider_for_lane_primary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    registry = ProviderRegistryService()
+    payload = registry.registry_read_model(
+        principal_id="codex-fleet",
+        provider_health={
+            "providers": {
+                "magixai": {
+                    "provider_key": "magixai",
+                    "state": "degraded",
+                    "slots": [{"slot": "primary", "state": "degraded"}],
+                },
+                "onemin": {
+                    "provider_key": "onemin",
+                    "state": "ready",
+                    "slots": [{"slot": "primary", "state": "ready"}],
+                },
+            }
+        },
+        profile_decisions=(
+            {
+                "profile": "repair",
+                "lane": "repair",
+                "public_model": "ea-coder-fast",
+                "backend_key": "magixai",
+                "health_provider_key": "magixai",
+                "provider_hint_order": ("magixai", "onemin"),
+                "review_required": False,
+                "needs_review": False,
+                "merge_policy": "auto_if_low_risk",
+            },
+        ),
+    )
+
+    repair = next(item for item in payload["lanes"] if item["profile"] == "repair")
+    assert repair["backend"] == "onemin"
+    assert repair["health_provider_key"] == "onemin"
+    assert repair["provider_hint_order"] == ["onemin", "magixai"]
+    assert repair["primary_provider_key"] == "onemin"
+    assert repair["primary_state"] == "ready"
+    assert repair["capacity_summary"]["ready_slots"] == 1
+    assert repair["providers"][0]["provider_key"] == "magixai"
+    assert repair["providers"][1]["provider_key"] == "onemin"
 
 
 def test_planner_rejects_non_executable_provider_capability_routes() -> None:

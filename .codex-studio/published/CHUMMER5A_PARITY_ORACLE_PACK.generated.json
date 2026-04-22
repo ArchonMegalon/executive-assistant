@@ -1,0 +1,126 @@
+{
+  "contract_name": "ea.chummer5a_parity_oracle_pack",
+  "product": "executive-assistant",
+  "surface": "desktop_parity_oracle",
+  "package_id": "next90-m103-ea-parity-lab",
+  "milestone_id": 103,
+  "version": 1,
+  "kind": "proof_receipt",
+  "generated_at": "2026-04-15T16:24:00Z",
+  "status": "task_proven",
+  "operator_summary": "Chummer5a parity-lab extraction is task_proven for the EA-owned surfaces; promoted-head certification is canonically complete in next90-m103-ui-veteran-certification, with design and Fleet follow-up work remaining non-EA.",
+  "owned_surfaces": [
+    "parity_lab:capture",
+    "veteran_compare_packs"
+  ],
+  "outputs": {
+    "screenshot_corpora": true,
+    "workflow_maps": true,
+    "compare_packs": true,
+    "import_export_fixture_inventory": true
+  },
+  "output_paths": {
+    "screenshot_corpora": "docs/chummer5a_parity_lab/oracle_baselines.yaml",
+    "workflow_maps": "docs/chummer5a_parity_lab/veteran_workflow_pack.yaml",
+    "compare_packs": "docs/chummer5a_parity_lab/compare_packs.yaml",
+    "import_export_fixture_inventory": "docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml",
+    "handoff_closeout": "docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml"
+  },
+  "desktop_noise_auditor": {
+    "target_surface": "Avalonia screenshots",
+    "owner_package": "next90-m103-ui-veteran-certification",
+    "status": "delegated_complete",
+    "metrics": {
+      "spacing_padding_budget": null,
+      "visible_row_count": null,
+      "header_to_content_ratio": null,
+      "badge_banner_count": null,
+      "menu_toolstrip_status_strip_presence": null
+    }
+  },
+  "successor_closure": {
+    "successor_frontier_id": 4287684466,
+    "registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "design_queue": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "fleet_queue": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "active_handoff_min_generated_at": "2026-04-15T16:20:33Z",
+    "local_proof_commits": [
+      "f3a3649",
+      "528c278",
+      "98313c9",
+      "5d56f66",
+      "4e6b1d8",
+      "357ee65",
+      "d3f164c",
+      "9cd70ea",
+      "b880b75",
+      "4dda75d",
+      "466d7e4",
+      "6ed29ce",
+      "76a3acc",
+      "c83eca2",
+      "a57fc43",
+      "f244a62",
+      "7b7da3e",
+      "945ed7b",
+      "ac84501",
+      "1dfb104",
+      "dfdfa45",
+      "e1289e7",
+      "e8ec699",
+      "48ae7bc",
+      "c28df5a",
+      "e706014",
+      "87ad539",
+      "4d186b6",
+      "d274b66",
+      "1783ee6",
+      "0284b0a",
+      "a8a8f72",
+      "04408e3",
+      "1a71457",
+      "08fc645",
+      "24a16a4",
+      "724d2c1",
+      "94be27c",
+      "f252c02",
+      "03da40e",
+      "4d07436",
+      "a2ae08f",
+      "3f74d5d",
+      "1eddb6d",
+      "257a5b7"
+    ],
+    "terminal_verification_policy": {
+      "status": "terminal_for_ea_scope",
+      "latest_required_handoff_floor": "2026-04-15T16:20:33Z",
+      "current_or_newer_handoff_rule": "A newer active-run handoff for the same frontier and package is assignment context only; it is not a reason to edit this EA package while canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.",
+      "handoff_mode_rule": "The ACTIVE_RUN_HANDOFF Mode field is assignment metadata only; Mode: unknown, Mode: completion_review, and Mode: flagship_product are acceptable when frontier/package identity, canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.",
+      "no_timestamp_chasing_required": true,
+      "no_operator_helper_evidence_allowed": true,
+      "closed_scope_guard_test": "test_terminal_verification_policy_stops_timestamp_chasing",
+      "allowed_next_work": [
+        "next90-m103-design-parity-ladder",
+        "next90-m103-fleet-readiness-consumption"
+      ],
+      "completed_non_ea_work": [
+        {
+          "package_id": "next90-m103-ui-veteran-certification",
+          "owner": "chummer6-ui",
+          "registry_task_id": "103.2",
+          "status": "complete"
+        }
+      ]
+    },
+    "proof_hygiene": {
+      "operator_owned_run_helpers_invoked": false,
+      "operator_owned_helper_output_cited": false
+    }
+  },
+  "blocking_reasons": [],
+  "current_limitations": [],
+  "proof": {
+    "command": "python tests/test_chummer5a_parity_lab_pack.py",
+    "result": "ran=18 failed=0"
+  }
+}

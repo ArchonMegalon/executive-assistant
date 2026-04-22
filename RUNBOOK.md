@@ -119,7 +119,9 @@ Auth:
 - `GET /v1/models` returns both the public EA aliases and the currently configured upstream model IDs, so Codex can target concrete provider models when needed.
 - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name-only provider attribution plus 1min owner metadata matched by hash or stable slot/account identifiers, latest explicit probe evidence, 1min.AI depletion, observed per-slot consumption (`observed_consumed_credits`, `observed_success_count`), rolling burn-rate, and deleted-key telemetry (`remaining_credits`, `required_credits`, `estimated_remaining_credits_total`, `remaining_percent_of_max`, `estimated_burn_credits_per_hour`, `estimated_hours_remaining_at_current_pace`) without leaking raw API keys.
 - `POST /v1/providers/onemin/probe-all` sends one live low-volume request to each selected 1min slot, records `last_probe_result`, and updates deleted/depleted/rate-limited evidence immediately instead of waiting for incidental runtime traffic.
-- `python3 scripts/sync_onemin_owner_ledger.py --write` re-hashes the current `ONEMIN_AI_API_KEY*` values into `config/onemin_slot_owners.json` and carries owner labels/emails forward by slot/account when the runtime key set rotates.
+- `python3 scripts/sync_onemin_owner_ledger.py --write` re-hashes the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries into `config/onemin_slot_owners.json` and carries owner labels/emails forward by slot/account when the runtime key set rotates.
+- The template-backed 1min BrowserAct refresh lane now accepts a generic rotating proxy through `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`; use `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` plus `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` when you want one operator-triggered refresh cycle to sweep the full slot set without the old cadence throttle.
+- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then run `docker compose -f docker-compose.yml -f docker-compose.fastestvpn.yml up -d --build --force-recreate ea-fastestvpn-proxy ea-api ea-worker ea-scheduler`. Use [rotate_fastestvpn_proxy.sh](/docker/EA/scripts/rotate_fastestvpn_proxy.sh) to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh.
 - `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`, `EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH`, `EA_RESPONSES_ONEMIN_PROBE_MODEL`, and `EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS` tune those credit, owner-ledger, and explicit-probe diagnostics.
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, and `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS` enable and tune the live Magicx fallback probe so provider health reflects a real upstream readiness check.
 - After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](/docker/EA/LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
@@ -262,7 +264,9 @@ Combined index:
 make operator-help
 ```
 
-`bash scripts/version_info.sh` now prints milestone capability-status counts and release tags in addition to git branch/revision metadata.
+`bash scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.
+Refresh the machine-readable receipt with `python3 scripts/materialize_ea_flagship_release_gate.py`.
+Refresh the weekly pulse in `WEEKLY_PRODUCT_PULSE.generated.json` with `python3 scripts/materialize_weekly_product_pulse.py`.
 
 ## CI Gate Summary
 
@@ -278,7 +282,7 @@ make operator-help
   - `bash scripts/test_postgres_contracts.sh`
   - `bash scripts/smoke_postgres.sh --legacy-fixture`
 
-Milestone tracking linkage: `MILESTONE.json` maps capabilities to `planned|coded|wired|tested|released` and exposes release tags including `ci_gate_bundle`, `release_preflight_bundle`, and `docs_verify_alias`.
+Milestone tracking linkage remains historical, but EA flagship release claims now key off `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and the generated receipt instead of treating `MILESTONE.json` as the oracle.
 
 Local mirror command:
 
@@ -780,7 +784,7 @@ Release preflight aggregate (asset checks + operator help + release smoke):
 make release-preflight
 ```
 
-`RELEASE_CHECKLIST.md` now includes an explicit milestone release-tag parity preflight line to validate `MILESTONE.json` release tags.
+`RELEASE_CHECKLIST.md` now includes an explicit EA flagship truth-plane preflight line to validate the browser proof and release gate seed.
 
 ## Smoke Exit Codes
 

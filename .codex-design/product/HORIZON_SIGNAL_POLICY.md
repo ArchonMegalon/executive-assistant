@@ -9,6 +9,10 @@ Project Chummer accepts future-capability ideas and public signal, but public si
 * `Chummer6`
 * Discord
 * approved public issue trackers
+* `FacePop` for bounded public recruitment prompts
+* `Deftform` for structured pre-screen intake
+* `Icanpreneur` for adaptive interviews and synthesis
+* `Lunacal` for high-signal follow-up calls
 * `MetaSurvey` for structured collection
 
 `chummer6-design` is not a normal user proposal surface.
@@ -23,7 +27,9 @@ Sponsoring temporary premium work does not create canonical product truth by its
 
 ## Tool posture
 
-* `MetaSurvey` is the primary structured collection lane.
+* `MetaSurvey` is the primary broad structured collection lane.
+* `Icanpreneur` is the primary adaptive interview lane for governed discovery.
+* `FacePop`, `Deftform`, and `Lunacal` may recruit, pre-screen, and schedule, but they may not become horizon truth or backlog ownership.
 * `ApproveThis` is the editorial approval bridge for curated intake decisions.
 * `Teable` may project or curate signal state, but it is never the system of record.
 

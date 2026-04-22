@@ -238,6 +238,31 @@ def test_skill_catalog_can_derive_a_skill_view_from_existing_task_contract() -> 
     assert body["provider_hints_json"] == {}
     assert body["tool_policy_json"]["allowed_tools"] == ["artifact_repository"]
 
+
+def test_skill_catalog_projects_builtin_campaign_workspace_v4_skill() -> None:
+    client = _client()
+
+    fetched = client.get("/v1/skills/campaign_workspace_v4_brief")
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["skill_key"] == "campaign_workspace_v4_brief"
+    assert body["task_key"] == "campaign_workspace_v4_brief"
+    assert body["deliverable_type"] == "campaign_workspace_v4_brief"
+    assert body["workflow_template"] == "tool_then_artifact"
+    assert "provider.gemini_vortex.structured_generate" in body["allowed_tools"]
+    assert "artifact_repository" in body["allowed_tools"]
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "task_key": "campaign_workspace_v4_brief",
+            "goal": "prepare one campaign workspace v4 continuity brief across downtime diary contacts heat aftermath return gm ops and offline mobile continuity",
+        },
+    )
+    assert compiled.status_code == 200
+    assert compiled.json()["skill_key"] == "campaign_workspace_v4_brief"
+    assert compiled.json()["plan"]["task_key"] == "campaign_workspace_v4_brief"
+
     compiled = client.post(
         "/v1/plans/compile",
         json={"task_key": "stakeholder_briefing", "goal": "prepare a stakeholder briefing"},
@@ -840,6 +865,10 @@ def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_t
         assert "critical_asset_targets" in properties
         assert "asset_contract_overrides" in properties
         assert "rerun_scope" in properties
+        assert "story_arc_required" in properties
+        assert "runner_question_ladder" in properties
+        assert "anticipatory_overlay_brief" in properties
+        assert "flagship_visual_bar" in properties
 
     assert "public_media_briefs" not in payloads["chummer6_public_writer"]["memory_reads"]
 

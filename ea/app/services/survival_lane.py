@@ -117,10 +117,14 @@ def _clamp_text(text: str, *, limit: int) -> str:
 
 
 def _survival_route_order() -> tuple[str, ...]:
-    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "gemini_vortex,gemini_web,chatplayground")
+    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "onemin,gemini_vortex,gemini_web,chatplayground")
     ordered: list[str] = []
     seen: set[str] = set()
     aliases = {
+        "onemin": "onemin",
+        "1min": "onemin",
+        "onemin_code": "onemin",
+        "onemin_text": "onemin",
         "gemini": "gemini_vortex",
         "gemini_cli": "gemini_vortex",
         "gemini_vortex": "gemini_vortex",
@@ -135,7 +139,7 @@ def _survival_route_order() -> tuple[str, ...]:
             continue
         seen.add(normalized)
         ordered.append(normalized)
-    return tuple(ordered or ("gemini_vortex", "gemini_web", "chatplayground"))
+    return tuple(ordered or ("onemin", "gemini_vortex", "gemini_web", "chatplayground"))
 
 
 def _survival_cache_ttl_seconds() -> int:
@@ -431,7 +435,9 @@ class SurvivalLaneService:
                         )
                     )
                     continue
-                if backend == "gemini_vortex":
+                if backend == "onemin":
+                    result = self.try_onemin(packet=packet, attempts=attempts)
+                elif backend == "gemini_vortex":
                     result = self.try_gemini_vortex(packet=packet, attempts=attempts)
                 elif backend == "gemini_web":
                     result = self.try_browseract_gemini_web(packet=packet, attempts=attempts)
@@ -451,6 +457,90 @@ class SurvivalLaneService:
 
     def cache_store(self, *, cache_key: str, result: SurvivalResult) -> None:
         _cache_put(cache_key, result)
+
+    def try_onemin(
+        self,
+        *,
+        packet: SurvivalPacket,
+        attempts: list[SurvivalAttempt],
+    ) -> SurvivalResult | None:
+        started_at = time.time()
+        if self._tool_execution is None:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="onemin",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="tool_execution_unavailable",
+                )
+            )
+            return None
+        payload = {
+            "prompt": self._render_packet(packet),
+            "instructions": (
+                "Answer the user's request using the reduced survival packet. "
+                "Return only the answer text unless the desired format explicitly asks for something else."
+            ),
+            "goal": packet.objective,
+            "model": _env("EA_SURVIVAL_ONEMIN_MODEL", _env("EA_ONEMIN_TOOL_CODE_MODEL", "")),
+        }
+        invocation = ToolInvocationRequest(
+            session_id=f"survival:{uuid.uuid4().hex}",
+            step_id=f"survival-step:{uuid.uuid4().hex}",
+            tool_name="provider.onemin.code_generate",
+            action_kind="code.generate",
+            payload_json=payload,
+            context_json={"principal_id": self._principal_id, "manager_allow_reserve": True},
+        )
+        try:
+            result = self._tool_execution.execute_invocation(invocation)
+        except ToolExecutionError as exc:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="onemin",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail=str(exc),
+                )
+            )
+            return None
+        output_json = dict(result.output_json or {})
+        structured = output_json.get("structured_output_json")
+        text = ""
+        if isinstance(structured, dict):
+            text = _extract_textish(structured.get("text")) or _extract_textish(structured.get("answer"))
+        if not text:
+            text = _extract_textish(output_json.get("normalized_text")) or _extract_textish(output_json.get("preview_text"))
+        if not text:
+            attempts.append(
+                SurvivalAttempt(
+                    backend="onemin",
+                    started_at=started_at,
+                    completed_at=time.time(),
+                    status="failed",
+                    detail="empty_output",
+                )
+            )
+            return None
+        attempts.append(
+            SurvivalAttempt(
+                backend="onemin",
+                started_at=started_at,
+                completed_at=time.time(),
+                status="completed",
+                detail="ok",
+            )
+        )
+        return SurvivalResult(
+            text=text,
+            provider_key="onemin",
+            provider_backend=str(output_json.get("provider_backend") or "1min"),
+            model=str(result.model_name or output_json.get("model") or _env("EA_SURVIVAL_ONEMIN_MODEL", "gpt-5")),
+            latency_ms=max(0, int((time.time() - started_at) * 1000)),
+            attempts=tuple(attempts),
+        )
 
     def try_gemini_vortex(
         self,

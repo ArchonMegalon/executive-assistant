@@ -108,7 +108,7 @@ def _anonymous_onboarding_status() -> dict[str, object]:
         "storage_posture": {},
         "channels": {},
         "brief_preview": {},
-        "next_step": "Authenticate to view or change onboarding state.",
+        "next_step": "Sign in to start a workspace or view the current one.",
         "onboarding_id": "",
     }
 
@@ -213,23 +213,23 @@ def _public_context(
         "first_brief_items": _list_rows(
             preview.get("first_brief_preview") or preview.get("first_brief"),
             (
-                "Connect Google Core for the fastest useful morning brief.",
-                "Add Telegram or WhatsApp only when the real workflow needs them.",
-                "Keep approvals and memory rules explicit before automating actions.",
+                "Connect Google Core and surface the first useful brief.",
+                "Keep one reviewable workflow before widening the channel footprint.",
+                "Make approvals and memory rules explicit before automating actions.",
             ),
         ),
         "suggested_actions": _list_rows(
             preview.get("suggested_actions"),
             (
-                "Save the workspace posture and connect your first real channel.",
-                "Generate the first brief before widening the integration footprint.",
+                "Turn the workspace posture into a useful brief and queue.",
+                "Add more channels only after the first loop already feels useful.",
             ),
         ),
         "trust_notes": _list_rows(
             preview.get("trust_notes"),
             (
-                "Each channel says clearly what the assistant can actually do today.",
-                "Approvals and durable workspace memory are visible product features, not hidden implementation details.",
+                "Each channel should say clearly what the assistant can actually do today.",
+                "Approvals and workspace memory stay visible product features, not hidden implementation details.",
             ),
         ),
         "top_contacts": _list_rows(preview.get("top_contacts"), ("No contact memory yet.",)),
@@ -552,7 +552,7 @@ def register_page(
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="Create personal workspace",
+            page_title="Start your workspace",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,

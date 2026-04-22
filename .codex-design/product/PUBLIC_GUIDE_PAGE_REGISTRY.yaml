@@ -43,6 +43,7 @@ page_types:
     - product promise
     - what is real now
     - first useful routes
+    - migration trust for Chummer5a veterans
     forbidden_terms:
     - repo topology
     - control plane
@@ -93,6 +94,7 @@ page_types:
     - product promise
     - what is real now
     - first useful routes
+    - migration trust for Chummer5a veterans
     forbidden_terms:
     - repo topology
     - control plane
@@ -154,6 +156,7 @@ page_types:
     - products/chummer/PUBLIC_GUIDE_EXPORT_MANIFEST.yaml
     forbidden_sources:
     - products/chummer/projects/*.md
+    - products/chummer/horizons/HORIZON_REGISTRY.yaml
     required_topics:
     - table pain
     - future lane posture
@@ -167,6 +170,7 @@ page_types:
     - products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
     forbidden_sources:
     - products/chummer/projects/*.md
+    - products/chummer/horizons/HORIZON_REGISTRY.yaml
     required_topics:
     - table pain
     - bounded product move

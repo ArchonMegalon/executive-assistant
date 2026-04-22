@@ -27,6 +27,11 @@ MAGIXAI_IMAGE_MODEL_ALIASES = {
     "flux-2": "fal-ai/flux-2",
     "ideogram": "fal-ai/ideogram/v2",
 }
+MAGIXAI_IMAGE_MODELS_WITHOUT_QUALITY = frozenset(
+    {
+        "fal-ai/flux-2-pro",
+    }
+)
 
 _KNOWN_ENDPOINT_SUFFIXES = (
     "/api/v1/chat/completions",
@@ -54,6 +59,13 @@ def _unique(values: list[str]) -> list[str]:
         seen.add(normalized)
         ordered.append(normalized)
     return ordered
+
+
+def normalize_magixai_image_model(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    return MAGIXAI_IMAGE_MODEL_ALIASES.get(normalized.lower(), normalized)
 
 
 def normalize_magixai_base_url(value: str | None) -> str:
@@ -92,13 +104,19 @@ def magixai_build_url(base_url: str, endpoint: str) -> str:
 def magixai_image_model_candidates(configured_model: str | None = None) -> list[str]:
     candidates: list[str] = []
     for candidate in (configured_model, *MAGIXAI_DEFAULT_IMAGE_MODELS):
-        normalized = str(candidate or "").strip()
+        normalized = normalize_magixai_image_model(candidate)
         if not normalized:
             continue
-        normalized = MAGIXAI_IMAGE_MODEL_ALIASES.get(normalized.lower(), normalized)
         if normalized not in candidates:
             candidates.append(normalized)
     return candidates
+
+
+def magixai_model_supports_quality(model: str | None) -> bool:
+    normalized = normalize_magixai_image_model(model)
+    if not normalized:
+        return True
+    return normalized not in MAGIXAI_IMAGE_MODELS_WITHOUT_QUALITY
 
 
 def magixai_size_variants(width: int, height: int) -> list[str]:
@@ -108,16 +126,18 @@ def magixai_size_variants(width: int, height: int) -> list[str]:
     ratio = safe_width / safe_height
     if 0.92 <= ratio <= 1.08:
         if max(safe_width, safe_height) >= 1024:
-            return _unique(["square_hd", raw, "square"])
-        return _unique(["square", raw, "square_hd"])
+            return _unique(["square_hd", raw, "1024x1024", "square"])
+        return _unique(["square", raw, "1024x1024", "square_hd"])
     if ratio > 1.0:
         primary = "landscape_4_3" if abs(ratio - (4.0 / 3.0)) <= abs(ratio - (16.0 / 9.0)) else "landscape_16_9"
         secondary = "landscape_16_9" if primary == "landscape_4_3" else "landscape_4_3"
+        official = "1792x1024"
     else:
         portrait_ratio = safe_height / safe_width
         primary = "portrait_4_3" if abs(portrait_ratio - (4.0 / 3.0)) <= abs(portrait_ratio - (16.0 / 9.0)) else "portrait_16_9"
         secondary = "portrait_16_9" if primary == "portrait_4_3" else "portrait_4_3"
-    return _unique([primary, raw, secondary])
+        official = "1024x1792"
+    return _unique([primary, raw, official, secondary])
 
 
 def magixai_looks_like_html(*, content_type: str | None, body: str | None) -> bool:

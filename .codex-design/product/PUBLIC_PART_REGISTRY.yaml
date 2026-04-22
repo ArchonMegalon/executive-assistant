@@ -5,16 +5,16 @@ parts:
   - id: design
     title: Design
     public_tagline: The long-range product map and decision filter.
-    you_touch_this_when: You want to understand why a feature exists, what is real today, or where to go deeper after the friendly tour.
-    why_you_care: It keeps the public story, the landing page, the guide, and the future ideas tied to one shared plan instead of a pile of clever guesses.
+    you_touch_this_when: "You want the bigger picture: what is already real, what is still coming, or where to click next after the front page."
+    why_you_care: It keeps the big story straight so the main pages, future ideas, and release notes do not contradict each other.
     what_you_notice:
       - clearer labels about what is real now, what is preview, and what is still future-facing
-      - a stable product story before you dive into repo or implementation detail
-      - one place that keeps the public-facing surfaces aligned
+      - a stable big-picture explanation before you dive into code or implementation detail
+      - one place that keeps the main pages and future ideas aligned
     public_noteworthy_limits:
       - you should not need this first for normal use
       - it is the map, not the running software
-    current_truth: Design already owns the public landing story, guide policy, horizons, participation language, and the line between public story and deeper source material.
+    current_truth: Design currently drives the public story, the roadmap pages, and the line between simple reader-facing pages and deeper technical material.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -26,27 +26,27 @@ parts:
     what_you_notice:
       - reproducible rules outcomes
       - readable receipts for why a pool or result changed
-      - a cleaner boundary between rules truth and everything that only decorates it
+      - a cleaner split between rules math and the extra features layered around it
     public_noteworthy_limits:
-      - this is not the hosted service layer
-      - this is not the table-side experience by itself
-    current_truth: Core already anchors the rules truth, and the current work is about keeping it strict enough that future explain, play, and simulation layers can trust it.
+      - this is not the online account or update side
+      - this is not the table-side play view by itself
+    current_truth: Core already anchors the rules engine, and the current work is about keeping it strict enough that explain, play, and sync features can rely on it.
     go_deeper_links:
       - ../WHAT_CHUMMER6_IS.md
       - ../WHERE_TO_GO_DEEPER.md
   - id: ui
     title: UI
-    public_tagline: The workbench and inspect-everything surface.
-    you_touch_this_when: You want the heavy prep view, comparison tools, bigger inspectors, or the place where you stare at a build until it confesses.
-    why_you_care: This is where Chummer stops feeling mystical and starts feeling inspectable.
+    public_tagline: The detailed character-building and inspection view.
+    you_touch_this_when: You want the deeper build view, comparison tools, or the place where you can inspect why a result changed.
+    why_you_care: This is where Chummer stops feeling opaque and starts feeling readable.
     what_you_notice:
-      - bigger prep and review surfaces
+      - larger build and review views
       - clearer build inspectors and comparison flows
       - a stronger distinction between deep prep and live table use
     public_noteworthy_limits:
       - this is not the player-first table view
       - some workbench polish is still catching up to the cleaner split
-    current_truth: UI already carries the heavy prep view, and the current cleanup work is about keeping that power without quietly swallowing play-first or hosted work.
+    current_truth: UI already handles the heavy build view, and current cleanup work is about keeping that power without letting it turn into the table-side or hosted experience.
     go_deeper_links:
       - ../START_HERE.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -74,11 +74,11 @@ parts:
     what_you_notice:
       - sign-in and account pages
       - public landing, home, and participation entry points
-      - shared coordination, release status, and recognition views that make sense without a backend tour
+      - shared coordination, release status, and recognition views that make sense without learning the plumbing behind them
     public_noteworthy_limits:
-      - it is not where the rules math becomes true
-      - some deeper admin and support work still sits behind the customer-facing layer
-    current_truth: Hub already powers identity, landing and home views, participation, and community features, but it is still simplifying the handoff between customer-facing coordination and deeper admin work.
+      - it is not the rules engine
+      - some deeper support and admin screens are still being simplified
+    current_truth: Hub already powers sign-in, landing and home views, participation, and community features, and it is still getting simpler behind the scenes.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md
@@ -89,12 +89,12 @@ parts:
     why_you_care: Shared visual primitives keep the split from feeling like several products pretending to be one.
     what_you_notice:
       - more consistent chrome, badges, banners, and dense-data presentation
-      - fewer one-off UI reinventions in each surface
+      - fewer one-off UI reinventions from page to page
       - stronger accessibility and a reusable component system
     public_noteworthy_limits:
-      - it is a shared package layer, not a standalone product
+      - it is shared design infrastructure, not a standalone app
       - it only counts when the other heads visibly get smaller because it exists
-    current_truth: UI Kit is real enough to matter, and the next proof point is whether the rest of the product can consume it instead of rebuilding visual boundaries one page at a time.
+    current_truth: UI Kit is real enough to matter, and the next proof is whether the rest of the product can use it instead of rebuilding the same visual pieces over and over.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md

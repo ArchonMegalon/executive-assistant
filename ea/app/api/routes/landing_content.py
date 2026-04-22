@@ -29,7 +29,7 @@ ADMIN_NAV_GROUPS = (
             {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},
             {"href": "/admin/operators", "label": "Team / Operators", "key": "operators"},
             {"href": "/admin/community", "label": "Organizer / Community", "key": "community"},
-            {"href": "/admin/api", "label": "Diagnostics", "key": "api"},
+            {"href": "/admin/api", "label": "Workspace review", "key": "api"},
         ),
     },
 )

@@ -7,7 +7,7 @@ runtime_env_candidates() {
   if command -v git >/dev/null 2>&1; then
     git_root="$(git -C "${PWD:-.}" rev-parse --show-toplevel 2>/dev/null || true)"
   fi
-  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}" "${PWD:-}/.env" "${git_root:+${git_root}/.env}" "/docker/fleet/runtime.ea.env" "/docker/fleet/runtime.env"; do
+  for path in "${CODEXEA_RUNTIME_EA_ENV_PATH:-}" "${FLEET_RUNTIME_EA_ENV_PATH:-}" "${PWD:-}/.env" "${git_root:+${git_root}/.env}" "/docker/fleet/runtime.ea.env" "/docker/fleet/runtime.env" "/docker/EA/.env.local" "/docker/EA/.env"; do
     [ -n "${path}" ] || continue
     printf '%s\n' "${path}"
   done
@@ -68,6 +68,31 @@ apply_runtime_env_defaults() {
 }
 
 apply_runtime_env_defaults
+
+runtime_env_prefers_managed_auth() {
+  case "${CODEXEA_PREFER_RUNTIME_AUTH:-1}" in
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+sync_runtime_auth_tokens() {
+  local runtime_token=""
+  runtime_env_prefers_managed_auth || return 0
+  runtime_token="$(runtime_env_value EA_MCP_API_TOKEN || true)"
+  if [ -z "${runtime_token}" ]; then
+    runtime_token="$(runtime_env_value EA_API_TOKEN || true)"
+  fi
+  [ -n "${runtime_token}" ] || return 0
+  export EA_MCP_API_TOKEN="${runtime_token}"
+  export EA_API_TOKEN="${runtime_token}"
+}
+
+sync_runtime_auth_tokens
 
 host_resolves() {
   command -v getent >/dev/null 2>&1 || return 1
@@ -323,7 +348,7 @@ import urllib.request
 lane = str(sys.argv[1] or "").strip().lower()
 profile_by_lane = {
     "easy": "easy",
-    "repair": "easy",
+    "repair": "repair",
     "groundwork": "groundwork",
     "core": "core",
     "jury": "audit",
@@ -344,6 +369,8 @@ headers = {"X-EA-Principal-ID": principal_id}
 api_token = str(os.environ.get("EA_MCP_API_TOKEN") or os.environ.get("EA_API_TOKEN") or "").strip()
 if api_token:
     headers["Authorization"] = f"Bearer {api_token}"
+    headers["X-EA-Api-Token"] = api_token
+    headers["X-API-Token"] = api_token
 request = urllib.request.Request(url, headers=headers, method="GET")
 try:
     with urllib.request.urlopen(request, timeout=1.0) as response:
@@ -674,6 +701,8 @@ emit_post_audit_request() {
   command -v curl >/dev/null 2>&1 || return 0
   if [ -n "${token}" ]; then
     curl_args+=(-H "Authorization: Bearer ${token}")
+    curl_args+=(-H "X-EA-Api-Token: ${token}")
+    curl_args+=(-H "X-API-Token: ${token}")
   fi
   curl_args+=(-d @"${review_file}" "${EA_BASE_URL%/}/v1/codex/review-light")
   if env_truthy "${CODEXEA_POST_AUDIT_ASYNC}"; then
@@ -715,12 +744,20 @@ show_status() {
     esac
     shift || true
   done
-  local -a curl_args=(curl -fsS -H "X-EA-Principal-ID: ${EA_MCP_PRINCIPAL_ID}")
+  local -a curl_args=(
+    curl
+    -fsS
+    --connect-timeout "${CODEXEA_STATUS_CONNECT_TIMEOUT_SECONDS:-2}"
+    --max-time "${CODEXEA_STATUS_MAX_TIME_SECONDS:-5}"
+    -H "X-EA-Principal-ID: ${EA_MCP_PRINCIPAL_ID}"
+  )
   local api_token="${EA_MCP_API_TOKEN:-${EA_API_TOKEN:-}}"
   local status_url="${EA_STATUS_URL}?window=${window}&refresh=${refresh}"
   local body=""
   if [ -n "${api_token}" ]; then
     curl_args+=(-H "Authorization: Bearer ${api_token}")
+    curl_args+=(-H "X-EA-Api-Token: ${api_token}")
+    curl_args+=(-H "X-API-Token: ${api_token}")
   fi
   if [ -n "${watch_seconds}" ]; then
     local -a watch_args=()
@@ -937,7 +974,7 @@ PY
 REQUESTED_LANE="${CODEXEA_DEFAULT_LANE}"
 LANE_WAS_EXPLICIT=0
 case "${1:-}" in
-  easy|repair|groundwork|core|jury|auto|survival)
+  easy|repair|groundwork|core|jury|review_light|auto|survival)
     REQUESTED_LANE="$1"
     LANE_WAS_EXPLICIT=1
     shift
@@ -1079,6 +1116,12 @@ case "${EFFECTIVE_LANE}" in
     EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_audit}"
     BOOTSTRAP_PROMPT_FILE="${JURY_BOOTSTRAP_PROMPT_FILE}"
     ;;
+  review_light)
+    MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_REVIEW_LIGHT_MODE:-responses}}"
+    MODEL="${CODEXEA_MODEL:-${CODEXEA_REVIEW_LIGHT_MODEL:-ea-review-light}}"
+    REASONING="${CODEXEA_REASONING_EFFORT:-${CODEXEA_REVIEW_LIGHT_REASONING_EFFORT:-medium}}"
+    EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_review_light}"
+    ;;
   survival)
     MODE="${CODEXEA_MODE_OVERRIDE:-${CODEXEA_SURVIVAL_MODE:-responses}}"
     MODEL="${CODEXEA_MODEL:-${CODEXEA_SURVIVAL_MODEL:-ea-coder-survival}}"
@@ -1086,7 +1129,7 @@ case "${EFFECTIVE_LANE}" in
     EFFECTIVE_SUBMODE="${EFFECTIVE_SUBMODE:-responses_survival}"
     ;;
   *)
-    echo "Unsupported CODEXEA lane: ${EFFECTIVE_LANE} (expected: easy, repair, groundwork, core, jury, auto, survival)" >&2
+    echo "Unsupported CODEXEA lane: ${EFFECTIVE_LANE} (expected: easy, repair, groundwork, core, jury, review_light, auto, survival)" >&2
     exit 2
     ;;
 esac
@@ -1107,6 +1150,9 @@ if [ "${MODE}" = "responses" ]; then
         ;;
       jury)
         EFFECTIVE_SUBMODE="responses_audit"
+        ;;
+      review_light)
+        EFFECTIVE_SUBMODE="responses_review_light"
         ;;
       survival)
         EFFECTIVE_SUBMODE="responses_survival"
@@ -1150,10 +1196,17 @@ case "${MODE}" in
     if [ "${EA_CODEX_PROFILE}" = "jury" ]; then
       EA_CODEX_PROFILE="audit"
     fi
-    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\"}"
-    if [ -n "${EA_AUTH_TOKEN:-}" ]; then
-      EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\",\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\"}"
+    EA_HEADERS="{\"X-EA-Principal-ID\"=\"${EA_PRINCIPAL_ID}\",\"X-EA-Codex-Profile\"=\"${EA_CODEX_PROFILE}\""
+    if [ -n "${EA_ONEMIN_ACCOUNT_ALIAS:-}" ]; then
+      EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Alias\"=\"${EA_ONEMIN_ACCOUNT_ALIAS}\""
     fi
+    if [ -n "${EA_ONEMIN_ACCOUNT_ENV_NAME:-}" ]; then
+      EA_HEADERS="${EA_HEADERS},\"X-EA-Onemin-Account-Env\"=\"${EA_ONEMIN_ACCOUNT_ENV_NAME}\""
+    fi
+    if [ -n "${EA_AUTH_TOKEN:-}" ]; then
+      EA_HEADERS="${EA_HEADERS},\"Authorization\"=\"Bearer ${EA_AUTH_TOKEN}\",\"x-api-token\"=\"${EA_AUTH_TOKEN}\",\"X-EA-Api-Token\"=\"${EA_AUTH_TOKEN}\""
+    fi
+    EA_HEADERS="${EA_HEADERS}}"
     EA_DEFAULT_ARGS+=(
       -c 'model_provider="ea"'
       -c "model=\"${MODEL}\""

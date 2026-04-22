@@ -551,13 +551,18 @@ class OneminManagerService:
             last_member_reconciliation_at = max((str(slot.get("member_reconciliation_at") or "").strip() for slot in slots if str(slot.get("member_reconciliation_at") or "").strip()), default=None)
             credit_rollup = self._account_credit_rollup(slots)
             burn_rollup = self._account_burn_rollup(slots)
+            has_actual_billing = bool(credit_rollup.get("has_actual_billing"))
             billing_remaining = self._parse_float(credit_rollup.get("actual_remaining_credits"))
             estimated_remaining_value = self._parse_float(credit_rollup.get("estimated_remaining_credits"))
             estimated_remaining = estimated_remaining_value or 0.0
             remaining_credits = (
-                estimated_remaining_value
+                billing_remaining
+                if has_actual_billing and billing_remaining is not None
+                else estimated_remaining_value
                 if estimated_remaining_value is not None
-                else billing_remaining if billing_remaining is not None else 0.0
+                else billing_remaining
+                if billing_remaining is not None
+                else 0.0
             )
             max_credits = sum((self._parse_float(slot.get("billing_max_credits")) or self._parse_float(slot.get("max_credits")) or 0.0) for slot in slots)
             core_floor, image_spendable, reserve_credits = self._floor_credits(remaining_credits)
@@ -892,10 +897,11 @@ class OneminManagerService:
         binding_rows: list[object] | None = None,
         principal_id: str = "",
     ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
         accounts = self.accounts_snapshot(
             provider_health=provider_health,
             binding_rows=binding_rows,
-            principal_id=principal_id,
+            principal_id=normalized_principal,
         )
         onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
         remaining_total = sum(float(item.get("remaining_credits") or 0.0) for item in accounts)
@@ -919,8 +925,16 @@ class OneminManagerService:
         observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in accounts)
         observed_usage_burn_account_count = sum(1 for item in accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, ""))
         estimated_pool_burn = self._parse_float(onemin.get("estimated_burn_credits_per_hour"))
+        global_estimated_free_total = self._parse_float(onemin.get("estimated_remaining_credits_total"))
+        estimated_days_remaining_7d = self._parse_float(onemin.get("estimated_days_remaining_at_7d_average"))
+        derived_avg_hourly_burn_7d = None
+        if global_estimated_free_total not in (None, 0) and estimated_days_remaining_7d not in (None, 0):
+            derived_avg_hourly_burn_7d = round(float(global_estimated_free_total) / (float(estimated_days_remaining_7d) * 24.0), 2)
         current_burn = round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else estimated_pool_burn
-        burn_basis = "observed_usage" if observed_usage_burn_account_count > 0 else "estimated_pool" if estimated_pool_burn is not None else "unknown"
+        burn_basis = "observed_usage" if observed_usage_burn_account_count > 0 else "estimated_pool" if estimated_pool_burn not in (None, 0) else "unknown"
+        if current_burn in (None, 0) and derived_avg_hourly_burn_7d not in (None, 0):
+            current_burn = derived_avg_hourly_burn_7d
+            burn_basis = "7d_average"
         bound_observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in bound_accounts)
         bound_observed_usage_burn_account_count = sum(
             1 for item in bound_accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, "")
@@ -952,9 +966,24 @@ class OneminManagerService:
             actual_delta = self._parse_float(lease.actual_credits_delta)
             if actual_delta is not None:
                 actual_credits_by_task_class[task_class] += max(0.0, actual_delta)
+        scope = "principal_bindings" if normalized_principal else "global_pool"
+        scope_note = (
+            "principal view only includes 1min accounts bound to the current principal; use scope=global in operator context for fleet-wide runway."
+            if normalized_principal
+            else ""
+        )
+        hours_remaining_at_current_pace = self._parse_float(onemin.get("estimated_hours_remaining_at_current_pace"))
+        if hours_remaining_at_current_pace is None and remaining_total > 0 and current_burn not in (None, 0):
+            hours_remaining_at_current_pace = round(float(remaining_total) / float(current_burn), 2)
+        global_estimated_hours_remaining_at_current_pace = self._parse_float(onemin.get("estimated_hours_remaining_at_current_pace"))
+        if global_estimated_hours_remaining_at_current_pace is None and global_estimated_free_total not in (None, 0) and current_burn not in (None, 0):
+            global_estimated_hours_remaining_at_current_pace = round(float(global_estimated_free_total) / float(current_burn), 2)
         return {
             "provider_key": "onemin",
-            "principal_id": principal_id,
+            "principal_id": normalized_principal,
+            "scope": scope,
+            "scope_principal_id": normalized_principal or None,
+            "scope_note": scope_note,
             "account_count": len(accounts),
             "ready_account_count": ready_accounts,
             "slot_count": int(onemin.get("configured_slots") or sum(int(item.get("slot_count") or 0) for item in accounts)),
@@ -970,9 +999,14 @@ class OneminManagerService:
             "estimated_pool_burn_credits_per_hour": estimated_pool_burn,
             "current_burn_credits_per_hour": current_burn,
             "burn_basis": burn_basis,
-            "current_pace_burn_credits_per_hour": onemin.get("estimated_burn_credits_per_hour"),
-            "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
+            "current_pace_burn_credits_per_hour": current_burn,
+            "hours_remaining_at_current_pace": hours_remaining_at_current_pace,
             "days_remaining_at_7d_average": onemin.get("estimated_days_remaining_at_7d_average"),
+            "global_configured_slot_count": int(onemin.get("configured_slots") or 0),
+            "global_estimated_free_credits_total": global_estimated_free_total,
+            "global_remaining_percent_of_max": self._parse_float(onemin.get("remaining_percent_of_max")),
+            "global_estimated_hours_remaining_at_current_pace": global_estimated_hours_remaining_at_current_pace,
+            "global_estimated_days_remaining_at_7d_average": self._parse_float(onemin.get("estimated_days_remaining_at_7d_average")),
             "active_lease_count": len(active_leases),
             "active_core_code_lease_count": active_lease_counts_by_task_class["core_code"],
             "active_core_review_lease_count": active_lease_counts_by_task_class["core_review"],
@@ -1014,6 +1048,8 @@ class OneminManagerService:
             1 for item in actual_accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, "")
         )
         estimated_pool_burn = self._parse_float(dict(((provider_health.get("providers") or {}).get("onemin") or {})).get("estimated_burn_credits_per_hour"))
+        current_burn = round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else estimated_pool_burn
+        burn_basis = "observed_usage" if observed_usage_burn_account_count > 0 else "estimated_pool" if estimated_pool_burn not in (None, 0) else "unknown"
         return {
             "provider_key": "onemin",
             "principal_id": principal_id,
@@ -1023,8 +1059,8 @@ class OneminManagerService:
             "actual_max_credits_total": sum(float(item.get("actual_max_credits") or item.get("max_credits") or 0.0) for item in actual_accounts),
             "observed_usage_burn_credits_per_hour": round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else None,
             "observed_usage_burn_account_count": observed_usage_burn_account_count,
-            "current_burn_credits_per_hour": round(observed_usage_burn_total, 2) if observed_usage_burn_account_count > 0 else None,
-            "burn_basis": "observed_usage" if observed_usage_burn_account_count > 0 else "unknown",
+            "current_burn_credits_per_hour": current_burn,
+            "burn_basis": burn_basis,
             "global_estimated_pool_burn_credits_per_hour": estimated_pool_burn,
             "accounts_without_actual_billing_count": sum(1 for item in bound_accounts if not bool(item.get("has_actual_billing"))),
             "accounts": [
@@ -1064,16 +1100,42 @@ class OneminManagerService:
             principal_id=principal_id,
         )
         onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
-        return asdict(
+        current_burn = self._parse_float(aggregate.get("current_burn_credits_per_hour"))
+        if current_burn is None:
+            current_burn = self._parse_float(aggregate.get("observed_usage_burn_credits_per_hour"))
+        if current_burn is None:
+            current_burn = self._parse_float(aggregate.get("current_pace_burn_credits_per_hour"))
+        remaining_credits = float(aggregate.get("sum_free_credits") or 0.0)
+        hours_remaining = self._parse_float(aggregate.get("hours_remaining_at_current_pace"))
+        if hours_remaining is None and current_burn is not None and current_burn > 0:
+            hours_remaining = round(remaining_credits / current_burn, 2)
+        days_remaining = self._parse_float(aggregate.get("days_remaining_at_7d_average"))
+        if days_remaining is None and hours_remaining is not None:
+            days_remaining = round(hours_remaining / 24.0, 2)
+        forecast = asdict(
             OneminRunwayForecast(
-                remaining_credits=float(aggregate.get("sum_free_credits") or 0.0),
+                remaining_credits=remaining_credits,
                 core_floor_credits=float(aggregate.get("core_floor_credits_total") or 0.0),
                 image_spendable_credits=float(aggregate.get("image_spendable_credits_total") or 0.0),
                 reserve_credits=float(aggregate.get("reserve_credits_total") or 0.0),
-                current_burn_per_hour=self._parse_float(aggregate.get("current_pace_burn_credits_per_hour")),
-                hours_remaining_current_pace=self._parse_float(aggregate.get("hours_remaining_at_current_pace")),
-                days_remaining_7d_avg=self._parse_float(aggregate.get("days_remaining_at_7d_average")),
+                current_burn_per_hour=current_burn,
+                hours_remaining_current_pace=hours_remaining,
+                days_remaining_7d_avg=days_remaining,
                 next_topup_at=str(onemin.get("billing_next_topup_at") or "") or None,
                 topup_amount=self._parse_float(onemin.get("billing_topup_amount")),
             )
         )
+        forecast.update(
+            {
+                "scope": aggregate.get("scope"),
+                "scope_principal_id": aggregate.get("scope_principal_id"),
+                "scope_note": aggregate.get("scope_note"),
+                "global_configured_slot_count": aggregate.get("global_configured_slot_count"),
+                "global_estimated_free_credits_total": aggregate.get("global_estimated_free_credits_total"),
+                "global_remaining_percent_of_max": aggregate.get("global_remaining_percent_of_max"),
+                "global_estimated_hours_remaining_at_current_pace": aggregate.get("global_estimated_hours_remaining_at_current_pace"),
+                "global_estimated_days_remaining_at_7d_average": aggregate.get("global_estimated_days_remaining_at_7d_average"),
+                "burn_basis": aggregate.get("burn_basis"),
+            }
+        )
+        return forecast

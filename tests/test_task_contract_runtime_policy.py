@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.domain.models import TaskContract, now_utc_iso
 from app.repositories.task_contracts import InMemoryTaskContractRepository
 from app.services.task_contracts import TaskContractService
@@ -174,3 +176,105 @@ def test_task_contract_runtime_policy_deep_merges_nested_skill_catalog_fields() 
     assert policy.skill_catalog.model_policy_json["brain_profile"] == "groundwork"
     assert policy.skill_catalog.provider_hints_json["primary"] == ["BrowserAct"]
     assert policy.skill_catalog.provider_hints_json["secondary"] == ["gemini_vortex"]
+
+
+@pytest.mark.parametrize(
+    ("task_key", "deliverable_type"),
+    [
+        ("gm_ops_briefing", "gm_ops_brief"),
+        ("opposition_packet", "opposition_packet"),
+        ("roster_movement_plan", "roster_movement_plan"),
+        ("prep_library_packet", "prep_library_packet"),
+        ("event_control_brief", "event_control_brief"),
+        ("campaign_downtime_plan", "campaign_downtime_plan"),
+        ("campaign_diary_packet", "campaign_diary_packet"),
+        ("campaign_contacts_update", "campaign_contacts_update"),
+        ("campaign_heat_brief", "campaign_heat_brief"),
+        ("campaign_aftermath_packet", "campaign_aftermath_packet"),
+        ("campaign_return_loop_brief", "campaign_return_loop_brief"),
+        ("campaign_safehouse_readiness_brief", "campaign_safehouse_readiness_brief"),
+        ("campaign_travel_continuity_packet", "campaign_travel_continuity_packet"),
+        ("campaign_offline_continuity_brief", "campaign_offline_continuity_brief"),
+        ("campaign_mobile_companion_brief", "campaign_mobile_companion_brief"),
+        ("campaign_workspace_v4_brief", "campaign_workspace_v4_brief"),
+    ],
+)
+def test_builtin_w3_campaign_and_gm_contracts_resolve_with_groundwork_runtime_policy(
+    task_key: str,
+    deliverable_type: str,
+) -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    contract = service.get_contract_or_raise(task_key)
+
+    assert contract.task_key == task_key
+    assert contract.deliverable_type == deliverable_type
+    assert "provider.gemini_vortex.structured_generate" in contract.allowed_tools
+    assert "artifact_repository" in contract.allowed_tools
+
+    runtime_policy = contract.runtime_policy()
+    assert runtime_policy.workflow_template_key == "tool_then_artifact"
+    assert runtime_policy.pre_artifact_capability_key == "structured_generate"
+    assert runtime_policy.brain_profile == "groundwork"
+    assert runtime_policy.posthoc_review_profile == "review_light"
+    assert runtime_policy.artifact_output.template == "groundwork_brief"
+
+
+def test_builtin_w3_gm_ops_contract_projects_lane_memory_metadata() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    runtime_policy = service.get_contract_or_raise("gm_ops_briefing").runtime_policy()
+
+    assert runtime_policy.skill_catalog.memory_reads == (
+        "campaign_state",
+        "rosters",
+        "opposition_notes",
+        "event_controls",
+    )
+    assert runtime_policy.skill_catalog.memory_writes == ("gm_ops_brief_fact",)
+    assert runtime_policy.skill_catalog.provider_hints_json["primary"] == [
+        "Gemini Vortex",
+        "AI Magicx",
+        "BrowserAct",
+    ]
+
+
+def test_builtin_w3_mobile_continuity_contract_projects_safehouse_travel_offline_reads() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    runtime_policy = service.get_contract_or_raise("campaign_mobile_companion_brief").runtime_policy()
+
+    assert runtime_policy.skill_catalog.memory_reads == (
+        "campaign_state",
+        "safehouse_packets",
+        "travel_prefetches",
+        "offline_posture",
+        "mobile_companion_state",
+        "return_targets",
+    )
+    assert runtime_policy.skill_catalog.memory_writes == ("campaign_mobile_companion_fact",)
+
+
+def test_builtin_w3_workspace_v4_contract_projects_unified_campaign_gm_and_offline_reads() -> None:
+    service = TaskContractService(InMemoryTaskContractRepository())
+
+    runtime_policy = service.get_contract_or_raise("campaign_workspace_v4_brief").runtime_policy()
+
+    assert runtime_policy.skill_catalog.memory_reads == (
+        "campaign_state",
+        "downtime_packets",
+        "diary_notes",
+        "contacts",
+        "heat_log",
+        "aftermath_packets",
+        "return_targets",
+        "rosters",
+        "opposition_notes",
+        "prep_library",
+        "event_controls",
+        "safehouse_packets",
+        "travel_prefetches",
+        "offline_actions",
+        "mobile_companion_state",
+    )
+    assert runtime_policy.skill_catalog.memory_writes == ("campaign_workspace_v4_fact",)

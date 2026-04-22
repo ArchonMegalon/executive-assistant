@@ -201,6 +201,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Configured providers" in providers.text
     assert "browseract" in providers.text.lower()
     assert "Runtime readiness" in providers.text
+    assert "Core batch lane" in providers.text
 
     audit = client.get("/admin/audit-trail")
     assert audit.status_code == 200
@@ -232,7 +233,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
 
     diagnostics = client.get("/admin/api")
     assert diagnostics.status_code == 200
-    assert "Diagnostics" in diagnostics.text
+    assert "Workspace review" in diagnostics.text
     assert "Workspace plan" in diagnostics.text
     assert "Operator seats" in diagnostics.text
     assert "Seats used" in diagnostics.text
@@ -259,7 +260,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Send follow-ups closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text
     assert "Open bundle" in diagnostics.text
-    assert "Recent product events" in diagnostics.text
+    assert "Recent workspace events" in diagnostics.text
 
     bundle = client.get("/app/api/diagnostics/export")
     assert bundle.status_code == 200

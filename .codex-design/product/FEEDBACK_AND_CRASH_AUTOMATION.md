@@ -101,6 +101,14 @@ Fleet may automatically:
 * draft failing tests and candidate patches
 * attach CI and verification evidence to review
 
+Hub and EA may automatically:
+
+* compose reporter-facing progress mail from canonical support-case truth
+* queue that mail through EA `connector.dispatch` / delivery outbox
+* require sent Emailit receipts before the E2E gate counts the mail stage as complete
+
+Those progress emails must follow `FEEDBACK_PROGRESS_EMAIL_WORKFLOW.yaml`; they are downstream of Hub case truth and Registry release truth, not a side channel that invents its own status story.
+
 ## Automation forbidden
 
 Fleet must not automatically:

@@ -15,6 +15,7 @@ render_rules:
   desktop_composition: 16:9
   mobile_safety_rule: keep_critical_action_inside_middle_60_percent
   no_readable_text: true
+  allow_sparse_verified_overlay_text: true
   no_logos: true
   no_provider_names: true
   no_ui_labels: true
@@ -22,16 +23,16 @@ render_rules:
 shared_prompt_scaffold:
   applies_to: secondary_guide_art_only
   style_anchor: |
-    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR anchored to real gear or anatomy, lived-in materials, visible dirt, bruising, stained bandages, vermin pressure, exhausted posture, and hard-used spaces, navy and graphite base palette, electric blue interface glow, warm amber proof lighting, subtle rain reflections, textured surfaces, layered physical props, high information density, product-specific semantics, no readable text, no logos
+    grounded cyberpunk campaign scene art for secondary guide stills, Shadowrun-inspired tactical realism, visible metahuman physiology, obvious body-worn cyberware or patched chrome, diegetic AR visibly present and anchored to real gear or anatomy, lived-in materials, visible dirt, bruising, stained bandages, vermin pressure, exhausted posture, and hard-used spaces, scene-led vivid color chosen from saturated sodium spill, acid ad color, dirty daylight, sick fluorescents, ash gray, nicotine yellow, mold green, wet asphalt blue, market red, or warm proof light only when the place earns it, lifted midtones, readable faces, readable hands, and clear props even when the story beat is bleak, polished poster finish, glossy puddles, reflective tape, rain-slick nylon, scratched chrome, lacquered plastic, and shiny trash detail instead of matte sludge, classic flagship-box cover energy with dynamic diagonals, strong foreground-midground-background staging, crisp anatomy, and painted pulp realism, visible lore pressure through hard street context, textured surfaces, layered physical props, high information density, product-specific semantics, no giant readable signage, no logos
   negative_prompt: |
-    readable text, letters, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile
+    giant readable signage, wall-sized ad copy, giant monogram, logo, watermark, central signboard, empty alley, empty boulevard, billboard centerpiece, sparse desk with one prop, lone brooding figure at vague wall, empty title-card pose with no scene logic, action-movie gun pose, anime, cel shading, cosplay look, over-saturated magenta neon, low-detail hands, distorted anatomy, fisheye lens, huge lens flare, floating nonsense UI clutter, stock-photo smile, underexposed frame, crushed blacks, green-black murk, shadow-hidden faces, unreadable hands, key props lost in darkness, chalky matte grime, flat muddy haze, dead plastic surfaces with no reflective life, film grain, sensor noise, dust pass, speckle overlay, gritty noise texture, or fake print damage
 critical_asset_style_epoch:
   mode: flagship_poster
   overrides_shared_prompt_scaffold: true
   style_anchor: |
-    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, high-contrast painted realism, dramatic grouping, strong silhouette hierarchy, saturated but grounded color, visible grime, patched gear, old blood, clinic mess, rust bloom, mold, vermin hints, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, diegetic AR added in post, neon and sodium-vapor contrast, dense practical props, unmistakably Shadowrun-adjacent runner life, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
+    illustrated cover-grade promo poster for a cyberpunk-fantasy tabletop world, painted rulebook-cover realism with deliberate brush texture and cinematic physical lighting, hard-edged but natural material rendering, dramatic grouping, strong silhouette hierarchy, vivid Shadowrun-rulebook readability, lifted midtones, clear face and hand visibility, readable props at poster distance, saturated but grounded color, visible grime, patched gear, old blood, clinic mess, rust bloom, mold, vermin hints, chrome-heavy metahuman street-life specificity, obvious cyberlimbs or body-worn augment hardware, smart-glasses or cybereye intelligence visibly present in-scene and sharpened in post only when needed, polished flagship poster finish, glossy wet surfaces, reflective junk, oily puddles, reflective foil debris, scratched chrome, ad-lit trash, and expensive specular highlights on cheap materials, classic flagship-box cover grammar with ensemble action, dramatic diagonals, heroic perspective without clean superhero polish, premium painted pulp finish, and a premium tabletop-box front read at a glance, scene-led color and lighting rather than a fixed green-dark wash, dense practical props, unmistakably Shadowrun-adjacent runner life, totemic wards and shamanic residues, recognizable 6th-World location pressure, scene-driven poster energy, not a clean cinematic screenshot, not a generic software landing still
   negative_prompt: |
-    stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still
+    stock-photo realism, quiet editorial still, clean clinic, sterile exam room, generic sci-fi workshop, moody empty corridor, tasteful sparse composition, corporate lifestyle ad, one person in a dim room, paperwork meeting, tidy suburban medical office, bland near-future thriller vibe, clean software-campaign still, etched contour-map rendering, oversharpened edge tracing, posterized neon linework, comic-book ink outlines, faux blueprint wireframe, cheap HUD wallpaper, underexposed frame, crushed blacks, low-key noir wash hiding the scene, muddy monochrome green, hero action buried in shadow, chalky matte decay, flat non-reflective trash with no poster sheen, generic concept-art haze, static centered figure posing with no cover momentum, film grain, sensor noise, speckled print texture, dust pass, or fake aged-paper grit
 semantic_anchors:
   - dossier papers or briefing packet
   - six-sided dice
@@ -48,11 +49,14 @@ world_marker_bucket:
   - partial megacorp product lineage such as Ares, Aztechnology, Renraku, Shiawase, Saeder-Krupp, Horizon, Evo, or Wuxing gear cues with logos blurred or cropped
   - critter or parabotany ephemera such as devil rat traps, barghest or hell hound field photos, Blood Orchid plates, or Paper Lotus charms
   - magical focus, fetish, talisman, ward scar, or awakened-world hint
+  - astral totem residue such as Raven, Rat, Wolf, or other totemic portrait glow surfacing around a shamanic moment
   - recognizable Sixth World geography or landmark residue such as Chicago Bug City towers, Renraku Arcology scar, Redmond Barrens street cues, Ork Underground tilework, Puyallup ash, Glow City fencing, or Touristville market grime
+  - hard-living lore debris such as shamanic sigils, ward circles, blood-stained med wraps, burned med kits, and bug-tower-adjacent clutter
   - rain-soaked streets, sodium-vapor plus neon mix, or grimy utilitarian spaces
   - cables, duct tape, jury-rigged hardware, synthskin wrap, med patches, or off-brand med or corp gear
   - runner-life or shadow-community setting such as clinic, safehouse, van, alley, rooftop, market, back room, industrial rail, or matrix nook
   - social damage cues such as stained gauze, dried blood, bruises, infection tint, rat traps, mold bloom, cough syrup, spent stim patches, crash posture, or clinic waste
+  - addiction or vice fallout such as burned spoons, spent BTL packs, twitchy crash kits, or dirty inhaler clutter shown as consequence, not glamour
 rules:
   - No provider names appear in public landing assets.
   - No LTD names appear in public landing assets.
@@ -66,17 +70,36 @@ rules:
   - Hero, index, and flagship horizon art must carry visible semantic anchors for what the product does; style alone is not enough.
   - The shared prompt scaffold is for secondary guide stills only; hero, horizons index, and flagship horizons should let the flagship poster epoch override it.
   - Poster energy is welcome on flagship assets when it still reads as a lived product scene instead of a title card or fashion pose.
-  - Critical public assets must choose one overlay posture before compositing: none, ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
+  - Critical public assets must choose one overlay posture before compositing: ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
   - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
+  - Public-facing assets should ship with visible diegetic AR or smart-glasses traces in the frame; generic overlay-free cyberpunk mood art is failure.
+  - Flagship and public-guide poster finishes should read like clean premium print, not distressed film stock: no fake grain layer, dust pass, sensor-noise wash, or crunchy noise texture.
   - Flagship assets should usually carry both a metahuman cue and a body-worn cyberware cue; rain and grime alone do not make the frame feel Shadowrun.
+  - Every image should imply a lived story beat with a clear before-and-after, not just a posed concept frame: someone is warning, bargaining, patching, sorting, checking, arguing, recovering, or choosing in the middle of a real moment.
+  - Hardship must read through the situation itself: triage, crowding, fear, debt, sickness, rot, exploitation, addiction fallout, bad shelter, or failing infrastructure. A dark green palette without those story cues is a miss.
+  - Bright should mean vivid and saturated, not clean white. Use high-chroma city, clinic, market, ad, or corp color when the scene earns it.
+  - Despair should come from the story beat, not from hiding the frame. Lift midtones enough that faces, hands, gear, wounds, and the main action stay readable at thumbnail, banner, and poster distance.
+  - Flagship assets should prefer broad color separation and classic rulebook-cover punch over tasteful noir murk. If the scene feels cool but hard to read, it is still a miss.
+  - Keep the world grimy, not the finish. Dirt, blood, rust, trash, and clinic fallout should stay in the subject matter while the poster treatment stays polished, glossy, and intentionally lit.
+  - Prefer shiny trash over dusty trash: wet wrappers, reflective tape, oil sheen, chrome scuffs, lacquered plastic, rain-bright curbs, and ad-lit garbage are better than flat brown sludge.
+  - When aiming for flagship-box energy, do not imitate a named artist. Use the shared grammar instead: ensemble action, dramatic diagonals, premium painted realism, chrome gleam, saturated edge light, and immediate tabletop-cover readability.
+  - If the subject is software behavior, dramatize it as a Sixth World life scene first. Do not solve a public guide image with a raw app screenshot, dashboard wall, or interface capture disguised as art.
   - Lore crumbs should survive in flagship and quality-focus assets: cropped corp packaging, critter photo strips, talismonger ephemera, and parabotany prints are preferred over generic neon clutter.
   - Recognizable lore locations are encouraged when they help the frame: Bug City skyline scars, Arcology shadows, Barrens infrastructure, Underground markets, ash plains, and containment architecture should read as place cues, not tourism postcards.
   - The Sixth World should look expensive, dirty, and physically punishing: grime, vermin, sickness, old blood, crash fatigue, and damaged spaces are welcome when they stay scene-bound and believable.
+  - First-contact and flagship surfaces should prefer scenes with recognizably hard living, not just "dangerous atmosphere": visible treatment residue, rat pressure, medical aftercare evidence, and one clear social-pressure beat each generation.
   - Drug-use or vice cues should read as fallout, dependency, or hard living through spent inhalers, burned spoons, stim patches, crash kits, or shakes; never glamorize them as lifestyle beauty shots.
   - Gore should stay grounded and adult: dried blood, meat-glue residue, stained bandages, trauma cleanup, or ugly clinic aftermath are good; splatter spectacle and torture-porn are failures.
+  - Optional recurring easter egg: a half-dead ugly ork runner or dev may appear in background or aftermath scenes when it fits the story. If a shirt slogan is used, the exact words `CHUMMER-DEV` must be added as verified post-composite text, not trusted to raw model lettering.
   - When a scene includes humor, keep it adult, peripheral, and diegetic through pictograms, mascot stickers, crossed-out icons, or cropped scribbles rather than readable joke signage.
   - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
   - Calm isolated workstation energy is not enough for first contact; show relationships, pressure, and proof props.
+  - Horizon surfaces should often feel connected to roleplay dialogue: a frozen in-character warning, hard bargain, bad prognosis, tense briefing, or after-action exchange that the table could immediately speak into.
+  - When smart-glasses or cybereye intelligence appears, treat it like a runner-facing decision aid from the Sixth World: smartlink threat brackets, teammate biomon pulse, ammo or heat state, SIN-spoof confidence, ward-boundary bleed, toxin load, drone pings, comms handshake health, exit vectors, route viability, corp-security risk, countermeasure trigger risk, and the next safest useful action. Decorative neon fog is failure.
+  - AR must cling to what the wearer is actually looking at: cyberlimb seams, wound sites, weapon lines, door frames, crate edges, rails, totem glows, critter photos, or floor paths. Free-floating holo posters, giant HUD slabs, and generic rectangles are failures.
+  - Verified overlay placement must follow a rendered-image observation pass. Inspect the finished frame first, identify actual geometry or scene evidence, and only then place chips, rails, and labels.
+  - Do not ship semantic overlays that the observed scene cannot support. If no real path, doorway, lane edge, camera, seam, wound, rail, or apparatus is visible, drop or replace the related overlay instead of floating it in empty space.
+  - Route or exit overlays require observed path geometry such as floor route paint, lane edges, barriers, ramps, door frames, tunnel mouths, chokepoints, or visible traversal lines. No generic `route clear` chip may sit over blank floor or midair.
   - Every generated frame must keep decisive action inside the safe center so one master can survive desktop and mobile crops.
 contact_sheet_rejection:
   - giant letterform or centered signboard
@@ -90,67 +113,68 @@ visual_contract:
   first_contact_hero:
     density_target: high
     overlay_density: medium
-    required_overlay_mode: medscan_diagnostic
+    required_overlay_mode: smartlink_tactical
     allowed_overlay_modes:
-      - medscan_diagnostic
+      - smartlink_tactical
     overlay_geometry:
-      - slim attribute rails
+      - slim gear rails
       - capsule chips
       - bracket fragments
       - curved callout splines
       - seam-following anchors
     overlay_priority_order:
-      - attribute rail
-      - subsystem status chips
-      - cyberware calibration
-      - wound stability
-    overlay_actionability_rule: Only show medscan information a streetdoc or teammate would use during active patch-up; reject vague trust/meta labels.
+      - SIN validity
+      - camera hijack odds
+      - cyberware handshake
+      - route window
+    overlay_actionability_rule: >
+      Only show prep info: fake SIN validity, camera hijack odds, comm sync,
+      cyberware readiness, ward risk, route window, and next action, and only
+      when the observed rendered scene shows a real place to anchor each cue.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_or_team
     humor_allowed: false
     pseudo_text_allowed: false
     required_setting_markers:
-      - improvised garage clinic required
-      - hacked med gear required
+      - rain-dark safehouse garage required
+      - prep rail, gear rack, or service wall required
       - tool chest or lift bay residue required
       - cheap fluorescent strips or work lamps required
       - wet concrete, tarp, or extension-cord grime required
+      - visible route, med, or loadout clutter required
+      - visible vermin or rat pressure required
     required_cast_markers:
-      - metahuman clinician required
-      - troll patient required
+      - metahuman quartermaster or support tech required
+      - tusked or chrome-heavy runner required
       - assistant or teammate encouraged
     required_troll_markers:
-      - heavy body mass
-      - coarse visible body hair
-      - tusks
+      - tusks or obvious metahuman physiology
+      - visible chrome or patched gear
       - rough or scarred skin
-      - dermal texture
+      - field-worn texture
     required_render_detail:
-      - visible individual hair strands
-      - visible wet or matted hair clumping
-      - crisp skin and fur microtexture
+      - crisp patched-gear microtexture
+      - visible grime and wet reflections
+      - readable chrome seams or worn straps
+      - visible fatigue or pre-run stress cue
     required_overlay_schema:
-      - BOD
-      - AGI
-      - REA
-      - STR
-      - CHA
-      - INT
-      - LOG
-      - WIL
-      - ESS
-      - EDGE
+      - SIN validity
+      - camera hijack odds
+      - smartlink handshake
+      - route window
+      - ward bleed
+      - safest next action
     required_status_labels:
-      - UPGRADING
+      - READY
     forbidden_environment_markers:
       - clean hospital exam room
-      - clean van interior with no garage cues
-      - pristine dental-clinic lighting
-      - white-box medical showroom
+      - clean van interior with no staging cues
+      - pristine showroom lighting
+      - white-box tech showroom
     forbidden_cast_defaults:
-      - lone clean human doctor in white coat
-      - ambiguous hooded figure with no clinical role readability
+      - lone gadget hero posing at camera
+      - ambiguous hooded figure with no team role readability
       - human patient
       - clean shaved patient
       - generic handsome cyberpunk model
@@ -161,18 +185,19 @@ visual_contract:
       - a visible operator relationship instead of a lone isolated figure
       - layered physical proof props across foreground, midground, and background
       - visible reasoning cues or diegetic overlay traces
+      - visible social cost cues such as dirty wraps, coughing pause, or stimulant fatigue
     must_not_show:
       - generic brooding profile at a vague wall
       - single-person dim bay still
       - lone crate or tabletop glamour
       - empty alley mood still
       - central readable signboard
+      - clinical hotel-style polish
   page_index:
     density_target: high
     overlay_density: medium
     required_overlay_mode: ambient_diegetic
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - lane arcs
@@ -194,6 +219,7 @@ visual_contract:
       - street-level chrome or awakened-world clues
       - metahuman traffic or runner-life traces
       - differentiated faction or domain hints
+      - recognized 6th-world transit residue (Bug City, Arcology, Barrens, or Underground) required
     forbidden_environment_markers:
       - empty road ambience
       - sparse interchange
@@ -205,6 +231,7 @@ visual_contract:
       - differentiated future or work lanes
       - at least one metahuman or body-worn cyberware clue that survives banner scale
       - multiple grounded clues instead of one central marker
+      - city-horizon lore continuity from known districts or tower lines
     must_not_show:
       - menu-board composition
       - empty road ambience
@@ -228,7 +255,7 @@ visual_contract:
       - rollback
       - witness lock
       - revert cost
-    overlay_actionability_rule: Only show review instrumentation that a rulesmith or witness would actually use while governing a live rules change.
+    overlay_actionability_rule: Only show review instrumentation that a rulesmith or witness would actually use while governing a live rules change, especially approval confidence, provenance mismatch, rollback path, witness pressure, countermeasure risk, and revert cost.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_preferred
@@ -270,45 +297,52 @@ visual_contract:
 asset_overlay_contracts:
   assets/hero/chummer6-hero.png:
     style_epoch_force_only: true
-    required_overlay_mode: medscan_diagnostic
+    required_overlay_mode: smartlink_tactical
     world_marker_minimum: 4
     environment_share_minimum: 0.58
     subject_crop_maximum: 0.26
     cast_readability_required: true
     overlay_anchor_required: true
     allowed_overlay_modes:
-      - medscan_diagnostic
+      - smartlink_tactical
     overlay_geometry:
-      - slim attribute rails
+      - slim gear rails
       - seam-following anchors
       - capsule status chips
       - curved callout splines
-      - small radial scan halos
+      - small route halos
     overlay_priority_order:
-      - attribute rail
-      - subsystem status chips
-      - cyberware calibration
-      - wound stability
+      - SIN validity
+      - camera hijack odds
+      - cyberware handshake
+      - route window
     overlay_actionability_rule: >
-      Show only information a runner or streetdoc would actively use while
-      stabilizing and upgrading a patient in the moment.
+      Show only staging info: fake SIN validity, camera hijack odds, comm sync,
+      cyberware readiness, ward risk, route window, and next action.
     overlay_render_strategy: verified_post_composite_only
     render_layers:
       - base_scene
       - verified_overlay
-    status_binding_rule: >
-      Attach UPGRADING only to a concrete attribute or subsystem chip such as
-      AGI or ESS; never float it as a detached headline.
     overlay_attachment_rule: >
-      Anchor chips to the attribute rail or the treated augment zone; avoid
-      face or torso coverage.
+      Anchor chips to visors, wrists, weapon slings, cyberlimbs, prep rails,
+      cases, doors, or route lines; avoid face or torso coverage.
   assets/pages/horizons-index.png:
+    overlay_density: high
     world_marker_minimum: 4
     environment_share_minimum: 0.72
     subject_crop_maximum: 0.18
+    cast_readability_required: true
     overlay_anchor_required: true
+    required_cast_markers:
+      - at least three distinct metahuman or cyberware story beats survive across the lanes
+      - limping ork or troll courier with obvious cyberleg, brace, or patched chrome visible at banner scale
+      - fixer, buyer, or courier handoff beat visible near one branch without becoming a central desk scene
+      - shamanic or rigging lookout beat visible in depth through totem residue, cable nest, or smartglasses posture
+    required_setting_markers:
+      - Bug City, Arcology, Barrens, or Underground place cue required
+      - at least one critter, parabotany, or totem residue clue required
+      - no hotel, motel, clinic, or shop-word sign may carry the lane; route meaning must come from awnings, pylons, wires, barriers, and glow
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - route arcs
@@ -317,22 +351,28 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Use overlays only for environmental navigation or route cues when the
       scene benefits from them; avoid diagnostic HUD behavior.
-    overlay_render_strategy: verified_post_composite_optional
-    render_layers:
-      - base_scene
-      - verified_overlay_optional
     overlay_attachment_rule: >
       Keep overlays edge-biased and route-anchored; never cover the central
       path or imply city-wide scanning.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
   assets/horizons/karma-forge.png:
     style_epoch_force_only: true
     required_overlay_mode: forge_review_ar
-    world_marker_minimum: 3
+    world_marker_minimum: 4
     environment_share_minimum: 0.60
-    apparatus_share_minimum: 0.50
+    apparatus_share_minimum: 0.52
     subject_crop_maximum: 0.24
     cast_readability_required: true
     overlay_anchor_required: true
+    required_cast_markers:
+      - chrome-bearing ork rulesmith visible
+      - reviewer or shamanic witness visible
+    required_setting_markers:
+      - prototype cyberlimb assembly in the room
+      - reagent or talis sample hardware visible
     allowed_overlay_modes:
       - forge_review_ar
     overlay_geometry:
@@ -349,7 +389,10 @@ asset_overlay_contracts:
       - revert cost
     overlay_actionability_rule: >
       Show only the review and consequence data needed to understand governed
-      rules change in progress.
+      rules change in progress, anchored to rails, chamber glass, hanging
+      prototypes, and packet flow: approval confidence, provenance mismatch,
+      rollback viability, witness attention, countermeasure trigger risk, and
+      the safest next clamp or revert action.
     overlay_render_strategy: verified_post_composite_only
     render_layers:
       - base_scene
@@ -357,14 +400,56 @@ asset_overlay_contracts:
     overlay_attachment_rule: >
       Attach overlays to rails, packet flow, and apparatus geometry; avoid
       floating torso or face coverage.
+  assets/hero/poc-warning.png:
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 3
+    environment_share_minimum: 0.70
+    subject_crop_maximum: 0.18
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+    overlay_geometry:
+      - hazard brackets
+      - provenance traces
+      - crate-edge pings
+      - threshold arrows
+    overlay_actionability_rule: >
+      Keep warning traces welded to crate edges, hazard tape, shutter seams,
+      or street threshold geometry; never let a giant signboard do the job.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/pages/start-here.png:
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 3
+    environment_share_minimum: 0.70
+    subject_crop_maximum: 0.20
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+    overlay_geometry:
+      - lane brackets
+      - threshold arrows
+      - route pings
+      - barrier halos
+    overlay_actionability_rule: >
+      Keep route cues attached to floor arrows, barrier posts, lane paint, or
+      threshold seams; never let a checkpoint sign or billboard become the
+      subject.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
   assets/pages/what-chummer6-is.png:
+    required_overlay_mode: ambient_diegetic
     world_marker_minimum: 3
     environment_share_minimum: 0.64
     subject_crop_maximum: 0.23
     cast_readability_required: true
     overlay_anchor_required: true
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - clipped provenance tags
@@ -372,21 +457,62 @@ asset_overlay_contracts:
       - trust-seam brackets
       - subtle trace arrows
     overlay_actionability_rule: >
-      If overlays appear, keep them faint and anchored to the review rail,
-      clips, or trace seam; never let a floating screen or loose text slab
-      explain the page.
-    overlay_render_strategy: verified_post_composite_optional
+      Keep overlays visible and anchored to the review rail, clips, or trace
+      seam; never let a floating screen or loose text slab explain the page.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/pages/where-to-go-deeper.png:
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 3
+    environment_share_minimum: 0.66
+    subject_crop_maximum: 0.20
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+    overlay_geometry:
+      - archive rails
+      - source-trace pings
+      - shelf brackets
+      - drawer-path arrows
+    overlay_actionability_rule: >
+      Keep source-trail cues attached to drawers, sleeves, shelf rails, and
+      archive hardware rather than giant labels or binder text.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/pages/current-phase.png:
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 3
+    environment_share_minimum: 0.64
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    allowed_overlay_modes:
+      - ambient_diegetic
+    overlay_geometry:
+      - workshop pings
+      - phase brackets
+      - handoff arrows
+      - bench-edge traces
+    overlay_actionability_rule: >
+      Keep phase cues attached to benches, rails, trays, or handoff hardware;
+      never let wall labels or signboards explain the page.
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/pages/current-status.png:
+    required_overlay_mode: ambient_diegetic
     world_marker_minimum: 3
     environment_share_minimum: 0.66
     subject_crop_maximum: 0.22
     cast_readability_required: true
     overlay_anchor_required: true
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - fragile provenance traces
@@ -394,20 +520,20 @@ asset_overlay_contracts:
       - weak receipt halos
       - edge-biased target pings
     overlay_actionability_rule: >
-      Keep any AR faint, local, and shelf-anchored; the public niche and its
+      Keep AR local, shelf-anchored, and visibly present; the public niche and its
       surviving physical traces must do more storytelling than electronics.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/pages/public-surfaces.png:
+    required_overlay_mode: ambient_diegetic
     world_marker_minimum: 3
     environment_share_minimum: 0.70
     subject_crop_maximum: 0.20
     cast_readability_required: true
     overlay_anchor_required: true
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - cross-surface state echoes
@@ -417,81 +543,115 @@ asset_overlay_contracts:
     overlay_actionability_rule: >
       Any overlay must stay welded to wall seams, pockets, route tiles, or
       shelf traces; never promote a single glowing panel into the subject.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/pages/parts-index.png:
-    world_marker_minimum: 4
+    overlay_density: high
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 5
     environment_share_minimum: 0.74
     subject_crop_maximum: 0.18
+    cast_readability_required: true
     overlay_anchor_required: true
+    required_cast_markers:
+      - at least four small metahuman work beats visible across the room
+      - at least one obvious cybered or augmented operator visible
+    required_setting_markers:
+      - Bug City or Arcology lore scrap visible in the room
+      - cropped megacorp shell fragment or critter ephemera visible
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - route lines
-      - district callout pings
-      - zone brackets
+      - queue pings
+      - approval halos
+      - fit brackets
       - floor-path halos
     overlay_actionability_rule: >
-      Overlays may only help the viewer parse room-scale work zones and route
-      connections; the walkable environment map must remain primary.
-    overlay_render_strategy: verified_post_composite_optional
+      Overlays may only help the viewer parse room-scale work zones, active
+      workers, and route connections; the walkable environment map must remain
+      primary and the cues must stay welded to floor lines, rails, mirrors,
+      bins, or gantries.
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/alice.png:
-    world_marker_minimum: 4
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
     environment_share_minimum: 0.58
-    apparatus_share_minimum: 0.34
+    apparatus_share_minimum: 0.40
     subject_crop_maximum: 0.24
     cast_readability_required: true
     overlay_anchor_required: true
     required_cast_markers:
-      - metahuman test subject or operator visible
+      - restrained metahuman subject visible
+      - technician or witness visible
       - obvious cyberlimb, datajack, trode band, or rig socket visible
+    required_setting_markers:
+      - clinic-wrap or trauma-wrap residue visible
+      - test-bay grime or vermin pressure visible
     allowed_overlay_modes:
-      - none
-      - ambient_diegetic
       - smartlink_tactical
     overlay_geometry:
       - branching hazard arcs
-      - mannequin-silhouette brackets
+      - cyberlimb stress halos
       - test-lane markers
       - outcome ghost traces
+    overlay_priority_order:
+      - hazard triage
+      - impact silhouette
+      - route risk
+      - biomon anomaly
     overlay_actionability_rule: >
       Treat any overlay as test-lane hazard instrumentation attached to the
-      sim bench, mannequin silhouette, or branching risk path, never as a wall
-      display verdict.
-    overlay_render_strategy: verified_post_composite_optional
+      sim bench, restrained subject, cyberlimb, or branching risk path, never
+      as a wall display verdict.
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/runsite.png:
-    world_marker_minimum: 3
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
     environment_share_minimum: 0.60
     subject_crop_maximum: 0.24
     cast_readability_required: true
     overlay_anchor_required: true
+    required_cast_markers:
+      - metahuman planner or obvious augment visible
+      - one secondary figure or team trace in the scene depth
+    required_setting_markers:
+      - real dock chokepoint hardware required
+      - broken drone scrap, blood residue, or treatment fallout visible
+      - Bug City, Arcology, Barrens, or Underground lore cue required
     allowed_overlay_modes:
-      - none
-      - ambient_diegetic
       - smartlink_tactical
     overlay_geometry:
       - ingress cones
       - ghost-lane traces
       - threat-posture marks
       - wall-seam anchors
+    overlay_priority_order:
+      - ingress cones
+      - threat posture
+      - teammate posture
+      - exit vector
     overlay_actionability_rule: >
       Keep planning cues welded to wet concrete, wall seams, crate edges, and
       ingress paths so the staging point reads as a real place, not a slab UI.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/parts/hub.png:
-    world_marker_minimum: 4
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 5
     environment_share_minimum: 0.62
     apparatus_share_minimum: 0.45
     subject_crop_maximum: 0.24
@@ -500,23 +660,33 @@ asset_overlay_contracts:
     required_cast_markers:
       - metahuman maintainer or operator visible
       - obvious cyberarm, datajack, trode band, or rig socket visible
+      - secondary teammate, drone, or shadow presence visible in depth
+    required_setting_markers:
+      - dense relay aisle geometry required
+      - mold bloom, dirty med tape, or service grime visible
     allowed_overlay_modes:
-      - none
       - ambient_diegetic
     overlay_geometry:
       - relay seams
       - hosted-state brackets
       - aisle pings
       - rack-edge traces
+    overlay_priority_order:
+      - hosted state
+      - relay seam
+      - aisle ping
+      - queue handoff
     overlay_actionability_rule: >
       Any overlay must attach to racks, seams, or aisle hardware and should
       reinforce hosted coordination instead of becoming a screen wall.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/parts/mobile.png:
-    world_marker_minimum: 4
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
     environment_share_minimum: 0.56
     subject_crop_maximum: 0.24
     cast_readability_required: true
@@ -524,24 +694,33 @@ asset_overlay_contracts:
     required_cast_markers:
       - metahuman commuter or runner visible
       - obvious handheld cyberware cue, trode rig, or datajack visible
+      - bruised crowd pressure visible around the runner
+    required_setting_markers:
+      - cracked platform or station choke point required
+      - hard-living transit fallout such as vendor grime, cough masks, or surveillance pressure visible
     allowed_overlay_modes:
-      - none
-      - ambient_diegetic
       - smartlink_tactical
     overlay_geometry:
       - reconnect arcs
       - handheld sync halos
       - continuity brackets
       - gesture taps
+    overlay_priority_order:
+      - reconnect state
+      - comm health
+      - route continuity
+      - exit vector
     overlay_actionability_rule: >
       Keep reconnect cues attached to the returning device, sleeve, trode rig,
       or table edge; avoid turning the image into a generic phone demo.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/jackpoint.png:
-    world_marker_minimum: 4
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
     environment_share_minimum: 0.52
     subject_crop_maximum: 0.24
     cast_readability_required: true
@@ -549,24 +728,33 @@ asset_overlay_contracts:
     required_cast_markers:
       - metahuman handler, runner, or fixer cue visible
       - obvious cyberhand, chrome forearm, datajack, or trode band visible
+      - buyer, courier, or lookout beat visible in the frame
+    required_setting_markers:
+      - dead-drop sleeves or dossier canisters required
+      - Paper Lotus, critter photo, or megacorp courier shell clue visible
     allowed_overlay_modes:
-      - none
-      - ambient_diegetic
       - smartlink_tactical
     overlay_geometry:
       - dead-drop brackets
       - dossier anchor rails
       - route shards
       - redaction bars
+    overlay_priority_order:
+      - packet authenticity
+      - route shard
+      - dead-drop risk
+      - witness link
     overlay_actionability_rule: >
       Keep dossier cues attached to packets, evidence sleeves, chip trays, and
       table edges; never let a fake readable form become the subject.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
   assets/horizons/nexus-pan.png:
-    world_marker_minimum: 4
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
     environment_share_minimum: 0.56
     subject_crop_maximum: 0.24
     cast_readability_required: true
@@ -574,26 +762,331 @@ asset_overlay_contracts:
     required_cast_markers:
       - metahuman returning operator or runner visible
       - obvious datajack, trode band, smartlink lens, or cyberarm visible
+      - second teammate, drone, or casualty beat visible in the rig depth
+      - reconnect should read like a rescue or ugly continuity save, not a calm gadget demo
+    required_setting_markers:
+      - battered van or service rig required
+      - dirty med tape, old blood, or corp service shell residue visible
+      - reconnect AR or smartglasses field-view cues obvious at banner scale
+      - side-door or rear-quarter rig depth required; no generic dashboard or cockpit framing
     allowed_overlay_modes:
-      - none
-      - ambient_diegetic
       - smartlink_tactical
     overlay_geometry:
       - reconnect arcs
       - continuity rails
       - signal halos
       - sync brackets
+    overlay_priority_order:
+      - reconnect state
+      - link health
+      - sync trust
+      - route continuation
     overlay_actionability_rule: >
       Keep reconnect cues attached to the returning device, sleeve, cable nest,
       or van hardware; avoid generic phone-demo framing.
-    overlay_render_strategy: verified_post_composite_optional
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/runbook-press.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 5
+    environment_share_minimum: 0.54
+    apparatus_share_minimum: 0.34
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - exhausted chrome-bearing writer visible
+      - second handoff, witness, or wounded partner beat visible
+    required_setting_markers:
+      - proof rail, rollers, or map drawers required
+      - route photos, field primers, or district scraps visible
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - provenance rails
+      - witness-seam brackets
+      - diff strips
+      - press-lane shards
+    overlay_priority_order:
+      - provenance
+      - witness lock
+      - route shard
+      - release risk
+    overlay_actionability_rule: >
+      Keep publication cues attached to proof rails, packets, clip edges, and
+      press-lane hardware so the room reads as a lived briefing, not a board.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/horizons/table-pulse.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 5
+    environment_share_minimum: 0.50
+    apparatus_share_minimum: 0.30
+    subject_crop_maximum: 0.24
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - ork GM or witness visible
+      - second battered runner, player, or witness visible
+    required_setting_markers:
+      - harsh diner or booth geometry required
+      - clinic meds, replay debris, or grime fallout visible
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - replay heat paths
+      - consequence echoes
+      - witness pulse rings
+      - route ghosts
+    overlay_priority_order:
+      - replay heat
+      - consequence echo
+      - witness pulse
+      - route ghost
+    overlay_actionability_rule: >
+      Keep replay cues attached to cups, tokens, booth edges, and pushed-aside
+      devices so the after-action scene stays physical and tired.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/core.png:
+    overlay_density: high
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.44
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - chrome-bearing referee or operator visible, preferably ork or troll
+      - second witness or opposing runner beat visible
+      - visible cyberarm, cybereye, or datajack cue
+      - live argument, warning, or after-action judgment pressure should read at a glance
+    required_setting_markers:
+      - vertical proof rail required
+      - shell clips, blood residue, or med fallout visible
+      - standing rail larger than the bodies, not a tabletop
+      - geometry-anchored smartlink AR on the rail or weapon line
+      - smartlink cues stay chip-like or rail-bound, never one giant transparent pane
+      - no electrical breaker box, utility fuse wall, or plain maintenance panel may become the subject
+      - no neat elevator-button strip, keypad column, or repeated boxed icon stack may stand in for the proof rail
+    allowed_overlay_modes:
+      - smartlink_tactical
+    overlay_geometry:
+      - smartlink wedges
+      - recoil rails
+      - wound chips
+      - line-of-effect brackets
+    overlay_priority_order:
+      - wound state
+      - recoil
+      - line of effect
+      - edge spend
+    overlay_actionability_rule: >
+      Only show ruling cues a hard-bitten runner or referee would actually use
+      in a live exchange: wound load, recoil, line of effect, cover, and edge.
+    overlay_attachment_rule: >
+      Weld overlays to the proof rail, shell clips, hands, or weapon-line
+      geometry; never float labels in dead air.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/design.png:
+    overlay_density: medium
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.40
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - planner with obvious chrome visible
+      - witness, fixer, or shamanic partner visible
+    required_setting_markers:
+      - acrylic maquettes and route strings required
+      - Bug City, Arcology, totem, or Blood Orchid clue visible
+    allowed_overlay_modes:
+      - smartlink_tactical
+      - ambient_diegetic
+    overlay_geometry:
+      - ownership arrows
+      - threat arcs
+      - scope brackets
+      - route seams
+    overlay_priority_order:
+      - scope
+      - ownership
+      - threat
+      - route seam
+    overlay_actionability_rule: >
+      Treat the overlay like a planner's cybereye field view: scope conflict,
+      route risk, and ownership pressure anchored to the prototypes.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/hub-registry.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 5
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.42
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - registrar with obvious chrome visible
+      - courier, witness, or contaminated case beat visible
+    required_setting_markers:
+      - quarantine sleeve or tagged cyberware required
+      - biohazard, gauze, or critter-ephemera clue visible
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - intake bands
+      - quarantine halos
+      - biohazard brackets
+      - compatibility seals
+    overlay_priority_order:
+      - intake state
+      - quarantine risk
+      - compatibility
+      - release lock
+    overlay_actionability_rule: >
+      Only show intake information a registrar or runner would use while
+      judging rough contraband: quarantine, contamination, compatibility, and
+      release state.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/media-factory.png:
+    overlay_density: high
+    required_overlay_mode: forge_review_ar
+    world_marker_minimum: 5
+    environment_share_minimum: 0.60
+    apparatus_share_minimum: 0.44
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - operator with visible cyberware visible
+      - courier, reviewer, or handoff beat visible
+    required_setting_markers:
+      - hanging proofs or output racks required
+      - lore crumbs such as critter photos, Blood Orchid, or corp media shell visible
+      - proofs stay edge-on or half-obscured, never frontal readable pages
+      - visible packet reads as a snapshot or dirty proof artifact, never a brochure spread
+      - lore image clues stay secondary and weathered, not a centered clean hero print
+      - provenance or repair AR clings to rails and packet sleeves
+      - vivid proof light and dirty publication color are required; sepia print-room gloom is a failure
+    allowed_overlay_modes:
+      - forge_review_ar
+    overlay_geometry:
+      - render-lane rails
+      - repair brackets
+      - provenance seals
+      - approval shards
+    overlay_priority_order:
+      - render state
+      - repair target
+      - provenance
+      - approval
+    overlay_actionability_rule: >
+      Use render-lane review cues that feel like a media operator's field view:
+      repair target, render state, provenance, and approval risk anchored to the
+      lane hardware.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/ui.png:
+    overlay_density: medium
+    required_overlay_mode: smartlink_tactical
+    world_marker_minimum: 5
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.40
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - augmented runner or operator visible
+      - helper, reflection, or witness beat visible
+    required_setting_markers:
+      - mirror-split nook, trays, or hanging frame required
+      - talismonger or critter clue visible
+    allowed_overlay_modes:
+      - smartlink_tactical
+      - ambient_diegetic
+    overlay_geometry:
+      - compare brackets
+      - build deltas
+      - trust rails
+      - fit-callout seams
+    overlay_priority_order:
+      - compare
+      - delta
+      - trust
+      - fit
+    overlay_actionability_rule: >
+      Treat the overlay like a build bench seen through smart lenses: compare
+      state, fit, trust, and delta cues anchored to the bench and hardware.
+    overlay_render_strategy: verified_post_composite_public
+    render_layers:
+      - base_scene
+      - verified_overlay_optional
+  assets/parts/ui-kit.png:
+    overlay_density: medium
+    required_overlay_mode: ambient_diegetic
+    world_marker_minimum: 5
+    environment_share_minimum: 0.58
+    apparatus_share_minimum: 0.42
+    subject_crop_maximum: 0.22
+    cast_readability_required: true
+    overlay_anchor_required: true
+    required_cast_markers:
+      - designer with visible augment visible
+      - second hand, apprentice, or witness beat visible
+    required_setting_markers:
+      - component rail, review board, or sample frame required
+      - cyberdeck shell, Paper Lotus, or corp fragment clue visible
+    allowed_overlay_modes:
+      - ambient_diegetic
+      - smartlink_tactical
+    overlay_geometry:
+      - alignment brackets
+      - component echoes
+      - shell-fit seams
+      - ward-tag halos
+    overlay_priority_order:
+      - alignment
+      - shell fit
+      - component echo
+      - ward tag
+    overlay_actionability_rule: >
+      Any overlay should read like a designer's glasses view while aligning
+      real parts: alignment, shell fit, component echo, and ward tag state.
+    overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
       - verified_overlay_optional
 sections:
   - id: hero
-    brief_family: clinic_intake
-    scene_families: streetdoc_garage_clinic, getaway_van_triage, safehouse_patchup, runner_upgrade_bay, clinic_intake
+    brief_family: service_rack
+    scene_families: safehouse_staging_bay, runner_prep_wall, gear_sync_lane, rain_dark_service_rack, service_rack
     motion_policy: premium_still_or_short_muted_loop
     density_target: high
     overlay_density: medium
@@ -601,7 +1094,7 @@ sections:
     flash_level: bold
     person_count_target: duo_or_team
     must_show_semantic_anchors: runner-prep truth, inspectable pressure, layered proof props, visible support figure or operator relationship
-    must_not_show: brooding profile, vague clue wall, crate desk, empty neon ambience, single-person dim bay
+    must_not_show: brooding profile, vague clue wall, crate desk, empty neon ambience, single-person dim bay, surgery, hospital room
   - id: what_you_can_do_today
     brief_family: archive_stair
     scene_families: archive_stair, dossier_desk, facility_exterior

@@ -1,6 +1,6 @@
 # Horizon registry
 
-This directory is the canonical future-capability registry for Project Chummer.
+This directory holds the human-readable horizon canon for Project Chummer.
 
 Each file defines a bounded future lane, the table pain it targets, the likely owners, and the architectural reasons it is still parked.
 
@@ -9,6 +9,8 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 * `nexus-pan.md` - matrix, device, and shared-state continuity
 * `alice.md` - build quality and comparative analysis
 * `karma-forge.md` - governed house-rule and alternate-ruleset evolution
+* `black-ledger.md` - persistent campaign-adjacent world-state and mission-market effects
+* `shadowcasters-network.md` - governed open-run recruitment, scheduling, and closeout over a living world map
 * `knowledge-fabric.md` - build-time knowledge projections and grounded explainability
 * `jackpoint.md` - grounded dossier, recap, narrated briefing, and artifact-studio lane
 * `runsite.md` - bounded explorable location packs for GM run sites
@@ -16,6 +18,10 @@ Each file defines a bounded future lane, the table pain it targets, the likely o
 * `ghostwire.md` - replay, after-action review, and forensics lane
 * `table-pulse.md` - bounded GM coaching and table-dynamics analysis
 * `local-co-processor.md` - optional local acceleration without mandatory local runtime
+
+Cross-horizon foundation truth lives in `FOUNDATIONS.md`.
+Machine-readable order, owners, and dependency truth live in the root `HORIZON_REGISTRY.yaml`.
+The local `horizons/HORIZON_REGISTRY.yaml` file is a derived guide-routing index and must stay narrower than the root registry and preserve the root order exactly.
 
 ## Canon rule
 

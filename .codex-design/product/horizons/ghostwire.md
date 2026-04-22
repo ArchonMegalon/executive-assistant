@@ -8,6 +8,7 @@ We know something went wrong, but we cannot reconstruct what actually happened o
 
 Chummer would support replay, after-action review, and forensics packets built from receipts over time.
 This lane is about what happened mechanically, what can be reconstructed safely, and how to compare or explain it after the fact without mutating canonical session truth.
+It also gives premium recovery a memory: when something goes wrong, the product should be able to show what happened, what is still trustworthy, and what the next safe move is.
 
 ## Likely owners
 
@@ -30,6 +31,7 @@ This lane is about what happened mechanically, what can be reconstructed safely,
 * explain provenance canon
 * runtime bundle receipts
 * media-side receipt capture for after-action outputs
+* degraded-state receipts that survive crash, reconnect, and restore paths
 
 ## Why it is not ready yet
 

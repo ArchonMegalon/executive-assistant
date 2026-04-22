@@ -1,0 +1,619 @@
+contract_name: ea.chummer5a_parity_lab_successor_handoff_closeout
+package_id: next90-m103-ea-parity-lab
+milestone_id: 103
+status: ea_scope_complete
+closed_at: "2026-04-15T09:32:00Z"
+closed_surfaces:
+  - parity_lab:capture
+  - veteran_compare_packs
+closure_scope:
+  allowed_paths:
+    - skills
+    - tests
+    - feedback
+    - docs
+  package_only: true
+  closed_package_only: next90-m103-ea-parity-lab
+  forbidden_reopen_targets:
+    - flagship_closeout_wave
+    - promoted_head_veteran_certification
+completed_outputs:
+  - docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml
+  - docs/chummer5a_parity_lab/oracle_baselines.yaml
+  - docs/chummer5a_parity_lab/veteran_workflow_pack.yaml
+  - docs/chummer5a_parity_lab/compare_packs.yaml
+  - docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml
+  - docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - .codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json
+proof:
+  command: python tests/test_chummer5a_parity_lab_pack.py
+  result: ran=18 failed=0
+  verified_at: "2026-04-15T16:24:00Z"
+local_proof_commits:
+  - commit: f3a3649
+    committed_at: "2026-04-15T14:04:20Z"
+    subject: Tighten M103 parity lab repeat guard
+    purpose: Pins the completed EA package against canonical registry, design queue, Fleet queue, direct proof, and blocked operator-helper proof hygiene.
+  - commit: 528c278
+    committed_at: "2026-04-15T14:11:07Z"
+    subject: Tighten M103 parity lab proof hygiene guard
+    purpose: Extends the blocked-helper guard to the canonical M103 registry, design queue, and Fleet queue proof rows so the closed EA package cannot be re-proven with operator-owned helper output.
+  - commit: 98313c9
+    committed_at: "2026-04-15T14:11:29Z"
+    subject: Record M103 parity lab proof hygiene guard
+    purpose: Records the completed-package closeout after the blocked-helper proof hygiene guard landed, so later successor shards can verify closure without rerunning the EA extraction slice.
+  - commit: 5d56f66
+    committed_at: "2026-04-15T14:14:04Z"
+    subject: Pin M103 parity lab latest handoff proof
+    purpose: Pins the completed-package proof receipt and handoff closeout to the latest M103 repeat-prevention handoff marker.
+  - commit: 4e6b1d8
+    committed_at: "2026-04-15T14:22:28Z"
+    subject: Record current M103 parity lab handoff proof
+    purpose: Records the completed-package repeat verification against the current successor handoff, canonical registry, design queue, Fleet queue, direct proof command, and resolving local proof commit.
+  - commit: 357ee65
+    committed_at: "2026-04-15T14:29:52Z"
+    subject: Record current M103 parity lab handoff guard
+    purpose: Tightens the completed-package handoff guard so newer successor assignments verify closure without recapturing EA-owned parity-lab artifacts.
+  - commit: d3f164c
+    committed_at: "2026-04-15T14:38:54Z"
+    subject: Refresh M103 parity lab successor proof
+    purpose: Refreshes the completed-package proof receipt and repeat-prevention guard so the current successor assignment verifies closure against the latest canonical queue, registry, and handoff anchors.
+  - commit: 9cd70ea
+    committed_at: "2026-04-15T14:42:46Z"
+    subject: Refresh M103 parity lab closure guard
+    purpose: Pins the completed-package closure guard to the latest resolving proof anchor so future successor shards verify the closed EA package instead of recapturing oracle artifacts.
+  - commit: b880b75
+    committed_at: "2026-04-15T14:46:01Z"
+    subject: Refresh M103 parity lab repeat guard
+    purpose: Pins the completed-package repeat guard after the latest closure refresh so successor shards verify current EA proof instead of recapturing oracle artifacts.
+  - commit: 4dda75d
+    committed_at: "2026-04-15T14:56:08Z"
+    subject: Refresh M103 parity lab handoff proof
+    purpose: Records the current 14:55Z successor handoff as another repeat of the already-complete EA package and keeps the closure receipt ahead of stale assignment loops.
+  - commit: 466d7e4
+    committed_at: "2026-04-15T15:00:46Z"
+    subject: Record current M103 parity lab repeat proof
+    purpose: Records the 14:58Z successor handoff repeat proof and keeps the completed EA package pinned to current canonical queue, registry, and local guard evidence.
+  - commit: 6ed29ce
+    committed_at: "2026-04-15T15:04:11Z"
+    subject: Record current M103 parity lab handoff proof
+    purpose: Records the 15:02Z successor handoff repeat proof and keeps the completed EA package pinned to current canonical queue, registry, and local guard evidence.
+  - commit: 76a3acc
+    committed_at: "2026-04-15T15:06:58Z"
+    subject: Pin current M103 parity lab handoff guard
+    purpose: Pins the completed-package handoff guard after the 15:05Z repeat proof so successor shards verify the closed EA scope instead of recapturing oracle artifacts.
+  - commit: c83eca2
+    committed_at: "2026-04-15T15:09:36Z"
+    subject: Refresh M103 parity lab handoff guard
+    purpose: Refreshes the completed-package handoff guard after the 15:08Z repeat proof so successor shards verify the closed EA scope instead of recapturing oracle artifacts.
+  - commit: a57fc43
+    committed_at: "2026-04-15T15:12:57Z"
+    subject: Refresh M103 parity lab current handoff guard
+    purpose: Records the 15:11Z successor handoff repeat proof and keeps the completed EA package pinned to current canonical queue, registry, direct proof, and local guard evidence.
+  - commit: f244a62
+    committed_at: "2026-04-15T15:13:29Z"
+    subject: Pin M103 parity lab current proof guard
+    purpose: Pins the completed-package repeat guard after the 15:11Z handoff refresh so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 7b7da3e
+    committed_at: "2026-04-15T15:16:22Z"
+    subject: Refresh M103 parity lab current successor guard
+    purpose: Records the completed-package guard after the 15:14Z handoff refresh so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 945ed7b
+    committed_at: "2026-04-15T15:19:16Z"
+    subject: Pin current M103 parity lab successor guard
+    purpose: Pins the completed-package receipt, handoff closeout, and repeat-prevention test after the 15:17Z handoff refresh so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: ac84501
+    committed_at: "2026-04-15T15:24:46Z"
+    subject: Pin M103 parity lab latest proof floor
+    purpose: Pins the completed-package proof receipt, handoff closeout, and repeat-prevention test to the latest resolving M103 proof floor so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 1dfb104
+    committed_at: "2026-04-15T15:29:26Z"
+    subject: Pin current M103 parity lab proof floor
+    purpose: Pins the completed-package proof receipt, handoff closeout, and repeat-prevention test to the current resolving M103 proof floor so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: dfdfa45
+    committed_at: "2026-04-15T15:35:39Z"
+    subject: Pin current M103 parity lab repeat proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, and repeat-prevention test to the current repeat-proof floor so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: e1289e7
+    committed_at: "2026-04-15T15:42:20Z"
+    subject: Pin M103 parity lab current repeat proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, feedback note, and repeat-prevention test to the current repeat-proof floor so future successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: e8ec699
+    committed_at: "2026-04-15T15:48:18Z"
+    subject: Refresh M103 parity lab repeat proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, feedback note, and repeat-prevention test to the 15:46Z repeat-proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 48ae7bc
+    committed_at: "2026-04-15T15:52:53Z"
+    subject: Pin M103 parity lab latest repeat proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, feedback note, and repeat-prevention test to the 15:52Z repeat-proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: c28df5a
+    committed_at: "2026-04-15T15:55:52Z"
+    subject: Pin M103 parity lab current handoff proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, feedback note, and repeat-prevention test to the 15:55Z handoff proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: e706014
+    committed_at: "2026-04-15T16:00:17Z"
+    subject: Pin M103 parity lab current handoff floor
+    purpose: Pins the completed-package proof receipt, handoff closeout, feedback note, and repeat-prevention test to the 15:59Z handoff proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 87ad539
+    committed_at: "2026-04-15T16:05:20Z"
+    subject: Pin M103 parity lab 1603 handoff proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, feedback note, and repeat-prevention test to the 16:03Z handoff proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 4d186b6
+    committed_at: "2026-04-15T16:08:49Z"
+    subject: Pin M103 parity lab latest handoff proof
+    purpose: Pins the completed-package proof receipt, handoff closeout, and repeat-prevention test to the 16:06Z handoff proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: d274b66
+    committed_at: "2026-04-15T16:14:52Z"
+    subject: Pin M103 parity lab current handoff floor
+    purpose: Pins the completed-package proof receipt, handoff closeout, and repeat-prevention test to the 16:10Z handoff proof floor so successor shards verify the closed EA package instead of recapturing Chummer5a oracle artifacts.
+  - commit: 1783ee6
+    committed_at: "2026-04-15T16:33:13Z"
+    subject: Tighten M103 parity lab terminal repeat guard
+    purpose: Adds the terminal no-timestamp-chasing policy so newer successor handoffs are assignment context only while canonical registry, queue, completed outputs, and direct proof stay green.
+  - commit: 0284b0a
+    committed_at: "2026-04-15T16:18:39Z"
+    subject: Pin M103 parity lab current successor handoff
+    purpose: Pins the completed-package proof floor immediately before the terminal policy so successor shards verify closure instead of recapturing Chummer5a oracle artifacts.
+  - commit: a8a8f72
+    committed_at: "2026-04-15T16:37:38Z"
+    subject: Publish M103 parity lab terminal policy
+    purpose: Publishes the terminal no-timestamp-chasing policy into the package receipt and handoff closeout.
+  - commit: 04408e3
+    committed_at: "2026-04-15T16:41:00Z"
+    subject: Tighten M103 parity lab proof count guard
+    purpose: Pins the direct proof-count guard so the package cannot be reclosed with stale ran/failed evidence.
+  - commit: 1a71457
+    committed_at: "2026-04-15T16:43:54Z"
+    subject: Tighten M103 parity lab terminal policy guard
+    purpose: Tightens the terminal-policy guard so newer handoffs remain context only while canonical registry, queue, outputs, and direct proof stay green.
+  - commit: 08fc645
+    committed_at: "2026-04-15T16:45:52Z"
+    subject: Pin M103 parity lab terminal proof floor
+    purpose: Pins the terminal proof-floor commit into the published receipt, closeout, and direct guard so successor shards verify the closed EA package instead of chasing newer handoff timestamps.
+  - commit: 24a16a4
+    committed_at: "2026-04-15T16:49:38Z"
+    subject: Tighten M103 parity lab design queue proof
+    purpose: Tightens the completed-package guard so the design-owned queue row must remain complete, matching the canonical registry and Fleet queue mirror.
+  - commit: 724d2c1
+    committed_at: "2026-04-15T18:57:55Z"
+    subject: Pin M103 parity lab design queue proof floor
+    purpose: Pins the completed-package receipt, handoff closeout, and direct guard to the resolved design-queue proof floor so future successor shards verify the closed EA package instead of repeating it.
+  - commit: 94be27c
+    committed_at: "2026-04-15T19:00:48Z"
+    subject: Pin M103 EA parity lab proof floor
+    purpose: Pins the latest completed-package proof floor into the receipt, handoff closeout, and direct guard so future successor shards verify the closed EA package instead of repeating it.
+  - commit: f252c02
+    committed_at: "2026-04-15T19:05:41Z"
+    subject: Pin M103 latest parity lab proof floor
+    purpose: Pins the latest completed-package proof floor into the receipt, handoff closeout, and direct guard so future successor shards verify the closed EA package instead of repeating it.
+  - commit: 03da40e
+    committed_at: "2026-04-15T19:25:39Z"
+    subject: Tighten M103 append-free terminal guard
+    purpose: Adds the append-free terminal policy so newer same-package successor assignments verify closure instead of adding more repeat-verification rows while canonical anchors and direct proof stay green.
+  - commit: 4d07436
+    committed_at: "2026-04-15T19:29:05Z"
+    subject: Pin M103 append-free guard proof floor
+    purpose: Pins the append-free terminal guard into the published receipt, closeout, and direct guard so future shards verify the closed EA package instead of repeating it.
+  - commit: a2ae08f
+    committed_at: "2026-04-15T19:35:57Z"
+    subject: Tighten M103 append-free proof floor guard
+    purpose: Tightens the append-free proof floor guard so successor shards require the latest closed-package guard before treating newer same-package assignments as context only.
+  - commit: 3f74d5d
+    committed_at: "2026-04-16T05:06:21Z"
+    subject: Keep M103 terminal handoff guard append-free
+    purpose: Keeps the completed-package terminal handoff guard append-free so newer same-package successor assignments verify closure without timestamp-only edits.
+  - commit: 1eddb6d
+    committed_at: "2026-04-16T05:08:51Z"
+    subject: Pin M103 terminal append-free proof floor
+    purpose: Pins the terminal append-free proof floor after the handoff guard so successor shards verify the closed EA package instead of repeating it or chasing newer handoff timestamps.
+  - commit: 257a5b7
+    committed_at: "2026-04-16T21:04:00Z"
+    subject: Tighten M103 handoff mode guard
+    purpose: Allows ACTIVE_RUN_HANDOFF Mode unknown as assignment metadata only while frontier/package identity, canonical queue closure, completed outputs, and the direct proof command remain the closure authority.
+repeat_verifications:
+  - verified_at: "2026-04-15T10:46:45Z"
+    active_handoff_generated_at: "2026-04-15T10:45:43Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Repeated successor-wave assignment verified closed EA scope; do not recapture parity-lab artifacts while canonical registry, queue, proof, and at-least-this-new active handoff remain green.
+  - verified_at: "2026-04-15T10:51:37Z"
+    active_handoff_generated_at: "2026-04-15T10:51:05Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Successor-wave pass revalidated the completed EA scope against the at-least-this-new active handoff; do not reopen the flagship wave and do not recapture parity-lab artifacts unless canonical closure evidence fails.
+  - verified_at: "2026-04-15T10:56:23Z"
+    active_handoff_generated_at: "2026-04-15T10:54:31Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Successor-wave pass revalidated the completed EA scope against the at-least-this-new active handoff; do not reopen the flagship wave and do not recapture parity-lab artifacts unless canonical closure evidence fails.
+  - verified_at: "2026-04-15T11:00:11Z"
+    active_handoff_generated_at: "2026-04-15T10:59:24Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment is a repeat of the already-complete EA package verified against the at-least-this-new active handoff; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while registry, queue staging, completed outputs, and proof remain green.
+  - verified_at: "2026-04-15T11:03:22Z"
+    active_handoff_generated_at: "2026-04-15T11:03:03Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:03:03Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:08:52Z"
+    active_handoff_generated_at: "2026-04-15T11:06:48Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:06:48Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:18:00Z"
+    active_handoff_generated_at: "2026-04-15T11:12:32Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:12:32Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:18:17Z"
+    active_handoff_generated_at: "2026-04-15T11:15:33Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:15:33Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:19:03Z"
+    active_handoff_generated_at: "2026-04-15T11:18:28Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:18:28Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:22:30Z"
+    active_handoff_generated_at: "2026-04-15T11:21:21Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:21:21Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:28:46Z"
+    active_handoff_generated_at: "2026-04-15T11:26:57Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:26:57Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:32:51Z"
+    active_handoff_generated_at: "2026-04-15T11:32:16Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:32:16Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:35:27Z"
+    active_handoff_generated_at: "2026-04-15T11:34:51Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:34:51Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:37:57Z"
+    active_handoff_generated_at: "2026-04-15T11:37:25Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at or after 2026-04-15T11:37:25Z; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:44:59Z"
+    active_handoff_generated_at: "2026-04-15T11:44:52Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff and its prompt path; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:49:17Z"
+    active_handoff_generated_at: "2026-04-15T11:48:38Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff and prompt path; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T11:57:33Z"
+    active_handoff_generated_at: "2026-04-15T11:56:20Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=14 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff and prompt path; do not recapture parity-lab artifacts, oracle baselines, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T12:01:31Z"
+    active_handoff_generated_at: "2026-04-15T12:00:51Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff and prompt path; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T12:05:34Z"
+    active_handoff_generated_at: "2026-04-15T12:05:00Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff and prompt path; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, or reopen flagship closeout while canonical closure evidence remains green.
+  - verified_at: "2026-04-15T12:08:18Z"
+    active_handoff_generated_at: "2026-04-15T12:07:24Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff, canonical registry, design-owned queue assignment, and Fleet completed queue mirror; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T13:49:34Z"
+    active_handoff_generated_at: "2026-04-15T13:49:09Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff, canonical registry, design-owned queue assignment, and Fleet completed queue mirror; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T13:52:03Z"
+    active_handoff_generated_at: "2026-04-15T13:51:31Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff, canonical registry, design-owned queue assignment, and Fleet completed queue mirror; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T13:54:45Z"
+    active_handoff_generated_at: "2026-04-15T13:54:20Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T13:54:20Z, canonical registry, design-owned queue assignment, and Fleet completed queue mirror; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T13:58:57Z"
+    active_handoff_generated_at: "2026-04-15T13:57:34Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T13:57:34Z, canonical registry, design-owned queue assignment, and Fleet completed queue mirror; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:03:21Z"
+    active_handoff_generated_at: "2026-04-15T14:02:41Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:02:41Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, and direct proof command; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:06:51Z"
+    active_handoff_generated_at: "2026-04-15T14:06:05Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=f3a3649"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:06:05Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof commit f3a3649; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:13:53Z"
+    active_handoff_generated_at: "2026-04-15T14:13:04Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=98313c9"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:13:04Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof hygiene commit 98313c9; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:19:25Z"
+    active_handoff_generated_at: "2026-04-15T14:16:41Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=5d56f66"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:16:41Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 5d56f66; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:25:13Z"
+    active_handoff_generated_at: "2026-04-15T14:25:13Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=4e6b1d8"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:25:13Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 4e6b1d8; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:33:05Z"
+    active_handoff_generated_at: "2026-04-15T14:32:18Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=357ee65"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:32:18Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff guard commit 357ee65; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:37:10Z"
+    active_handoff_generated_at: "2026-04-15T14:35:48Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=357ee65"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:35:48Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff guard commit 357ee65; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:42:17Z"
+    active_handoff_generated_at: "2026-04-15T14:41:49Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=d3f164c"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:41:49Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof refresh commit d3f164c; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:45:13Z"
+    active_handoff_generated_at: "2026-04-15T14:44:56Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=9cd70ea"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:44:56Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local closure guard commit 9cd70ea; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:50:20Z"
+    active_handoff_generated_at: "2026-04-15T14:47:44Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=b880b75"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:47:44Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local repeat guard commit b880b75; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T14:55:45Z"
+    active_handoff_generated_at: "2026-04-15T14:55:10Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=4dda75d"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:55:10Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 4dda75d; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:00:24Z"
+    active_handoff_generated_at: "2026-04-15T14:58:43Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=4dda75d"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T14:58:43Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 4dda75d; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:03:28Z"
+    active_handoff_generated_at: "2026-04-15T15:02:42Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=466d7e4"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:02:42Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local repeat proof commit 466d7e4; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:06:13Z"
+    active_handoff_generated_at: "2026-04-15T15:05:37Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=6ed29ce"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:05:37Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 6ed29ce; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:09:15Z"
+    active_handoff_generated_at: "2026-04-15T15:08:30Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=76a3acc"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:08:30Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff guard commit 76a3acc; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:12:03Z"
+    active_handoff_generated_at: "2026-04-15T15:11:26Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=a57fc43"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:11:26Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff guard commit a57fc43; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:15:41Z"
+    active_handoff_generated_at: "2026-04-15T15:14:53Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=f244a62"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:14:53Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof guard commit f244a62; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:18:40Z"
+    active_handoff_generated_at: "2026-04-15T15:17:57Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=7b7da3e"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:17:57Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local successor guard commit 7b7da3e; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:24:03Z"
+    active_handoff_generated_at: "2026-04-15T15:21:33Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=945ed7b"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:21:33Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local successor guard commit 945ed7b; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:27:37Z"
+    active_handoff_generated_at: "2026-04-15T15:25:10Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=ac84501"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:25:10Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof floor commit ac84501; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:34:00Z"
+    active_handoff_generated_at: "2026-04-15T15:32:03Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=1dfb104"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:32:03Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local proof floor commit 1dfb104; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:42:00Z"
+    active_handoff_generated_at: "2026-04-15T15:38:18Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=dfdfa45"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:38:18Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local repeat proof commit dfdfa45; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:46:12Z"
+    active_handoff_generated_at: "2026-04-15T15:44:29Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=e1289e7"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:44:29Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local repeat proof commit e1289e7; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:52:36Z"
+    active_handoff_generated_at: "2026-04-15T15:51:17Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=e8ec699"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:51:17Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local repeat proof commit e8ec699; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:55:08Z"
+    active_handoff_generated_at: "2026-04-15T15:54:19Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=48ae7bc"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:54:19Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local repeat proof commit 48ae7bc; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T15:59:29Z"
+    active_handoff_generated_at: "2026-04-15T15:57:26Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=c28df5a"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T15:57:26Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit c28df5a; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T16:04:28Z"
+    active_handoff_generated_at: "2026-04-15T16:03:41Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=e706014"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T16:03:41Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit e706014; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T16:07:37Z"
+    active_handoff_generated_at: "2026-04-15T16:06:55Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=87ad539"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T16:06:55Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 87ad539; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T16:13:18Z"
+    active_handoff_generated_at: "2026-04-15T16:10:29Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=4d186b6"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T16:10:29Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit 4d186b6; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T16:18:00Z"
+    active_handoff_generated_at: "2026-04-15T16:17:16Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=assigned fleet_queue=complete proof=ran=15 failed=0 local_proof_commit=d274b66"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T16:17:16Z, canonical registry, design-owned queue assignment, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit d274b66; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green.
+  - verified_at: "2026-04-15T16:24:00Z"
+    active_handoff_generated_at: "2026-04-15T16:20:33Z"
+    frontier_id: 4287684466
+    package_id: next90-m103-ea-parity-lab
+    result: "registry=complete design_queue=complete fleet_queue=complete proof=ran=16 failed=0 local_proof_commit=d274b66"
+    worker_rule: Current successor-wave assignment revalidated the already-complete EA package against the at-least-this-new active handoff generated at 2026-04-15T16:20:33Z, canonical registry, design-owned completed queue row, Fleet completed queue mirror, direct proof command, and resolving local handoff proof commit d274b66; do not recapture parity-lab artifacts, oracle baselines, invoke operator-owned run helpers, cite operator-owned helper output, or reopen flagship closeout while these closure anchors remain green. Newer active handoffs for this same frontier are assignment context only and do not require timestamp-chasing edits while the terminal verification policy remains green.
+canonical_successor_sources:
+  registry: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  design_queue: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  readiness: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  active_run_handoff: /var/lib/codex-fleet/chummer_design_supervisor/shard-3/ACTIVE_RUN_HANDOFF.generated.md
+canonical_closure_markers:
+  successor_registry_work_task: "103.1 status=complete"
+  design_queue_completed_package: "next90-m103-ea-parity-lab status=complete frontier=4287684466"
+  queue_package: "next90-m103-ea-parity-lab status=complete"
+  queue_proof_command: python tests/test_chummer5a_parity_lab_pack.py
+  active_handoff_frontier: "4287684466 focused_package=next90-m103-ea-parity-lab"
+repeat_prevention:
+  successor_frontier_id: 4287684466
+  already_closed_when_seen_at: "2026-04-15T09:52:00Z"
+  active_handoff_verified_at: "2026-04-15T16:24:00Z"
+  active_handoff_min_generated_at: "2026-04-15T16:20:33Z"
+  active_handoff_focus_required: next90-m103-ea-parity-lab
+  active_handoff_owned_surfaces_required:
+    - parity_lab:capture
+    - veteran_compare_packs
+  registry_task_status_required: complete
+  design_queue_completed_package_required: "next90-m103-ea-parity-lab status=complete frontier=4287684466"
+  queue_package_status_required: complete
+  worker_rule: Treat this EA-owned package as closed when the canonical successor registry, queue staging packet, completed outputs, and proof command all still pass; advance only delegated non-EA follow-up packages from here.
+  repeat_guard_test: test_successor_handoff_closeout_prevents_repeating_ea_scope
+  blocked_helper_guard_test: test_successor_closeout_does_not_use_active_run_helper_commands
+  local_proof_commit_guard_test: test_successor_handoff_closeout_prevents_repeating_ea_scope
+terminal_verification_policy:
+  status: terminal_for_ea_scope
+  latest_required_handoff_floor: "2026-04-15T16:20:33Z"
+  current_or_newer_handoff_rule: A newer active-run handoff for the same frontier and package is assignment context only; it is not a reason to edit this EA package while canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green.
+  handoff_mode_rule: "The ACTIVE_RUN_HANDOFF Mode field is assignment metadata only; Mode: unknown, Mode: completion_review, and Mode: flagship_product are acceptable when frontier/package identity, canonical registry, design queue, Fleet queue, completed outputs, and the direct proof command stay green."
+  no_timestamp_chasing_required: true
+  no_operator_helper_evidence_allowed: true
+  closed_scope_guard_test: test_terminal_verification_policy_stops_timestamp_chasing
+  allowed_next_work:
+    - next90-m103-design-parity-ladder
+    - next90-m103-fleet-readiness-consumption
+  completed_non_ea_work:
+    - package_id: next90-m103-ui-veteran-certification
+      owner: chummer6-ui
+      registry_task_id: "103.2"
+      status: complete
+completed_non_ea_work:
+  - package_id: next90-m103-ui-veteran-certification
+    owner: chummer6-ui
+    registry_task_id: 103.2
+    status: complete
+    reason: Canonical successor registry task 103.2 reports the promoted-head screenshot-backed veteran certification package complete, so repeated EA workers must not reopen or recapture it.
+repeat_row_append_policy:
+  status: closed_append_free
+  do_not_append_for_newer_same_package_handoffs: true
+  proof_floor_freeze:
+    latest_guard_commit: 257a5b7
+    latest_guard_subject: Tighten M103 handoff mode guard
+    worker_rule: Treat the latest resolved append-free proof floor as sufficient closure for newer same-package handoffs; do not update generated receipts, repeat rows, or closeout timestamps only because ACTIVE_RUN_HANDOFF.generated.md was regenerated for frontier 4287684466.
+    guarded_by: test_terminal_verification_policy_stops_timestamp_chasing
+  append_only_when:
+    - canonical_successor_registry_task_103_1_stops_reporting_complete
+    - design_or_fleet_queue_row_stops_reporting_complete_for_frontier_4287684466
+    - completed_output_or_source_pointer_missing
+    - direct_proof_command_fails
+    - terminal_verification_policy_removed_or_weakened
+  worker_action: Verify the canonical anchors and direct proof, then move to allowed_next_work; do not edit completed EA outputs only to record a newer assignment timestamp.
+remaining_non_ea_work:
+  - package_id: next90-m103-design-parity-ladder
+    owner: chummer6-design
+    reason: Move flagship parity families through stricter release-truth ladder policy when downstream evidence changes.
+  - package_id: next90-m103-fleet-readiness-consumption
+    owner: fleet
+    reason: Consume parity-lab evidence in readiness gating when downstream publication surfaces change.
+anti_reopen_rules:
+  - Do not reopen the closed flagship closeout wave from this EA package.
+  - Do not treat promoted-head screenshot certification as EA-owned work.
+  - Do not mark this EA package incomplete unless one of the completed output files, source pointers, registry links, or proof commands fails.

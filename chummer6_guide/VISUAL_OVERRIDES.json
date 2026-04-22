@@ -1,14 +1,14 @@
 {
   "assets/hero/chummer6-hero.png": {
-    "visual_prompt": "First-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage, never an alley and never a tabletop. One standing runner works a vertical prep wall crowded with hanging gear rails, clipped med tags, sealed pouches, harness straps, intake bins, translucent stat markers, med drawers, and proof anchors while build-state provenance traces and fit-check brackets cling to those physical props. The frame must feel dense, layered, and immediately specific to character-build trust, rules inspection pressure, and Chummer-style visible reasoning. Push it toward packed flashy cover energy: stronger orange-cyan contrast, harder rim light, bolder foreground clutter, and obvious foreground-midground-background separation. Show the runner in three-quarter or over-shoulder posture with both arms actively sorting gear and tags, surrounded by foreground clutter on both sides. Strong foreground props, readable midground posture, rich background clues, no readable text, no table scene, no desk glamour, no cards or paper in hand, no phone hero prop, no empty darkness, and no quiet side-profile portrait.",
+    "visual_prompt": "First-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage, never an alley and never a tabletop. One standing runner works a vertical prep wall crowded with hanging gear rails, clipped med tags, sealed pouches, harness straps, intake bins, translucent stat markers, med drawers, stained gauze, cheap med trash, and proof anchors while build-state provenance traces and fit-check brackets cling to those physical props. The frame must feel dense, layered, desperate, and immediately specific to character-build trust, rules inspection pressure, and Chummer-style visible reasoning. Push it toward packed flashy cover energy: stronger orange-cyan contrast, harder rim light, bruising, dried blood, grime, ugly clinic fatigue, and obvious foreground-midground-background separation. If the outside world is visible, let it hint at a recognizable lore place such as Chicago after Bug City or an Arcology-shadow district. Show metahuman bodies, visible chrome, and social damage without splatter spectacle. Strong foreground props, readable midground posture, rich background clues, no readable text, no table scene, no desk glamour, no cards or paper in hand, no phone hero prop, no empty darkness, and no quiet side-profile portrait.",
     "scene_contract": {
       "subject": "one standing runner deciding whether tonight's build can be trusted before stepping back into the rain",
-      "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, translucent rule markers, and hard practical spill",
+      "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, stained gauze, cheap med waste, translucent rule markers, and hard practical spill",
       "action": "pausing mid-prep with both hands on hanging gear and clipped tags while layered trust traces, fit checks, and proof anchors live through the room around them",
       "composition": "clinic_intake",
-      "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "strap bundle", "intake bin", "translucent stat marker"],
+      "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "stained gauze", "cheap med waste", "translucent stat marker"],
       "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
-      "mood": "tense, specific, and high-pressure instead of brooding",
+      "mood": "tense, ugly, and high-pressure instead of brooding",
       "easter_egg_policy": "forbid",
       "humor_policy": "forbid"
     }
@@ -148,14 +148,14 @@
     }
   },
   "assets/parts/core.png": {
-    "visual_prompt": "Over-the-shoulder proof scene for one dice pool: the camera rides just behind a chrome-jacketed operator while short glowing modifier chips and faint trace lines resolve the math between the dice tray, battered commlink, and a scarred tabletop edge, a small blue troll tattoo is clearly visible behind the operator ear, gritty prep realism, no readable text, not corporate wallpaper.",
+    "visual_prompt": "Standing rules-adjudication rail in a dirty Sixth World back room: an ork, troll, or elf referee with obvious cyberware such as a datajack, chrome fingers, cybereye, or forearm brace locks translucent wound wedges, recoil bands, spent-shell modifier clips, and abstract AR brackets into a vertical acrylic proof rail under hard practical light. The scene must read Shadowrun instantly at banner scale through metahuman features, cyberware, vivid smartlink traces, and lore crumbs: a cropped Ares or Renraku shell, devil-rat trap, blood-specked gauze, stimulant patch trash, talismonger charm, and one pinned critter or Bug City skyline scrap in the background. Dirty-bright cyan, amber, and magenta color, no paper sheet, no sticky-note wall, no whiteboard, no generic office desk, no readable text.",
     "scene_contract": {
-      "subject": "one operator settling a disputed dice pool with visible modifier traces",
-      "environment": "a scarred prep edge in a neon safehouse with close tactile clutter",
-      "action": "turning suspicious math into inspectable traces over dice, chips, and one battered commlink",
-      "composition": "over_shoulder_receipt",
-      "props": ["battered commlink", "dice tray", "receipt overlay", "modifier chips"],
-      "mood": "technical, grounded, and exacting",
+      "subject": "one visibly augmented metahuman referee forcing a disputed Shadowrun call into a public proof rail",
+      "environment": "a filthy Barrens safehouse review bay with a vertical acrylic rail, med grime, ammo shells, talismonger clutter, and ugly Sixth World fallout",
+      "action": "locking wound, recoil, and consequence logic into a standing proof rail while AR brackets cling to the hardware",
+      "composition": "review_bay",
+      "props": ["vertical proof rail", "modifier wedges", "spent-shell clip", "battered commlink", "blood-specked gauze", "devil-rat trap", "cropped megacorp shell", "critter photo"],
+      "mood": "harsh, exacting, vivid, and undeniably cyberpunk",
       "easter_egg_kind": "small blue troll tattoo",
       "easter_egg_placement": "behind the operator ear in the right third, catching a cyan rim light",
       "easter_egg_detail": "classic Chummer troll silhouette as a small blue tattoo behind the operator ear",
@@ -178,14 +178,14 @@
     }
   },
   "assets/parts/mobile.png": {
-    "visual_prompt": "Transit-side mobile play shell scene: an ork or elf runner with a visible chrome forearm, trode band, or datajack has just rejoined from a station platform or cafe threshold while initiative, effects, and reconnect state snap back onto a battered Renraku-style handset and one secondary tablet. Seed the space with a torn hell hound notice, a devil rat bait tin, and one cropped commuter ad or corp shell with no readable text. Asymmetrical device realism over diagram vibes, no huddle shot.",
+    "visual_prompt": "Transit-side mobile play shell scene in a real Sixth World choke point: a crowded Redmond Barrens mezzanine spilling toward the Ork Underground, with an ork or elf runner showing a chrome forearm, trode band, or temple datajack as reconnect state snaps back onto a battered Renraku-style handset and a secondary tablet. Keep metahuman commuters in frame, with obvious tusks, horns, chrome, wet coats, cough syrup cups, broken platform tiles, wet trash, a devil rat bait tin, a Paper Lotus charm, and one cropped Horizon commuter ad or corp shell with no readable text. Make it feel like dirty table survival during the commute, not a clean cafe app demo or a posed phone glamour shot.",
     "scene_contract": {
-      "subject": "one runner rejoining the play shell while the session keeps moving",
-      "environment": "a transit threshold with one phone, one tablet, wet coats, portable session clutter, and small Sixth World commuter debris",
-      "action": "keeping the shared state alive even when one device drops and comes back mid-session",
+      "subject": "one visibly augmented metahuman runner rejoining the play shell while the rest of the commute crushes past",
+      "environment": "a Redmond transit choke point with Ork Underground tilework, broken platform edges, wet coats, commuter bodies, one phone, one tablet, portable session clutter, and ugly Sixth World debris",
+      "action": "keeping the shared state alive even when one device drops and comes back in the middle of a dirty, crowded session handoff",
       "composition": "transit_checkpoint",
-      "props": ["phone", "tablet", "initiative tracker", "coffee cup", "devil rat bait tin", "Paper Lotus charm"],
-      "mood": "busy, resilient, and controlled",
+      "props": ["phone", "tablet", "initiative tracker", "cough syrup cup", "devil rat bait tin", "Paper Lotus charm", "cropped commuter ad"],
+      "mood": "crowded, grimy, resilient, and a little sick",
       "easter_egg_kind": "troll phone-case sticker",
       "easter_egg_placement": "on the nearest phone case along the lower-right third",
       "easter_egg_detail": "classic Chummer troll sticker, scuffed but unmistakable",
@@ -208,14 +208,14 @@
     }
   },
   "assets/parts/ui-kit.png": {
-    "visual_prompt": "Shared chrome scene expressed physically: two devices show the same design language while a designer adjusts components on a real desk, coherent visual family without becoming generic Figma wallpaper.",
+    "visual_prompt": "Shared chrome as a lived Sixth World component workshop: a visibly augmented metahuman designer uses smartgloves or a cyberhand to align badge plates, optical chips, ward-tag glyph plaques, cyberdeck shell fragments, and translucent UI tokens across a vertical review board, hanging sample frame, and clipped component rail. Make the scene unmistakably Shadowrun through metahuman presence, cyberware, AR alignment overlays, and lore crumbs such as a Saeder-Krupp or Shiawase shell fragment, a Paper Lotus charm, a critter postcard pinned to the wall, and one bruised stimulant inhaler on the bench edge. No paired-monitor trope, no clean showroom swatch wall, no generic design desk, and no readable text.",
     "scene_contract": {
-      "subject": "one shared design language showing up across multiple real surfaces",
-      "environment": "a design desk with two screens, swatches, and component notes",
-      "action": "making reusable chrome feel like product consistency instead of abstract atoms",
-      "composition": "desk_still_life",
-      "props": ["dual screens", "component notes", "swatches", "stylus"],
-      "mood": "clean, deliberate, and mildly smug",
+      "subject": "one visibly augmented designer forcing the same visual language across several real Shadowrun surfaces",
+      "environment": "a compact component workshop with a vertical review board, hanging sample frame, clipped rail hardware, shell fragments, and lore-cluttered bench edges",
+      "action": "aligning component grammar across several physical surfaces while AR registration brackets and ghosted callouts cling to the hardware",
+      "composition": "mirror_split",
+      "props": ["component rail", "badge plates", "optical chips", "ward-tag plaques", "cyberdeck shell fragment", "Paper Lotus charm", "critter postcard", "stimulant inhaler"],
+      "mood": "deliberate, vivid, sly, and unmistakably cyberpunk",
       "easter_egg_kind": "troll pin",
       "easter_egg_placement": "pinned to the desk organizer near the lower-left third",
       "easter_egg_detail": "classic Chummer troll as a tiny enamel desk pin",
@@ -223,14 +223,14 @@
     }
   },
   "assets/parts/hub-registry.png": {
-    "visual_prompt": "Artifact intake and compatibility desk: package cards, moderation state, icon stamps, color bands, and evidence bins arranged like a real registry station, grounded and useful, no readable forms or labels.",
+    "visual_prompt": "Archive-intake lane in a grimy Shadowrun release registry: an ork or dwarf registrar with a visible cyberarm, datajack, or retinal implant stands between compatibility bins, quarantine shelves, hanging tags, scanner rails, and rough artifact cases while AR compatibility halos and intake bands cling to the containers. The frame must read Sixth World instantly through cropped megacorp shipping shells, a quarantined drone part, devil-rat droppings near the baseboard, a bloody gauze packet in a biohazard sleeve, one critter field photo pinned above the lane, and a battered touristville release stamp rig. No clean archive aisle, no generic records room, no desk-only prop spread, and no readable labels.",
     "scene_contract": {
-      "subject": "a registry desk judging whether packs and artifacts belong here",
-      "environment": "an intake counter with package cards, scanners, and labeled bins",
-      "action": "turning compatibility and moderation into something inspectable",
-      "composition": "dossier_desk",
-      "props": ["package cards", "scanner", "bins", "approval slips"],
-      "mood": "orderly, skeptical, and slightly weary",
+      "subject": "a visibly augmented registrar judging whether rough Shadowrun artifacts survive intake and compatibility review",
+      "environment": "a quarantine-heavy archive lane with intake rails, scanners, hanging tags, release shelves, compatibility bins, and grime-streaked Sixth World clutter",
+      "action": "sorting release candidates through compatibility bands and intake halos while the shelves and bins carry the decision",
+      "composition": "archive_room",
+      "props": ["scanner rail", "compatibility bins", "quarantine sleeve", "artifact case", "cropped megacorp shell", "critter field photo", "biohazard gauze packet", "release stamp rig"],
+      "mood": "skeptical, adult, overworked, and operational",
       "easter_egg_kind": "troll stamp",
       "easter_egg_placement": "on one approval slip near the lower-right quarter",
       "easter_egg_detail": "classic Chummer troll used as a registry stamp",
@@ -253,14 +253,14 @@
     }
   },
   "assets/parts/design.png": {
-    "visual_prompt": "Blueprint room with one wall of plans, ownership lines, and future feature sketches, human hands moving paper and pins around, more war room than architecture diagram.",
+    "visual_prompt": "Shadowrun tactical design war room, not an architecture board: one metahuman planner with obvious cyberware works among acrylic maquettes, suspended prototype shards, route strings, occult residue, district scraps, and AR ownership arrows anchored to the physical models. The frame must read Shadowrun instantly through metahuman markers, chrome, hard AR overlays, and lore crumbs such as a Bug City tower still, Arcology floor scrap, Blood Orchid plate, critter snapshot, and one blurred Saeder-Krupp or Renraku product shell tucked into the clutter. No blueprint wall, no paper plan hero prop, no sticky-note board, no generic office strategy room, and no readable text.",
     "scene_contract": {
-      "subject": "the blueprint truth behind the product",
-      "environment": "a design room wall covered in plans, threads, and pinned boards",
-      "action": "turning the design repo into something visual and grounded",
+      "subject": "the design truth expressed through a metahuman planner, physical prototypes, and Shadowrun route pressure",
+      "environment": "a haunted Sixth World war room full of acrylic maquettes, route strings, suspended prototype shards, occult scuffs, and district scraps",
+      "action": "steering scope and ownership through physical prototypes while AR arrows and brackets cling to the models",
       "composition": "archive_room",
-      "props": ["blueprint wall", "pins", "note cards", "rolled plans"],
-      "mood": "thoughtful, disciplined, and a little haunted",
+      "props": ["acrylic maquette", "route strings", "prototype shard", "Blood Orchid plate", "critter snapshot", "Bug City still", "Arcology scrap", "cropped megacorp shell"],
+      "mood": "tactical, vivid, haunted, and unmistakably cyberpunk",
       "easter_egg_kind": "troll doodle",
       "easter_egg_placement": "scribbled on a corner note near the upper-left third",
       "easter_egg_detail": "classic Chummer troll pose doodled in marker on a planning note",
@@ -268,21 +268,21 @@
     }
   },
   "assets/horizons/alice.png": {
-    "visual_prompt": "Cold simulation lab with a runner strapped into a crash bench while an operator studies the exact failure point on nearby glass, seeded breach outcomes ghosted around the chamber, one test mannequin or projected body silhouette showing where the build folds, and a faint Raven, Rat, or Wolf totem portrait blooming in astral glow around a background shamanic test pass. Seed the room with cropped corp lab housings, a Paper Lotus charm, and clipped critter gait-study photos. Grounded and clinical with dark humor, no abstract HUD wallpaper, no person simply holding a glowing panel, no readable text.",
+    "visual_prompt": "Cold simulation lab with a runner strapped into a crash bench while an operator studies the exact failure point on nearby glass, seeded breach outcomes ghosted around the chamber, one test mannequin or projected body silhouette showing where the build folds, and a faint Raven, Rat, or Wolf totem portrait blooming in astral glow around a background shamanic test pass. Seed the room with cropped corp lab housings, a Paper Lotus charm, clipped critter gait-study photos, restraint rash, old blood wipes, nosebleed tissues, and a crash kit. Add one strong lore-place cue such as Bug City skyline photos on the wall, Arcology failure schematics, or Barrens route scraps pinned near the bench. Grounded, clinical, and a little cruel, no abstract HUD wallpaper, no person simply holding a glowing panel, no readable text.",
     "scene_contract": {
       "composition": "simulation_lab",
       "subject": "one operator, one crash bench, and one failing build trace made painfully visible",
-      "environment": "a cold sim lab with glass partitions, restraint hardware, seeded scenario telemetry, and shamanic astral residue in the safety glass",
+      "environment": "a cold sim lab with glass partitions, restraint hardware, seeded scenario telemetry, shamanic astral residue in the safety glass, and ugly preflight fallout on the bench",
       "action": "showing the exact moment a build collapses before the real table finds out the hard way",
       "props": [
         "crash bench",
         "glass telemetry",
         "failure trace",
-        "test mannequin",
+        "old blood wipes",
         "Paper Lotus charm",
         "critter study photos"
       ],
-      "mood": "clinical, mean, and useful",
+      "mood": "clinical, mean, exhausted, and useful",
       "easter_egg_kind": "troll warning decal",
       "easter_egg_placement": "on the crash bench housing near the lower-left third",
       "easter_egg_detail": "classic Chummer troll used as a tiny safety decal on the sim rig",
@@ -340,9 +340,14 @@
     }
   },
   "assets/horizons/jackpoint.png": {
-    "visual_prompt": "Mission-brief dossier desk: verified and inferred material clearly separated, coffee rings, chip cases, one chrome hand or cyberarm in frame, and one grounded brief ready for the table, stylish but evidence-bound, no readable forms or labels. Seed the desk with a clipped barghest or hell hound field photo, a Blood Orchid botanical card, a Paper Lotus charm, and one cropped Ares or Saeder-Krupp product shell.",
+    "visual_prompt": "Mission-brief dossier handoff in a stained Touristville back room: verified and inferred material clearly separated across a metal table while an ork, troll, or elf fixer with a chrome hand or cyberarm slides one grounded brief toward another metahuman. Keep the packet evidence-bound, tactile, and ugly rather than tidy. Seed the space with a clipped barghest or hell hound field photo, a Blood Orchid botanical card, a Paper Lotus charm, one cropped Ares or Saeder-Krupp product shell, dirty tissues, stimulant residue, a blood-marked gauze pad, devil-rat droppings near the wall, and a faded Bug City tower still or Arcology floor scrap. No readable forms, no detective-board cliche, no sterile office desk.",
     "scene_contract": {
       "composition": "dossier_desk",
+      "subject": "a metahuman fixer handoff where chrome hands, evidence sleeves, and real table use matter more than posing",
+      "environment": "a stained Touristville back room with a metal table, fluorescent spill, critter ephemera, corp product crumbs, and visible grime",
+      "action": "passing a mission packet that feels finished enough to brief from without losing the dirty evidence trail",
+      "props": ["evidence envelope", "chip tray", "critter field photo", "Blood Orchid card", "Paper Lotus charm", "corp product box", "blood-marked gauze"],
+      "mood": "urgent, adult, coffee-stained, and conspiratorial",
       "easter_egg_kind": "troll wax seal",
       "easter_egg_placement": "on one evidence envelope near the lower-left third",
       "easter_egg_detail": "classic Chummer troll pressed into the envelope seal and slightly coffee-smudged",
@@ -374,21 +379,21 @@
     }
   },
   "assets/horizons/nexus-pan.png": {
-    "visual_prompt": "Asymmetrical rain-soaked reconnect scene during a live Shadowrun firefight: one operator at the edge of the session has just gotten a phone back online, AR initiative and penalty traces snap back across a Renraku-style or Horizon-style device shell, a secondary tablet, and nearby gear while the rest of the table lives only as distant blur. Make the operator clearly metahuman or visibly augmented with a datajack, smart lenses, trode band, or cyberarm. Seed the scene with a clipped hell hound photo, a Paper Lotus charm, and one faint totem portrait or ward reflection in the wet glass. Grounded cinematic realism, no centered four-person pose, no readable text, no app icons, no letters on the phone.",
+    "visual_prompt": "Asymmetrical rain-soaked reconnect scene during a live Shadowrun firefight: one operator at the edge of the session has just gotten a phone back online, AR initiative and penalty traces snap back across a Renraku-style or Horizon-style device shell, a secondary tablet, and nearby gear while the rest of the table lives only as distant blur. Make the operator clearly metahuman or visibly augmented with a datajack, smart lenses, trode band, or cyberarm. Seed the scene with a clipped hell hound photo, a Paper Lotus charm, one faint totem portrait or ward reflection in the wet glass, and harder street fallout like grimy cups, bad fluorescent light, cough syrup, or a bloodied bandage on the sill. Use recognizable location residue if it helps, like Redmond transit grime, Ork Underground tilework, or Arcology-shadow window geometry. Grounded cinematic realism, no centered four-person pose, no readable text, no app icons, no letters on the phone.",
     "scene_contract": {
       "composition": "solo_operator",
       "subject": "a reconnecting phone, one relieved returning operator, and the rest of the session already moving in the blur",
-      "environment": "a wet-window cafe edge with a phone, a secondary tablet, rain-lit street glow bleeding in, and small Sixth World detritus on the sill",
+      "environment": "a wet-window cafe edge with a phone, a secondary tablet, rain-lit street glow bleeding in, small Sixth World detritus on the sill, and hard-lived grime around the reconnect",
       "action": "replaying missed table state onto the just-rejoined device before anybody starts forensic accounting",
       "props": [
         "reconnecting phone",
         "secondary tablet",
-        "coffee cup",
+        "dirty cup",
         "initiative traces",
         "Paper Lotus charm",
         "hell hound photo clipping"
       ],
-      "mood": "relieved, kinetic, and slightly mean to Wi-Fi",
+      "mood": "relieved, kinetic, dirty, and slightly mean to Wi-Fi",
       "easter_egg_kind": "troll phone sticker",
       "easter_egg_placement": "on the reconnecting phone case near the lower-right third",
       "easter_egg_detail": "classic Chummer troll sticker on the phone that just came back from the dead",
@@ -423,6 +428,28 @@
       "easter_egg_placement": "on the passport sleeve near the lower-left third",
       "easter_egg_detail": "classic Chummer troll used as a tiny customs stamp",
       "easter_egg_visibility": "readable on the banner"
+    }
+  },
+  "assets/horizons/runsite.png": {
+    "visual_prompt": "Pre-run staging scene in a damp Sixth World service room, back hall, or warehouse edge where the mission space is becoming legible before the shooting starts. One ork, troll, or obviously augmented human planner with a cyberarm, datajack, trode rig, or smartlink glove should be tracing ingress paths and chokepoints across a diegetic AR wall map or projected floor-plan anchored to wet concrete, crate edges, and doorway seams instead of to a clean holo slab. Seed the room with real Shadowrun residue: a cropped Bug City containment-tower photo or skyline glimpse, devil rat bait tin, clipped critter snapshot, a scuffed megacorp hardware shell from Ares, Renraku, Evo, or Shiawase, cheap stim patches, stained gauze, and one exhausted teammate in the depth of frame. Make it feel adult, tired, and one mistake away from violence, with grime, sickness, rat pressure, and hard fluorescent or sodium light. Grounded cinematic realism, no readable text, no VTT tokens, no top-down boardgame map, no clean conference room, and no giant empty wall.",
+    "scene_contract": {
+      "subject": "a worn runner or planner turning a dangerous space into a readable route before the team commits",
+      "environment": "a damp service room, warehouse edge, or safehouse wall with wet concrete, crate stacks, door seams, practical light, small Sixth World debris, and a diegetic AR route projection",
+      "action": "marking ingress lanes, chokepoints, and fallback routes directly onto the physical space while the rest of the run still feels close and ugly",
+      "composition": "staging_map",
+      "props": [
+        "AR wall map",
+        "crate stack",
+        "devil rat bait tin",
+        "stained gauze",
+        "megacorp hardware shell",
+        "clipped critter photo"
+      ],
+      "mood": "hard-lived, tactical, dirty, and impatient with bad plans",
+      "easter_egg_kind": "troll route sticker",
+      "easter_egg_placement": "on a crate edge or route projector housing near the lower-right third",
+      "easter_egg_detail": "classic Chummer troll sticker on a beat-up planning prop",
+      "easter_egg_visibility": "visible but not louder than the route wall"
     }
   },
   "assets/horizons/shadow-market.png": {

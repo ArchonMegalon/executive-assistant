@@ -16,6 +16,60 @@ from app.repositories.task_contracts import InMemoryTaskContractRepository, Task
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 
+W3_CONTRACT_SKILL_MEMORY_READS: dict[str, tuple[str, ...]] = {
+    "gm_ops_briefing": ("campaign_state", "rosters", "opposition_notes", "event_controls"),
+    "opposition_packet": ("campaign_state", "opposition_notes", "encounter_history", "threat_signals"),
+    "roster_movement_plan": ("campaign_state", "rosters", "availability_windows", "return_targets"),
+    "prep_library_packet": ("campaign_state", "prep_library", "opposition_notes", "event_controls"),
+    "event_control_brief": ("campaign_state", "event_controls", "season_schedule", "audit_constraints"),
+    "campaign_downtime_plan": ("campaign_state", "downtime_packets", "return_targets", "resource_constraints"),
+    "campaign_diary_packet": ("campaign_state", "diary_notes", "timeline_events", "recap_packets"),
+    "campaign_contacts_update": ("campaign_state", "contacts", "relationship_changes", "support_threads"),
+    "campaign_heat_brief": ("campaign_state", "heat_log", "incident_history", "risk_posture"),
+    "campaign_aftermath_packet": ("campaign_state", "aftermath_packets", "recap_packets", "next_session_targets"),
+    "campaign_return_loop_brief": ("campaign_state", "diary_notes", "contacts", "heat_log", "aftermath_packets", "return_targets"),
+    "campaign_safehouse_readiness_brief": ("campaign_state", "safehouse_packets", "travel_devices", "cache_posture", "offline_boundaries"),
+    "campaign_travel_continuity_packet": ("campaign_state", "travel_prefetches", "device_roles", "stale_cues", "next_session_targets"),
+    "campaign_offline_continuity_brief": ("campaign_state", "offline_actions", "cache_truth", "stale_signals", "reconnect_requirements"),
+    "campaign_mobile_companion_brief": ("campaign_state", "safehouse_packets", "travel_prefetches", "offline_posture", "mobile_companion_state", "return_targets"),
+    "campaign_workspace_v4_brief": (
+        "campaign_state",
+        "downtime_packets",
+        "diary_notes",
+        "contacts",
+        "heat_log",
+        "aftermath_packets",
+        "return_targets",
+        "rosters",
+        "opposition_notes",
+        "prep_library",
+        "event_controls",
+        "safehouse_packets",
+        "travel_prefetches",
+        "offline_actions",
+        "mobile_companion_state",
+    ),
+}
+
+W3_CONTRACT_SKILL_MEMORY_WRITES: dict[str, str] = {
+    "gm_ops_briefing": "gm_ops_brief_fact",
+    "opposition_packet": "opposition_packet_fact",
+    "roster_movement_plan": "roster_movement_plan_fact",
+    "prep_library_packet": "prep_library_packet_fact",
+    "event_control_brief": "event_control_brief_fact",
+    "campaign_downtime_plan": "campaign_downtime_plan_fact",
+    "campaign_diary_packet": "campaign_diary_packet_fact",
+    "campaign_contacts_update": "campaign_contacts_update_fact",
+    "campaign_heat_brief": "campaign_heat_brief_fact",
+    "campaign_aftermath_packet": "campaign_aftermath_packet_fact",
+    "campaign_return_loop_brief": "campaign_return_loop_fact",
+    "campaign_safehouse_readiness_brief": "campaign_safehouse_readiness_fact",
+    "campaign_travel_continuity_packet": "campaign_travel_continuity_fact",
+    "campaign_offline_continuity_brief": "campaign_offline_continuity_fact",
+    "campaign_mobile_companion_brief": "campaign_mobile_companion_fact",
+    "campaign_workspace_v4_brief": "campaign_workspace_v4_fact",
+}
+
 
 def serialize_task_contract_runtime_policy(policy: TaskContractRuntimePolicy) -> dict[str, Any]:
     metadata: dict[str, Any] = {
@@ -161,7 +215,25 @@ class TaskContractService:
             "commitment_briefing",
             "reflection_brief",
             "replan_brief",
+            "gm_ops_briefing",
+            "opposition_packet",
+            "roster_movement_plan",
+            "prep_library_packet",
+            "event_control_brief",
+            "campaign_downtime_plan",
+            "campaign_diary_packet",
+            "campaign_contacts_update",
+            "campaign_heat_brief",
+            "campaign_aftermath_packet",
+            "campaign_return_loop_brief",
+            "campaign_safehouse_readiness_brief",
+            "campaign_travel_continuity_packet",
+            "campaign_offline_continuity_brief",
+            "campaign_mobile_companion_brief",
+            "campaign_workspace_v4_brief",
         }:
+            memory_reads = W3_CONTRACT_SKILL_MEMORY_READS.get(normalized, ())
+            memory_write_key = W3_CONTRACT_SKILL_MEMORY_WRITES.get(normalized, "")
             deliverable_type = {
                 "meeting_prep": "meeting_brief",
                 "decision_briefing": "decision_brief",
@@ -170,6 +242,22 @@ class TaskContractService:
                 "commitment_briefing": "commitment_brief",
                 "reflection_brief": "reflection_brief",
                 "replan_brief": "replan_brief",
+                "gm_ops_briefing": "gm_ops_brief",
+                "opposition_packet": "opposition_packet",
+                "roster_movement_plan": "roster_movement_plan",
+                "prep_library_packet": "prep_library_packet",
+                "event_control_brief": "event_control_brief",
+                "campaign_downtime_plan": "campaign_downtime_plan",
+                "campaign_diary_packet": "campaign_diary_packet",
+                "campaign_contacts_update": "campaign_contacts_update",
+                "campaign_heat_brief": "campaign_heat_brief",
+                "campaign_aftermath_packet": "campaign_aftermath_packet",
+                "campaign_return_loop_brief": "campaign_return_loop_brief",
+                "campaign_safehouse_readiness_brief": "campaign_safehouse_readiness_brief",
+                "campaign_travel_continuity_packet": "campaign_travel_continuity_packet",
+                "campaign_offline_continuity_brief": "campaign_offline_continuity_brief",
+                "campaign_mobile_companion_brief": "campaign_mobile_companion_brief",
+                "campaign_workspace_v4_brief": "campaign_workspace_v4_brief",
             }[normalized]
             return TaskContract(
                 task_key=normalized,
@@ -198,6 +286,11 @@ class TaskContractService:
                         "skill_key": normalized,
                         "name": normalized.replace("_", " "),
                         "description": "Groundwork-first briefing contract.",
+                        "memory_reads": list(memory_reads),
+                        "memory_writes": [memory_write_key] if memory_write_key else [],
+                        "provider_hints_json": {
+                            "primary": ["Gemini Vortex", "AI Magicx", "BrowserAct"],
+                        },
                         "output_schema_json": {
                             "type": "object",
                             "required": [

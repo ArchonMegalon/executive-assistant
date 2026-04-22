@@ -307,6 +307,7 @@ Target outcomes:
 * GM circles and campaign operator dashboards
 * runboards, readiness checks, and rule-environment health
 * group-owned feature posture without a second authority model
+* capability vocabulary for `world_operator`, `season_operator`, and `faction_seat` if/when mission-market layers advance
 
 ### FLEET-P2-01
 

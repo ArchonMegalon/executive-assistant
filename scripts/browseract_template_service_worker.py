@@ -63,11 +63,26 @@ async function main() {
   const resultPath = String(process.env.TEMPLATE_RESULT_PATH || '').trim();
   const traceDir = String(process.env.TEMPLATE_TRACE_DIR || '').trim();
   const browserHeadless = String(process.env.TEMPLATE_BROWSER_HEADLESS || 'true').trim().toLowerCase() !== 'false';
-  const browser = await chromium.launch({
+  const initialRuntimeInputs = Object.assign({}, packet.runtime_inputs_json || {});
+  const rawProxyServer = String(initialRuntimeInputs.browser_proxy_server || packet.browser_proxy_server || '').trim();
+  const proxyServer = ['direct://', 'direct', 'none', 'off', 'disabled'].includes(rawProxyServer.toLowerCase())
+    ? ''
+    : rawProxyServer;
+  const proxyUsername = String(initialRuntimeInputs.browser_proxy_username || packet.browser_proxy_username || '').trim();
+  const proxyPassword = String(initialRuntimeInputs.browser_proxy_password || packet.browser_proxy_password || '').trim();
+  const proxyBypass = String(initialRuntimeInputs.browser_proxy_bypass || packet.browser_proxy_bypass || '').trim();
+  const launchOptions = {
     headless: browserHeadless,
     args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-dev-shm-usage'],
     ignoreDefaultArgs: ['--enable-automation'],
-  });
+  };
+  if (proxyServer) {
+    launchOptions.proxy = { server: proxyServer };
+    if (proxyUsername) launchOptions.proxy.username = proxyUsername;
+    if (proxyPassword) launchOptions.proxy.password = proxyPassword;
+    if (proxyBypass) launchOptions.proxy.bypass = proxyBypass;
+  }
+  const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1200 },
     locale: 'en-US',
@@ -103,7 +118,7 @@ async function main() {
     }
   });
   let page = await context.newPage();
-  const runtimeInputs = Object.assign({}, packet.runtime_inputs_json || {});
+  const runtimeInputs = Object.assign({}, initialRuntimeInputs);
   const authFlow = String((((spec || {}).meta || {}).auth_flow) || '').trim().toLowerCase();
   const runtimeTargetInputName = String((((spec || {}).meta || {}).runtime_input_name) || '').trim();
   const blockedUrlMarkers = Array.isArray((((spec || {}).meta || {}).blocked_url_markers))
@@ -868,7 +883,20 @@ async function main() {
   } catch (error) {
     const errorText = String(error && error.stack ? error.stack : error);
     const normalizedError = normalizeText(errorText);
-    if (normalizedError.includes('invalid_credentials')) {
+    if (
+      normalizedError.includes('api.1min.ai/auth/login')
+      && (
+        normalizedError.includes('access to xmlhttprequest')
+        || normalizedError.includes('access-control-allow-origin')
+        || normalizedError.includes('cors policy')
+        || normalizedError.includes('content security policy')
+        || normalizedError.includes("connect-src 'none'")
+        || normalizedError.includes('refused to connect')
+      )
+    ) {
+      result.failure_code = 'challenge_required';
+      result.ui_failure_code = 'challenge_required';
+    } else if (normalizedError.includes('invalid_credentials')) {
       result.failure_code = 'invalid_credentials';
       result.ui_failure_code = 'invalid_credentials';
     } else if (normalizedError.includes('auth_request_failed')) {
@@ -944,6 +972,7 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
             run_args = ["bash", "-lc", f"xvfb-run -a node {script_path}"]
         else:
             run_args = ["node", str(script_path)]
+        docker_network = str(os.getenv("EA_UI_SERVICE_DOCKER_NETWORK") or "").strip()
         command = [
             "docker",
             "run",
@@ -960,9 +989,10 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
             "-e",
             "NODE_PATH=/work/node_modules",
             *env_pairs,
-            PLAYWRIGHT_IMAGE,
-            *run_args,
         ]
+        if docker_network:
+            command.extend(["--network", docker_network])
+        command.extend([PLAYWRIGHT_IMAGE, *run_args])
         try:
             completed = subprocess.run(
                 command,
@@ -1039,6 +1069,18 @@ def _failure_code_from_error_text(detail: object) -> str:
     lowered = str(detail or "").strip().lower()
     if not lowered:
         return ""
+    if (
+        "api.1min.ai/auth/login" in lowered
+        and (
+            "access to xmlhttprequest" in lowered
+            or "access-control-allow-origin" in lowered
+            or "cors policy" in lowered
+            or "content security policy" in lowered
+            or "connect-src 'none'" in lowered
+            or "refused to connect" in lowered
+        )
+    ):
+        return "challenge_required"
     if "invalid_credentials" in lowered or "email or password you entered is incorrect" in lowered:
         return "invalid_credentials"
     if "auth_request_failed" in lowered or "api.1min.ai/auth/login" in lowered:

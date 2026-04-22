@@ -5,7 +5,7 @@ trust_pages:
   - id: help
     eyebrow: "Help"
     heading: "Get help without guessing"
-    intro: "Use the first-party product path first: download help, account recovery, current release truth, and a real support intake before you fall through to deeper technical material."
+    intro: "Start here for downloads, sign-in recovery, and support."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
@@ -43,15 +43,15 @@ trust_pages:
       - id: product-bug
         eyebrow: "Product bug"
         heading: "Product help should become a support case, not a rumor"
-        body: "The first-party intake is the default path for install trouble, product bugs, and practical feedback. GitHub is the advanced public issue path, not the main customer entry point."
+        body: "Use Contact first for install trouble, product bugs, and practical feedback. GitHub is there when you want a public bug thread, not as the normal support door."
         bullets:
           - "Use Contact for install trouble, product bugs, or UX friction."
-          - "Use Account > Support when you want tracked case history attached to your account."
-          - "Use GitHub only when you intentionally want a public technical issue trail."
+          - "Use Account > Support if you want your support history saved in one place."
+          - "Use GitHub only when you want a public bug thread."
       - id: product-question
         eyebrow: "Product question or UX confusion"
         heading: "Ask from inside Chummer first"
-        body: "Normal preview questions should be answerable from inside the product. Support and FAQ exist so you do not need to infer the answer from implementation language or implementation details."
+        body: "Normal preview questions should be answerable from inside the product. Support and FAQ exist so you do not have to dig through project details just to get a clear answer."
         bullets:
           - "FAQ answers the normal preview and product questions in plain language."
           - "Support cases stay separate from optional participation."
@@ -59,13 +59,13 @@ trust_pages:
   - id: privacy
     eyebrow: "Privacy"
     heading: "What Chummer stores, and what it does not"
-    intro: "This is the practical hosted-product picture right now: what the account keeps, what stays out of Hub, and how install linking and support work today."
+    intro: "This is the simple privacy picture right now: what your account stores, what stays out, and how support and linked installs work."
     effective_date: "2026-03-25"
     updated_date: "2026-03-28"
     summary_points:
-      - "The published package stays the same for everyone"
-      - "Hub stores account and support state"
-      - "Provider secrets stay out of Hub"
+      - "The download file stays the same for everyone"
+      - "Your account stores sign-in and support history"
+      - "Raw secret keys stay out of your account record"
     actions:
       - label: "Open account"
         href: "/account"
@@ -79,16 +79,16 @@ trust_pages:
     sections:
       - id: hosted-account
         eyebrow: "Account record"
-        heading: "Hub keeps the account, preferences, and access state together"
-        body: "The hosted account keeps your basic profile, linked sign-in methods, devices and access state, support cases, and preview preferences so the public and signed-in pages stay coherent."
+        heading: "Your account keeps sign-in, preferences, and support together"
+        body: "Your Chummer account keeps your basic profile, linked sign-in methods, device access, support cases, and preview preferences together so you do not have to rebuild that history by hand."
       - id: install-linking
         eyebrow: "Install linking"
-        heading: "The published package stays the same; the account handoff is separate"
-        body: "The installer stays the same for everyone when one is published, and the same rule applies to the current public package. Chummer does not personalize the published package. When linked handoff is available, the account-aware part is the signed-in receipt and short-lived code that can reconnect a local copy back to your account."
+        heading: "The download file is the same for everyone"
+        body: "When Chummer publishes a download, everyone gets the same file. Chummer does not build a private installer just for your account. If linked handoff is available, the account-aware piece is the short-lived receipt or code that reconnects a local copy back to your account."
       - id: not-in-hub
         eyebrow: "What stays out"
-        heading: "Temporary provider auth material and raw secrets do not belong in Hub"
-        body: "Temporary third-party auth material stays on the execution host. Hub keeps consent, support, and receipt state; it does not become a bucket for raw provider secrets."
+        heading: "Temporary sign-in tokens and raw secrets stay out of your account record"
+        body: "Short-lived third-party tokens stay on the machine or service using them. Your account keeps consent, support, and access records, not raw secret keys."
       - id: recognition-privacy
         eyebrow: "Privacy and recognition"
         heading: "Recognition should not force publicity"
@@ -96,13 +96,13 @@ trust_pages:
   - id: terms
     eyebrow: "Terms"
     heading: "Preview terms in plain language"
-    intro: "The current hosted promise is straightforward: early access, honest labels, the public download that is honestly available today, and support that should explain the current boundary instead of hiding it."
+    intro: "These are the plain rules for the current preview: early access, honest labels, real downloads, and straightforward support."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
       - "Early access, not finished breadth"
       - "Current downloads when available"
-      - "Support is first-party"
+      - "Support starts with Chummer"
     actions:
       - label: "Open downloads"
         href: "/downloads"
@@ -120,20 +120,20 @@ trust_pages:
         body: "Expect real pages, current downloads, visible proof, and explicit preview labels when support, compatibility, or breadth are still moving."
       - id: account-support
         eyebrow: "Account and support"
-        heading: "Accounts should be boring, support should be first-party"
-        body: "Sign-in keeps access, devices, and support together. Contact and Account > Support are the default help paths before any deeper public issue path."
+        heading: "Sign-in is simple, and support starts with Chummer"
+        body: "Sign-in keeps your access, devices, and support history together. Help and Contact are the normal first stops before any public issue thread."
       - id: delivery
         eyebrow: "Delivery"
         heading: "Use the current public download first; advanced packages only when necessary"
-        body: "Public downloads should match what is honestly on the shelf right now. Promoted installers can become the default path when they exist, but manual packages remain a fallback for edge cases or support-directed setup."
+        body: "Public downloads should match what is honestly available right now. If a regular installer exists later, it becomes the normal path, while manual packages stay as fallback for edge cases or support-directed setup."
   - id: contact
     eyebrow: "Contact"
     heading: "Open the right support case"
-    intro: "Chummer should not make you guess where to send a problem. Use the first-party intake below for install help, product bugs, and practical feedback."
+    intro: "Chummer should not make you guess where to send a problem. Start here for install help, bugs, and practical feedback."
     effective_date: "2026-03-25"
     updated_date: "2026-03-25"
     summary_points:
-      - "First-party support intake"
+      - "Direct support intake"
       - "Guest submissions allowed"
       - "Tracked follow-up with an account"
     actions:
@@ -154,11 +154,11 @@ trust_pages:
       - id: tracked-support
         eyebrow: "Tracked follow-up"
         heading: "Create an account when you want support history inside Chummer"
-        body: "You can submit help here without a GitHub account. Create a Chummer account when you want case history, linked downloads when they exist, and release follow-up to stay visible in Account."
+        body: "You can submit help here without a GitHub account. Create a Chummer account if you want to see your support history later in one place."
       - id: public-issues
         eyebrow: "Advanced public issues"
         heading: "GitHub is the advanced public bug path, not the main support door"
-        body: "Use the public issue tracker only when you intentionally want a public technical discussion. Normal customers should be able to start with the first-party product path."
+        body: "Use the public issue tracker only when you want a public bug thread. Most people should start with Help or Contact."
 faq_pages:
   - id: faq
     eyebrow: "FAQ"

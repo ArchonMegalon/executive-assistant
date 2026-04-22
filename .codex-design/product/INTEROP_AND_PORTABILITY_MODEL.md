@@ -18,6 +18,7 @@ Chummer promises:
 * a runner and campaign can leave one surface without losing provenance
 * import/export formats are explicit and versioned
 * compatibility claims are machine-readable and human-explained
+* active rule-environment, preset, and amend-package truth travels with the portable object
 * migration from legacy single-character-file thinking is a guided transition, not silent reinterpretation
 
 Portability is therefore part of the product promise, not just a compatibility adapter hidden in old tooling.
@@ -117,6 +118,12 @@ Every migration path must emit a receipt that classifies fields as:
 * changed
 * needs review
 * blocked
+
+If a legacy import depends on Chummer5a-style amend/custom-data behavior, the receipt must also classify:
+
+* carried forward as canonical amend package
+* downgraded to source-pack-only behavior
+* blocked due to unsupported amend semantics
 
 Migration receipts belong to the user-facing trust surface, not only to tests or operator notes.
 

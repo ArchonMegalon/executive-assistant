@@ -58,6 +58,9 @@ The long-lived operation frame that contains:
 * continuity state
 * recap and replay references
 
+Campaign truth does not own shared-world strategy state.
+Campaigns may reference mission-market identifiers and consequence markers, but those remain adjacent objects until a dedicated shared world contract is introduced.
+
 ### Run
 
 A bounded operation or mission inside a campaign.
@@ -75,6 +78,14 @@ It must be compatible with replay-safe event or checkpoint truth.
 The named intent or pressure the run is trying to satisfy.
 
 Objectives may drive recap, artifact, and progress projections, but they must not become hand-authored fiction detached from receipts.
+
+## Future adjacent objects
+
+BLACK LEDGER introduces adjacent objects that sit next to this spine:
+
+* `JobSeed`: a potential opportunity record sourced from world-state activity.
+* `JobPacket`: a GM-curated mission packet that is distinct from a live campaign run.
+* `ResolutionResult`: a campaign-consumption outcome record before a full world consequence step.
 
 ## Ownership split
 

@@ -1,0 +1,761 @@
+schema_version: 2
+generated_at: "2026-04-19T12:09:26Z"
+milestone:
+  id: 103
+  package_id: next90-m103-ea-parity-lab
+  owned_surfaces:
+    - parity_lab:capture
+contract_name: ea.chummer5a_oracle_baselines
+worker_safe_resume_context:
+  assignment_mode: implementation_only
+  scope_label: Next 90-day product advance wave
+  frontier_id: 4287684466
+  package_id: next90-m103-ea-parity-lab
+  milestone_id: 103
+  owned_surfaces:
+    - parity_lab:capture
+    - veteran_compare_packs
+  allowed_paths:
+    - skills
+    - tests
+    - feedback
+    - docs
+  readiness_path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  readiness_generated_at: "2026-04-19T11:57:17Z"
+  runtime_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-4/ACTIVE_RUN_HANDOFF.generated.md
+worker_run_guard:
+  implementation_only: true
+  blocked_helper_evidence:
+    - supervisor status helpers
+    - supervisor eta helpers
+    - active-run operator status snippets
+  allowed_evidence_sources:
+    - task-local telemetry file
+    - shard runtime handoff
+    - Chummer5a oracle source files
+    - published readiness receipt
+    - UI desktop executable exit-gate receipt
+source:
+  parity_oracle_json: /docker/chummer5a/docs/PARITY_ORACLE.json
+  parity_checklist_md: /docker/chummer5a/docs/PARITY_CHECKLIST.md
+  parity_audit_md: /docker/chummer5a/docs/PARITY_AUDIT.md
+surface_counts:
+  tabs: 17
+  workspace_actions: 47
+  desktop_controls: 29
+tab_ids:
+  - tab-adept
+  - tab-armor
+  - tab-attributes
+  - tab-calendar
+  - tab-combat
+  - tab-contacts
+  - tab-cyberware
+  - tab-gear
+  - tab-improvements
+  - tab-info
+  - tab-lifestyle
+  - tab-magician
+  - tab-notes
+  - tab-qualities
+  - tab-skills
+  - tab-technomancer
+  - tab-vehicles
+desktop_non_negotiable_anchors:
+  file_menu:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locator: data-command="file"
+  master_index:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locator: data-command="master_index"
+  character_roster:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locator: data-command="character_roster"
+  print_export:
+    source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    locators:
+      - data-command="print_character"
+      - data-command="export_character"
+legacy_form_landmarks:
+  main_form_window:
+    source_path: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+    veteran_task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+      - recover_section_rhythm
+    compare_family_ids:
+      - shell_workbench_orientation
+      - settings_and_rules_environment_authoring
+      - dice_initiative_and_table_utilities
+    required_tokens:
+      - 'Text = "&File"'
+      - 'this.toolsMenu.Text = "&Tools";'
+      - 'this.windowsMenu.Text = "&Windows";'
+      - 'this.helpMenu.Text = "&Help";'
+      - 'this.toolStrip.Name = "toolStrip";'
+      - 'this.tabForms = new System.Windows.Forms.TabControl();'
+  global_settings_window:
+    source_path: /docker/chummer5a/Chummer/Forms/EditGlobalSettings.Designer.cs
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - settings_and_rules_environment_authoring
+    required_tokens:
+      - 'Text = "Global Settings"'
+      - "Default Setting for Master Index:"
+      - "Character Roster Watch Folder:"
+  character_settings_window:
+    source_path: /docker/chummer5a/Chummer/Forms/EditCharacterSettings.Designer.cs
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - settings_and_rules_environment_authoring
+    required_tokens:
+      - 'Text = "Character Settings"'
+      - "Title_CharacterOptions"
+      - "gpbSourcebook"
+  master_index_window:
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs
+    veteran_task_ids:
+      - locate_master_index_and_roster
+    compare_family_ids:
+      - sourcebooks_reference_and_master_index
+    required_tokens:
+      - 'Text = "Master Index"'
+      - "lblSourceClickReminder"
+      - "cmdEditCharacterSetting"
+  character_roster_window:
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs
+    veteran_task_ids:
+      - locate_master_index_and_roster
+    compare_family_ids:
+      - roster_dashboards_and_multi_character_ops
+      - identity_contacts_lifestyles_history
+    required_tokens:
+      - 'Text = "Character Roster"'
+      - "treCharacterList"
+      - "panGameNotes"
+  hero_lab_importer_window:
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/HeroLabImporter.Designer.cs
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - legacy_and_adjacent_import_oracles
+    required_tokens:
+      - 'Text = "Hero Lab Importer"'
+      - "lblHeroLabTrademark"
+      - "cmdImport"
+  data_exporter_window:
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/DataExporter.Designer.cs
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - custom_data_xml_and_translator_bridge
+    required_tokens:
+      - 'Text = "Export Data Files to Archive"'
+      - 'Text = "Custom Data"'
+      - "cmdExportClose"
+  export_character_window:
+    source_path: /docker/chummer5a/Chummer/Forms/Utility Forms/ExportCharacter.Designer.cs
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - sheet_export_print_viewer_and_exchange
+    required_tokens:
+      - 'Text = "Export Character"'
+      - 'Text = "Generating Data..."'
+      - "cmdExportClose"
+screenshot_corpora:
+  promoted_ui_screenshot_root: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots
+  captured_screenshots:
+    - 01-initial-shell-light.png
+    - 02-menu-open-light.png
+    - 03-settings-open-light.png
+    - 04-loaded-runner-light.png
+    - 05-dense-section-light.png
+    - 06-dense-section-dark.png
+    - 07-loaded-runner-tabs-light.png
+    - 08-cyberware-dialog-light.png
+    - 09-vehicles-section-light.png
+    - 10-contacts-section-light.png
+    - 11-diary-dialog-light.png
+    - 12-magic-dialog-light.png
+    - 13-matrix-dialog-light.png
+    - 14-advancement-dialog-light.png
+    - 15-creation-section-light.png
+  supplemental_finished_wave_screenshot_root: /docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots
+  supplemental_finished_wave_screenshots:
+    - 16-master-index-dialog-light.png
+    - 17-character-roster-dialog-light.png
+  supplemental_scope_note: These two PNGs come from the closed flagship published screenshot corpus and are cited as evidence only; this package does not reopen the closed flagship wave.
+  successor_ui_certification_package: next90-m103-ui-veteran-certification
+  capture_status: captured_with_closed_flagship_supplement
+screenshot_baseline_sets:
+  - id: first_minute_shell
+    purpose: Cover the first ten to twenty seconds where a veteran needs to confirm the route is a real workbench.
+    screenshot_ids:
+      - initial_shell
+      - menu_open
+      - settings_open
+      - loaded_runner
+      - loaded_runner_tabs
+      - master_index_dialog
+      - character_roster_dialog
+  - id: dense_workbench
+    purpose: Cover the dense section rhythm and main desktop task posture.
+    screenshot_ids:
+      - dense_section_light
+      - dense_section_dark
+      - creation_section
+      - advancement_dialog
+      - vehicles_section
+      - contacts_section
+  - id: specialist_dialogs
+    purpose: Cover deep specialist surfaces a veteran expects to feel familiar.
+    screenshot_ids:
+      - cyberware_dialog
+      - magic_dialog
+      - matrix_dialog
+      - diary_dialog
+  - id: legacy_reference_and_operator
+    purpose: Cover master-index and roster successor landmarks cited in compare packs.
+    screenshot_ids:
+      - master_index_dialog
+      - character_roster_dialog
+screenshot_baselines:
+  - id: initial_shell
+    filename: 01-initial-shell-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - first_minute_shell
+    veteran_task_ids:
+      - reach_real_workbench
+      - locate_save_import_settings
+    compare_family_ids:
+      - shell_workbench_orientation
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="file"
+      - data-command="tools"
+      - data-command="windows"
+      - data-command="help"
+      - class="status-bar"
+  - id: menu_open
+    filename: 02-menu-open-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - first_minute_shell
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - shell_workbench_orientation
+      - settings_and_rules_environment_authoring
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="file"
+      - data-command="open_character"
+      - data-command="save_character"
+      - data-command="print_character"
+      - data-command="export_character"
+  - id: settings_open
+    filename: 03-settings-open-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+      - global_settings_window
+      - character_settings_window
+    set_ids:
+      - first_minute_shell
+    veteran_task_ids:
+      - locate_save_import_settings
+    compare_family_ids:
+      - settings_and_rules_environment_authoring
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="global_settings"
+      - data-command="character_settings"
+      - data-command="switch_ruleset"
+  - id: loaded_runner
+    filename: 04-loaded-runner-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - first_minute_shell
+      - dense_workbench
+    veteran_task_ids:
+      - reach_real_workbench
+      - recover_section_rhythm
+    compare_family_ids:
+      - shell_workbench_orientation
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-tab="tab-info"
+      - data-tab="tab-attributes"
+      - data-tab="tab-skills"
+      - class="status-bar"
+  - id: dense_section_light
+    filename: 05-dense-section-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - dense_workbench
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"build"'
+      - '"progress"'
+      - '"improvements"'
+      - '"qualities"'
+      - '"skills"'
+  - id: dense_section_dark
+    filename: 06-dense-section-dark.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - dense_workbench
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"summary"'
+      - '"validate"'
+      - '"metadata"'
+      - '"attributes"'
+  - id: loaded_runner_tabs
+    filename: 07-loaded-runner-tabs-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - first_minute_shell
+      - dense_workbench
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - shell_workbench_orientation
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"tab-info"'
+      - '"tab-attributes"'
+      - '"tab-skills"'
+      - '"tab-cyberware"'
+      - '"tab-vehicles"'
+  - id: cyberware_dialog
+    filename: 08-cyberware-dialog-light.png
+    corpus: promoted_ui
+    set_ids:
+      - specialist_dialogs
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"cyberwares"'
+      - '"gearlocations"'
+      - '"weaponaccessories"'
+  - id: vehicles_section
+    filename: 09-vehicles-section-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - dense_workbench
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"tab-vehicles"'
+      - '"vehicles"'
+      - '"vehiclemods"'
+      - '"vehiclelocations"'
+  - id: contacts_section
+    filename: 10-contacts-section-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - dense_workbench
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - identity_contacts_lifestyles_history
+      - roster_dashboards_and_multi_character_ops
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"tab-contacts"'
+      - '"contacts"'
+      - '"calendar"'
+      - '"expenses"'
+  - id: diary_dialog
+    filename: 11-diary-dialog-light.png
+    corpus: promoted_ui
+    set_ids:
+      - specialist_dialogs
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - identity_contacts_lifestyles_history
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"tab-calendar"'
+      - '"calendar"'
+      - '"tab-notes"'
+      - '"expenses"'
+  - id: magic_dialog
+    filename: 12-magic-dialog-light.png
+    corpus: promoted_ui
+    set_ids:
+      - specialist_dialogs
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"awakening"'
+      - '"spells"'
+      - '"spirits"'
+      - '"mentorspirits"'
+  - id: matrix_dialog
+    filename: 13-matrix-dialog-light.png
+    corpus: promoted_ui
+    set_ids:
+      - specialist_dialogs
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"aiprograms"'
+      - '"complexforms"'
+      - '"tab-technomancer"'
+  - id: advancement_dialog
+    filename: 14-advancement-dialog-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - dense_workbench
+    veteran_task_ids:
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"progress"'
+      - '"improvements"'
+      - '"initiationgrades"'
+      - '"metamagics"'
+  - id: creation_section
+    filename: 15-creation-section-light.png
+    corpus: promoted_ui
+    legacy_form_landmark_ids:
+      - main_form_window
+    set_ids:
+      - dense_workbench
+    veteran_task_ids:
+      - reach_real_workbench
+      - recover_section_rhythm
+    compare_family_ids:
+      - dense_builder_and_career_workflows
+    oracle_source_path: /docker/chummer5a/docs/PARITY_ORACLE.json
+    oracle_tokens:
+      - '"build"'
+      - '"summary"'
+      - '"profile"'
+      - '"qualities"'
+  - id: master_index_dialog
+    filename: 16-master-index-dialog-light.png
+    corpus: supplemental_finished_wave
+    legacy_form_landmark_ids:
+      - main_form_window
+      - master_index_window
+    set_ids:
+      - first_minute_shell
+      - legacy_reference_and_operator
+    veteran_task_ids:
+      - locate_master_index_and_roster
+    compare_family_ids:
+      - sourcebooks_reference_and_master_index
+      - settings_and_rules_environment_authoring
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="master_index"
+      - "master_index: async"
+      - data-ui-control="show_source"
+  - id: character_roster_dialog
+    filename: 17-character-roster-dialog-light.png
+    corpus: supplemental_finished_wave
+    legacy_form_landmark_ids:
+      - main_form_window
+      - character_roster_window
+    set_ids:
+      - first_minute_shell
+      - legacy_reference_and_operator
+    veteran_task_ids:
+      - locate_master_index_and_roster
+    compare_family_ids:
+      - roster_dashboards_and_multi_character_ops
+    oracle_source_path: /docker/chummer5a/Chummer.Web/wwwroot/index.html
+    oracle_tokens:
+      - data-command="character_roster"
+      - "character_roster: async"
+      - /api/tools/roster
+oracle_alignment:
+  parity_checklist_summary:
+    tabs_covered: 17
+    workspace_actions_covered: 47
+    catalog_only_exceptions:
+      - tab-rules
+      - data_exporter
+  screenshot_baseline_total: 17
+  legacy_form_landmark_total: 8
+  veteran_task_coverage:
+    reach_real_workbench:
+      - initial_shell
+      - loaded_runner
+      - creation_section
+    locate_save_import_settings:
+      - initial_shell
+      - menu_open
+      - settings_open
+    locate_master_index_and_roster:
+      - master_index_dialog
+      - character_roster_dialog
+    recover_section_rhythm:
+      - loaded_runner_tabs
+      - dense_section_light
+      - contacts_section
+      - advancement_dialog
+  legacy_form_task_coverage:
+    reach_real_workbench:
+      - main_form_window
+    locate_save_import_settings:
+      - main_form_window
+      - global_settings_window
+      - character_settings_window
+      - hero_lab_importer_window
+      - data_exporter_window
+      - export_character_window
+    locate_master_index_and_roster:
+      - master_index_window
+      - character_roster_window
+    recover_section_rhythm:
+      - main_form_window
+screenshot_artifact_alignment:
+  artifact_roots:
+    promoted_ui: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots
+    supplemental_finished_wave: /docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots
+  baseline_to_artifact:
+    - baseline_id: initial_shell
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/01-initial-shell-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: menu_open
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/02-menu-open-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: settings_open
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/03-settings-open-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: loaded_runner
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/04-loaded-runner-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: dense_section_light
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/05-dense-section-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: dense_section_dark
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/06-dense-section-dark.png
+      artifact_lane: promoted_ui
+    - baseline_id: loaded_runner_tabs
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/07-loaded-runner-tabs-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: cyberware_dialog
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/08-cyberware-dialog-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: vehicles_section
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/09-vehicles-section-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: contacts_section
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/10-contacts-section-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: diary_dialog
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/11-diary-dialog-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: magic_dialog
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/12-magic-dialog-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: matrix_dialog
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/13-matrix-dialog-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: advancement_dialog
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/14-advancement-dialog-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: creation_section
+      screenshot_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/ui-flagship-release-gate-screenshots/15-creation-section-light.png
+      artifact_lane: promoted_ui
+    - baseline_id: master_index_dialog
+      screenshot_path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots/16-master-index-dialog-light.png
+      artifact_lane: supplemental_finished_wave
+    - baseline_id: character_roster_dialog
+      screenshot_path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots/17-character-roster-dialog-light.png
+      artifact_lane: supplemental_finished_wave
+desktop_non_negotiable_baseline_map:
+  asserted_non_negotiables:
+    - non_negotiable_id: no_generic_shell_or_dashboard_first
+      required_baseline_ids:
+        - initial_shell
+      compare_family_ids:
+        - shell_workbench_orientation
+    - non_negotiable_id: startup_is_workbench_or_restore
+      required_baseline_ids:
+        - initial_shell
+        - loaded_runner
+      compare_family_ids:
+        - shell_workbench_orientation
+    - non_negotiable_id: file_menu_live
+      required_baseline_ids:
+        - initial_shell
+        - menu_open
+      compare_family_ids:
+        - shell_workbench_orientation
+    - non_negotiable_id: master_index_first_class
+      required_baseline_ids:
+        - master_index_dialog
+      compare_family_ids:
+        - sourcebooks_reference_and_master_index
+    - non_negotiable_id: character_roster_first_class
+      required_baseline_ids:
+        - character_roster_dialog
+      compare_family_ids:
+        - roster_dashboards_and_multi_character_ops
+    - non_negotiable_id: claim_restore_in_installer_or_in_app
+      required_baseline_ids:
+        - initial_shell
+      compare_family_ids:
+        - shell_workbench_orientation
+    - non_negotiable_id: no_browser_only_claim_code_ritual
+      required_baseline_ids:
+        - initial_shell
+      compare_family_ids:
+        - shell_workbench_orientation
+    - non_negotiable_id: guided_product_installer_happy_path
+      required_baseline_ids:
+        - initial_shell
+      compare_family_ids:
+        - shell_workbench_orientation
+oracle_surface_extract:
+  source_line_proofs:
+    top_menu_landmarks:
+      - id: file_menu
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 182
+        expected_substring: this.fileMenu.Text = "&File";
+      - id: tools_menu
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 707
+        expected_substring: this.toolsMenu.Text = "&Tools";
+      - id: windows_menu
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 915
+        expected_substring: this.windowsMenu.Text = "&Windows";
+      - id: help_menu
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 974
+        expected_substring: this.helpMenu.Text = "&Help";
+    file_and_settings_routes:
+      - id: open_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 231
+        expected_substring: this.openToolStripMenuItem.Text = "&Open";
+      - id: open_for_export_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 261
+        expected_substring: this.mnuOpenForExport.Text = "Open for E&xport";
+      - id: global_settings_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 742
+        expected_substring: this.mnuGlobalSettings.Text = "&Global Settings";
+      - id: translator_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 808
+        expected_substring: this.mnuToolsTranslator.Text = "&Translator";
+      - id: xml_amendment_editor_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 823
+        expected_substring: this.mnuXmlEditor.Text = "&XML Amendment Editor";
+      - id: hero_lab_importer_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 838
+        expected_substring: this.mnuHeroLabImporter.Text = "&Hero Lab Importer";
+    first_class_master_index_and_roster:
+      - id: master_index_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 853
+        expected_substring: this.mnuMasterIndex.Text = "&Master Index";
+      - id: character_roster_route
+        file: /docker/chummer5a/Chummer/Forms/ChummerMainForm.Designer.cs
+        line: 868
+        expected_substring: this.mnuCharacterRoster.Text = "Ch&aracter Roster";
+      - id: master_index_form_title
+        file: /docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs
+        line: 338
+        expected_substring: this.Text = "Master Index";
+      - id: master_index_source_click_reminder
+        file: /docker/chummer5a/Chummer/Forms/Utility Forms/MasterIndex.Designer.cs
+        line: 198
+        expected_substring: this.lblSourceClickReminder.Text = "<- Click to Open Linked PDF";
+      - id: character_roster_form_title
+        file: /docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs
+        line: 534
+        expected_substring: this.Text = "Character Roster";
+      - id: character_roster_tree
+        file: /docker/chummer5a/Chummer/Forms/Utility Forms/CharacterRoster.Designer.cs
+        line: 511
+        expected_substring: this.treCharacterList.Name = "treCharacterList";
+desktop_proof_tuple_baseline_map:
+  coverage_key: desktop_client
+  current_unresolved_external_host_proof_tuples: []
+  promoted_tuple_compare_packs:
+    - tuple: avalonia:linux-x64:linux
+      required_baseline_ids:
+        - initial_shell
+        - menu_open
+        - settings_open
+        - master_index_dialog
+        - character_roster_dialog
+    - tuple: avalonia:osx-arm64:macos
+      required_baseline_ids:
+        - initial_shell
+        - menu_open
+        - settings_open
+        - master_index_dialog
+        - character_roster_dialog
+    - tuple: avalonia:win-x64:windows
+      required_baseline_ids:
+        - initial_shell
+        - menu_open
+        - settings_open
+        - master_index_dialog
+        - character_roster_dialog
+capture_policy:
+  notes:
+    - Screenshot capture is oracle-anchored and must map to executable desktop receipts.
+    - Shell-only screenshots do not close workflow parity lanes.
+    - Every baseline keeps direct provenance back to Chummer5a source anchors or published promoted-head screenshot receipts.

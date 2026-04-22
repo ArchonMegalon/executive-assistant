@@ -163,6 +163,8 @@ Canonical public-surface truth lives in design-owned files such as:
 * `PUBLIC_FEATURE_REGISTRY.yaml`
 * `PUBLIC_USER_MODEL.md`
 * `PUBLIC_MEDIA_BRIEFS.yaml`
+* `PUBLIC_VIDEO_BRIEFS.yaml`
+* `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml`
 * `PUBLIC_GUIDE_POLICY.md`
 
 Hub may project that truth.

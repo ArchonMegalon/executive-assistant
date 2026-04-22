@@ -15,10 +15,11 @@ The downloads surface is a proof shelf first:
 
 Allowed primary CTA labels include:
 
-* `Get preview build`
+* `Create account to install`
 * `Install the current preview`
 * `Download for Windows`
 * `Download for Linux`
+* `Open Mac install command`
 
 Forbidden primary labels include:
 
@@ -36,6 +37,7 @@ The public shelf must:
 * separate installer media from advanced fallback assets
 * explain when a platform is not currently available
 * keep public copy aligned with registry truth and landing copy
+* lead with the Terminal install-command handoff on macOS whenever unsigned-preview policy makes downloaded scripts or raw DMGs the wrong primary path
 
 The public shelf must not:
 
@@ -65,6 +67,7 @@ Download-facing copy must say:
 * whether it is preview or stable
 * what platforms are supported today
 * when the user should expect in-app updates versus reinstall/install handoff
+* when macOS begins with a Terminal command because that is the safest unsigned-preview path
 
 Download-facing copy must not say:
 
@@ -72,6 +75,7 @@ Download-facing copy must not say:
 * personalized build
 * instant fix availability from merged code
 * auto-update guarantees that outrun registry or UI truth
+* tell users to double-click an unsigned downloaded `.command` when the actual supported path is a copy-paste Terminal command
 
 ## Ownership
 

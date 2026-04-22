@@ -93,8 +93,13 @@ The next full pass should deliberately switch to a different style epoch instead
 - First-contact assets need stronger density: layered foreground, readable midground action, and a background that carries semantic clues instead of empty darkness.
 - Keep the world grounded: table play, desks, alleys, labs, archives, shops, transit, cheap neon, expensive mistakes.
 - Show metahumans like metahumans and cyberware like cyberware. Do not settle for clean humans in stylish jackets when tusks, pointed ears, dermal texture, chrome seams, trode bands, or datajacks should be visible.
+- Show the cost of the world too: dirt, vermin, stained wraps, rust, mold, exhausted faces, cheap clinic residue, crash posture, and hungry corners should appear when the scene can carry them.
+- Despair must come from scene logic, not from a one-note grade: overcrowding, triage, debt, sickness, eviction, withdrawal, hunger, fear, failed infrastructure, exploitative work, and social aftermath are stronger than simply making the frame green and dim.
+- If vice or addiction shows up, keep it as believable fallout like spent inhalers, burned spoons, stim patches, nosebleed tissues, or shakes in the hands, not glamorous party styling.
+- If gore shows up, keep it grounded and product-scene useful: old blood, meat-glue residue, bruising, trauma cleanup, rough sutures, and clinic grime are welcome; splatter spectacle is not.
 - Prefer props that explain the feature before the third paragraph does.
 - Seed the frame with small Sixth World receipts: cropped Ares/Renraku/Shiawase/Evo/Aztechnology/Wuxing/Horizon product shells, corp scrip, critter photo strips, Blood Orchid or Paper Lotus ephemera, devil rat bait tins, or a pinned barghest / hell hound field shot.
+- Use recognizable lore places when the scene benefits from them: Chicago Bug City towers, Renraku Arcology shadow, Redmond Barrens transit wreckage, Ork Underground infrastructure, Puyallup ash, Glow City fencing, or Touristville market detritus.
 - If magic appears, make it Sixth World magic: fetishes, ward scars, astral residue, or a totemic portrait glow around the caster, not generic fantasy sparkle.
 - Use symbol-first signage and unreadable paperwork. If the scene wants a joke sign, make it a pictogram, partial scribble, or crossed-out mascot, not crisp words.
 - Avoid abstract UI wallpaper, floating icon soup, generic skylines, and brochure-cover posing.
@@ -165,6 +170,9 @@ Create a grounded cinematic 16:9 cyberpunk scene for a human-facing product guid
 Show a real moment, not an abstract infographic.
 Include one clear focal action, one readable prop cluster, and one secondary story clue.
 Include one or two background lore crumbs from the Sixth World, such as cropped megacorp consumer gear, critter photos, parabotany plates, corp scrip, or a totemic astral trace.
+If the frame supports it, include one recognizable location cue from the lore rather than a generic unnamed sprawl.
+Include one believable hardship clue from the Sixth World, such as stained gauze, rat traps, mold bloom, vermin warnings, spent stimulants, ash, crash posture, or clinic waste.
+Let the palette follow the place and circumstance: vivid sodium orange, acid ad color, dirty daylight, nicotine yellow, sick clinic white, market red, mold green, rain-blue, bruise purple, or corp-glow cyan are all valid when earned by the scene. Prefer saturated, high-chroma color over washed-out whiteness. Do not use one dark green-teal wash as a shortcut for hardship.
 Make at least one body in the frame read as clearly metahuman or visibly augmented when the scene supports people.
 Include one small recurring Chummer troll motif in-world, visible but secondary, inside the safe crop area.
 The troll motif must feel diegetic: a pin, patch, sticker, stamp, tattoo, ad, screen mascot, or background figure in the classic Chummer stance.
@@ -209,6 +217,8 @@ Do not use the motif on the README hero, the horizons index, or `KARMA FORGE`. T
 - Discovery and market scenes: CRT mascot, ad panel, vendor patch
 - Street and transit scenes: crossed-out troll pictogram on a side door, service panel, or bar placard
 - Lore crumbs anywhere: blurred Ares or Renraku packaging, clipped barghest or hell hound polaroids, Blood Orchid plate, Paper Lotus charm, devil rat extermination tin, or a shaman's totem portrait ghosting through astral haze
+- Location cues anywhere: Bug City skyline scars, Arcology shadow geometry, Redmond bus shelters, Ork Underground tilework, Touristville stall lights, Puyallup ash, or Glow City hazard fencing
+- Hardship cues anywhere: stained gauze, bloody wipes in a clinic tray, mold bloom on tile, rat-trap tins, cheap inhalers, dirty cups, withdrawal shakes, or a backroom bucket of medical waste
 
 ## Composition rules
 

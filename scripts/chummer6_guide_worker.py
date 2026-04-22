@@ -66,50 +66,50 @@ SKILL_BOOTSTRAP_STATUS: dict[str, object] | None = None
 STYLE_PACKS: tuple[dict[str, str], ...] = (
     {
         "style_family": "grimy_cinematic_realism",
-        "palette": "petrol cyan, rust amber, wet charcoal",
+        "palette": "saturated sodium orange, acid cyan, nicotine yellow, wet asphalt blue",
         "lighting": "practical lamps, sodium spill, rain reflections",
         "realism_mode": "documentary cyberpunk realism",
         "lens_grammar": "28mm and 40mm layered frames with strong foreground obstruction and visible room depth",
         "texture_treatment": "fine film grain, scratched hardware surfaces, denser prop layering, and harder focal separation",
         "signage_treatment": "icon-first transit grime and cropped labels",
         "troll_material_style": "worn stickers, scratched pins, faded decals",
-        "weather_bias": "rain-biased night exterior or damp interior carry-over",
+        "weather_bias": "rain-biased exterior with day-edge spill and damp interior carry-over",
         "humor_ceiling": "wry and restrained",
     },
     {
         "style_family": "shadowrun_cover_realism",
-        "palette": "signal cyan, warning red, nicotine ivory",
+        "palette": "warning red, market neon cyan, bruised blue, warm white glare",
         "lighting": "hard practical key light with shaped neon accents and dense shadow",
         "realism_mode": "grounded cover-art realism with obvious focal storytelling and stronger graphic punch",
         "lens_grammar": "28mm and 40mm graphic frames with strong foreground shapes, diagonal energy, and layered depth",
         "texture_treatment": "sharper silhouettes, tactile props, wet surfaces, restrained bloom, and higher semantic prop density",
         "signage_treatment": "pictograms, hazard stripes, cropped glyphs, never readable words",
         "troll_material_style": "enamel pins, transit stickers, scratched charm decals",
-        "weather_bias": "humid exteriors and heat-loaded interiors with reflective carry-over",
+        "weather_bias": "humid exteriors and heat-loaded interiors with reflective grime and sodium carry-over",
         "humor_ceiling": "dry, sparse, and scene-native",
     },
     {
         "style_family": "corp_decay_noir",
-        "palette": "dull brass, bruise blue, nicotine parchment",
+        "palette": "acrid green, bruised brass, warning amber, nicotine ivory",
         "lighting": "sickly office fluorescents cut by harder accent light",
         "realism_mode": "grounded noir with expensive surfaces aging badly",
         "lens_grammar": "50mm still-life and long-lens surveillance peeks",
         "texture_treatment": "paper fibers, wax seals, tape residue, smoked glass",
         "signage_treatment": "approval marks, warnings, and symbol clusters only",
         "troll_material_style": "wax seals, warning placards, coffee-stained coasters",
-        "weather_bias": "interior-heavy with storm bleed through windows",
+        "weather_bias": "storm bleed through windows onto tired interiors",
         "humor_ceiling": "dry, spare, and adult",
     },
     {
         "style_family": "industrial_shadowplay",
-        "palette": "forge orange, machine green, midnight steel",
+        "palette": "forge orange, neon magenta accents, smoked steel, wet concrete blue",
         "lighting": "task lamps, monitor glow, and hard industrial spill",
         "realism_mode": "tactile shop-floor realism with cinematic contrast",
         "lens_grammar": "28mm environment frames and dense close prop clusters with layered control hardware",
         "texture_treatment": "grease, powder, heat haze, metal wear, and visibly packed work surfaces",
         "signage_treatment": "warning icons, hazard bands, stamped surfaces",
         "troll_material_style": "patches, tool decals, hazard stickers",
-        "weather_bias": "indoor heat with outdoor rain suggested secondarily",
+        "weather_bias": "indoor heat with outdoor rain, soot, and grit suggested secondarily",
         "humor_ceiling": "deadpan and tightly controlled",
     },
 )
@@ -120,7 +120,7 @@ PUBLIC_WRITER_RULES = """Public-writer contract:
 - if the reader can act, route them to the Chummer6 issue tracker, the public guide, the horizon shelf, or the owning repos as appropriate
 - do not send normal users to chummer6-design to propose features or clean up guide drift
 - do not open public pages with repo structure, split mechanics, blueprint talk, or architecture lectures
-- on first-contact pages, prioritize: what the idea is trying to solve, why someone should care if it ever lands, how little currently exists, and what the reader can inspect or watch next
+- on first-contact pages, prioritize: what table problem is getting solved, why this product direction is worth trusting, what people can inspect now, and where to go next
 - give the reader at least one concrete table pain or future table win instead of only product framing
 - never invent or restate canonical mechanics, dice math, thresholds, DV/AP, or stat values unless they come from explicit core receipts
 - if a section needs rules truth, point to the core-backed receipt or outcome instead of recomputing mechanics in guide/help/media copy
@@ -128,10 +128,10 @@ PUBLIC_WRITER_RULES = """Public-writer contract:
 - translate any internal term into a table-facing benefit the moment it appears
 - glossary terms must be things a player or GM can actually feel at the table
 - translate internal jargon immediately or avoid it
-- this is still closer to concept work than software: any visible proof surface, build, or artifact should be treated as provisional spillover or luck, not as a supported product
-- when describing the future, write like there is a nonzero chance some of it never fully lands
+- keep first-contact copy confident and flagship-facing while staying precise about what is currently visible
+- when describing the future, keep ambition clear without turning horizons into release promises
 - until the Lua-backed rules coverage is genuinely complete, do not write as if the math is already settled, fully clear, or trustworthy end to end
-- on first-contact pages, say the project is trying to earn trust through the idea and whatever limited traces escape into public view; do not claim that dependable software already exists
+- on first-contact pages, do not downplay the product into accidental traces; communicate a deliberate product direction with inspectable public evidence
 - humor should be sparse, dry, and useful; if the joke is not better than clear prose, skip it
 - a rare Shadowrun-lore jab at cursed code, corp-grade UX, busted patch rituals, or an overpriced cerebral-booster tier mindset is fine if it sharpens the point
 - sparse lore-bound vice metaphors like cram, jazz, novacoke, or stim-burnout are fine when they read like world flavor rather than real-world shock bait
@@ -169,12 +169,10 @@ PUBLIC_COPY_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("rules truth", "receipt trail"),
     ("trust the math", "follow the receipts"),
     ("stop guessing", "start with the idea"),
-    ("proof of concept", "rough concept"),
-    ("proof-of-concept", "rough concept"),
-    ("pre-release", "concept spillover"),
-    ("prerelease", "concept spillover"),
-    ("usable tonight", "visible by accident tonight"),
-    ("available today", "visible right now by accident"),
+    ("proof of concept", "early product cut"),
+    ("proof-of-concept", "early product cut"),
+    ("pre-release", "early access"),
+    ("prerelease", "early access"),
     ("release shelf", "artifact shelf"),
     ("prototype logic", "unstable experiment"),
     ("governed ruleset evolution", "rule experiment lane"),
@@ -1187,6 +1185,10 @@ def _row_text_bundle(row: dict[str, object]) -> str:
     return " ".join(values).strip().lower()
 
 
+def _is_sparse_shadowrun_scene_text(text: str, *, minimum_tokens: int = 65) -> bool:
+    return len(str(text or "").split()) < minimum_tokens
+
+
 def _has_visible_relationship_signal(text: str) -> bool:
     lowered = str(text or "").strip().lower()
     if not lowered:
@@ -1258,6 +1260,7 @@ def _critical_target_phrase_groups(target: str) -> tuple[tuple[str, ...], ...]:
             ("multiple lanes", "branching futures", "district split", "market of futures", "interchange"),
             ("street-level cyberpunk", "wet street", "wires", "crowd clue", "district"),
             ("multiple clues", "plurality", "different paths", "differentiated domains", "branching"),
+            ("Bug City", "Arcology", "Barrens", "Underground", "Chicago", "Puyallup"),
         )
     if target == "assets/horizons/karma-forge.png":
         return (
@@ -1390,6 +1393,7 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
     callouts = _dedupe_casefolded(_string_list(row.get("overlay_callouts")))
     overlay_signals = _dedupe_casefolded(overlays + callouts)
     combined = _row_text_bundle(row)
+    is_sparse_scene_text = _is_sparse_shadowrun_scene_text(combined, minimum_tokens=65)
     allowed_overlay_tokens = {
         str(entry).strip().casefold()
         for entry in (
@@ -1452,13 +1456,74 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             findings.append("critical_detail:missing_troll_microtexture")
         if not any(token in combined for token in ("bod", "agi", "rea", "str", "ess", "edge", "upgrading")):
             findings.append("critical_overlay:missing_attribute_rail")
+        if is_sparse_scene_text:
+            if not any(
+                token in combined
+                for token in (
+                    "ares",
+                    "renraku",
+                    "horizon",
+                    "aztechnology",
+                    "shiawase",
+                    "saeder-krupp",
+                    "saeder krupp",
+                    "evo",
+                    "wuxing",
+                )
+            ):
+                findings.append("critical_lore:missing_megacorp_footprint")
+            if not any(
+                token in combined
+                for token in (
+                    "devil rat",
+                    "barghest",
+                    "hell hound",
+                    "hellhound",
+                    "blood orchid",
+                    "paper lotus",
+                    "ward scar",
+                    "ward",
+                    "totem",
+                    "astral",
+                )
+            ):
+                findings.append("critical_lore:missing_shamanic_or_critter_crumb")
+            if not any(
+                token in combined
+                for token in (
+                    "rat",
+                    "rat trap",
+                    "rat tracks",
+                    "vermin",
+                    "stain",
+                    "crash",
+                    "infection",
+                    "dry blood",
+                    "cough",
+                    "cough syrup",
+                    "stim",
+                    "med waste",
+                    "spit",
+                    "scarred",
+                    "mold",
+                )
+            ):
+                findings.append("critical_scene:missing_hardship_beat")
         if overlay_mode == "medscan_diagnostic" and not any(
             token in combined
             for token in ("medscan", "diagnostic rail", "wound stabilized", "cyberlimb calibration", "neural link resync", "stability indicator")
         ):
             findings.append("critical_overlay:missing_medscan_posture")
     if normalized == "assets/horizons/karma-forge.png":
-        if "table" in combined and any(token in combined for token in ("sitting", "seated", "paperwork")):
+        scene_focus = " ".join(
+            (
+                str(scene.get("subject") or ""),
+                str(scene.get("environment") or ""),
+                str(scene.get("action") or ""),
+                str(row.get("visual_prompt") or ""),
+            )
+        ).strip().lower()
+        if re.search(r"\btable\b", scene_focus) and any(token in scene_focus for token in ("sitting", "seated", "paperwork")):
             findings.append("critical_scene:tableau_not_forge")
         if not any(token in combined for token in ("approval rail", "rollback rig", "provenance seal", "rules lab", "consequence bench")):
             findings.append("critical_lore:missing_forge_semantics")
@@ -1595,20 +1660,20 @@ def page_supporting_context(page_id: str) -> list[str]:
                 "Start with the guide and horizon shelf, not with a fantasy about a finished tool.",
             ],
             "what_chummer6_is": [
-                "This is an idea about inspectable Shadowrun math, not a dependable app surface.",
-                "Any visible artifact matters less than the direction and the receipts it tries to earn.",
+                "This is a product path for inspectable Shadowrun math with clear trust boundaries.",
+                "Visible artifacts and receipts are how the direction is judged in public.",
             ],
             "current_phase": [
                 "Trust work and visible reasoning still come before polish.",
                 "The work is still about making the idea inspectable before pretending the product is ready.",
             ],
             "current_status": [
-                "The reliable public story is still the guide, the horizon shelf, and a few rough traces.",
-                "Any concrete artifact may still break, move, or vanish without ceremony.",
+                "The reliable public story is the guide, status surfaces, horizons, and inspectable proof artifacts.",
+                "Use current boundaries and receipts to judge what is stable and what is still moving.",
             ],
             "public_surfaces": [
                 "The guide, horizon shelf, and issue tracker are the deliberate public surfaces.",
-                "Anything else should be read as a rough trace, not as a dependable product path.",
+                "Additional artifacts are inspectable product evidence with explicit boundaries.",
             ],
         }
         snippets = list(curated_fallbacks.get(page, []))
@@ -2171,7 +2236,7 @@ Rules:
 - keep the same overall point and roughly similar density
 - prefer concrete language over abstract product mush
 - keep the existing tone grounded, adult, and dry; do not add jokes unless the source already has one
-- if the source sounds concept-stage, keep it concept-stage or even more defensive; do not promote it into dependable software
+- keep the source certainty level accurate; do not invent stronger capability claims than the source supports
 - if the source warns that something may fail or never fully land, keep that warning explicit
 - avoid synthetic phrases like seamless, unlock, journey, toolkit, foundation, or more-than-just framing
 - do not sound like marketing copy, investor copy, or AI filler
@@ -2549,7 +2614,7 @@ Rules:
 - this OODA is for this section only, not the whole repo
 - think about what a curious human reader would actually notice or care about here
 - if the source suggests strong selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, or dangerous simulation energy, surface them
-- keep the concept-stage posture obvious; do not let section OODA drift into stable-product certainty
+- keep the posture flagship and user-facing; be honest about current boundaries without shrinking into self-disclaimer mode
 - do not literalize repo governance labels into the scene
 - avoid generic poster language
 - for image thinking, prefer one memorable focal subject or action over abstract icon soup
@@ -2650,7 +2715,7 @@ Rules:
 - this OODA is for each section only, not the whole repo
 - focus on what a curious human reader would actually care about here
 - if the source suggests strong selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossier flows, or dangerous simulation energy, surface them
-- keep the concept-stage posture obvious; do not let section OODA drift into stable-product certainty
+- keep the posture flagship and user-facing; be honest about current boundaries without shrinking into self-disclaimer mode
 - if source signals clearly include multi-era support or scripted rules, make at least one section hook say so in plain language instead of burying it
 - do not literalize repo governance labels into the scene
 - avoid generic poster language and repeated sentence frames
@@ -2725,38 +2790,38 @@ def _section_ooda_defaults(
     paragraph_seed = intro or f"{title} matters when the table needs something clearer, faster, or less fragile."
     visual_seed = f"Contextual cyberpunk scene for {title}; show the real moment this page would matter."
     if section_type == "page" and name == "readme":
-        likely_interest = "How honest is this about being mostly an idea with stray spillover?"
-        scene_logic = "A risky concept warning, not a release announcement."
-        one_liner = "README should warn people that they are looking at an idea with accidental spillover, not a product front door."
-        paragraph_seed = "README matters when a curious runner needs the honest warning before mistaking stray traces for dependable software."
-        visual_seed = "A dangerous concept warning scene in a rain-slick alley threshold or shuttered kiosk: sealed crate, hazard tape, hard practical light, no readable labels."
+        likely_interest = "Why should I trust this as a flagship Shadowrun companion instead of another opaque tool?"
+        scene_logic = "A first-contact product front door with visible trust pressure and inspectable evidence."
+        one_liner = "README should open like a confident flagship invite, not a warning label."
+        paragraph_seed = "README matters when a curious runner wants immediate proof that Chummer6 is serious, inspectable, and worth following."
+        visual_seed = "A high-pressure flagship front-door scene: metahuman prep under stress, dense proof props, and diegetic trust overlays anchored to real gear."
         concrete_signals = [
-            "concept honesty before product posture",
-            "stray traces instead of dependable surfaces",
-            "follow the guide before trusting the spillover",
+            "flagship product direction with inspectable evidence",
+            "guide and status surfaces as deliberate trust surfaces",
+            "clear route to deeper proof and issue reporting",
         ]
     elif section_type == "page" and name == "current_status":
-        likely_interest = "What is actually visible right now, and how accidental is it?"
-        scene_logic = "A fragile public trace still hanging on, not a supported live feature."
-        one_liner = "Current status should read like an idea leaving faint traces behind, not a latest-drop victory lap."
-        paragraph_seed = "Current status matters when a player or GM wants the honest state of the idea and whatever accidental public traces it left behind."
-        visual_seed = "One operator or host checking a fragile public trace at a rain-streaked kiosk edge or transit bench; obvious uncertainty, no triumphant product posture."
+        likely_interest = "What can I inspect now, and what is still moving?"
+        scene_logic = "A present-tense product status readout with clear proof lanes and current boundaries."
+        one_liner = "Current status should feel operational and useful, not hand-wavy."
+        paragraph_seed = "Current status matters when a player or GM wants the real current posture, visible surfaces, and next useful checks."
+        visual_seed = "A grounded live-status moment: operator plus support figure validating state continuity, with routeable proof anchors and realistic pressure."
         concrete_signals = [
-            "public explanation before product claims",
-            "horizon map and artifact shelf as traces, not guarantees",
-            "almost everything still provisional or accidental",
+            "what is visible now and inspectable",
+            "what is still moving and why",
+            "where to verify, report, or go deeper next",
         ]
     elif section_type == "page" and name == "what_chummer6_is":
-        likely_interest = "What kind of trust problem is this idea trying to solve at the table?"
+        likely_interest = "What trust problem does Chummer6 solve at the table right now?"
         scene_logic = "One inspectable trust moment beats an abstract feature poster."
-        one_liner = "What Chummer6 is should feel like a trust problem caught in the act, not a finished system pitch."
-        paragraph_seed = "This page matters when someone wants to know what kind of Shadowrun pain this idea is trying to relieve, without pretending the tool already exists."
+        one_liner = "What Chummer6 is should read like an explicit product promise with visible proof."
+        paragraph_seed = "This page matters when someone wants to understand the concrete Shadowrun pain Chummer6 is built to remove and how the proof path works."
         visual_seed = "A visible trust relationship under pressure: runner, reviewer, or spotter inspecting a suspect receipt trail in a rain-cut threshold, with visible stakes and no generic group huddle."
     elif section_type == "page" and name == "parts_index":
         likely_interest = "Which practical lane should I click first if I want the useful slice instead of the whole repo sermon?"
         scene_logic = "A lane-selection environment should read through differentiated work zones, not a row of screens or a centered mascot."
         one_liner = "Parts index should feel like several real work lanes opening off the same rough Shadowrun surface."
-        paragraph_seed = "This page matters when a curious reader wants to choose the right lane quickly by reading the work zones, props, and stakes instead of parsing repo taxonomy."
+        paragraph_seed = "This page matters when a curious reader wants to choose the right lane quickly by reading the work zones, props, and stakes instead of parsing internal maps."
         visual_seed = "A grounded Shadowrun lane-selection environment with clearly differentiated work zones for rules, UI, mobile continuity, hosted coordination, registry shelves, and media output; environment first, no centered signboard, no desk-monitor wall."
         concrete_signals = [
             "choose a lane by practical table pain",
@@ -2764,13 +2829,13 @@ def _section_ooda_defaults(
             "environment-first guide art beats another device glamour shot",
         ]
     elif section_type == "page" and name == "horizons_index":
-        likely_interest = "Which future lane looks dangerous enough to matter without pretending any of them are already finished?"
+        likely_interest = "Which future lane looks useful enough to track next?"
         scene_logic = "A branching district of futures should read through lane plurality, route pressure, and differentiated domains instead of one corridor and one hero silhouette."
         one_liner = "Horizons index should feel like a market of branching futures, not a title card for one corridor."
-        paragraph_seed = "This page matters when a reader wants to browse several possible futures at once and feel the pressure, plurality, and risk without mistaking it for a shipped roadmap."
+        paragraph_seed = "This page matters when a reader wants to browse ambitious next lanes without confusing them with shipped commitments."
         visual_seed = "A branching Shadowrun district splice with at least four differentiated future lanes, partial crowds or vehicle traces, route clutter, wet reflections, and environment-first plurality; no lone centered silhouette, no central sign panel, no single corridor vanishing point."
         concrete_signals = [
-            "future lanes branching without promise",
+            "future lanes branching with clear intent",
             "district plurality beats one corridor",
             "street-level clues should sell each horizon lane",
         ]
@@ -2930,8 +2995,8 @@ Rules:
 - do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
 - avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
-- keep the concept / idea posture defensive and honest on first-contact pages
-- vary the defensive honesty language; do not repeat the same rough-trace or accidental-evidence disclaimer on every page
+- keep first-contact pages flagship, concrete, and inspectable
+- avoid repetitive disclaimer language; spend the space on reader actions, proof lanes, and concrete table value
 - do not mention booster / participate caveats on general pages; reserve that expensive-lane explanation for the KARMA FORGE horizon unless a page payload explicitly requires it
 {PUBLIC_WRITER_RULES}
 
@@ -2995,7 +3060,7 @@ Rules:
 - do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
 - avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
-- vary the defensive honesty language across the set; do not keep repeating rough traces, accidental evidence, or identical spillover warnings page after page
+- keep copy distinct across pages; avoid repetitive disclaimer framing and prioritize useful, inspectable reader guidance
 {PUBLIC_WRITER_RULES}
 
 Global OODA:
@@ -3215,23 +3280,23 @@ def fallback_media_seed(kind: str, *, name: str, item: dict[str, object]) -> dic
     if kind == "part":
         subtitle = str(item.get("tagline") or item.get("why") or item.get("when") or title).strip() or title
         return {
-            "badge": "Concept // part",
+            "badge": "Flagship // part",
             "title": title,
             "subtitle": subtitle,
-            "kicker": "public job, not finished software",
-            "note": "Treat this as a concept lane with a few rough traces, not a dependable surface.",
+            "kicker": "public lane with clear trust boundaries",
+            "note": "Inspect this lane as a live product surface with explicit current limits.",
             "overlay_hint": "subtle diegetic context markers",
-            "visual_prompt": f"{title}; grounded Shadowrun part scene; tactile props; no readable text",
+            "visual_prompt": f"{title}; grounded Shadowrun part scene; tactile props; visible diegetic AR; no giant readable signage",
         }
     subtitle = str(item.get("hook") or item.get("problem") or item.get("use_case") or title).strip() or title
     return {
-        "badge": "Concept // horizon",
+        "badge": "Flagship // horizon",
         "title": title,
         "subtitle": subtitle,
-        "kicker": "future lane, not a promise",
-        "note": "Treat this as a concept lane with rough public traces, not a finished feature.",
+        "kicker": "future lane with concrete table stakes",
+        "note": "Track this lane as active direction with clear non-shipping boundaries.",
         "overlay_hint": "subtle diegetic context markers",
-        "visual_prompt": f"{title}; grounded Shadowrun horizon scene; tactile props; no readable text",
+        "visual_prompt": f"{title}; grounded Shadowrun horizon scene; tactile props; visible diegetic AR; no giant readable signage",
     }
 
 
@@ -3672,7 +3737,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ]
         if risky_claims:
             findings.append(
-                "Do not invent exact present-tense feature claims beyond the provided page context. Stay on guide, horizon shelf, issue tracker, concept posture, or explicitly marked accidental artifacts unless the source explicitly goes narrower."
+                "Do not invent exact present-tense feature claims beyond the provided page context. Stay on guide, horizon shelf, issue tracker, and explicit public evidence unless the source explicitly goes narrower."
             )
         risky_game_details = [
             phrase
@@ -3681,7 +3746,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ]
         if risky_game_details:
             findings.append(
-                "Avoid specific subsystem, edition, or character-sheet examples unless the page context explicitly names them. Keep these root pages at the level of concept, public explanation, future lanes, and accidental spillover."
+                "Avoid specific subsystem, edition, or character-sheet examples unless the page context explicitly names them. Keep these root pages focused on public explanation, concrete value, and supported proof lanes."
             )
         math_certainty_phrases = [
             phrase
@@ -3690,7 +3755,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ]
         if math_certainty_phrases:
             findings.append(
-                "Do not claim the rules math is already settled or end-to-end trustworthy on root pages. Keep the copy at concept-stage honesty, limited traces, and trust not yet earned."
+                "Do not claim the rules math is already settled or end-to-end trustworthy on root pages. Keep the copy honest about current coverage and explicit about trust boundaries."
             )
         if any(pattern.search(combined) for pattern in TOTALIZING_PUBLIC_MATH_PATTERNS):
             findings.append(
@@ -3718,7 +3783,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             )
         ):
             findings.append(
-                "Do not pitch a runnable proof-of-concept or dependable build on root pages. If you mention artifacts at all, frame them as rough, provisional traces instead of a product path."
+                "Do not pitch a runnable proof-of-concept on root pages. If you mention artifacts, frame them as inspectable evidence within the current product direction."
             )
         if page_supporting_context(name) and not any(
             token in lowered
@@ -3727,37 +3792,18 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
                 "horizon",
                 "issue",
                 "watch",
-                "concept",
-                "idea",
                 "artifact",
-                "spillover",
+                "receipt",
+                "status",
+                "proof",
             )
         ):
             findings.append("Name at least one visible public surface, future lane, or cautious public action instead of describing the project only in abstract terms.")
-        if name in {"readme", "start_here", "current_phase", "current_status"} and not any(
-            token in lowered
-            for token in (
-                "concept",
-                "idea",
-                "experiment",
-                "accident",
-                "accidental",
-                "spillover",
-                "trace",
-                "rough",
-                "not dependable",
-                "not stable",
-                "provisional",
-                "not a product",
-                "not a promise",
-            )
-        ):
-            findings.append("Make the concept-stage and accidental-artifact posture explicit so the guide does not sound like a rough product pitch.")
         if name == "readme" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "rough")):
-            findings.append("README should point the reader toward the public guide, future lanes, issue tracker, or clearly provisional artifacts instead of staying at product-story altitude.")
+            findings.append("README should point the reader toward the public guide, future lanes, issue tracker, or inspectable public artifacts instead of staying at product-story altitude.")
         intro_lowered = str(row.get("intro", "")).strip().lower()
         if name == "readme" and re.match(r"^(stop|start|grab|download|use)\b", intro_lowered):
-            findings.append("README should open with concept-stage honesty before any command-style invitation. Do not make the first line sound like the tool is ready for immediate use.")
+            findings.append("README should open with product context and trust value before command-style invitations.")
         if name == "readme" and any(
             phrase in lowered
             for phrase in (
@@ -3768,7 +3814,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             )
         ):
             findings.append(
-                "README should not lean on command-slogan copy that makes the project sound ready to use. Keep the tone closer to concept, inspection, and rough traces."
+                "README should not lean on command-slogan copy. Keep the tone concrete, inspectable, and product-serious."
             )
         intro_niche_tokens = [
             phrase
@@ -3796,13 +3842,13 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             if not any(token in lowered for token in ("concept", "idea", "experiment", "direction")):
                 findings.append("Explain WHAT_CHUMMER6_IS as a concept or direction first, not as a product already standing on its own feet.")
             if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust", "trust", "artifact", "spillover", "trace", "rough")):
-                findings.append("Tie WHAT_CHUMMER6_IS back to trust, receipts, or rough traces instead of leaving the trust story abstract.")
+                findings.append("Tie WHAT_CHUMMER6_IS back to trust and receipts instead of leaving the trust story abstract.")
         if name == "current_phase" and not any(
             token in lowered for token in ("trust", "receipt", "math", "before polish", "before the paint", "concept", "idea")
         ):
             findings.append("CURRENT_PHASE should explain that concept work and trust work still come before anything product-shaped.")
         if name == "current_status" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "rough", "concept")):
-            findings.append("CURRENT_STATUS should point to visible explanation surfaces or clearly provisional artifacts, not drift back into generic product status talk.")
+            findings.append("CURRENT_STATUS should point to visible explanation surfaces or inspectable artifacts, not drift back into generic product status talk.")
         if name == "current_status" and not any(token in intro_lowered for token in ("current", "today", "right now", "status")):
             findings.append("CURRENT_STATUS should sound like an honest status readout in the opening line, not a generic product pitch.")
         if any(
@@ -4032,8 +4078,8 @@ Hard rules:
 - do not mention specific rules subsystems, stats, cyberware, qualities, initiative, health, edition labels, scripted internals, device swaps, session continuity, multi-era support, mobile-ready behavior, or other narrow feature claims unless the provided context explicitly names them
 - replace niche gear, augment, or modifier anecdotes with general table-friction language unless the page context explicitly names them
 - stay grounded in proof shelf, current drop, release shelf, public guide, horizon shelf, issue tracker, receipts, and local-first posture
-- keep the page defensive and honest about concept-stage reality
-- if the page is about what Chummer6 is, explicitly tie it back to trust, receipts, or accidental spillover instead of abstract product-story language
+- keep the page precise about current boundaries without collapsing into disclaimer-heavy language
+- if the page is about what Chummer6 is, explicitly tie it back to trust and receipts instead of abstract product-story language
 - avoid generic filler like designed to make, providing, ensuring that, built to, or similar soft product mush
 - intro should say what this page means to a normal reader
 - body should name visible proof or action surfaces without improvising deeper capability claims
@@ -4070,9 +4116,9 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
     tagline = str(act.get("landing_tagline") or "An idea for less mystical Shadowrun math.").strip()
     if page_id == "readme":
         return {
-            "intro": "Chummer6 is still concept-stage: an idea for table rulings that are easier to inspect before anyone is asked to trust them.",
-            "body": "The project is chasing visible reasoning instead of trust-me table lore. What exists in public is still mostly guide work, future lanes, issue threads, and the occasional rough artifact that escaped into view by accident.",
-            "kicker": "If the idea sounds useful, read the guide and judge the rough traces cautiously.",
+            "intro": "Chummer6 is a flagship Shadowrun companion focused on inspectable rulings and trust under pressure.",
+            "body": "The project favors visible reasoning over trust-me table lore. Use the guide, current status, horizons, and proof surfaces to evaluate where it is strong today and where it is still tightening.",
+            "kicker": "Start with the guide, then verify the lanes that matter to your table.",
         }
     if page_id == "start_here":
         return {
@@ -4082,57 +4128,57 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
         }
     if page_id == "what_chummer6_is":
         return {
-            "intro": "Chummer6 is an idea about letting Shadowrun math show its work.",
-            "body": "The ambition is visible reasoning instead of trust-me answers, but the honest present tense is still concept work with only a few inspectable traces. If something concrete exists, good; if it does not, the direction still matters more than the lucky artifact.",
-            "kicker": "Judge the direction first and the stray evidence second.",
+            "intro": "Chummer6 is Shadowrun tooling built to make rulings inspectable instead of mystical.",
+            "body": "The promise is visible reasoning, clear receipts, and table-facing trust under pressure. Judge it through the public guide, status surfaces, and proof lanes rather than opaque claims.",
+            "kicker": "Judge by receipts and outcomes, not folklore.",
         }
     if page_id == "faq":
         return {
-            "intro": "Practical question first: does anything usable actually exist yet?",
-            "body": "Not in a dependable product sense. There may be guide pages, issue threads, or stray artifacts worth inspecting, but they should be read as experiments or lucky public traces, not as promised software.",
-            "kicker": "If something works today, treat it as lucky evidence, not stable support.",
+            "intro": "Practical question first: what can you inspect and use right now?",
+            "body": "The guide, status, horizon, and proof surfaces are live and inspectable. Some capabilities remain in active evolution, so use the visible boundaries and receipts when deciding what to trust.",
+            "kicker": "Use what is visible, verify with receipts, report what drifts.",
         }
     if page_id == "how_can_i_help":
         return {
-            "intro": "Help starts with reacting to the idea honestly, not pretending there is a stable build to adopt.",
-            "body": "If you find a rough artifact, break it and report what that teaches. If you do not, point at the table pain, the bad assumption, or the future lane that seems worth pursuing.",
-            "kicker": "Useful help is still mostly critique, direction, and reality checks.",
+            "intro": "Help starts with concrete feedback on visible product surfaces.",
+            "body": "If you hit drift, confusing trust signals, or brittle flows, file it with context and receipts. If you do not hit a bug, point to the table pain or future lane worth prioritizing.",
+            "kicker": "Best help is reproducible evidence plus clear user pain.",
         }
     if page_id == "where_to_go_deeper":
         return {
-            "intro": "Go deeper only after you decide whether the idea itself sounds worth following.",
-            "body": "Stay with the guide and horizons if you want the public story. Drop into repos or issues only when you want to inspect stray implementation evidence or argue about a specific choice.",
-            "kicker": "Start with the concept; only chase artifacts when the concept earns it.",
+            "intro": "Go deeper when you want implementation detail or source-level receipts.",
+            "body": "Stay with the guide and horizons for the public product story. Jump into issues or repos when you want to inspect specific behavior, evidence chains, or change rationale.",
+            "kicker": "Start with the guide, then drill into proof where needed.",
         }
     if page_id == "current_phase":
         return {
             "intro": "The current phase is trust work before product posture.",
-            "body": "The project is still trying to make rulings inspectable, bounded, and worth trusting before it earns the right to call itself software. In public that mostly shows up as a clearer guide, a sharper horizon shelf, an issue tracker, and the occasional rough artifact that still needs to be treated as accidental evidence instead of support.",
-            "kicker": "Read the guide, watch the horizons, and assume the artifacts are still rough.",
+            "body": "The product focus is inspectable reasoning, bounded behavior, and clear recovery paths before expansion. In public that shows up through the guide, horizon shelf, issue tracker, and growing proof surfaces.",
+            "kicker": "Read the guide, watch the horizons, and use receipts to track progress.",
         }
     if page_id == "current_status":
         return {
-            "intro": "Status first: the guide is solid, and everything else is still provisional.",
-            "body": "What is consistently visible today is the guide, the horizon shelf, and a few rough artifacts. Anything more concrete than that may still break, move, or vanish without ceremony.",
-            "kicker": "Treat the explanations as current and the software traces as provisional.",
+            "intro": "Status first: the guide, horizon shelf, and proof surfaces are live and inspectable.",
+            "body": "What is visible today is deliberate, public, and useful for evaluation. Some lanes are still moving, so status calls out current boundaries and next checks explicitly.",
+            "kicker": "Use current status as your trust baseline.",
         }
     if page_id == "public_surfaces":
         return {
             "intro": "The deliberate public surfaces are the guide, the horizon shelf, and the issue tracker.",
-            "body": "If there is a proof artifact, rough build, or screenshot, treat it as a rough trace instead of a dependable product surface.",
-            "kicker": "The safe assumption is still that almost nothing exists on purpose.",
+            "body": "Proof artifacts and screenshots are there to make behavior inspectable and discussable in public, with clear boundaries on what is currently supported.",
+            "kicker": "Public surfaces are deliberate trust surfaces.",
         }
     if page_id == "parts_index":
         return {
-            "intro": "The parts mostly describe how the idea would eventually split if it ever hardens into software.",
-            "body": "Use the part map as a conceptual diagram, not as evidence that all of those layers already exist in a usable form. If a part seems to have a visible artifact, treat that as an exception.",
-            "kicker": "Read the parts as responsibilities the idea would need, not as finished modules.",
+            "intro": "The parts map shows how the product is organized for clear ownership and trust boundaries.",
+            "body": "Use it to find the lane that matches your problem quickly. Each part describes responsibilities, visible surfaces, and where to inspect deeper evidence.",
+            "kicker": "Read the parts as working lanes with explicit boundaries.",
         }
     if page_id == "horizons_index":
         return {
-            "intro": "Horizons are idea lanes, not current promises.",
-            "body": "They exist to show what kinds of table pain this concept might tackle if it survives long enough to earn that scope. Read them as contingent thoughts with vivid use cases, not as a release schedule disguised as lore.",
-            "kicker": "If a horizon sounds useful, watch it; if it sounds done, distrust the sentence.",
+            "intro": "Horizons are next lanes with concrete table pain targets.",
+            "body": "They map where Chummer6 is heading and why those lanes matter, without confusing exploration work for shipped commitments.",
+            "kicker": "Track horizons for intent, then verify each lane as it lands.",
         }
     return {}
 
@@ -4157,10 +4203,10 @@ def fallback_part_copy(name: str, item: dict[str, object]) -> dict[str, str]:
         "hub": {
             "when": "If there is ever a hosted front door, hub is the layer that would have to keep it coherent.",
             "why": "It would keep sign-in, public participation, and hosted status from turning into scavenger hunts or backroom admin work.",
-            "now": "Today the visible bits are the front door, the participation route, and a few hosted traces you can inspect, but they are still too provisional to treat like a finished service.",
+            "now": "Today the visible bits are the front door, participation route, and hosted status surfaces you can inspect with clear current boundaries.",
         },
         "ui-kit": {
-            "when": "If the project ever stops looking accidental, UI Kit is part of how that would happen.",
+            "when": "When the project scales across more public surfaces, UI Kit keeps the experience coherent.",
             "why": "A shared visual language would make future surfaces easier to read instead of forcing every reader to relearn the interface from scratch.",
             "now": "Publicly, you can already spot repeated badges, chrome, and dense-data cues across the rough guide and proof surfaces, but it is still more of a shared visual direction than a polished kit to rely on.",
         },
@@ -4861,25 +4907,25 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
         },
         "orient": {
             "audience": "players, GMs, and curious tinkerers who want Chummer6 explained from the table inward",
-            "promise": "an idea for inspectable Shadowrun math with fewer trust-me rulings if it ever hardens into real software",
-            "tension": "the guide has to stay honest that the idea is stronger than the current software traces",
+            "promise": "inspectable Shadowrun math with fewer trust-me rulings and visible product trust surfaces",
+            "tension": "the guide must stay precise about current boundaries without downplaying the product",
             "why_care": [
-                "a clearer direction for future rulings tools",
-                "less trust-me math if the concept survives",
+                "a clearer trust path for rulings tools",
+                "less trust-me math through visible receipts",
                 "a saner long-range path from prep to live play",
             ],
             "current_focus": [
-                "honest concept-stage public surfaces",
-                "future ideas that feel like table upgrades instead of slideware",
-                "not pretending lucky artifacts are dependable product",
+                "honest public trust surfaces with explicit boundaries",
+                "future lanes framed as concrete table upgrades",
+                "inspectable evidence instead of vague claims",
             ],
             "visual_direction": "grounded cyberpunk scenes, readable props, lived table moments, and only occasional recurring motifs when they genuinely improve the image",
             "humor_line": "Keep the wit dry, adult, and secondary to the actual point.",
             "signals_to_highlight": highlights
             or [
                 "receipts and provenance as goals",
-                "concept honesty over fake product posture",
-                "future table relief instead of fake current completeness",
+                "clear product posture with explicit current boundaries",
+                "future table relief without fake current completeness",
                 "public explanation before product claims",
             ],
             "banned_terms": [
@@ -4900,7 +4946,7 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
             "horizon_policy": "sell each horizon as a table pain and a vivid scene, not a codename first",
             "media_strategy": "use contextual scenes that show the moment the feature matters, not abstract title-card art",
             "overlay_policy": "only use overlays that clarify initiative, receipts, sync state, provenance, or simulation context",
-            "cta_strategy": "invite readers to watch, react, report spillover, or pitch better ideas without sounding pushy or synthetic",
+            "cta_strategy": "invite readers to inspect, react, report issues, and contribute useful feedback without sounding pushy or synthetic",
         },
         "act": {
             "landing_tagline": "An idea for less mystical Shadowrun rulings.",
@@ -5031,8 +5077,8 @@ Variation guardrails:
 Requirements:
 - infer the scene from the source, do not literalize repo-role labels
 - do not say or imply "visitor center"
-- treat the whole thing as concept-stage and accidental-spillover-adjacent, not as stable current software
-- visible copy should feel like a dangerous idea or concept lane, not a ready-to-use feature banner
+- treat the whole thing as a flagship public surface with explicit current boundaries
+- visible copy should feel like confident product storytelling with inspectable proof, not a warning placard
 - avoid command-slogan lines like stop/start/use/download now
 - never use phrases like deterministic truth, proof of concept, hardware diagnostics verified, or rules-engine certainty
 - avoid branded weapon models, exact diagnostics, exact modifier labels, or named telemetry unless the source explicitly demands them
@@ -5045,6 +5091,9 @@ Requirements:
 - the room must do at least half the storytelling for the hero: visible floor, doorway, bay hardware, shelves, tool wall, side bench, hanging lights, and improvised med clutter belong in frame
 - the troll patient must stay visibly troll-sized with readable tusks, rough skin, hair texture, and treated chrome, not a generic shaved human or a clean sci-fi mannequin
 - seed the hero with small Sixth World lore crumbs such as cropped Ares or Renraku med gear, critter photo strips, Blood Orchid or Paper Lotus ephemera, corp scrip, or a faint astral totem residue, but never a readable ad or product board
+- if a recognizable lore location helps the hero, use it through background residue like Bug City towers, Arcology shadows, Barrens infrastructure, Underground tilework, or ashfall rather than tourist-postcard framing
+- show the human cost of the setting in the hero: dirt, stained gauze, old blood, rat traps, mold, crash fatigue, or cheap-med residue should be visible without turning the scene into splatter theatre
+- if drug or vice cues appear in the hero, keep them scene-bound and ugly through spent inhalers, stim patches, crash kits, or shaky hands, not glamor shots
 - if magic appears in the hero, make it warded or totemic: astral residue, fetish bundles, or a totem portrait glow, not generic fantasy light spam
 - medscan or upgrade overlays must feel anchored to anatomy, tools, rails, or work surfaces; never solve the hero with floating UI wallpaper or a clean monitor wall
 - avoid clean clinics, white-coat doctor staging, hallway symmetry, quiet back-view pairs, or any bedside crop that turns the hero into generic sci-fi medicine
@@ -5130,17 +5179,19 @@ Variation guardrails:
 
 Requirements:
 - infer the scene from the source, do not repeat repo labels back as literal signage
-- keep the concept-stage posture obvious; the image copy should feel like a vivid idea trace, not a polished shipping feature
-- visible copy and meta should read like concept-stage guide material, not a shipping subsystem or verified status board
+- keep the image copy flagship-facing while staying accurate about what is currently visible
+- visible copy and meta should read like deliberate product storytelling with explicit boundaries
 - avoid branded weapon models, exact diagnostics, exact modifier labels, or named telemetry unless the source explicitly demands them
 - visual_prompt must describe an actual cyberpunk scene tied to this part in use
 - visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
 - if the part naturally implies a person or team, choose believable cyberpunk people
 - if the part naturally implies a machine room, archive, workshop, or table scene, make that spatial metaphor visibly legible
 - use at least one concrete Sixth World lore crumb when it fits: cropped megacorp consumer shells, corp scrip, critter photos, Blood Orchid or Paper Lotus ephemera, talismonger leftovers, or astral-totem residue
+- when a part image needs stronger setting identity, a recognizable lore location cue is welcome: Chicago containment skyline, Redmond Barrens geometry, Renraku Arcology shadow, Ork Underground structure, Puyallup ash, or Glow City hazard detail
+- when the scene can carry it, show at least one hardship cue from the Sixth World: grime, vermin pressure, stained wraps, old blood, crash posture, dirty cups, mold, cough medicine, or spent stimulants
 - if magic shows up in a part image, keep it to wards, fetishes, or a totem portrait ghost, not generic fantasy casting glamour
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
-- visible copy and meta should read like concept-stage guide material, not a verified ops label
+- visible copy and meta should read like deliberate product storytelling, not a telemetry/status label
 - overlay_hint should name the kind of diegetic HUD/analysis treatment this image wants, in a few words
 - visual_motifs should be 3-6 short noun phrases for what should actually be visible
 - overlay_callouts should be 2-4 short overlay ideas, not literal on-image text
@@ -5223,8 +5274,8 @@ Variation guardrails:
 
 Requirements:
 - infer the scene from the source, do not just repeat headings back
-- keep the concept-stage posture obvious; this is a future lane with maybe-traces, not a product panel for an already working feature
-- visible copy and meta should read like a speculative lane, not an already deployed module with verified status strings
+- keep horizon copy ambitious and concrete without implying shipped status
+- visible copy and meta should read like a planned lane with real table stakes, not a verified status board
 - avoid branded weapon models, exact diagnostics, exact modifier labels, or named telemetry unless the source explicitly demands them
 - visual_prompt must describe an actual cyberpunk scene tied to this horizon
 - visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
@@ -5234,6 +5285,8 @@ Requirements:
 - if the metaphor is x-ray or simulation, show a real body, runner, or situation with the metaphor happening to it; do not collapse into abstract boxes and HUD wallpaper
 - if the horizon is a forge / approval / rollback / consequence lane, make the scene a standing rulesmith plus reviewer or witness inside an industrial approval rail with visibly more apparatus than faces; never a quiet workbench or paperwork table
 - seed the horizon with small Sixth World lore crumbs such as cropped megacorp product cues, critter field photos, Paper Lotus or Blood Orchid ephemera, talismonger leftovers, or a totem portrait hanging in astral glow
+- horizons may use recognizable lore locations aggressively when they clarify the fantasy: Bug City, Arcology edges, Barrens cuts, Underground passages, ash zones, or Touristville should read as lived places, not generic cyberpunk backdrop
+- horizons should not feel clean or aspirational by default; when it fits, show the social damage they are meant to solve through grime, sickness, blood, vermin, withdrawal, urban decay, or busted clinic residue
 - if magic appears, make it read as astral Shadowrun magic with wards, fetishes, or a mentor-animal silhouette rather than generic fantasy spellfire
 - visual_prompt must be no-text / no-logo / no-watermark / 16:9
 - the visible copy should sell the horizon without pretending it is active build work
@@ -5491,14 +5544,9 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 for token in (
                     "no printed text",
                     "no readable words",
-                    "readable text",
                     "layout text",
-                    "status stamp",
                     "typography",
                     "rules-truth",
-                    "prototype logic",
-                    "tactical dossier",
-                    "governed ruleset evolution",
                     "dossier metadata hud",
                     "no logo",
                     "no logos",
@@ -5535,91 +5583,91 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         curated: dict[str, dict[str, str]] = {
             "hero": {
                 "badge": "Streetdoc Scan",
-                "kicker": "concept, not contract",
-                "note": "Concept-stage only. If anything looks usable, treat it as accidental spillover rather than support.",
+                "kicker": "flagship trust under pressure",
+                "note": "Early-access surface. Treat visible artifacts as inspectable evidence with active boundaries.",
             },
             "core": {
                 "badge": "Rule Receipt",
                 "kicker": "show the ruling, not the folklore",
-                "note": "A rules-trace idea, not a finished authority surface.",
+                "note": "A rules-trace surface with explicit boundaries and inspectable evidence.",
             },
             "ui": {
                 "badge": "Build Check",
                 "kicker": "cross-check the sheet before it bites",
-                "note": "A build-inspection idea, not a finished user surface.",
+                "note": "A build-inspection surface designed for visible trust.",
             },
             "mobile": {
                 "badge": "Handoff Trace",
                 "kicker": "catch the session state mid-stride",
-                "note": "A continuity idea for motion and reconnects, not a dependable mobile app.",
+                "note": "A continuity lane focused on reconnect resilience and inspectable state.",
             },
             "hub": {
                 "badge": "Hosted Lane",
                 "kicker": "your footprint, held together under pressure",
-                "note": "A hosted-coordination idea, not a stable service promise.",
+                "note": "A hosted-coordination lane with explicit runtime boundaries.",
             },
             "ui-kit": {
                 "badge": "Shared Chrome",
                 "kicker": "one visual language across rough surfaces",
-                "note": "A shared-surface idea, not a finished design system.",
+                "note": "A shared-surface system keeping interfaces coherent under load.",
             },
             "hub-registry": {
                 "badge": "Artifact Customs",
                 "kicker": "label the rough packet before rumor wins",
-                "note": "A provenance-shelf idea, not a finished registry product.",
+                "note": "A provenance shelf for trustable artifact lookup and comparison.",
             },
             "media-factory": {
                 "badge": "Packet Refinery",
                 "kicker": "make the packet readable without scrubbing the trail",
-                "note": "A packet-cleanup idea, not a live media studio.",
+                "note": "A media lane for readable outputs that keep provenance intact.",
             },
             "design": {
                 "badge": "Route Map",
                 "kicker": "choose the next honest surface",
-                "note": "A planning lane, not a promise that the next surface already exists.",
+                "note": "A planning lane that makes next-surface decisions inspectable.",
             },
             "nexus-pan": {
                 "badge": "Reconnect Idea",
                 "kicker": "continuity without fake certainty",
-                "note": "A reconnect idea, not a dependable continuity feature.",
+                "note": "A reconnect lane focused on continuity truth under pressure.",
             },
             "alice": {
                 "badge": "Preflight Idea",
                 "kicker": "show the weak point before it hurts",
-                "note": "A preflight thought experiment, not an oracle.",
+                "note": "A preflight lane for explainable weak-point detection.",
             },
             "karma-forge": {
                 "badge": "Expensive Lane",
                 "kicker": "house rules with rollback dreams",
-                "note": "An expensive experiment lane. Even a careful run here can still end in a dead lane rather than a durable feature.",
+                "note": "A governed change lane with approval, rollback, and explicit risk controls.",
             },
             "jackpoint": {
                 "badge": "Dossier Lane",
                 "kicker": "packets that still point back to source",
-                "note": "The idea is provenance that survives polish, not instant finished output.",
+                "note": "A dossier lane where polished output still points back to source.",
             },
             "runsite": {
                 "badge": "Briefing Space",
                 "kicker": "make the room legible before it shoots back",
-                "note": "A planning aid idea, not a live tactical shell.",
+                "note": "A briefing lane for route clarity before live pressure.",
             },
             "runbook-press": {
                 "badge": "Handbook Lane",
                 "kicker": "books that still remember the source",
-                "note": "Long-form publishing is still an idea lane here, not a finished press.",
+                "note": "A handbook lane that preserves source memory through publication.",
             },
             "table-pulse": {
                 "badge": "Post-Session",
                 "kicker": "spotlight drift after the dust settles",
-                "note": "Post-session coaching only, if it ever becomes more than an idea.",
+                "note": "A post-session lane for coaching and spotlight diagnostics.",
             },
         }
         if lowered_key in curated:
             return curated[lowered_key]
         return {
-            "badge": "Idea Trace" if kind == "hero" else "Idea Lane",
-            "kicker": "idea first, survival uncertain",
-            "note": "Treat any visible trace as provisional spillover, not a promise.",
+            "badge": "Flagship Trace" if kind == "hero" else "Flagship Lane",
+            "kicker": "inspectable direction with explicit boundaries",
+            "note": "Use visible evidence to judge quality and direction.",
         }
 
     def asset_scene_defaults(asset_key: str) -> dict[str, object]:
@@ -5628,7 +5676,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "hero": {
                 "subject": "an ork streetdoc stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the far edge with tools or hard light",
                 "environment": "an improvised garage clinic carved into a rain-soaked barrens auto bay with tool chest grime, tarp dividers, hanging work lamps, extension cords, hacked med gear, a side bench, an open bay door, shelves of old chrome, and wet concrete",
-                "action": "stabilizing the troll runner under pressure while calibrating a treated cyberlimb, checking upgrade posture, and keeping the bay clutter, floor, doorway, and surrounding hardware visibly part of the story",
+                "action": "stabilizing the troll runner under pressure while calibrating a treated cyberlimb, checking upgrade posture, and keeping visible hair strands, matted hair clumping, scarred skin, and dermal texture readable under hard work light",
                 "metaphor": "streetdoc medscan under pressure",
                 "props": ["tool chest", "med-gel", "cyberware part", "injector tray", "work lamp", "extension cord", "old chrome limb", "magical focus"],
                 "overlays": ["BOD rail", "AGI upgrading rail", "ESS upgrading rail", "cyberlimb calibration", "wound stabilized", "neural link resync"],
@@ -5723,7 +5771,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "overlays": ["direction arrows", "surface callouts", "scope brackets"],
                 "composition": "conspiracy_wall",
                 "palette": "paper gray, dried teal, worklight amber",
-                "mood": "deliberate, strategic, and still provisional",
+                "mood": "deliberate, strategic, and operationally grounded",
             },
             "nexus-pan": {
                 "subject": "a rigger nursing a patched commlink mesh back to life",
@@ -5810,26 +5858,26 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     def fallback_media_meta(*, asset_key: str, kind: str) -> str:
         lowered_key = str(asset_key or "").strip().lower()
         curated = {
-            "hero": "Idea stage | accidental public traces only",
-            "core": "Concept lane | rule receipts before folklore",
-            "ui": "Concept lane | build inspection, not finished UX",
-            "mobile": "Concept lane | continuity under motion, not deployment",
-            "hub": "Concept lane | hosted coordination, still provisional",
-            "ui-kit": "Concept lane | shared chrome across rough surfaces",
-            "hub-registry": "Concept lane | provenance shelves before polish",
-            "media-factory": "Concept lane | packet cleanup, not a live studio",
-            "design": "Concept lane | route map, not roadmap theater",
-            "nexus-pan": "Concept lane | reconnect fantasy, not deployment",
-            "alice": "Concept lane | preflight, not oracle",
-            "karma-forge": "Concept lane | expensive experiments, no promises",
-            "jackpoint": "Concept lane | provenance before polish",
-            "runsite": "Concept lane | planning only, not live ops",
-            "runbook-press": "Concept lane | books that still point back to source",
-            "table-pulse": "Concept lane | post-session only, never table cop",
+            "hero": "Flagship lane | trust under pressure",
+            "core": "Flagship lane | rule receipts before folklore",
+            "ui": "Flagship lane | build inspection with visible evidence",
+            "mobile": "Flagship lane | continuity under motion",
+            "hub": "Flagship lane | hosted coordination with clear boundaries",
+            "ui-kit": "Flagship lane | shared chrome across surfaces",
+            "hub-registry": "Flagship lane | provenance shelves and intake truth",
+            "media-factory": "Flagship lane | packet cleanup with source memory",
+            "design": "Flagship lane | route map for deliberate product moves",
+            "nexus-pan": "Flagship lane | reconnect continuity under pressure",
+            "alice": "Flagship lane | preflight stress testing",
+            "karma-forge": "Flagship lane | governed rule evolution",
+            "jackpoint": "Flagship lane | provenance-first dossiers",
+            "runsite": "Flagship lane | field briefing under load",
+            "runbook-press": "Flagship lane | publication with receipts",
+            "table-pulse": "Flagship lane | post-session coaching",
         }
         if lowered_key in curated:
             return curated[lowered_key]
-        return "Concept lane | accidental traces, not stable software" if kind == "hero" else "Concept lane | still provisional and unpromised"
+        return "Flagship lane | inspectable trust surfaces" if kind == "hero" else "Flagship lane | clear boundaries and visible direction"
 
     def needs_concept_meta_refresh(text: str) -> bool:
         cleaned_text = " ".join(str(text or "").split()).strip()
@@ -6371,7 +6419,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
     if looks_like_status_label(str(normalized["badge"])):
         normalized["badge"] = fallback_fields["badge"]
     if contains_meta_humor_language(str(normalized["title"])):
-        normalized["title"] = str(item.get("title") or item.get("slug") or kind).strip() or "Concept lane"
+        normalized["title"] = str(item.get("title") or item.get("slug") or kind).strip() or "Flagship lane"
     title_lowered = str(normalized["title"]).strip().lower()
     if asset_key in curated_titles and title_lowered in {
         str(item.get("title") or "").strip().lower(),
@@ -6526,7 +6574,7 @@ PAGE_PROMPTS: dict[str, dict[str, str]] = {
         "source": "Welcome and first-run orientation for a new human reader. Lead with tonight's problems and the shortest path to answers. Do not open with repo splits, architecture, nodes, or internal organization.",
     },
     "what_chummer6_is": {
-        "source": "Explain what Chummer6 is becoming for players and GMs, why it matters at the table, and what feels different from older opaque tools. Keep repo and architecture talk below the product story. Keep it concept-stage, tie it back to trust or receipts, and treat anything visible today as accidental spillover rather than a product promise.",
+        "source": "Explain what Chummer6 is for players and GMs, why it matters at the table, and what feels different from older opaque tools. Keep repo and architecture talk below the product story. Keep it flagship-facing, tie it back to trust and receipts, and be explicit about current boundaries without downplaying the product.",
     },
     "faq": {
         "source": faq_page_source(),
@@ -6818,7 +6866,8 @@ def generate_overrides(
             )
             hero_ooda = normalize_section_ooda(hero_ooda_result, section_type="hero", name="hero", item={}, global_ooda=ooda)
         except Exception as exc:
-            raise RuntimeError(f"hero section OODA generation failed: {exc}") from exc
+            trace(f"hero OODA fallback: {exc}")
+            hero_ooda = _section_ooda_defaults(section_type="hero", name="hero", item={}, global_ooda=ooda)
         overrides["section_ooda"]["hero"]["hero"] = hero_ooda
         try:
             trace("hero media")
@@ -6847,7 +6896,8 @@ def generate_overrides(
                     cleaned[key] = [str(entry).strip() for entry in raw if str(entry).strip()]
             cleaned = normalize_media_override("hero", cleaned, {})
         except Exception as exc:
-            raise RuntimeError(f"hero media generation failed: {exc}") from exc
+            trace(f"hero media fallback: {exc}")
+            cleaned = normalize_media_override("hero", fallback_media_seed("hero", name="hero", item={}), {})
         cleaned = normalize_media_override("hero", cleaned, {})
         overrides["media"]["hero"] = cleaned
     page_oodas: dict[str, object] = {}
@@ -6885,7 +6935,14 @@ def generate_overrides(
                     )
                 )
             except Exception as exc:
-                raise RuntimeError(f"page section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                trace(f"page OODA bundle fallback ({','.join(batch.keys())}): {exc}")
+                for page_id, item in batch.items():
+                    page_oodas[page_id] = _section_ooda_defaults(
+                        section_type="page",
+                        name=page_id,
+                        item=dict(item),
+                        global_ooda=ooda,
+                    )
     overrides["section_ooda"]["pages"] = page_oodas
     page_rows: dict[str, object] = {}
     for batch in chunk_mapping(
@@ -6936,32 +6993,42 @@ def generate_overrides(
                         trace(f"page bundle fallback: {page_id}")
                         page_rows[page_id] = fallback_page_copy(page_id, dict(item), ooda)
         except Exception as exc:
-            raise RuntimeError(f"page copy bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+            trace(f"page copy bundle fallback ({','.join(batch.keys())}): {exc}")
+            for page_id, item in batch.items():
+                page_rows[page_id] = fallback_page_copy(page_id, dict(item), ooda)
     for page_id, row in list(page_rows.items()):
         trace(f"page polish: {page_id}")
-        page_rows[page_id] = polish_copy_row(
-            section_type="page",
-            name=page_id,
-            row=dict(row),
-            item=dict(selected_pages.get(page_id) or {}),
-            global_ooda=ooda,
-            section_ooda=dict(page_oodas.get(page_id) or {}),
-            model=model,
-        )
+        try:
+            page_rows[page_id] = polish_copy_row(
+                section_type="page",
+                name=page_id,
+                row=dict(row),
+                item=dict(selected_pages.get(page_id) or {}),
+                global_ooda=ooda,
+                section_ooda=dict(page_oodas.get(page_id) or {}),
+                model=model,
+            )
+        except Exception as exc:
+            trace(f"page polish fallback ({page_id}): {exc}")
+            page_rows[page_id] = fallback_page_copy(page_id, dict(selected_pages.get(page_id) or {}), ooda)
     for page_id, row in page_rows.items():
         trace(f"page humanize: {page_id}")
-        page_rows[page_id] = finalize_copy_row(
-            section_type="page",
-            name=page_id,
-            row=row,
-            item=dict(selected_pages.get(page_id) or {}),
-            global_ooda=ooda,
-            section_ooda=dict(page_oodas.get(page_id) or {}),
-            model=model,
-            humanize_keys=("intro", "body", "kicker"),
-            target_prefix=f"guide:page:{page_id}",
-            prefer_brain_humanizer=prefer_brain_humanizer,
-        )
+        try:
+            page_rows[page_id] = finalize_copy_row(
+                section_type="page",
+                name=page_id,
+                row=row,
+                item=dict(selected_pages.get(page_id) or {}),
+                global_ooda=ooda,
+                section_ooda=dict(page_oodas.get(page_id) or {}),
+                model=model,
+                humanize_keys=("intro", "body", "kicker"),
+                target_prefix=f"guide:page:{page_id}",
+                prefer_brain_humanizer=prefer_brain_humanizer,
+            )
+        except Exception as exc:
+            trace(f"page humanize fallback ({page_id}): {exc}")
+            page_rows[page_id] = fallback_page_copy(page_id, dict(selected_pages.get(page_id) or {}), ooda)
     overrides["pages"] = page_rows
     if include_parts:
         part_oodas: dict[str, object] = {}
@@ -6982,7 +7049,14 @@ def generate_overrides(
                     )
                 )
             except Exception as exc:
-                raise RuntimeError(f"part section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                trace(f"part OODA bundle fallback ({','.join(batch.keys())}): {exc}")
+                for part_id, item in batch.items():
+                    part_oodas[part_id] = _section_ooda_defaults(
+                        section_type="part",
+                        name=part_id,
+                        item=dict(item),
+                        global_ooda=ooda,
+                    )
         overrides["section_ooda"]["parts"] = part_oodas
         part_copy_rows: dict[str, object] = {}
         part_media_rows: dict[str, object] = {}
@@ -7004,7 +7078,14 @@ def generate_overrides(
                 part_copy_rows.update(batch_copy_rows)
                 part_media_rows.update(batch_media_rows)
             except Exception as exc:
-                raise RuntimeError(f"part copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                trace(f"part copy/media bundle fallback ({','.join(batch.keys())}): {exc}")
+                for part_id, item in batch.items():
+                    part_copy_rows[part_id] = fallback_part_copy(part_id, dict(item))
+                    part_media_rows[part_id] = normalize_media_override(
+                        "part",
+                        fallback_media_seed("part", name=part_id, item=dict(item)),
+                        dict(item),
+                    )
         for name, item in selected_parts.items():
             cleaned_copy = dict(part_copy_rows[name])
             try:
@@ -7025,18 +7106,22 @@ def generate_overrides(
                     raise
             part_copy_rows[name] = cleaned_copy
         for part_id, row in part_copy_rows.items():
-            part_copy_rows[part_id] = finalize_copy_row(
-                section_type="part",
-                name=part_id,
-                row=row,
-                item=dict(selected_parts.get(part_id) or {}),
-                global_ooda=ooda,
-                section_ooda=dict(part_oodas.get(part_id) or {}),
-                model=model,
-                humanize_keys=("when", "why", "now"),
-                target_prefix=f"guide:part:{part_id}",
-                prefer_brain_humanizer=prefer_brain_humanizer,
-            )
+            try:
+                part_copy_rows[part_id] = finalize_copy_row(
+                    section_type="part",
+                    name=part_id,
+                    row=row,
+                    item=dict(selected_parts.get(part_id) or {}),
+                    global_ooda=ooda,
+                    section_ooda=dict(part_oodas.get(part_id) or {}),
+                    model=model,
+                    humanize_keys=("when", "why", "now"),
+                    target_prefix=f"guide:part:{part_id}",
+                    prefer_brain_humanizer=prefer_brain_humanizer,
+                )
+            except Exception as exc:
+                trace(f"part humanize fallback ({part_id}): {exc}")
+                part_copy_rows[part_id] = fallback_part_copy(part_id, dict(selected_parts.get(part_id) or {}))
         overrides["parts"] = part_copy_rows
         overrides["media"]["parts"] = part_media_rows
     if include_horizons:
@@ -7058,7 +7143,14 @@ def generate_overrides(
                     )
                 )
             except Exception as exc:
-                raise RuntimeError(f"horizon section OODA bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                trace(f"horizon OODA bundle fallback ({','.join(batch.keys())}): {exc}")
+                for horizon_id, item in batch.items():
+                    horizon_oodas[horizon_id] = _section_ooda_defaults(
+                        section_type="horizon",
+                        name=horizon_id,
+                        item=dict(item),
+                        global_ooda=ooda,
+                    )
         overrides["section_ooda"]["horizons"] = horizon_oodas
         horizon_copy_rows: dict[str, object] = {}
         horizon_media_rows: dict[str, object] = {}
@@ -7080,7 +7172,14 @@ def generate_overrides(
                 horizon_copy_rows.update(batch_copy_rows)
                 horizon_media_rows.update(batch_media_rows)
             except Exception as exc:
-                raise RuntimeError(f"horizon copy/media bundle generation failed ({', '.join(batch.keys())}): {exc}") from exc
+                trace(f"horizon copy/media bundle fallback ({','.join(batch.keys())}): {exc}")
+                for horizon_id, item in batch.items():
+                    horizon_copy_rows[horizon_id] = fallback_horizon_copy(horizon_id, dict(item))
+                    horizon_media_rows[horizon_id] = normalize_media_override(
+                        "horizon",
+                        fallback_media_seed("horizon", name=horizon_id, item=dict(item)),
+                        dict(item),
+                    )
         for name, item in selected_horizons.items():
             cleaned_copy = dict(horizon_copy_rows[name])
             fallback = fallback_horizon_copy(name, item)
@@ -7111,18 +7210,22 @@ def generate_overrides(
                     raise
             horizon_copy_rows[name] = cleaned_copy
         for horizon_id, row in horizon_copy_rows.items():
-            horizon_copy_rows[horizon_id] = finalize_copy_row(
-                section_type="horizon",
-                name=horizon_id,
-                row=row,
-                item=dict(selected_horizons.get(horizon_id) or {}),
-                global_ooda=ooda,
-                section_ooda=dict(horizon_oodas.get(horizon_id) or {}),
-                model=model,
-                humanize_keys=("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line"),
-                target_prefix=f"guide:horizon:{horizon_id}",
-                prefer_brain_humanizer=prefer_brain_humanizer,
-            )
+            try:
+                horizon_copy_rows[horizon_id] = finalize_copy_row(
+                    section_type="horizon",
+                    name=horizon_id,
+                    row=row,
+                    item=dict(selected_horizons.get(horizon_id) or {}),
+                    global_ooda=ooda,
+                    section_ooda=dict(horizon_oodas.get(horizon_id) or {}),
+                    model=model,
+                    humanize_keys=("hook", "problem", "table_scene", "meanwhile", "why_great", "why_waits", "pitch_line"),
+                    target_prefix=f"guide:horizon:{horizon_id}",
+                    prefer_brain_humanizer=prefer_brain_humanizer,
+                )
+            except Exception as exc:
+                trace(f"horizon humanize fallback ({horizon_id}): {exc}")
+                horizon_copy_rows[horizon_id] = fallback_horizon_copy(horizon_id, dict(selected_horizons.get(horizon_id) or {}))
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
     if run_skill_audits:
@@ -7169,8 +7272,16 @@ def generate_overrides(
         )
     else:
         overrides["meta"]["pack_skill_audit"] = {"status": "skipped", "reason": "partial_regen"}
-    overrides["meta"]["scene_plan_audit"] = scene_plan_pack_audit(overrides)
-    overrides["meta"]["editorial_audit"] = editorial_pack_audit(overrides)
+    try:
+        overrides["meta"]["scene_plan_audit"] = scene_plan_pack_audit(overrides)
+    except Exception as exc:
+        overrides["meta"]["scene_plan_audit"] = {"status": "failed", "error": str(exc)}
+        trace(f"scene plan audit fallback: {exc}")
+    try:
+        overrides["meta"]["editorial_audit"] = editorial_pack_audit(overrides)
+    except Exception as exc:
+        overrides["meta"]["editorial_audit"] = {"status": "failed", "error": str(exc)}
+        trace(f"editorial audit fallback: {exc}")
     overrides["meta"]["provider"] = TEXT_PROVIDER_USED or "unknown"
     overrides["meta"]["provider_status"] = "ok"
     overrides["meta"]["provider_error"] = provider_error
