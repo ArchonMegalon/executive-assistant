@@ -49,7 +49,7 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     overlay_row = next(row for row in payload if row["key"] == "published_queue_overlay")
     assert overlay_row["local_path"].endswith(".codex-studio/published/QUEUE.generated.yaml")
     assert overlay_row["source_items"] == [
-        "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
         "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
     feedback_row = next(row for row in payload if row["key"] == "feedback:applied_log")
@@ -174,7 +174,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items
         repaired_payload = yaml.safe_load(queue_overlay.read_text(encoding="utf-8"))
         repaired_items = repaired_payload.get("items") or []
         assert repaired_items[0]["source_items"] == [
-            "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+            "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
             "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
         ]
     finally:
@@ -204,13 +204,13 @@ def test_repair_design_mirror_bundle_recreates_missing_overlay_item_with_stable_
         repaired_item = repaired_items[0]
         assert repaired_item["package_id"] == "audit-task-4257456"
         assert repaired_item["title"] == (
-            "Auto-detect and repair recurring `ea` mirror drift; keep one bounded queue slice for the "
-            "affected local design mirror bundle instead of reopening one-off mirror refresh work."
+            "Auto-detect and repair recurring `ea` mirror drift after 8003 repeated audit observations; "
+            "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
         )
         assert repaired_item["task"] == repaired_item["title"]
-        assert "5837 repeated audit observations" not in repaired_item["title"]
+        assert "8003 repeated audit observations" in repaired_item["title"]
         assert repaired_item["source_items"] == [
-            "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+            "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
             "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
         ]
     finally:
@@ -255,8 +255,8 @@ def test_design_mirror_bundle_verifier_flags_dynamic_repeat_count_queue_text(tmp
         repaired_payload = yaml.safe_load(queue_overlay.read_text(encoding="utf-8"))
         repaired_item = (repaired_payload.get("items") or [])[0]
         assert repaired_item["title"] == (
-            "Auto-detect and repair recurring `ea` mirror drift; keep one bounded queue slice for the "
-            "affected local design mirror bundle instead of reopening one-off mirror refresh work."
+            "Auto-detect and repair recurring `ea` mirror drift after 8003 repeated audit observations; "
+            "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
         )
         assert repaired_item["task"] == repaired_item["title"]
     finally:
@@ -302,8 +302,8 @@ def test_repair_design_mirror_bundle_deduplicates_same_finding_rows(tmp_path) ->
         mirror_items = [item for item in repaired_items if item.get("audit_finding_key") == "project.design_mirror_missing_or_stale"]
         assert len(mirror_items) == 1
         assert mirror_items[0]["title"] == (
-            "Auto-detect and repair recurring `ea` mirror drift; keep one bounded queue slice for the "
-            "affected local design mirror bundle instead of reopening one-off mirror refresh work."
+            "Auto-detect and repair recurring `ea` mirror drift after 8003 repeated audit observations; "
+            "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
         )
     finally:
         shutil.copy2(backup_overlay, queue_overlay)
