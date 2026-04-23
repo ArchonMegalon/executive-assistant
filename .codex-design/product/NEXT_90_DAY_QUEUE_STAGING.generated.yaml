@@ -169,6 +169,8 @@ items:
       - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
       - /docker/chummercomplete/chummer6-hub commit aa318f30 tightens the M102 encoded proof marker guard.
       - /docker/chummercomplete/chummer6-hub commit 607139bc hardens M102 HTML hash separator redaction.
+      - /docker/chummercomplete/chummer6-hub commit 0a007077 tightens M102 compressed helper proof guard.
+      - /docker/chummercomplete/chummer6-hub commit 94dd7d42 tightens M102 compressed base32/base85 helper proof guard.
       - python3 scripts/verify_desktop_native_trust_receipts.py
       - python3 -m unittest tests/test_desktop_native_trust_receipts.py
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests" --no-restore
@@ -357,6 +359,8 @@ items:
       - base85/ascii85 encoded worker-helper citations cannot close the completed package.
       - base32 encoded worker-helper citations cannot close the completed package.
       - compressed encoded worker-helper citations cannot close the completed package.
+      - quoted-printable encoded worker-helper citations cannot close the completed package.
+      - percent-encoded worker-helper citations cannot close the completed package.
     allowed_paths:
       - scripts
       - tests
@@ -1083,6 +1087,9 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish commit 41322ad1 tightens M104 desktop trust surfaces and percent-encoded worker-helper proof guards.
       - /docker/chummercomplete/chummer6-ui-finish commit fab80234 tightens M104 runtime composer proof so the completed package stays bound to the shared import, build blocker, support diagnostics, and crash diagnostics receipt generator.
       - /docker/chummercomplete/chummer6-ui-finish commit c42ed3d3 tightens M104 runtime support receipts so the completed package stays bound to visible runtime-inspector support and compatibility before-after diagnostics.
+      - /docker/chummercomplete/chummer6-ui-finish commit 7aecc402 tightens M104 quoted-printable worker-helper proof rejection and refreshes the completed-package receipt.
+      - /docker/chummercomplete/chummer6-ui-finish commit d1e7d545 tightens M104 base32, base85, and compressed worker-helper proof rejection.
+      - /docker/chummercomplete/chummer6-ui-finish commit a93c0cbf pins M104 explain receipt proof guard so future shards verify the latest completed-package guard.
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopCrashRuntimeTests|Next90M104ExplainReceiptsGuardTests" --no-restore
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "Next90M104WorkerSafeProofCommandTests" --no-restore
       - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "BlazorShellComponentTests|AccessibilitySignoffSmokeTests" --no-restore
