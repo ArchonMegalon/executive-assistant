@@ -1,4 +1,4 @@
-mode: prepend
+mode: append
 items:
 - title: Auto-detect and repair recurring `ea` mirror drift; keep one bounded queue
     slice for the affected local design mirror bundle instead of reopening one-off

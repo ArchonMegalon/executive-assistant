@@ -187,7 +187,7 @@ def test_repair_design_mirror_bundle_recreates_missing_overlay_item_with_stable_
 
     shutil.copy2(queue_overlay, backup_overlay)
     try:
-        queue_overlay.write_text("mode: prepend\nitems: []\n", encoding="utf-8")
+        queue_overlay.write_text("mode: append\nitems: []\n", encoding="utf-8")
 
         repaired = subprocess.run(
             ["bash", str(REPAIR_SCRIPT)],

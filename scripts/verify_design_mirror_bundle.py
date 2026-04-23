@@ -27,7 +27,7 @@ EXPECTED_QUEUE_AUDIT_FINDING_KEY = "project.design_mirror_missing_or_stale"
 EXPECTED_QUEUE_AUDIT_SCOPE_ID = "ea"
 EXPECTED_QUEUE_ALLOWED_PATHS = [".codex-design"]
 EXPECTED_QUEUE_OWNED_SURFACES = ["design_mirror:ea"]
-EXPECTED_QUEUE_MODE = "prepend"
+EXPECTED_QUEUE_MODE = "append"
 EXPECTED_QUEUE_TASK = (
     "Auto-detect and repair recurring `ea` mirror drift; "
     "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."

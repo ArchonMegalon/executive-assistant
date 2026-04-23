@@ -1,7 +1,7 @@
 mode: append
 program_wave: next_90_day_product_advance
 status: live_parallel_successor
-source_registry_path: /docker/chummercomplete/chummer6-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+source_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
 activation_rule: Use these items immediately on shards whose current flagship closeout slice is empty; do not let them replace active shards already assigned to the current closeout frontier.
 items:
   - title: Unify claim, install, update, and support recovery into one desktop-native flow
@@ -160,6 +160,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit 554cd159 pins M102 native receipt proof floor.
       - /docker/chummercomplete/chummer6-hub commit 8e0a630e pins M102 current proof floor guard.
       - /docker/chummercomplete/chummer6-hub commit 47a831ba hardens claimed install continuation action sanitization so trusted native absolute actions survive while query and fragment install-link secrets are redacted from support continuation receipts.
+      - /docker/chummercomplete/chummer6-hub commit 9c0f3c17 pins the M102 receipt route proof citation.
       - python3 scripts/verify_desktop_native_trust_receipts.py
       - python3 -m unittest tests/test_desktop_native_trust_receipts.py
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests" --no-restore
