@@ -1061,7 +1061,7 @@ milestones:
       - executive-assistant
       - chummer6-design
       - chummer6-hub
-    status: in_progress
+    status: complete
     dependencies:
       - 101
       - 102
@@ -1082,7 +1082,7 @@ milestones:
           - /docker/fleet/scripts/verify_next90_m106_fleet_governor_packet.py verifies the checked-in packet closeout, canonical successor registry, design queue, Fleet queue mirror, repeat-prevention pins, and operator-readable packet without regenerating timestamps.
           - /docker/fleet/scripts/run_next90_m106_weekly_governor_packet_tests.py executes the pytest-style M106 fixture tests without requiring pytest in the worker image.
           - /docker/fleet/scripts/verify_script_bootstrap_no_pythonpath.py includes the standalone M106 verifier in no-PYTHONPATH bootstrap proof.
-          - /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json reports package_verification=pass, weekly_input_health=pass, source_input_health=pass, measured_rollout_loop=blocked, launch_expand=blocked, freeze_launch=active, rollback=armed, and successor_dependency_status=open for the current successor wave.
+          - /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json now reports package_verification=pass, weekly_input_health=pass, source_input_health=pass, measured_rollout_loop=ready, launch_expand=allowed, freeze_launch=available, rollback=armed, and successor_dependency_status=ready for the current successor wave.
           - /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.md publishes the same decision board, public status copy, measured truth, launch gate ledger, evidence requirements, risk clusters, and source paths as operator-readable packet text.
           - /docker/fleet/tests/test_materialize_weekly_governor_packet.py fail-closes queue-authority drift, stale or missing launch signals, missing source inputs, parity regression, open successor dependencies, and the positive launch-expand path when all dependencies and measured gates are green.
           - /docker/fleet/tests/test_fleet_script_bootstrap_without_pythonpath.py launches the standalone M106 verifier help without PYTHONPATH.
@@ -1205,9 +1205,20 @@ milestones:
       - id: 106.3
         owner: chummer6-hub
         title: Expose install-aware support, status, and recovery surfaces downstream of the same release truth.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs loads the same release manifest and release-experience projection for `/downloads`, `/status`, `/help`, and downstream public trust surfaces, so install, status, known-issue, and recovery posture stay on one release-truth rail instead of drifting by page.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Downloads.cshtml, /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Status.cshtml, /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/DownloadDispatch.cshtml, and /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/Shared/_SignedInTrustStatusPanel.cshtml all render supportability, known-issue, install-help, fix-availability, and signed-in support followthrough from that shared manifest-backed release truth.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Tests/PublicLandingReleaseTrustViewTests.cs pins the release rail so downloads, dispatch fallback, status, known issues, and install help stay on one trust surface, and /docker/chummercomplete/chummer6-hub/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json keeps the install, account access, account support, contact, and downloads routes on the current release-proof surface.
       - id: 106.4
         owner: chummer6-design
         title: Keep the successor wave registry current and prune closed work without reopening architecture-cleanup debt.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml now closes the previously open successor dependency tasks across milestones 101, 102, 104, and 105, keeping the active successor registry current instead of leaving already-landed work paper-open.
+          - /docker/chummercomplete/chummer-design/products/chummer/WEEKLY_PRODUCT_PULSE.generated.json now reports successor_dependency_posture.state=ready with open_dependency_work_task_ids=[], and launch governance has advanced to `launch_expand` after the stale blocker rows were pruned from canonical registry truth.
+          - /docker/chummercomplete/chummer-design/scripts/ai/materialize_weekly_product_pulse.sh now syncs the freshly generated weekly pulse into /docker/fleet/.codex-studio/published/WEEKLY_PRODUCT_PULSE.generated.json so downstream governor artifacts stop reading stale blocker posture after design-side pulse refreshes.
+          - /docker/chummercomplete/chummer-design/scripts/ai/publish_local_mirrors.py remains the pruning and mirror-parity authority for repo-local `.codex-design` subsets, and the refreshed mirror publish keeps Fleet and sibling repos on the same successor-wave canon without reopening unrelated architecture-cleanup debt.
 
   - id: 107
     title: Artifact factory and public proof shelf
@@ -1276,6 +1287,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit e0121780 tightens M107 artifact factory external URI guard.
           - /docker/chummercomplete/chummer6-hub commit 9349395d tightens M107 source-pack batch preflight proof.
           - /docker/chummercomplete/chummer6-hub commit a7c54b30 tightens M107 source-pack batch format-scope proof.
+          - /docker/chummercomplete/chummer6-hub commit 700343bc pins M107 format scope proof floor.
           - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ArtifactFactoryOrchestrationService.cs rejects unapproved or provider-specific source packs and emits media-factory output bindings for preview, caption, packet, audio, and video formats.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/InternalArtifactFactoryController.cs and Chummer.Run.Api/ServiceCollectionBoundedContextExtensions.cs bind the recipe-backed job launcher to the internal authenticated Hub orchestration endpoint.

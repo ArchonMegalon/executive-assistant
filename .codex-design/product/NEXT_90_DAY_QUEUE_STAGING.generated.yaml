@@ -1270,6 +1270,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit e0121780 tightens M107 artifact factory external URI guard.
       - /docker/chummercomplete/chummer6-hub commit 9349395d tightens M107 source-pack batch preflight proof.
       - /docker/chummercomplete/chummer6-hub commit a7c54b30 tightens M107 source-pack batch format-scope proof.
+      - /docker/chummercomplete/chummer6-hub commit 700343bc pins M107 format scope proof floor.
       - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
     allowed_paths:
       - Chummer.Run.Api
