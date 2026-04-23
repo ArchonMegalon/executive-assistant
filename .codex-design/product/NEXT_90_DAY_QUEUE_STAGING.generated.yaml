@@ -1337,7 +1337,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit d0a84683 tightens campaign briefing proof requests.
       - python3 -m unittest tests/test_artifact_factory_source_pack_launcher.py exits 0.
       - python3 scripts/verify_artifact_factory_orchestration.py exits 0.
-      - dotnet test /docker/chummercomplete/chummer6-hub/Chummer.Tests/Chummer.Tests.csproj --filter ArtifactFactoryOrchestrationServiceTests rebuilt the test project but discovered zero xUnit tests in the current project configuration; this is recorded as residual test-discovery risk, not behavioral proof.
+      - dotnet test /docker/chummercomplete/chummer6-hub/Chummer.Tests/Chummer.Tests.csproj --filter ArtifactFactoryOrchestrationServiceTests --no-restore exits 0 and reports 51 passing tests on net10.0 plus 51 passing tests on net10.0-windows.
     allowed_paths:
       - Chummer.Run.Api
       - scripts
@@ -1365,6 +1365,7 @@ items:
       - /docker/chummercomplete/chummer-play/docs/next90-m108-mobile-campaign-artifacts.proof.md
       - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
       - /docker/chummercomplete/chummer-play commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
+      - /docker/chummercomplete/chummer-play commit 00a22df adds scripts/verify_next90_m108_mobile_campaign_artifacts.py and `python3 scripts/verify_next90_m108_mobile_campaign_artifacts.py` exits 0.
     allowed_paths:
       - src
       - tests
@@ -1391,6 +1392,7 @@ items:
       - /docker/chummercomplete/chummer6-core/tests/test_build_lab_explain_packets_generator.py
       - /docker/chummercomplete/chummer6-core/scripts/ai/verify.sh
       - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth.
+      - /docker/chummercomplete/chummer6-core commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local telemetry, active-run handoff, or blocked helper evidence cannot keep the completed package green.
       - python3 tests/test_build_lab_explain_packets_generator.py exits 0.
       - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --check exits 0.
       - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --out /tmp/chummer6-core-build-lab-explain-packets.generated.json exits 0.
@@ -1503,6 +1505,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit 22e73ccd tightens the completed M111 queue proof so Fleet and design queue rows must stay complete, cite the landed implementation commit, and carry verify_closed_package_only do-not-reopen authority.
       - /docker/chummercomplete/chummer6-hub commit 7e9df408 tightens M111 installed-build receipt truth so placeholder receipt ids cannot make concierge packets install-aware or closure-ready.
       - /docker/chummercomplete/chummer6-hub commit 436ab40e tightens M111 proof hygiene so queue and registry closure evidence cannot cite worker-local telemetry, handoff snippets, or blocked helper output.
+      - /docker/chummercomplete/chummer6-hub commit 515c1596 tightens M111 encoded proof hygiene so base, compressed, HTML, and percent-encoded worker-unsafe evidence cannot close the completed package.
       - python3 scripts/verify_install_aware_support_concierge.py exits 0.
       - python3 -m unittest tests/test_install_aware_support_concierge.py exits 0.
       - bash scripts/ai/run_services_verification.sh exits 0.
