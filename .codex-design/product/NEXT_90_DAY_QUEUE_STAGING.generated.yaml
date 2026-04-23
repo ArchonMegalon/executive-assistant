@@ -1447,7 +1447,7 @@ items:
     wave: W10
     repo: chummer6-media-factory
     status: complete
-    landed_commit: 2818ec9
+    landed_commit: 3accc50
     completion_action: verify_closed_package_only
     do_not_reopen_reason: M110 chummer6-media-factory runsite orientation bundles are complete; future shards must verify the bundle renderer, route-linked receipt proof, closure-authority test, registry row, and queue row instead of reopening the runsite orientation media package.
     proof:
@@ -1459,7 +1459,7 @@ items:
       - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M110_RUNSITE_ORIENTATION_PROOF_FLOOR.md
       - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
       - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
-      - /docker/fleet/repos/chummer-media-factory commit 2818ec9 Add runsite orientation bundle proof guards.
+      - /docker/fleet/repos/chummer-media-factory commit 3accc50 Close M110 runsite orientation proof package.
       - python3 -m unittest tests.test_m110_successor_closure_authority tests.test_m110_runsite_orientation_proof exits 0.
       - dotnet run --project tests/RunsiteOrientationBundleSmoke/Chummer.Media.Factory.RunsiteOrientationBundleSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
       - ./scripts/ai/verify.sh exits 0.

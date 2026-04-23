@@ -1464,7 +1464,7 @@ milestones:
         owner: chummer6-media-factory
         title: Render host clips, audio companions, previews, and route-linked bundle receipts.
         status: complete
-        landed_commit: 2818ec9
+        landed_commit: 3accc50
         evidence:
           - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/RunsiteOrientationBundleService.cs renders host clips, route previews, audio companions, and optional tour siblings through media-factory job execution only.
           - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs defines RunsiteOrientationBundleRequest, RunsiteOrientationBundleReceipt, and RunsiteRoutePreviewArtifactReceipt.
@@ -1473,7 +1473,7 @@ milestones:
           - /docker/fleet/repos/chummer-media-factory/tests/test_m110_successor_closure_authority.py fail-closes the exact package, queue, registry, and generated-proof closure authority.
           - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M110_RUNSITE_ORIENTATION_PROOF_FLOOR.md records the package proof anchors, preview-only posture, dedupe scope, and worker-safe closure rule.
           - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py emits the M110 closure package into repo-local release proof receipts.
-          - /docker/fleet/repos/chummer-media-factory commit 2818ec9 adds the runsite orientation bundle proof guard and ./scripts/ai/verify.sh exits 0.
+          - /docker/fleet/repos/chummer-media-factory commit 3accc50 closes the runsite orientation proof package and ./scripts/ai/verify.sh exits 0.
           - python3 -m unittest tests.test_m110_successor_closure_authority tests.test_m110_runsite_orientation_proof exits 0.
           - dotnet run --project tests/RunsiteOrientationBundleSmoke/Chummer.Media.Factory.RunsiteOrientationBundleSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
           - ./scripts/ai/verify.sh exits 0.
