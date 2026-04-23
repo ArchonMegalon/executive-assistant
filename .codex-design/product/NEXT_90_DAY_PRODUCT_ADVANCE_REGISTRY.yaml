@@ -1373,15 +1373,15 @@ milestones:
         status: complete
         landed_commit: bc84b37
         evidence:
-          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs projects campaign_cold_open and mission_briefing recap-shelf entries with mobile campaign-home ownership, audience, provenance, next-action, and audit copy.
-          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs exposes LaunchPrimer and MissionBriefing summaries, provenance, direct artifact hrefs, and cold_open plus mission_briefing shelf views for the mobile campaign home.
-          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/PlayWebApplication.cs routes /artifacts and /artifacts/{artifactId} back into the installable mobile shell while preserving artifactSurface, artifactId, sessionId, and role context.
-          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html binds launch-primer and mission-briefing links directly in the mobile workspace shell.
-          - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs proves M108 projection and redirect behavior, including campaign_home:artifact_launch and mission_briefing:mobile surfaces.
-          - /docker/chummercomplete/chummer-play/docs/next90-m108-mobile-campaign-artifacts.proof.md records the mobile package receipt and no-sibling-scope closure posture.
-          - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json includes campaign_artifact_launch proof for next90-m108-mobile-campaign-artifacts.
-          - /docker/chummercomplete/chummer-play commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
-          - /docker/chummercomplete/chummer-play commit 00a22df adds scripts/verify_next90_m108_mobile_campaign_artifacts.py so completed-package proof fails closed when canonical registry, design queue, Fleet queue, generated proof, landed commit scope, or worker-safe closure wording drifts.
+          - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs projects campaign_cold_open and mission_briefing recap-shelf entries with mobile campaign-home ownership, audience, provenance, next-action, and audit copy.
+          - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs exposes LaunchPrimer and MissionBriefing summaries, provenance, direct artifact hrefs, and cold_open plus mission_briefing shelf views for the mobile campaign home.
+          - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Web/PlayWebApplication.cs routes /artifacts and /artifacts/{artifactId} back into the installable mobile shell while preserving artifactSurface, artifactId, sessionId, and role context.
+          - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Web/wwwroot/index.html binds launch-primer and mission-briefing links directly in the mobile workspace shell.
+          - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.RegressionChecks/Program.cs proves M108 projection and redirect behavior, including campaign_home:artifact_launch and mission_briefing:mobile surfaces.
+          - /docker/chummercomplete/chummer6-mobile/docs/next90-m108-mobile-campaign-artifacts.proof.md records the mobile package receipt and no-sibling-scope closure posture.
+          - /docker/chummercomplete/chummer6-mobile/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json includes campaign_artifact_launch proof for next90-m108-mobile-campaign-artifacts.
+          - /docker/chummercomplete/chummer6-mobile commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
+          - /docker/chummercomplete/chummer6-mobile commit 00a22df adds scripts/verify_next90_m108_mobile_campaign_artifacts.py so completed-package proof fails closed when canonical registry, design queue, Fleet queue, generated proof, landed commit scope, or worker-safe closure wording drifts.
       - id: 108.5
         owner: chummer6-design
         title: Make campaign cold-open and mission-briefing artifacts first-class campaign OS promises with audience and locale rules.
@@ -1411,6 +1411,7 @@ milestones:
         evidence:
           - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth for artifact-factory companion generation.
           - /docker/chummercomplete/chummer6-core commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local telemetry, active-run handoff, or blocked helper evidence cannot keep the completed package green.
+          - /docker/chummercomplete/chummer6-core commit 95829fcd tightens the M109 packet authority receipt so packet-local approval digests, canonical receipt anchors, Build Lab runtime contract digests, and output-anchor handoff proof fail closed together.
           - /docker/chummercomplete/chummer6-core/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json reports status=passed, four approved packets, twelve approved anchors, and companion-only artifact-factory rules that preserve JSON pointers and anchor digests.
           - /docker/chummercomplete/chummer6-core/scripts/generate-build-lab-explain-packets.py requires the passed M104 engine proof pack, M109 registry authority, Fleet queue row, design queue row, and the `build_lab_explain_packets` plus `engine_truth:artifact_anchors` owned surfaces before approving packets.
           - /docker/chummercomplete/chummer6-core/tests/test_build_lab_explain_packets_generator.py fail-closes missing engine truth, regressed anchor status, design queue drift, duplicate queue rows, and stale checked-in receipts.

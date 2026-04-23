@@ -1358,15 +1358,15 @@ items:
     completion_action: verify_closed_package_only
     do_not_reopen_reason: M108 chummer6-mobile campaign artifact launch is complete; future shards must verify this receipt, registry row, queue row, and mobile proof instead of reopening the campaign_home artifact launch or mission_briefing mobile surface.
     proof:
-      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs
-      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
-      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/PlayWebApplication.cs
-      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html
-      - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs
-      - /docker/chummercomplete/chummer-play/docs/next90-m108-mobile-campaign-artifacts.proof.md
-      - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
-      - /docker/chummercomplete/chummer-play commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
-      - /docker/chummercomplete/chummer-play commit 00a22df adds scripts/verify_next90_m108_mobile_campaign_artifacts.py and `python3 scripts/verify_next90_m108_mobile_campaign_artifacts.py` exits 0.
+      - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs
+      - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
+      - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Web/PlayWebApplication.cs
+      - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.Web/wwwroot/index.html
+      - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.RegressionChecks/Program.cs
+      - /docker/chummercomplete/chummer6-mobile/docs/next90-m108-mobile-campaign-artifacts.proof.md
+      - /docker/chummercomplete/chummer6-mobile/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
+      - /docker/chummercomplete/chummer6-mobile commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
+      - /docker/chummercomplete/chummer6-mobile commit 00a22df adds scripts/verify_next90_m108_mobile_campaign_artifacts.py and `python3 scripts/verify_next90_m108_mobile_campaign_artifacts.py` exits 0.
     allowed_paths:
       - src
       - tests
@@ -1394,6 +1394,7 @@ items:
       - /docker/chummercomplete/chummer6-core/scripts/ai/verify.sh
       - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth.
       - /docker/chummercomplete/chummer6-core commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local telemetry, active-run handoff, or blocked helper evidence cannot keep the completed package green.
+      - /docker/chummercomplete/chummer6-core commit 95829fcd tightens the M109 packet authority receipt so packet-local approval digests, canonical receipt anchors, Build Lab runtime contract digests, and output-anchor handoff proof fail closed together.
       - python3 tests/test_build_lab_explain_packets_generator.py exits 0.
       - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --check exits 0.
       - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --out /tmp/chummer6-core-build-lab-explain-packets.generated.json exits 0.
