@@ -42,12 +42,12 @@ No other repo may compute or redefine canonical mechanics.
 * relationship-plane truth
 * Coach / Spider / Director orchestration
 * play API aggregation
-* the initial bounded home for campaign continuity and product-control domains
+* the initial bounded home for campaign continuity, product-control, and world-state domains
 * account-aware download/install UX
 * service-to-service coordination
 
 It must not own duplicate mechanics, registry persistence after split, or media rendering after split.
-If campaign continuity or product control live in Hub, they do so as explicit bounded contexts with dedicated contract families, not as a license for Hub to become the hidden owner of every middle-layer concern.
+If campaign continuity, product control, or world-state semantics live in Hub, they do so as explicit bounded contexts with dedicated contract families, not as a license for Hub to become the hidden owner of every middle-layer concern.
 
 ### Rule 5 — Workbench and play stay separate
 
@@ -248,6 +248,7 @@ chummer6-hub
   ├─ publishes Chummer.Run.Contracts
   ├─ publishes Chummer.Campaign.Contracts
   ├─ publishes Chummer.Control.Contracts
+  ├─ publishes Chummer.World.Contracts
   ├─ consumes Chummer.Engine.Contracts
   ├─ consumes Chummer.Hub.Registry.Contracts
   ├─ consumes Chummer.Media.Contracts
@@ -277,16 +278,20 @@ fleet
 * ui -> ui-kit
 * ui -> campaign contracts
 * ui -> control contracts
+* ui -> world contracts
 * mobile -> engine contracts
 * mobile -> play contracts
 * mobile -> campaign contracts
+* mobile -> world contracts
 * mobile -> ui-kit
 * hub -> engine contracts
 * hub -> play contracts
 * hub -> run contracts
+* hub -> world contracts
 * hub -> registry contracts
 * hub -> media contracts
 * media-factory -> campaign contracts
+* media-factory -> world contracts
 * hub-registry -> its own contracts
 * media-factory -> its own contracts
 * fleet -> mirrored design canon
