@@ -1424,7 +1424,6 @@ milestones:
           - /docker/chummercomplete/chummer6-ui-finish commit bfe39d47 tightens the M109 proof guard so Fleet and design-owned successor queue rows cannot drift apart after closure.
           - /docker/chummercomplete/chummer6-ui-finish commit 4fc3f056 tightens M109 companion proof so encoded worker-unsafe closure citations cannot keep the completed package closed.
           - /docker/chummercomplete/chummer6-ui-finish commit b12f06d5 tightens M109 companion proof so base32, base85, ascii85, gzip, and zlib encoded worker-unsafe closure citations cannot keep the completed package closed.
-          - /docker/chummercomplete/chummer6-ui-finish commit 74ef34dd tightens the M109 closed-package proof floor so queue closure must retain the current mirror-drift and worker-unsafe proof guard commits.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopExplainCompanionLauncher.cs opens a native inspectable companion window and binds the same receipt sections into the `/coach/?routeType=build` launch URI.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/Controls/SectionHostControl.axaml.cs wires Build Lab compare and blocker receipts to `build_explain:artifact_launch`.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/Controls/CommandDialogPaneControl.axaml.cs and /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustPanelFactory.cs wire import and blocker receipt panels to `explain_receipts:desktop` companion launches.
@@ -1504,6 +1503,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 3fb14923 emits install-aware support closure and release explainer packets from installed build, channel, claimed install, and support-case truth.
           - /docker/chummercomplete/chummer6-hub commit 22e73ccd tightens the completed M111 queue proof so Fleet and design queue rows must stay complete, cite the landed implementation commit, and carry verify_closed_package_only do-not-reopen authority.
           - /docker/chummercomplete/chummer6-hub commit 7e9df408 tightens M111 installed-build receipt truth so placeholder receipt ids cannot make concierge packets install-aware or closure-ready.
+          - /docker/chummercomplete/chummer6-hub commit 436ab40e tightens M111 proof hygiene so queue and registry closure evidence cannot cite worker-local telemetry, handoff snippets, or blocked helper output.
           - python3 scripts/verify_install_aware_support_concierge.py exits 0.
           - python3 -m unittest tests/test_install_aware_support_concierge.py exits 0.
           - bash scripts/ai/run_services_verification.sh exits 0.

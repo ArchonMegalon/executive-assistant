@@ -1427,7 +1427,6 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish commit bfe39d47 Tighten M109 queue mirror proof guard.
       - /docker/chummercomplete/chummer6-ui-finish commit 4fc3f056 Tighten M109 encoded worker-unsafe closure proof guard.
       - /docker/chummercomplete/chummer6-ui-finish commit b12f06d5 Tighten M109 encoded proof guard.
-      - /docker/chummercomplete/chummer6-ui-finish commit 74ef34dd Tighten M109 explain companion proof floor.
       - bash scripts/ai/milestones/next90-m109-ui-build-explain-artifacts-check.sh
     allowed_paths:
       - Chummer.Avalonia
@@ -1503,6 +1502,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit 3fb14923 emits install-aware support closure and release explainer packets from installed build, channel, claimed install, and support-case truth.
       - /docker/chummercomplete/chummer6-hub commit 22e73ccd tightens the completed M111 queue proof so Fleet and design queue rows must stay complete, cite the landed implementation commit, and carry verify_closed_package_only do-not-reopen authority.
       - /docker/chummercomplete/chummer6-hub commit 7e9df408 tightens M111 installed-build receipt truth so placeholder receipt ids cannot make concierge packets install-aware or closure-ready.
+      - /docker/chummercomplete/chummer6-hub commit 436ab40e tightens M111 proof hygiene so queue and registry closure evidence cannot cite worker-local telemetry, handoff snippets, or blocked helper output.
       - python3 scripts/verify_install_aware_support_concierge.py exits 0.
       - python3 -m unittest tests/test_install_aware_support_concierge.py exits 0.
       - bash scripts/ai/run_services_verification.sh exits 0.
