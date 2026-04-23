@@ -167,6 +167,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit e054d2f1 pins the M102 encoded hash proof floor.
       - /docker/chummercomplete/chummer6-hub commit 43e273e9 hardens M102 native support secret redaction.
       - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
+      - /docker/chummercomplete/chummer6-hub commit aa318f30 tightens the M102 encoded proof marker guard.
       - python3 scripts/verify_desktop_native_trust_receipts.py
       - python3 -m unittest tests/test_desktop_native_trust_receipts.py
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests" --no-restore
@@ -298,6 +299,7 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish commit 35433ce3 tightens M101 proof floor authority guard.
       - /docker/chummercomplete/chummer6-ui-finish commit d7c9b1ec tightens M101 startup-smoke identity, install-posture, and fallback-receipt proof for the Avalonia primary release train.
       - /docker/chummercomplete/chummer6-ui-finish commit 362686fb tightens M101 base85 helper and fallback-proof smuggling guards for the Avalonia primary release train.
+      - /docker/chummercomplete/chummer6-ui-finish commit 79fb7eb9 tightens M101 percent-decoded fallback-proof smuggling guards for the Avalonia primary release train.
       - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/verify.sh now fail-closes design-owned queue proof drift against the Fleet-completed M101 row, so future shards cannot treat one queue copy as authoritative closure proof.
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Compliance/Next90M101ReleaseTrainGuardTests.cs pins the inverse queue-mirror verify mutation so standard verify must reject design-owned queue drift too.
       - bash scripts/ai/milestones/next90-m101-ui-release-train-check.sh
@@ -350,6 +352,9 @@ items:
       - /docker/fleet commit 9bb8be5e pins the M101 HTML-entity worker-helper proof guard so future shards verify the current completed-package floor.
       - worker-local telemetry or helper-command citations in the M101 registry milestone, Fleet queue root, and design queue root metadata cannot close the completed package.
       - /docker/fleet commit 930966e0 tightens the M101 root metadata proof guard so future shards verify registry milestone and queue-root metadata instead of repeating the completed package.
+      - OODA-owned telemetry prompt citations and hard-blocked run-helper command citations cannot close the completed package.
+      - base85/ascii85 encoded worker-helper citations cannot close the completed package.
+      - base32 encoded worker-helper citations cannot close the completed package.
     allowed_paths:
       - scripts
       - tests
@@ -507,6 +512,7 @@ items:
       - /docker/chummercomplete/chummer6-core commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
       - /docker/chummercomplete/chummer6-core commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
       - /docker/chummercomplete/chummer6-core commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
+      - /docker/chummercomplete/chummer6-core commit 1b53f23f tightens M104 task-local machine-status proof guards across registry, Fleet queue, design queue, closeout, and checked-in receipt proof.
     allowed_paths:
       - src
       - tests
@@ -787,6 +793,8 @@ items:
       - local proof floor commit b568034 pinned for M106 closure-proof dependency package routing guard
       - commit b568034 tightens the M106 governor packet closure proof.
       - remaining dependency package ids stay projected through package closeout, repeat prevention, and measured rollout loop
+      - local proof floor commit a94dd245 pinned for M106 governor packet closure proof floor
+      - commit a94dd245 tightens the M106 governor packet closure proof.
       - do-not-reopen handoff routes remaining M106 work to dependency or sibling packages
     allowed_paths:
       - admin
@@ -914,7 +922,7 @@ items:
       - /docker/chummercomplete/chummer-hub-registry commit acb881d tightens the M101 projection alias proof guard so future shards reject release-channel versus compatibility-shelf alias drift on generatedAt/generated_at and keep the documented six-tuple successor matrix aligned with the completed-package guard.
       - /docker/chummercomplete/chummer-hub-registry commit a1da9ca tightens the M101 exact route-tuple rationale proof so future shards reject platform-only desktop route rationale and verify the direct regression tests together with the canonical release-channel rows.
       - /docker/chummercomplete/chummer-hub-registry commit 9919487 tightens M101 route rollback rationale proof so future shards reject generic primary fallback absence codes, missing sibling fallback rows, and generic non-revoked revoke rationale instead of repeating the completed package.
-      - /docker/chummercomplete/chummer-hub-registry commit be80077 Tighten M101 registry promotion proof guard.
+      - /docker/chummercomplete/chummer-hub-registry commit 7705a70 Tighten M101 ascii85 helper proof guard.
     allowed_paths:
       - Chummer.Hub.Registry
       - scripts
@@ -1072,6 +1080,7 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish commit 083283e9 tightens M104 desktop explain receipt proof so closureGuard, crash diagnostics, and verify_closed_package_only proof stay pinned together.
       - /docker/chummercomplete/chummer6-ui-finish commit 41322ad1 tightens M104 desktop trust surfaces and percent-encoded worker-helper proof guards.
       - /docker/chummercomplete/chummer6-ui-finish commit fab80234 tightens M104 runtime composer proof so the completed package stays bound to the shared import, build blocker, support diagnostics, and crash diagnostics receipt generator.
+      - /docker/chummercomplete/chummer6-ui-finish commit c42ed3d3 tightens M104 runtime support receipts so the completed package stays bound to visible runtime-inspector support and compatibility before-after diagnostics.
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopCrashRuntimeTests|Next90M104ExplainReceiptsGuardTests" --no-restore
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "Next90M104WorkerSafeProofCommandTests" --no-restore
       - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "BlazorShellComponentTests|AccessibilitySignoffSmokeTests" --no-restore

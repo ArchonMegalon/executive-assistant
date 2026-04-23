@@ -292,7 +292,7 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     assert mirror_item["owned_surfaces"] == ["design_mirror:ea"]
     assert mirror_item["allowed_paths"] == [".codex-design"]
     assert mirror_item["source_items"] == [
-        "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
         "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
     assert (

@@ -29,7 +29,7 @@ EXPECTED_QUEUE_ALLOWED_PATHS = [".codex-design"]
 EXPECTED_QUEUE_OWNED_SURFACES = ["design_mirror:ea"]
 EXPECTED_QUEUE_MODE = "append"
 EXPECTED_QUEUE_TASK = (
-    "Auto-detect and repair recurring `ea` mirror drift after 8003 repeated audit observations; "
+    "Auto-detect and repair recurring `ea` mirror drift; "
     "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
 )
 LOCAL_PRODUCT_EXCEPTIONS = {
