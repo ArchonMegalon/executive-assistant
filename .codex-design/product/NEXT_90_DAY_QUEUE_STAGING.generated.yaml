@@ -1271,6 +1271,8 @@ items:
       - /docker/chummercomplete/chummer6-hub commit 9349395d tightens M107 source-pack batch preflight proof.
       - /docker/chummercomplete/chummer6-hub commit a7c54b30 tightens M107 source-pack batch format-scope proof.
       - /docker/chummercomplete/chummer6-hub commit 700343bc pins M107 format scope proof floor.
+      - /docker/chummercomplete/chummer6-hub commit 65484700 tightens M107 artifact factory source-pack family proof.
+      - /docker/chummercomplete/chummer6-hub commit d5a4a61b tightens M107 artifact factory aggregate receipt and public proof shelf refs.
       - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
     allowed_paths:
       - Chummer.Run.Api
@@ -1282,9 +1284,32 @@ items:
   - title: Execute structured media recipes with receipts, captions, and preview refs
     task: Make media-factory emit video, audio, preview, and packet bundles with first-class receipts and publication-ready refs.
     package_id: next90-m107-media-factory-recipe-execution
+    frontier_id: 1746209281
     milestone_id: 107
     wave: W9
     repo: chummer6-media-factory
+    status: complete
+    landed_commit: 47df6ab
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M107 chummer6-media-factory structured recipe execution is complete; future shards must verify the structured media recipe service, contracts, smoke proof, queue row, and registry row instead of reopening this package.
+    proof:
+      - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/StructuredMediaRecipeExecutionService.cs
+      - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
+      - /docker/fleet/repos/chummer-media-factory/tests/StructuredMediaRecipeSmoke/Program.cs
+      - /docker/fleet/repos/chummer-media-factory/tests/test_structured_media_recipe_execution.py
+      - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
+      - /docker/fleet/repos/chummer-media-factory commit 47df6ab executes structured video, audio, preview-card, and packet-bundle recipes with publication, caption, preview, and role receipt rows.
+      - /docker/fleet/repos/chummer-media-factory commit a2a3702 tightens generated M107 release proof so structured recipe closure pins package identity, frontier, owned surfaces, artifact roles, and first-class publication/caption/preview receipt rows.
+      - /docker/fleet/repos/chummer-media-factory commit 15fb6ef pins the current M107 media recipe proof floor into the materializer and unit guard so future shards verify the closed package instead of reopening it.
+      - /docker/fleet/repos/chummer-media-factory commit c13b80f records the M107 media recipe proof-floor note and wires it into generated release proof.
+      - /docker/fleet/repos/chummer-media-factory commit 3dc59e0 guards M107 successor closure authority across the canonical queue row, registry task row, proof-floor note, and generated release proof using only canonical row and generated proof evidence.
+      - /docker/fleet/repos/chummer-media-factory commit e93f8f4 tightens structured recipe receipt refs so publication-ready refs, role receipt groups, aggregate job ids, caption refs, preview refs, and packet-bundle preview receipt detail stay first-class in generated proof.
+      - /docker/fleet/repos/chummer-media-factory commit 6adf9a8 tightens M107 completed-package closure authority across the Fleet queue mirror, design queue mirror, registry task row, proof-floor note, and generated release proof.
+      - /docker/fleet/repos/chummer-media-factory commit 9614cca pins the M107 queue-mirror closure guard so Fleet and design-owned queue rows must carry the same completed-package proof floor.
+      - python3 -m unittest tests/test_structured_media_recipe_execution.py exits 0.
+      - python3 -m unittest tests/test_m107_successor_closure_authority.py exits 0.
+      - dotnet run --project tests/StructuredMediaRecipeSmoke/Chummer.Media.Factory.StructuredMediaRecipeSmoke.csproj --no-restore exits 0.
+      - ./scripts/ai/verify.sh exits 0.
     allowed_paths:
       - src
       - tests
@@ -1296,9 +1321,23 @@ items:
   - title: Compose campaign cold-open and mission-briefing bundles from approved packs
     task: Turn approved campaign primer and mission packs into locale-matched cold-open and briefing requests with audience-safe proof anchors.
     package_id: next90-m108-hub-campaign-briefing-bundles
+    frontier_id: 1639715882
     milestone_id: 108
     wave: W10
     repo: chummer6-hub
+    status: complete
+    landed_commit: d0a84683
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M108 chummer6-hub campaign briefing bundle composition is complete; future shards must verify the API orchestration service, launcher proof guard, focused tests, and queue/registry rows instead of reopening this package.
+    proof:
+      - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ArtifactFactoryOrchestrationService.cs composes campaign_cold_open and mission_briefing jobs from approved campaign primer and mission packs with explicit audience and locale validation.
+      - '/docker/chummercomplete/chummer6-hub/scripts/launch_artifact_factory_source_pack_batch.py fail-closes campaign media-factory responses that omit required audience: and locale: proof anchors, approved source packs, output bindings, or campaign/mission proof shelf refs.'
+      - /docker/chummercomplete/chummer6-hub/Chummer.Tests/ArtifactFactoryOrchestrationServiceTests.cs covers the server-side M108 cold-open and mission-briefing batch request shape plus locale drift rejection.
+      - /docker/chummercomplete/chummer6-hub/tests/test_artifact_factory_source_pack_launcher.py covers locale-matched campaign briefing launches and fail-closed response proof-anchor drift.
+      - /docker/chummercomplete/chummer6-hub commit d0a84683 tightens campaign briefing proof requests.
+      - python3 -m unittest tests/test_artifact_factory_source_pack_launcher.py exits 0.
+      - python3 scripts/verify_artifact_factory_orchestration.py exits 0.
+      - dotnet test /docker/chummercomplete/chummer6-hub/Chummer.Tests/Chummer.Tests.csproj --filter ArtifactFactoryOrchestrationServiceTests rebuilt the test project but discovered zero xUnit tests in the current project configuration; this is recorded as residual test-discovery risk, not behavioral proof.
     allowed_paths:
       - Chummer.Run.Api
       - scripts
@@ -1309,9 +1348,23 @@ items:
   - title: Launch primer and briefing artifacts from mobile campaign home
     task: Surface campaign cold-open and mission-briefing artifacts on mobile and travel shells without browser ritual.
     package_id: next90-m108-mobile-campaign-artifacts
+    frontier_id: 1294209399
     milestone_id: 108
     wave: W10
     repo: chummer6-mobile
+    status: complete
+    landed_commit: bc84b37
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M108 chummer6-mobile campaign artifact launch is complete; future shards must verify this receipt, registry row, queue row, and mobile proof instead of reopening the campaign_home artifact launch or mission_briefing mobile surface.
+    proof:
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/PlayWebApplication.cs
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs
+      - /docker/chummercomplete/chummer-play/docs/next90-m108-mobile-campaign-artifacts.proof.md
+      - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
+      - /docker/chummercomplete/chummer-play commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
     allowed_paths:
       - src
       - tests
@@ -1323,9 +1376,24 @@ items:
   - title: Expose approved Build Lab explain packets and proof anchors for companion artifact generation
     task: Turn Build Lab explain output into approved packet anchors the artifact factory can render without losing engine truth.
     package_id: next90-m109-core-build-explain-packets
+    frontier_id: 4007503843
     milestone_id: 109
     wave: W9
     repo: chummer6-core
+    status: complete
+    landed_commit: a52603c9
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M109 chummer6-core Build Lab explain packets is complete; future shards must verify the generated packet receipt, generator, focused tests, registry row, and queue mirrors instead of reopening the engine-truth anchor package.
+    proof:
+      - /docker/chummercomplete/chummer6-core/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json
+      - /docker/chummercomplete/chummer6-core/docs/BUILD_LAB_EXPLAIN_PACKETS.md
+      - /docker/chummercomplete/chummer6-core/scripts/generate-build-lab-explain-packets.py
+      - /docker/chummercomplete/chummer6-core/tests/test_build_lab_explain_packets_generator.py
+      - /docker/chummercomplete/chummer6-core/scripts/ai/verify.sh
+      - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth.
+      - python3 tests/test_build_lab_explain_packets_generator.py exits 0.
+      - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --check exits 0.
+      - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --out /tmp/chummer6-core-build-lab-explain-packets.generated.json exits 0.
     allowed_paths:
       - src
       - tests
@@ -1337,9 +1405,30 @@ items:
   - title: Launch build explain companions from compare, import, and blocker surfaces
     task: Make desktop compare, import, and blocker surfaces open inspectable explain companions instead of plain receipts alone.
     package_id: next90-m109-ui-build-explain-artifacts
+    frontier_id: 4240255582
     milestone_id: 109
     wave: W9
     repo: chummer6-ui
+    status: complete
+    landed_commit: da261bb7
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M109 chummer6-ui build explain artifacts is complete; future shards must verify the companion launcher, desktop surface wiring, guard script, registry row, queue row, and focused test proof instead of reopening the compare/import/blocker companion package.
+    proof:
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopExplainCompanionLauncher.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/Controls/SectionHostControl.axaml.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/Controls/CommandDialogPaneControl.axaml.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustPanelFactory.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Desktop.Runtime/DesktopTrustReceiptComposer.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/DesktopTrustPanelFactoryTests.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Compliance/Next90M109BuildExplainArtifactsGuardTests.cs
+      - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m109-ui-build-explain-artifacts-check.sh
+      - /docker/chummercomplete/chummer6-ui-finish commit da261bb7 Launch desktop explain companions.
+      - /docker/chummercomplete/chummer6-ui-finish commit bfe39d47 Tighten M109 queue mirror proof guard.
+      - /docker/chummercomplete/chummer6-ui-finish commit 4fc3f056 Tighten M109 encoded worker-unsafe closure proof guard.
+      - /docker/chummercomplete/chummer6-ui-finish commit b12f06d5 Tighten M109 encoded proof guard.
+      - /docker/chummercomplete/chummer6-ui-finish commit 74ef34dd Tighten M109 explain companion proof floor.
+      - bash scripts/ai/milestones/next90-m109-ui-build-explain-artifacts-check.sh
     allowed_paths:
       - Chummer.Avalonia
       - Chummer.Desktop.Runtime
@@ -1365,9 +1454,26 @@ items:
   - title: Surface runsite orientation entry points before session on mobile and travel shells
     task: Launch runsite host mode from campaign and travel shells before live play without replacing inspectable route truth.
     package_id: next90-m110-mobile-runsite-orientation
+    frontier_id: 3664656855
     milestone_id: 110
     wave: W10
     repo: chummer6-mobile
+    status: complete
+    landed_commit: bc84b37
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M110 chummer6-mobile runsite orientation is complete; future shards must verify the mobile runsite host-mode entry point, travel-shell artifact redirect, generated proof receipt, and queue row instead of reopening the pre-session orientation package.
+    proof:
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/PlayWebApplication.cs
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html
+      - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs
+      - /docker/chummercomplete/chummer-play/scripts/materialize_mobile_local_release_proof.py
+      - /docker/chummercomplete/chummer-play/scripts/ai/verify.sh
+      - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
+      - /docker/chummercomplete/chummer-play commit f95c490 launches mobile runsite orientation before live play while keeping route preview truth inspectable.
+      - /docker/chummercomplete/chummer-play commit bc84b37 stabilizes the mobile package-plane verifier for the completed runsite orientation proof.
+      - bash scripts/ai/verify.sh exits 0.
     allowed_paths:
       - src
       - tests
@@ -1379,9 +1485,27 @@ items:
   - title: Emit install-aware release, support, and public concierge packets from installed-build truth
     task: Compile support closure and release explainer packets, plus public trust wrapper flows with first-party fallbacks, from installed build, channel, and support-case truth.
     package_id: next90-m111-hub-support-concierge
+    frontier_id: 2746902416
     milestone_id: 111
     wave: W9
     repo: chummer6-hub
+    status: complete
+    landed_commit: 3fb14923
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M111 chummer6-hub support concierge is complete; future shards must verify the authenticated concierge packet route, generated proof receipts, verifier, and queue/registry rows instead of reopening this package.
+    proof:
+      - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Support/SupportConciergePacketService.cs
+      - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/SupportCasesController.cs
+      - /docker/chummercomplete/chummer6-hub/scripts/verify_install_aware_support_concierge.py
+      - /docker/chummercomplete/chummer6-hub/tests/test_install_aware_support_concierge.py
+      - /docker/chummercomplete/chummer6-hub/tests/RunServicesVerification/SupportCrashVerification.cs
+      - /docker/chummercomplete/chummer6-hub/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
+      - /docker/chummercomplete/chummer6-hub commit 3fb14923 emits install-aware support closure and release explainer packets from installed build, channel, claimed install, and support-case truth.
+      - /docker/chummercomplete/chummer6-hub commit 22e73ccd tightens the completed M111 queue proof so Fleet and design queue rows must stay complete, cite the landed implementation commit, and carry verify_closed_package_only do-not-reopen authority.
+      - /docker/chummercomplete/chummer6-hub commit 7e9df408 tightens M111 installed-build receipt truth so placeholder receipt ids cannot make concierge packets install-aware or closure-ready.
+      - python3 scripts/verify_install_aware_support_concierge.py exits 0.
+      - python3 -m unittest tests/test_install_aware_support_concierge.py exits 0.
+      - bash scripts/ai/run_services_verification.sh exits 0.
     allowed_paths:
       - Chummer.Run.Api
       - scripts

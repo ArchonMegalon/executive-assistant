@@ -1288,6 +1288,8 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 9349395d tightens M107 source-pack batch preflight proof.
           - /docker/chummercomplete/chummer6-hub commit a7c54b30 tightens M107 source-pack batch format-scope proof.
           - /docker/chummercomplete/chummer6-hub commit 700343bc pins M107 format scope proof floor.
+          - /docker/chummercomplete/chummer6-hub commit 65484700 tightens M107 artifact factory source-pack family proof.
+          - /docker/chummercomplete/chummer6-hub commit d5a4a61b tightens M107 artifact factory aggregate receipt and public proof shelf refs.
           - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ArtifactFactoryOrchestrationService.cs rejects unapproved or provider-specific source packs and emits media-factory output bindings for preview, caption, packet, audio, and video formats.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/InternalArtifactFactoryController.cs and Chummer.Run.Api/ServiceCollectionBoundedContextExtensions.cs bind the recipe-backed job launcher to the internal authenticated Hub orchestration endpoint.
@@ -1301,6 +1303,24 @@ milestones:
       - id: 107.2
         owner: chummer6-media-factory
         title: Execute structured video, audio, preview-card, and packet recipes with receipts and retention truth.
+        status: complete
+        evidence:
+          - /docker/fleet/repos/chummer-media-factory commit 47df6ab executes structured media recipes as media-factory-owned render jobs for video, audio, preview-card, and packet-bundle siblings.
+          - /docker/fleet/repos/chummer-media-factory commit a2a3702 tightens generated M107 release proof so structured recipe closure pins package identity, frontier, owned surfaces, artifact roles, and first-class publication/caption/preview receipt rows.
+          - /docker/fleet/repos/chummer-media-factory commit 15fb6ef pins the current M107 media recipe proof floor into the materializer and unit guard so future shards verify the closed package instead of reopening it.
+          - /docker/fleet/repos/chummer-media-factory commit c13b80f records the M107 media recipe proof-floor note and wires it into generated release proof.
+          - /docker/fleet/repos/chummer-media-factory commit 3dc59e0 guards M107 successor closure authority across the canonical queue row, registry task row, proof-floor note, and generated release proof using only canonical row and generated proof evidence.
+          - /docker/fleet/repos/chummer-media-factory commit e93f8f4 tightens structured recipe receipt refs so publication-ready refs, role receipt groups, aggregate job ids, caption refs, preview refs, and packet-bundle preview receipt detail stay first-class in generated proof.
+          - /docker/fleet/repos/chummer-media-factory commit 6adf9a8 tightens M107 completed-package closure authority across the Fleet queue mirror, design queue mirror, registry task row, proof-floor note, and generated release proof.
+          - /docker/fleet/repos/chummer-media-factory commit 9614cca pins the M107 queue-mirror closure guard so Fleet and design-owned queue rows must carry the same completed-package proof floor.
+          - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/StructuredMediaRecipeExecutionService.cs validates required sibling roles, enqueues replay-safe structured recipe jobs, and emits role receipt ids plus publication, caption, and preview ref receipt rows.
+          - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs defines StructuredMediaRecipe request, artifact receipt, bundle receipt, publication ref receipt, caption ref receipt, and preview ref receipt contracts.
+          - /docker/fleet/repos/chummer-media-factory/tests/StructuredMediaRecipeSmoke/Program.cs proves video, audio, preview-card, and packet-bundle execution, shared caption/preview refs, first-class publication/caption/preview receipt rows, and replay-safe dedupe.
+          - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh now gates the structured recipe contract scan, Python guard, and structured recipe smoke project.
+          - python3 -m unittest tests/test_structured_media_recipe_execution.py exits 0.
+          - python3 -m unittest tests/test_m107_successor_closure_authority.py exits 0.
+          - dotnet run --project tests/StructuredMediaRecipeSmoke/Chummer.Media.Factory.StructuredMediaRecipeSmoke.csproj --no-restore exits 0.
+          - ./scripts/ai/verify.sh exits 0 and refreshes MEDIA_LOCAL_RELEASE_PROOF.generated.json plus ARTIFACT_PUBLICATION_CERTIFICATION.generated.json.
       - id: 107.3
         owner: chummer6-hub-registry
         title: Store artifact-family identities, preview refs, caption refs, and publication bindings.
@@ -1329,6 +1349,17 @@ milestones:
       - id: 108.1
         owner: chummer6-hub
         title: Compose campaign cold-open and mission-briefing requests from approved campaign packs.
+        status: complete
+        landed_commit: d0a84683
+        evidence:
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ArtifactFactoryOrchestrationService.cs composes campaign_cold_open and mission_briefing jobs from approved campaign primer and mission packs with explicit audience and locale validation.
+          - '/docker/chummercomplete/chummer6-hub/scripts/launch_artifact_factory_source_pack_batch.py fail-closes campaign media-factory responses that omit required audience: and locale: proof anchors, approved source packs, output bindings, or campaign/mission proof shelf refs.'
+          - /docker/chummercomplete/chummer6-hub/Chummer.Tests/ArtifactFactoryOrchestrationServiceTests.cs covers the server-side M108 cold-open and mission-briefing batch request shape plus locale drift rejection.
+          - /docker/chummercomplete/chummer6-hub/tests/test_artifact_factory_source_pack_launcher.py covers locale-matched campaign briefing launches and fail-closed response proof-anchor drift.
+          - /docker/chummercomplete/chummer6-hub commit d0a84683 tightens campaign briefing proof requests.
+          - python3 -m unittest tests/test_artifact_factory_source_pack_launcher.py exits 0.
+          - python3 scripts/verify_artifact_factory_orchestration.py exits 0.
+          - dotnet test /docker/chummercomplete/chummer6-hub/Chummer.Tests/Chummer.Tests.csproj --filter ArtifactFactoryOrchestrationServiceTests rebuilt the test project but discovered zero xUnit tests in the current project configuration; this is recorded as residual test-discovery risk, not behavioral proof.
       - id: 108.2
         owner: chummer6-media-factory
         title: Render campaign primer and mission briefing bundles with captions, previews, and fallback audio or packet lanes.
@@ -1338,6 +1369,17 @@ milestones:
       - id: 108.4
         owner: chummer6-mobile
         title: Surface primer and briefing artifacts in campaign home on travel and mobile shells.
+        status: complete
+        landed_commit: bc84b37
+        evidence:
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceServerPlane.cs projects campaign_cold_open and mission_briefing recap-shelf entries with mobile campaign-home ownership, audience, provenance, next-action, and audit copy.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs exposes LaunchPrimer and MissionBriefing summaries, provenance, direct artifact hrefs, and cold_open plus mission_briefing shelf views for the mobile campaign home.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/PlayWebApplication.cs routes /artifacts and /artifacts/{artifactId} back into the installable mobile shell while preserving artifactSurface, artifactId, sessionId, and role context.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html binds launch-primer and mission-briefing links directly in the mobile workspace shell.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs proves M108 projection and redirect behavior, including campaign_home:artifact_launch and mission_briefing:mobile surfaces.
+          - /docker/chummercomplete/chummer-play/docs/next90-m108-mobile-campaign-artifacts.proof.md records the mobile package receipt and no-sibling-scope closure posture.
+          - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json includes campaign_artifact_launch proof for next90-m108-mobile-campaign-artifacts.
+          - /docker/chummercomplete/chummer-play commit bc84b37 stabilizes the mobile package-plane verifier and ./scripts/ai/verify.sh exits 0.
       - id: 108.5
         owner: chummer6-design
         title: Make campaign cold-open and mission-briefing artifacts first-class campaign OS promises with audience and locale rules.
@@ -1362,9 +1404,32 @@ milestones:
       - id: 109.1
         owner: chummer6-core
         title: Expose approved Build Lab explain packets, proof anchors, and performance budgets for downstream artifact generation.
+        status: complete
+        landed_commit: a52603c9
+        evidence:
+          - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth for artifact-factory companion generation.
+          - /docker/chummercomplete/chummer6-core/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json reports status=passed, four approved packets, twelve approved anchors, and companion-only artifact-factory rules that preserve JSON pointers and anchor digests.
+          - /docker/chummercomplete/chummer6-core/scripts/generate-build-lab-explain-packets.py requires the passed M104 engine proof pack, M109 registry authority, Fleet queue row, design queue row, and the `build_lab_explain_packets` plus `engine_truth:artifact_anchors` owned surfaces before approving packets.
+          - /docker/chummercomplete/chummer6-core/tests/test_build_lab_explain_packets_generator.py fail-closes missing engine truth, regressed anchor status, design queue drift, duplicate queue rows, and stale checked-in receipts.
+          - python3 tests/test_build_lab_explain_packets_generator.py exits 0.
+          - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --check exits 0.
+          - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --out /tmp/chummer6-core-build-lab-explain-packets.generated.json exits 0.
       - id: 109.2
         owner: chummer6-ui
         title: Launch explain companions from compare, import, and blocker surfaces on the promoted desktop head.
+        status: complete
+        landed_commit: da261bb7
+        evidence:
+          - /docker/chummercomplete/chummer6-ui-finish commit da261bb7 launches inspectable desktop explain companions from Build Lab compare/blocker receipts, import receipts, and support/crash blocker diagnostics.
+          - /docker/chummercomplete/chummer6-ui-finish commit bfe39d47 tightens the M109 proof guard so Fleet and design-owned successor queue rows cannot drift apart after closure.
+          - /docker/chummercomplete/chummer6-ui-finish commit 4fc3f056 tightens M109 companion proof so encoded worker-unsafe closure citations cannot keep the completed package closed.
+          - /docker/chummercomplete/chummer6-ui-finish commit b12f06d5 tightens M109 companion proof so base32, base85, ascii85, gzip, and zlib encoded worker-unsafe closure citations cannot keep the completed package closed.
+          - /docker/chummercomplete/chummer6-ui-finish commit 74ef34dd tightens the M109 closed-package proof floor so queue closure must retain the current mirror-drift and worker-unsafe proof guard commits.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopExplainCompanionLauncher.cs opens a native inspectable companion window and binds the same receipt sections into the `/coach/?routeType=build` launch URI.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/Controls/SectionHostControl.axaml.cs wires Build Lab compare and blocker receipts to `build_explain:artifact_launch`.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/Controls/CommandDialogPaneControl.axaml.cs and /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustPanelFactory.cs wire import and blocker receipt panels to `explain_receipts:desktop` companion launches.
+          - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m109-ui-build-explain-artifacts-check.sh verifies canonical registry/queue authority, repo-local M109 markers, and the focused desktop UI tests.
+          - bash scripts/ai/milestones/next90-m109-ui-build-explain-artifacts-check.sh exited 0 on 2026-04-23.
       - id: 109.3
         owner: chummer6-media-factory
         title: Render build explainer video, audio, preview-card, and packet siblings from approved explain packets.
@@ -1427,6 +1492,21 @@ milestones:
       - id: 111.1
         owner: chummer6-hub
         title: Emit install-aware support and release concierge packets plus public trust wrapper routes tied to installed build, channel, and support-case truth.
+        status: complete
+        landed_commit: 3fb14923
+        evidence:
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Support/SupportConciergePacketService.cs emits `chummer6-hub.install_aware_support_concierge.v1` packets with installed-build truth, release manifest truth, support-case truth, support closure packets, release explainer packets, and first-party-only public trust wrappers.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/SupportCasesController.cs serves authenticated `/api/v1/support/cases/{caseId}/concierge` packets only for the reporter-owned case and resolves claimed install context from the same signed-in subject.
+          - /docker/chummercomplete/chummer6-hub/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json and `/docker/chummercomplete/chummer6-hub/Chummer.Run.Api/wwwroot/proofs/mac-codex-release/HUB_LOCAL_RELEASE_PROOF.generated.json` record `install_aware_support_concierge` and `release_concierge:hub` receipts for the package.
+          - /docker/chummercomplete/chummer6-hub/scripts/verify_install_aware_support_concierge.py fail-closes package identity, frontier id, allowed paths, owned surfaces, API route, generated proof materializer, standard verify wiring, and queue/registry authority drift.
+          - /docker/chummercomplete/chummer6-hub/tests/test_install_aware_support_concierge.py fail-closes removed installed-build receipt truth, removed authenticated concierge route, and wrong queue frontier/status.
+          - /docker/chummercomplete/chummer6-hub/tests/RunServicesVerification/SupportCrashVerification.cs exercises the M111 packet against installed version, channel, head, platform, arch, claimed install, current artifact, receipt id, and first-party wrapper truth.
+          - /docker/chummercomplete/chummer6-hub commit 3fb14923 emits install-aware support closure and release explainer packets from installed build, channel, claimed install, and support-case truth.
+          - /docker/chummercomplete/chummer6-hub commit 22e73ccd tightens the completed M111 queue proof so Fleet and design queue rows must stay complete, cite the landed implementation commit, and carry verify_closed_package_only do-not-reopen authority.
+          - /docker/chummercomplete/chummer6-hub commit 7e9df408 tightens M111 installed-build receipt truth so placeholder receipt ids cannot make concierge packets install-aware or closure-ready.
+          - python3 scripts/verify_install_aware_support_concierge.py exits 0.
+          - python3 -m unittest tests/test_install_aware_support_concierge.py exits 0.
+          - bash scripts/ai/run_services_verification.sh exits 0.
       - id: 111.2
         owner: chummer6-hub-registry
         title: Publish install-aware artifact identities, channel rationale, recovery proof refs, and reusable concierge asset references.
