@@ -766,6 +766,7 @@ milestones:
           - /docker/chummercomplete/chummer6-ui-finish commit da2c3ab7 pins the M104 explain receipt proof floor so future shards verify the latest completed-package guard.
           - /docker/chummercomplete/chummer6-ui-finish commit 68b55e6e tightens M104 desktop diagnostics proof so the completed package stays bound to crash-safe support diagnostics and build blocker receipts.
           - /docker/chummercomplete/chummer6-ui-finish commit 083283e9 tightens M104 desktop explain receipt proof so closureGuard, crash diagnostics, and verify_closed_package_only proof stay pinned together.
+          - /docker/chummercomplete/chummer6-ui-finish commit 41322ad1 tightens M104 desktop trust surfaces and percent-encoded worker-helper proof guards.
           - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopCrashRuntimeTests|Next90M104ExplainReceiptsGuardTests" --no-restore exits 0.
           - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "Next90M104WorkerSafeProofCommandTests" --no-restore exits 0.
           - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "BlazorShellComponentTests|AccessibilitySignoffSmokeTests" --no-restore exits 0.
@@ -912,6 +913,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit da9bb74c pins the blank restore conflict summary proof in the package verifier and commit-resolution test.
           - /docker/chummercomplete/chummer6-hub commit fdac7b2f tightens the M105 closed queue action guard so Fleet and design queue rows must carry verify_closed_package_only plus the package-specific do-not-reopen reason.
           - /docker/chummercomplete/chummer6-hub commit afea8813 tightens M105 typed recovery actions for workspace restore and entitlement conflict receipts.
+          - /docker/chummercomplete/chummer6-hub commit cfc7ec67 tightens M105 restore action route proof so recovery links for workspace and entitlement receipts cannot carry query or fragment secrets.
           - /docker/chummercomplete/chummer6-hub commit 11a9662f pins the current M105 workspace proof floor into the closed-package verifier.
           - /docker/chummercomplete/chummer6-hub commit ec1bb219 tightens the M105 queue identity guard so copied title or frontier rows cannot make future shards repeat the closed workspace continuity package.
           - /docker/chummercomplete/chummer6-hub commit ea99e70a wires the M105 queue identity guard into standard Hub verification so future shards verify the closed queue row instead of repeating the workspace continuity package.
