@@ -115,6 +115,7 @@ milestones:
           - /docker/fleet verifier rejects OODA-owned telemetry prompt citations and hard-blocked run-helper command citations before canonical registry, Fleet queue, design queue, runbook, support, journey, readiness, or closeout proof can keep the completed package closed.
           - /docker/fleet verifier rejects base85/ascii85 encoded worker-helper citations before registry, queue, runbook, support, journey, readiness, or closeout proof can keep the completed package closed.
           - /docker/fleet verifier rejects base32 encoded worker-helper citations before registry, queue, runbook, support, journey, readiness, or closeout proof can keep the completed package closed.
+          - /docker/fleet verifier rejects compressed encoded worker-helper citations before registry, queue, runbook, support, journey, readiness, or closeout proof can keep the completed package closed.
       - id: 101.2
         owner: chummer6-hub-registry
         title: Publish per-head promotion, fallback, and rollback rationale directly in channel truth.
@@ -460,6 +461,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 43e273e9 hardens M102 native support secret redaction.
           - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
           - /docker/chummercomplete/chummer6-hub commit aa318f30 tightens the M102 encoded proof marker guard.
+          - /docker/chummercomplete/chummer6-hub commit 607139bc hardens M102 HTML hash separator redaction.
           - python3 scripts/verify_desktop_native_trust_receipts.py and python3 -m unittest tests/test_desktop_native_trust_receipts.py exit 0.
           - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests" --no-restore exits 0 for net10.0 and net10.0-windows.
       - id: 102.2

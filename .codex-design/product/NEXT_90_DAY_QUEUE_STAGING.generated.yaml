@@ -168,6 +168,7 @@ items:
       - /docker/chummercomplete/chummer6-hub commit 43e273e9 hardens M102 native support secret redaction.
       - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
       - /docker/chummercomplete/chummer6-hub commit aa318f30 tightens the M102 encoded proof marker guard.
+      - /docker/chummercomplete/chummer6-hub commit 607139bc hardens M102 HTML hash separator redaction.
       - python3 scripts/verify_desktop_native_trust_receipts.py
       - python3 -m unittest tests/test_desktop_native_trust_receipts.py
       - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests" --no-restore
@@ -355,6 +356,7 @@ items:
       - OODA-owned telemetry prompt citations and hard-blocked run-helper command citations cannot close the completed package.
       - base85/ascii85 encoded worker-helper citations cannot close the completed package.
       - base32 encoded worker-helper citations cannot close the completed package.
+      - compressed encoded worker-helper citations cannot close the completed package.
     allowed_paths:
       - scripts
       - tests
