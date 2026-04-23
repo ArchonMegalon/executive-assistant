@@ -1525,6 +1525,7 @@ items:
     wave: W9
     repo: chummer6-hub-registry
     status: complete
+    landed_commit: 04fc1f0
     completion_action: verify_closed_package_only
     do_not_reopen_reason: M111 chummer6-hub-registry install-aware concierge registry is complete; future shards must verify this receipt, registry row, queue row, and published release-channel artifacts instead of reopening the install-aware artifact-identity package.
     proof:

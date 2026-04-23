@@ -1515,6 +1515,7 @@ milestones:
         title: Publish install-aware artifact identities, channel rationale, recovery proof refs, and reusable concierge asset references.
         status: complete
         evidence:
+          - /docker/chummercomplete/chummer-hub-registry commit 04fc1f0 lands the M111 install-aware concierge registry package and wires the dedicated closeout verifier into standard repo verification.
           - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/ReleaseChannelContracts.cs exposes `InstallAwareConciergeArtifactIdentity` on `ReleaseChannelHeadProjection` so install-aware concierge identity is package-owned contract truth instead of downstream local shape.
           - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py derives `installAwareArtifactRegistry` rows from registry-owned desktop route truth, including installed-build selectors, channel rationale, correctness reasons, recovery proof refs, and reusable concierge asset refs.
           - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py fail-closes missing, malformed, duplicate, blank, or non-canonical `installAwareArtifactRegistry` rows before published release-channel artifacts can pass verification.
