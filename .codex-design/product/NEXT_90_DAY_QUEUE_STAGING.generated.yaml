@@ -1306,6 +1306,7 @@ items:
       - /docker/fleet/repos/chummer-media-factory commit e93f8f4 tightens structured recipe receipt refs so publication-ready refs, role receipt groups, aggregate job ids, caption refs, preview refs, and packet-bundle preview receipt detail stay first-class in generated proof.
       - /docker/fleet/repos/chummer-media-factory commit 6adf9a8 tightens M107 completed-package closure authority across the Fleet queue mirror, design queue mirror, registry task row, proof-floor note, and generated release proof.
       - /docker/fleet/repos/chummer-media-factory commit 9614cca pins the M107 queue-mirror closure guard so Fleet and design-owned queue rows must carry the same completed-package proof floor.
+      - /docker/fleet/repos/chummer-media-factory commit 398f756 hardens structured recipe receipts with direct asset urls, stable replay ordering and rendered timestamps, and length-prefixed caption/preview ref hashing while becoming the current M107 proof floor.
       - python3 -m unittest tests/test_structured_media_recipe_execution.py exits 0.
       - python3 -m unittest tests/test_m107_successor_closure_authority.py exits 0.
       - dotnet run --project tests/StructuredMediaRecipeSmoke/Chummer.Media.Factory.StructuredMediaRecipeSmoke.csproj --no-restore exits 0.
