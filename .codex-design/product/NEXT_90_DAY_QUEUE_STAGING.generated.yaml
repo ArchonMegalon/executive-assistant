@@ -345,6 +345,7 @@ items:
       - HTML-entity encoded worker-helper citations cannot close the completed package.
       - /docker/fleet commit 9bb8be5e pins the M101 HTML-entity worker-helper proof guard so future shards verify the current completed-package floor.
       - worker-local telemetry or helper-command citations in the M101 registry milestone, Fleet queue root, and design queue root metadata cannot close the completed package.
+      - /docker/fleet commit 930966e0 tightens the M101 root metadata proof guard so future shards verify registry milestone and queue-root metadata instead of repeating the completed package.
     allowed_paths:
       - scripts
       - tests

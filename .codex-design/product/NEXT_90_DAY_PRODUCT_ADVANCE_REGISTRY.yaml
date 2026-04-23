@@ -111,6 +111,7 @@ milestones:
           - /docker/fleet verifier rejects HTML-entity encoded worker-helper citations before queue, registry, runbook, support, journey, readiness, or closeout proof can keep the completed package closed.
           - /docker/fleet commit 9bb8be5e pins the M101 HTML-entity worker-helper proof guard so future shards verify the current completed-package floor.
           - /docker/fleet verifier rejects worker-local telemetry or helper-command citations in the M101 registry milestone, Fleet queue root, and design queue root metadata before root-level closure notes can keep the completed package closed.
+          - /docker/fleet commit 930966e0 tightens the M101 root metadata proof guard so future shards verify registry milestone and queue-root metadata instead of repeating the completed package.
       - id: 101.2
         owner: chummer6-hub-registry
         title: Publish per-head promotion, fallback, and rollback rationale directly in channel truth.
