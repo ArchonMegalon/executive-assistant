@@ -297,6 +297,7 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish commit 46eb74e2 tightens the M101 release train proof citation.
       - /docker/chummercomplete/chummer6-ui-finish commit 35433ce3 tightens M101 proof floor authority guard.
       - /docker/chummercomplete/chummer6-ui-finish commit d7c9b1ec tightens M101 startup-smoke identity, install-posture, and fallback-receipt proof for the Avalonia primary release train.
+      - /docker/chummercomplete/chummer6-ui-finish commit 362686fb tightens M101 base85 helper and fallback-proof smuggling guards for the Avalonia primary release train.
       - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/verify.sh now fail-closes design-owned queue proof drift against the Fleet-completed M101 row, so future shards cannot treat one queue copy as authoritative closure proof.
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Compliance/Next90M101ReleaseTrainGuardTests.cs pins the inverse queue-mirror verify mutation so standard verify must reject design-owned queue drift too.
       - bash scripts/ai/milestones/next90-m101-ui-release-train-check.sh
