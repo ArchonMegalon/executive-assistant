@@ -342,6 +342,8 @@ items:
       - completed queue action guard requires verify_closed_package_only and package-specific do_not_reopen_reason
       - /docker/fleet commit 4e8295bb tightens the M101 external proof lane guard so encoded run-control citations cannot close the completed package.
       - /docker/fleet commit 8dd79057 tightens the M101 external proof lane guard so recursively encoded worker-helper citations cannot close the completed package.
+      - HTML-entity encoded worker-helper citations cannot close the completed package.
+      - /docker/fleet commit 9bb8be5e pins the M101 HTML-entity worker-helper proof guard so future shards verify the current completed-package floor.
     allowed_paths:
       - scripts
       - tests

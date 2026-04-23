@@ -108,6 +108,8 @@ milestones:
           - /docker/fleet/feedback/2026-04-19-next90-m101-fleet-external-proof-lane-closeout.md records the do-not-reopen rule and exact proof anchors for future shards.
           - /docker/fleet commit 4e8295bb tightens the M101 external proof lane guard so encoded run-control citations cannot close the completed package.
           - /docker/fleet commit 8dd79057 tightens the M101 external proof lane guard so recursively encoded worker-helper citations cannot close the completed package.
+          - /docker/fleet verifier rejects HTML-entity encoded worker-helper citations before queue, registry, runbook, support, journey, readiness, or closeout proof can keep the completed package closed.
+          - /docker/fleet commit 9bb8be5e pins the M101 HTML-entity worker-helper proof guard so future shards verify the current completed-package floor.
       - id: 101.2
         owner: chummer6-hub-registry
         title: Publish per-head promotion, fallback, and rollback rationale directly in channel truth.

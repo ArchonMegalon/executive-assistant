@@ -370,7 +370,7 @@ def test_design_mirror_bundle_verifier_prunes_local_product_receipts(tmp_path) -
     assert not local_receipt.exists()
 
 
-def test_design_mirror_bundle_verifier_preserves_approved_local_product_artifacts() -> None:
+def test_design_mirror_bundle_verifier_has_no_local_product_artifact_exceptions() -> None:
     completed = subprocess.run(
         [sys.executable, str(SCRIPT), "--json"],
         cwd=ROOT,
@@ -380,9 +380,8 @@ def test_design_mirror_bundle_verifier_preserves_approved_local_product_artifact
     )
     payload = json.loads(completed.stdout)
     stale_row = next(row for row in payload if row["key"] == "product:stale_local_files")
-    assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" not in stale_row["stale_files"]
-    assert "SONIC_IDENTITY_AND_MUSIC_CUE_MODEL.md" not in stale_row["stale_files"]
-    assert "DOCS_AND_AI_READABILITY_MODEL.md" not in stale_row["stale_files"]
+    assert stale_row["status"] == "ok"
+    assert stale_row["stale_files"] == []
 
 
 def test_repair_design_mirror_bundle_appends_missing_feedback_log_entries(tmp_path) -> None:

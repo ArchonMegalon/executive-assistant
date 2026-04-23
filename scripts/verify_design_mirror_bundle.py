@@ -33,14 +33,6 @@ EXPECTED_QUEUE_TASK = (
     "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
 )
 LOCAL_PRODUCT_EXCEPTIONS = {
-    Path("EA_FLAGSHIP_RELEASE_GATE.generated.json"),
-    Path("SONIC_IDENTITY_AND_MUSIC_CUE_MODEL.md"),
-    Path("DOCS_AND_AI_READABILITY_MODEL.md"),
-    Path("PUBLIC_FEEDBACK_AND_ROADMAP_SIGNAL_MODEL.md"),
-    Path("SAAS_BOUNDARY_AND_DATA_CLASSIFICATION_MODEL.md"),
-    Path("SONIC_IDENTITY_AND_MUSIC_CUE_FRESHNESS_GATE.yaml"),
-    Path("DOCS_AND_AI_READABILITY_FRESHNESS_GATE.yaml"),
-    Path("PUBLIC_FEEDBACK_SIGNAL_FRESHNESS_GATE.yaml"),
 }
 
 @dataclass(frozen=True)
