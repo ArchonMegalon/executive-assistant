@@ -87,7 +87,7 @@ milestones:
       - chummer6-hub-registry
       - fleet
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Windows, macOS, and Linux candidate-to-proof-to-promotion runs behave as one boring release lane with startup smoke, familiarity proof, installer truth, and rollback evidence.
       - Release channel truth, proof shelf truth, and desktop route truth never disagree by head, platform, architecture, or channel.
@@ -289,6 +289,11 @@ milestones:
       - id: 101.4
         owner: chummer6-design
         title: Tighten the desktop promotion language so proof-only, fallback, preview, and flagship claims cannot blur together.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml keeps the public copy rails explicit: Avalonia is the flagship desktop head, Blazor Desktop is bounded fallback only when labeled that way, public claims must stay inside FLAGSHIP_RELEASE_ACCEPTANCE, and the public shelf must not overclaim readiness from internal proof alone.
+          - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_RELEASE_ACCEPTANCE.yaml fail-closes release language that blurs fallback and flagship posture by requiring bounded preview explanations, forbidding fallback heads from satisfying flagship readiness by association, and requiring explicit fallback-versus-flagship truth on public desktop claims.
+          - /docker/chummercomplete/chummer-design/products/chummer/public-guide/DOWNLOAD.md materializes the tightened copy into the public guide by telling users to start with Avalonia, use Blazor only when directed, treat archive packages as fallback, and read the current shelf as a usable preview rather than a gold claim.
 
   - id: 102
     title: Desktop-native claim, update, rollback, and support followthrough
@@ -298,7 +303,7 @@ milestones:
       - chummer6-hub-registry
       - chummer6-ui
       - fleet
-    status: in_progress
+    status: complete
     dependencies:
       - 101
     exit_criteria:
@@ -470,9 +475,19 @@ milestones:
       - id: 102.2
         owner: chummer6-ui
         title: Surface channel, build, rollback, and support-packet truth inside the desktop heads.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopUpdateWindow.cs surfaces installed version, manifest version, channel, rollout posture, supportability, proof status, fix-availability guidance, recommended next action, and rollback-window truth inside the desktop-native update head.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopSupportCaseWindow.cs and /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopDevicesAccessWindow.cs keep installation id, head, version, channel, claim state, tracked support followthrough, and account-linked device/access truth visible inside the desktop heads instead of punting users to browser-only folklore.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/DesktopInstallLinkingRuntimeTests.cs locks grounded support receipts, before-after environment diffs, installed-build/channel tuples, and support-packet correlation so the desktop heads stay bound to the same install truth carried into support and rollback followthrough.
       - id: 102.3
         owner: chummer6-hub-registry
         title: Answer why this head is primary or fallback and why this install is on this channel.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json publishes desktopTupleCoverage.desktopRouteTruth rows with routeRoleReasonCode, routeRoleReason, promotionReasonCode, promotionReason, rollbackReasonCode, rollbackReason, parityPosture, and public install route for every required desktop tuple, alongside top-level rollout/channel truth for the published shelf.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py fail-closes missing or malformed route-role, promotion, rollback, revoke, install-posture, and tuple-specific rationale fields so route/channel explanations stay explicit rather than inferred.
+          - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts.Verify/Program.cs asserts the route-truth rationale context and decision rationale directly, so primary versus fallback posture and published-channel reasoning remain part of the verified registry contract.
       - id: 102.4
         owner: fleet
         title: Gate the staged reporter mail loop against real install and fix receipts, not only queued support state.
@@ -617,7 +632,7 @@ milestones:
       - chummer6-core
       - chummer6-ui
       - chummer6-design
-    status: in_progress
+    status: complete
     dependencies:
       - 103
     exit_criteria:
@@ -798,6 +813,11 @@ milestones:
       - id: 104.4
         owner: chummer6-design
         title: Tie engine proof-pack evidence into flagship acceptance and parity truth.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_RELEASE_ACCEPTANCE.yaml now requires the release-bound engine proof pack to publish oracle-suite coverage, import-certification truth, and performance budgets for the promoted desktop release as part of flagship acceptance.
+          - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml now ties core rules/import families to /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json and fail-closes gold-ready parity truth when the promoted-desktop engine proof pack drops oracle, import, or budget coverage.
+          - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json already reports flagship_ready=ready, veteran_ready=ready, parity_lab_ready=true, and zero flagship families below target, so the design-owned acceptance/parity canon now consumes the same release-bound proof lane that the readiness plane is already publishing.
 
   - id: 105
     title: Workspace restore, entitlement sync, and conflict-safe continuity
@@ -807,7 +827,7 @@ milestones:
       - chummer6-ui
       - chummer6-mobile
       - chummer6-core
-    status: in_progress
+    status: complete
     dependencies:
       - 102
       - 104
@@ -1019,9 +1039,19 @@ milestones:
       - id: 105.3
         owner: chummer6-mobile
         title: Keep travel and offline shells honest about cached, stale, and reconnectable work.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer6-mobile/src/Chummer.Play.RegressionChecks/Program.cs keeps the mobile restore and workspace-lite shells explicit about cached, stale, can-do-now, needs-online, reconnect, travel-companion, and offline-action posture instead of hiding those states behind optimistic continuity copy.
+          - /docker/chummercomplete/chummer6-mobile/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json records the same markers under install_claim_restore_continue and campaign_session_recover_recap, including offline-truth, travel-companion, restore followthrough, and reconnectable artifact labels on the published mobile proof surface.
+          - /docker/chummercomplete/chummer6-mobile/docs/PLAY_RELEASE_SIGNOFF.md keeps mobile continuation bound to honest cached, offline, and reconnect posture on the promoted shell instead of assuming ambient sync.
       - id: 105.4
         owner: chummer6-core
         title: Preserve ruleset and amend-environment fingerprints through sync, restore, and replay-safe continuation.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer6-core/Chummer.CoreEngine.Tests/Program.cs keeps runtime fingerprint determinism, restore-lineage normalization, replay-safe stale recovery, import ruleset identity, and amend-package coverage under executable test lock.
+          - /docker/chummercomplete/chummer6-core/docs/CORE_RUNTIME_RESTORE_RUNBOOK.md makes deterministic runtime bundles, replay-safe restore, and explain/runtime continuity part of the operator-facing proof path instead of ambient lore.
+          - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json and /docker/chummercomplete/chummer6-core/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md keep promoted-desktop oracle suites, release-bound budgets, import-certification coverage, and checked-in release commands explicit for the ruleset and amend-environment continuation lane.
 
   - id: 106
     title: Product-governor weekly adoption and measured rollout loop

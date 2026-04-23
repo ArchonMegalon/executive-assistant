@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-04-23T10:04:57Z",
+  "generated_at": "2026-04-23T14:23:57Z",
   "as_of": "2026-04-23",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
@@ -81,17 +81,17 @@
     },
     {
       "decision_id": "2026-04-23-launch-governance",
-      "action": "freeze_launch",
-      "reason": "Freeze launch expansion until successor dependency work task(s) 101.4, 102.2, 102.3, 104.4, 105.3, 105.4 close in the next-90-day registry.",
+      "action": "launch_expand",
+      "reason": "Launch expansion is approved for the next bounded window while canaries and support closure remain clear.",
       "cited_signals": [
         "journey_gate_state=ready",
         "journey_gate_blocked_count=0",
         "local_release_proof_status=passed",
         "provider_canary_status=Canary green on all active lanes",
         "closure_health_state=clear",
-        "successor_dependency_state=blocked",
-        "successor_open_dependency_ids=101,102,104,105",
-        "successor_open_dependency_work_task_ids=101.4,102.2,102.3,104.4,105.3,105.4",
+        "successor_dependency_state=ready",
+        "successor_open_dependency_ids=",
+        "successor_open_dependency_work_task_ids=",
         "status_plane_final_claim_status=pass"
       ]
     }
@@ -170,17 +170,17 @@
       },
       {
         "decision_id": "2026-04-23-launch-governance",
-        "action": "freeze_launch",
-        "reason": "Freeze launch expansion until successor dependency work task(s) 101.4, 102.2, 102.3, 104.4, 105.3, 105.4 close in the next-90-day registry.",
+        "action": "launch_expand",
+        "reason": "Launch expansion is approved for the next bounded window while canaries and support closure remain clear.",
         "cited_signals": [
           "journey_gate_state=ready",
           "journey_gate_blocked_count=0",
           "local_release_proof_status=passed",
           "provider_canary_status=Canary green on all active lanes",
           "closure_health_state=clear",
-          "successor_dependency_state=blocked",
-          "successor_open_dependency_ids=101,102,104,105",
-          "successor_open_dependency_work_task_ids=101.4,102.2,102.3,104.4,105.3,105.4",
+          "successor_dependency_state=ready",
+          "successor_open_dependency_ids=",
+          "successor_open_dependency_work_task_ids=",
           "status_plane_final_claim_status=pass"
         ]
       }
@@ -193,7 +193,7 @@
     "phase_label": "Public-fit polish",
     "history_snapshot_count": 17,
     "longest_pole": "Core Engine",
-    "launch_readiness": "Hold launch expansion until successor dependency work task(s) 101.4, 102.2, 102.3, 104.4, 105.3, 105.4 close in the next-90-day registry.",
+    "launch_readiness": "Route-canary validation is green; widen launch only while support fallout remains stable.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
       "canary_status": "Canary green on all active lanes",
@@ -201,7 +201,7 @@
       "next_decision": "Promote once canaries stay green and support fallout remains clear through the next route review."
     },
     "successor_dependency_posture": {
-      "state": "blocked",
+      "state": "ready",
       "milestone_id": 106,
       "dependency_ids": [
         101,
@@ -210,21 +210,9 @@
         104,
         105
       ],
-      "open_dependency_ids": [
-        101,
-        102,
-        104,
-        105
-      ],
-      "open_dependency_work_task_ids": [
-        "101.4",
-        "102.2",
-        "102.3",
-        "104.4",
-        "105.3",
-        "105.4"
-      ],
-      "summary": "Successor launch dependency work tasks remain open in the next-90-day registry: 101.4, 102.2, 102.3, 104.4, 105.3, 105.4."
+      "open_dependency_ids": [],
+      "open_dependency_work_task_ids": [],
+      "summary": "Successor launch dependencies are closed in the next-90-day registry."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
@@ -254,9 +242,9 @@
       "state": "clear",
       "local_release_proof_status": "passed",
       "proven_journey_count": 5,
-      "proven_route_count": 8,
+      "proven_route_count": 10,
       "history_snapshot_count": 17,
-      "summary": "Current local edge proof passed. 5 journey proofs and 8 trust routes are on record. 17 weekly snapshots are on record for the current public trust posture."
+      "summary": "Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 17 weekly snapshots are on record for the current public trust posture."
     },
     "progress_trend": {
       "state": "steady",
