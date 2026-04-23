@@ -257,6 +257,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/support_bundle.sh` | `bash scripts/support_bundle.sh --help` | Build operator support bundle |
 | `scripts/archive_tasks.sh` | `bash scripts/archive_tasks.sh --help` | Archive/prune local task log Done rows |
 | `scripts/verify_release_assets.sh` | `bash scripts/verify_release_assets.sh --help` | Verify release artifact completeness |
+| `scripts/repair_design_mirror_bundle.sh` | `bash scripts/repair_design_mirror_bundle.sh --help` | Repair the bounded EA design-mirror bundle and queue overlay |
 
 Combined index:
 
@@ -777,6 +778,16 @@ make all-local
 ```
 
 `make all-local` is a lightweight readiness pass. Use `make release-preflight` for release-stage smoke and operator checks.
+
+Chummer6 second-pass smart-glasses overlay readiness:
+
+```bash
+make overlay-vision-check
+# once the Ollama endpoint is reachable and the model still needs to be fetched
+make overlay-vision-pull
+```
+
+`make overlay-vision-check` prints the candidate Ollama URLs, the selected endpoint if one is reachable, and the configured vision-model readiness for the post-render overlay planner.
 
 Release preflight aggregate (asset checks + operator help + release smoke):
 

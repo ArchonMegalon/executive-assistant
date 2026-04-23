@@ -348,6 +348,7 @@ stream_max_retries = 5
 - Bootstrap during deploy: `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh`
 - Memory-only local profile: `cp .env.local.example .env && EA_MEMORY_ONLY=1 bash scripts/deploy.sh`
 - Common targets: `make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
+- Design-mirror maintenance: `make verify-design-mirror-bundle` checks the bounded `.codex-design` mirror bundle and queue overlay for drift; `make repair-design-mirror-bundle` restores the approved local mirror bundle, repo/review context, and bounded queue row without reopening one-off refresh work.
 - OpenAPI export/diff: `scripts/export_openapi.sh`, `scripts/diff_openapi.sh`, `make openapi-export`, `make openapi-diff`
 - Release checklist: `RELEASE_CHECKLIST.md`
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
@@ -387,11 +388,13 @@ One-command local CI gate bundle is available via `make ci-gates`.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
+The underlying Chummer design-mirror bundle can be checked directly with `python3 scripts/verify_design_mirror_bundle.py` or `make verify-design-mirror-bundle`, and repaired with `bash scripts/repair_design_mirror_bundle.sh` or `make repair-design-mirror-bundle`.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
 Release preflight aggregate is available via `make release-preflight`.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
 `make all-local` is a lighter local readiness pass; use `make release-preflight` for release-stage smoke + operator checks.
+Chummer6 second-pass smart-glasses overlay readiness can be checked with `make overlay-vision-check`; use `make overlay-vision-pull` after the Ollama endpoint is exposed if the vision model still needs to be pulled.
 CI gate sequence is documented in `RUNBOOK.md` and includes the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification), Postgres-backed smoke and repository-contract jobs (`scripts/smoke_postgres.sh`, `scripts/test_postgres_contracts.sh`), and a legacy migration-regression job (`bash scripts/smoke_postgres.sh --legacy-fixture`).
 Shell script lint config is tracked in `.shellcheckrc`.

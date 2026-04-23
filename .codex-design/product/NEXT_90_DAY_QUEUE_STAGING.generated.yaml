@@ -1518,11 +1518,26 @@ items:
       - release_concierge:hub
       - public_concierge_wrapper:hub
   - title: Publish install-aware artifact identities and channel rationale for concierge bundles
-    task: Store why this release, fix, recovery artifact, or bounded public concierge asset is correct for this installed build and channel.
+    task: Store why this release, fix, or recovery artifact is correct for this installed build and channel.
     package_id: next90-m111-registry-install-aware-concierge
+    frontier_id: 1024523070
     milestone_id: 111
     wave: W9
     repo: chummer6-hub-registry
+    status: complete
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M111 chummer6-hub-registry install-aware concierge registry is complete; future shards must verify this receipt, registry row, queue row, and published release-channel artifacts instead of reopening the install-aware artifact-identity package.
+    proof:
+      - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/ReleaseChannelContracts.cs
+      - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m111_registry_install_aware_concierge.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/test_materialize_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m111_registry_install_aware_concierge.py
+      - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+      - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
+      - /docker/chummercomplete/chummer-hub-registry/docs/next90-m111-registry-install-aware-concierge.closeout.md
     allowed_paths:
       - Chummer.Hub.Registry
       - scripts
@@ -1530,7 +1545,6 @@ items:
     owned_surfaces:
       - install_aware_artifact_registry
       - release_channel_truth:concierge
-      - public_concierge_assets:registry
   - title: Gate followthrough mail, public proof promotion, and concierge rollout against install-aware receipts
     task: Promote release and support concierge artifacts and public trust-surface concierge flows only when install-aware recovery receipts, publication refs, and kill-switch posture agree.
     package_id: next90-m111-fleet-install-aware-followthrough

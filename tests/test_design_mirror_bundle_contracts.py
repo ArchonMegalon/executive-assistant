@@ -69,6 +69,15 @@ def test_repair_design_mirror_bundle_help_mentions_bounded_bundle() -> None:
     assert "EA design-mirror files" in completed.stdout
 
 
+def test_makefile_exposes_design_mirror_bundle_targets_and_help() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "verify-design-mirror-bundle" in makefile
+    assert "repair-design-mirror-bundle" in makefile
+    assert "scripts/repair_design_mirror_bundle.sh" in makefile
+    assert "scripts/verify_design_mirror_bundle.py" in makefile
+
+
 def test_release_assets_guard_wires_design_mirror_bundle_verifier() -> None:
     script = (ROOT / "scripts" / "verify_release_assets.sh").read_text(encoding="utf-8")
     assert "scripts/verify_design_mirror_bundle.py" in script

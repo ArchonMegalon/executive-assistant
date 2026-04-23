@@ -1513,6 +1513,19 @@ milestones:
       - id: 111.2
         owner: chummer6-hub-registry
         title: Publish install-aware artifact identities, channel rationale, recovery proof refs, and reusable concierge asset references.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/ReleaseChannelContracts.cs exposes `InstallAwareConciergeArtifactIdentity` on `ReleaseChannelHeadProjection` so install-aware concierge identity is package-owned contract truth instead of downstream local shape.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py derives `installAwareArtifactRegistry` rows from registry-owned desktop route truth, including installed-build selectors, channel rationale, correctness reasons, recovery proof refs, and reusable concierge asset refs.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py fail-closes missing, malformed, duplicate, blank, or non-canonical `installAwareArtifactRegistry` rows before published release-channel artifacts can pass verification.
+          - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json and /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json carry the install-aware concierge registry projection for the current published shelf.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m111_registry_install_aware_concierge.py fail-closes canonical queue or registry drift, repo-mirror drift, missing closeout anchors, and missing standard verify wiring for the completed package.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/test_materialize_public_release_channel.py, /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py, and /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m111_registry_install_aware_concierge.py cover derivation, published-shelf validation, and completed-package guardrail regressions for this slice.
+          - /docker/chummercomplete/chummer-hub-registry/docs/next90-m111-registry-install-aware-concierge.closeout.md records the repo-local closeout proof and the do-not-reopen posture for future shards.
+          - python3 scripts/test_materialize_public_release_channel.py exits 0.
+          - python3 scripts/test_verify_public_release_channel.py exits 0.
+          - python3 scripts/test_verify_next90_m111_registry_install_aware_concierge.py exits 0.
+          - python3 scripts/verify_next90_m111_registry_install_aware_concierge.py exits 0.
       - id: 111.3
         owner: chummer6-media-factory
         title: Render release explainer, support closure, and public concierge companion bundles with captions, previews, and sibling notes.
