@@ -29,7 +29,7 @@ EXPECTED_QUEUE_ALLOWED_PATHS = [".codex-design"]
 EXPECTED_QUEUE_OWNED_SURFACES = ["design_mirror:ea"]
 EXPECTED_QUEUE_MODE = "append"
 EXPECTED_QUEUE_TASK = (
-    "Auto-detect and repair recurring `ea` mirror drift; "
+    "Auto-detect and repair recurring `ea` mirror drift after 8003 repeated audit observations; "
     "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
 )
 LOCAL_PRODUCT_EXCEPTIONS = {
@@ -149,7 +149,7 @@ def _sha256(path: Path) -> str:
 def _expected_queue_source_items() -> list[str]:
     expected = []
     for binding in _bindings():
-        if binding.local_path == LOCAL_PRODUCT_ROOT / "WEEKLY_PRODUCT_PULSE.generated.json":
+        if binding.local_path == LOCAL_PRODUCT_ROOT / "NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml":
             expected.append(binding.local_path.as_posix())
         if binding.local_path == LOCAL_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml":
             expected.append(binding.local_path.as_posix())
