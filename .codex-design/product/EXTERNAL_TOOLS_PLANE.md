@@ -99,7 +99,7 @@ Current horizon-facing posture:
 * `jackpoint` - structured presenter-video and multilingual briefing lanes may use `vidBoard`; narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
 * `karma-forge` - governed house-rule discovery may use `Icanpreneur` for interviews and synthesis, `Deftform` for pre-screening, `Lunacal` for follow-up clinics, `MetaSurvey` for quant validation, `NextStep` for sprint/process execution, and bounded `FacePop` / `Signitic` / `vidBoard` / `Taja` for recruitment and approved discovery explainers
 * `shadowcasters-network` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `NextStep`, `MetaSurvey`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
-* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
+* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`; route, map, and tour siblings stay first-party inspectable truth and the media layer may not become tactical authority
 * `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
 * `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with later bounded player-safe recap / GM-private debrief video from `vidBoard`, plus bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
 
@@ -286,7 +286,10 @@ A bounded external widget may appear on a Hub-owned public surface only when all
 
 * the surface is public, low-risk, and not the owner of canonical truth
 * the widget is optional and removable via kill switch
+* fixed first-party route truth stays visible without the widget
+* preview language stays visibly secondary to the first-party route or status surface
 * the widget has a graceful first-party fallback path
+* recovery posture routes into first-party help, relinking, or escalation copy instead of treating the widget as the recovery mechanism
 * no vendor secret or private access token is exposed client-side
 * the widget does not become the system of record for support, install, auth, publication, or campaign truth
 * every meaningful submission or route result is mirrored back into Chummer-owned receipts or first-party destinations
@@ -328,6 +331,8 @@ A public concierge widget may not:
 * become the support ticket or case record
 * hide the first-party support path
 * block access to first-party support when disabled
+* present fallback or manual install routes as the recommended path through warmer copy
+* claim that a fix is already available for this user when the first-party release or support receipt does not say so
 
 ## Allowed and forbidden public concierge surfaces
 
@@ -1020,6 +1025,7 @@ Structured presenter-video and multilingual walkthrough adapter.
 * not canonical rules truth
 * not canonical support truth
 * not canonical session truth
+* not canonical route, map, or tour truth
 * not direct-to-client vendor coupling
 * not unapproved public publication
 

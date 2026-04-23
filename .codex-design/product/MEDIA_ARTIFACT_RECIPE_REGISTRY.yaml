@@ -258,8 +258,25 @@ recipe_families:
       - hub_campaign_home
       - mobile_campaign_home
       - artifacts_gallery
+    truth_order:
+      - approved_runsite_pack
+      - approved_route_summary
+      - inspectable_route_or_tour_sibling
+      - rendered_host_mode
+    inspection_siblings:
+      - runsite_route_overlay
+      - runsite_tour
+      - approved_runsite_pack
+    launch_requirements:
+      - route_overlay_visible_before_playback
+      - route_overlay_reachable_during_playback
+      - tour_sibling_visible_when_available
+      - host_mode_never_only_surface
     proof_anchors:
       - approved_runsite_pack
+      - approved_route_summary
+      - inspectable_route_ref
+      - inspectable_pack_ref
       - route_preview
       - preview_card
       - publication_ref

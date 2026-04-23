@@ -33,6 +33,9 @@ The landing surface must let a normal person understand, in one visit:
 * Public status is advisory and explanatory; it does not overrule canonical design truth.
 * Provider names may appear only on dedicated auth and account-security surfaces, not on the landing hero or proof cards.
 * Download-facing copy and CTA labels must follow `PUBLIC_DOWNLOADS_POLICY.md` and `PUBLIC_AUTO_UPDATE_POLICY.md`.
+* Proof-shelf language is scoped to posted files, named flows, and recent checks a person can inspect today; it must not silently upgrade a preview lane into a flagship claim.
+* Fallback heads, archive packages, manual commands, and recovery routes must read as bounded compatibility, backup, or recovery paths rather than equal defaults.
+* Artifact-factory explainers, preview cards, captions, packet siblings, and proof-gallery artifacts may deepen inspection, but they must not be framed as the recommended install path, the authority over the install shelf, or as proof that the whole product is flagship-ready.
 
 ## Surface split
 
@@ -111,6 +114,10 @@ Allowed proof surfaces include:
 * public featured artifacts
 * public status summaries
 * grounded horizon cards that clearly say `horizon`, `preview`, `guided preview`, or `available today`
+
+Those surfaces may prove what is posted, inspectable, or recently checked today.
+They must not treat artifact-factory siblings, preview cards, or fallback routes as automatic proof of flagship readiness.
+They must not let a posted proof card, teaser artifact, explainer bundle, or packet sibling outrank the actual install shelf for a platform.
 
 The release shelf should feel like an install-and-update shelf first and an archive list second.
 It must present one obvious recommended default per platform before exposing advanced alternatives.

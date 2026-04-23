@@ -3,7 +3,7 @@ surface: chummer.run
 version: 1
 headline: Shadowrun rules truth, with receipts.
 subhead: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
-proof_line: Public preview, honest status, and clear proof of what works today.
+proof_line: Public preview, honest status, and inspectable proof for the files, named flows, and recent checks posted today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
@@ -24,15 +24,17 @@ secondary_highlights:
   - Deterministic engine
   - Rules receipts
   - Local-first continuity
-product_proof_eyebrow: Real product proof
-product_proof_intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+product_proof_eyebrow: Inspectable preview proof
+product_proof_intro: Create account to install the current preview, inspect one visible trail, and verify what the posted files and named flows can prove today without reading that proof as a flagship-complete claim, a fallback recommendation, or a substitute for the install shelf.
 product_proof_primary_label: Create account to install
 product_proof_primary_href: /downloads
 product_proof_secondary_label: Inspect the proof trail
 product_proof_secondary_href: /now#real-rules-truth
-product_proof_topline_label: Current preview
+product_proof_topline_label: Posted preview proof
+product_proof_scope_line: Proof on the public shelf is scoped to the posted files, named flows, and recent checks you can inspect today; it is not a blanket flagship-complete claim and it does not outrank the recommended install route.
+product_flagship_boundary_line: Preview proof, fallback routes, artifact explainers, and packet-detail artifacts can show real progress, but flagship wording is reserved for surfaces that independently clear the flagship acceptance bar.
 product_proof_result_title: Final pool 9
-product_proof_result_summary: Same inputs, same answer, with the trail and release posture still attached.
+product_proof_result_summary: Same inputs, same answer, with the trail, posted-shelf posture, and claim boundary still attached.
 product_proof_trail:
   - Base 11
   - Weather -1
@@ -147,6 +149,15 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: public explainer only
+  - path: /participate/karma-forge
+    title: KARMA FORGE discovery
+    audience: public
+    purpose: governed_future_signal_entry
+    requires_auth: false
+    guest_fallback: /participate/karma-forge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: governed discovery entry only
   - path: /artifacts
     title: Featured artifacts
     audience: public

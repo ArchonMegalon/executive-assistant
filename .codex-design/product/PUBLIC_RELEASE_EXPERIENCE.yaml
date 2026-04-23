@@ -4,12 +4,14 @@ version: 1
 guest_readable_channels:
   - stable
   - preview
-release_notes_summary: The current preview centers one clear public download, a visible proof trail, and help that matches the shelf you can actually use today.
+release_notes_summary: The current preview centers one clear public download, a visible proof trail, and help that matches the posted shelf you can actually use today without letting artifact explainers or fallback routes masquerade as the main route.
+proof_scope_summary: Public proof language is scoped to the files, named flows, and recent checks posted on the current shelf that a person can inspect today; it is not a blanket flagship-grade claim.
+flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, proof cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_flagship_head: Chummer.Avalonia
 desktop_fallback_head: Chummer.Blazor.Desktop
-desktop_cut_summary: The current desktop wave treats Avalonia as the flagship native preview head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and distinguishes promoted installers from manual packages when they differ.
+desktop_cut_summary: The current desktop wave treats Avalonia as the primary desktop preview head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and reserves flagship wording for lanes that independently satisfy flagship acceptance.
 supported_locale_targets:
   - en-US
   - de-DE
@@ -22,15 +24,23 @@ known_issues_href: /help#install-update
 install_help_label: Need install help?
 install_help_href: /help#install-update
 update_posture_summary: The release page is the source of truth for the current preview channel, the public download currently available for each platform, and whether setup is straightforward or still manual.
+public_concierge_summary: Public concierge widgets may appear only as bounded preview overlays on low-risk public surfaces; the fixed release route, visible fallback path, and recovery guidance remain first-party and must still work when the widget is disabled.
 flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
   - Avalonia is the flagship desktop head. Blazor Desktop is only a compatibility fallback when the platform matrix and release copy both say so.
   - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require flagship proof rather than fallback proof.
+  - Public proof shelf wording is limited to posted files, recent checks, and inspectable trails; it must not imply that all current product surfaces are flagship-ready.
+  - Public proof shelf wording must stay subordinate to the posted install shelf for each platform; proof cards and explainer bundles cannot outrank the actual download route.
+  - Public proof shelf wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
+  - Any public concierge widget on release, downloads, or help-entry surfaces must stay in preview-overlay posture and must not become release authority.
+  - Fixed route, fallback route, and recovery route language must remain distinct on public surfaces; warm concierge copy may not blur them.
   - The flagship release path starts with a guided Chummer product installer path first and opens the real workbench or restore continuation flow on first launch.
   - The happy path must not send the user to a browser to copy or paste a claim code by hand.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
   - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released artifacts.
   - The public shelf must not overclaim platform or feature posture just because internal proof artifacts exist.
+  - Artifact-factory previews, captions, packet siblings, explainers, and public packet-detail routes can prove inspectable output, but they do not by themselves promote a preview or fallback lane into a flagship claim or override the recommended install shelf.
+  - Concierge copy must not imply that a fix is already available, installed, or correct for this user unless the same claim is already true in first-party release or support truth.
   - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup proof.
   - Claim and restore guidance must not imply that a recovered workspace is safe when required rule packs or amend packages are missing locally.
 default_public_channel_label: Preview channel

@@ -153,12 +153,14 @@ Home and campaign workspaces may expose:
 
 - dossier packets
 - recap cards
-- briefings
+- campaign cold-open cards
+- mission briefings
 - evidence rooms
 - primers
 - other publication-safe artifacts
 
 Those outputs remain downstream of provenance-bearing truth. They do not become continuity truth themselves.
+Campaign cold-open and mission-briefing launches are first-class workspace promises only when they carry visible audience, locale, and source-pack posture instead of behaving like detached media links.
 
 ## Device roles
 
@@ -240,6 +242,13 @@ The same `workstation` may be used by:
 - a creator who publishes packets and primers
 
 Audience overlays may change what is emphasized on a workspace, but they must reuse the same underlying campaign, install, support, and artifact truth.
+
+Audience overlays also gate campaign artifact launch:
+
+- `campaign_joiner` and `player_safe` cold-opens may appear on shared campaign home surfaces
+- `mission_briefing` defaults to the player-safe variant on general campaign surfaces
+- `gm_only` briefing variants require explicit authority and must not leak through device-role shortcuts
+- locale fallback may change presentation language, but it may not change audience or spoiler class
 
 ## State model
 

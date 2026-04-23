@@ -31,6 +31,16 @@ Public help copy may offer both:
 
 That is a relationship choice, not a special per-user build.
 
+## Public concierge bounds
+
+When a public concierge widget appears on `/downloads`, `/now`, `/help`, or another public low-risk page:
+
+* the first-party help or release article remains the fixed truth
+* the widget is a preview overlay that helps the user choose a safe next step
+* fallback routes stay visible and must still work when the widget is disabled
+* recovery language must point at the real help, relinking, or escalation path instead of claiming the widget fixed anything itself
+* no claim codes, auth secrets, or private case identifiers belong in the widget
+
 ## Closure rule
 
 Help copy must not imply that "merged" means "fixed for you."

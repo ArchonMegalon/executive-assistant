@@ -1319,6 +1319,61 @@ items:
     owned_surfaces:
       - structured_media_recipe_execution
       - artifact_factory:receipts
+  - title: Store artifact-family identities, preview refs, caption refs, and publication bindings
+    task: Persist artifact identity, preview, caption, and publication-binding truth so signed-in and public shelves cite the same governed refs.
+    package_id: next90-m107-registry-artifact-family-bindings
+    work_task_id: 107.3
+    frontier_id: 4638396541
+    milestone_id: 107
+    wave: W9
+    repo: chummer6-hub-registry
+    status: complete
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M107 chummer6-hub-registry artifact family identity and publication binding storage is complete; future shards must verify this receipt, closeout note, registry row, queue row, and published release-channel artifacts instead of reopening the artifact-family identity package.
+    proof:
+      - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/ReleaseChannelContracts.cs
+      - /docker/chummercomplete/chummer-hub-registry/Chummer.Run.Registry/Services/ReleaseChannelManifestStore.cs
+      - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m107_registry_artifact_family_bindings.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/test_materialize_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
+      - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m107_registry_artifact_family_bindings.py
+      - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+      - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
+      - /docker/chummercomplete/chummer-hub-registry/docs/next90-m107-registry-artifact-family-bindings.md
+      - /docker/chummercomplete/chummer-hub-registry/docs/next90-m107-registry-artifact-family-bindings.closeout.md
+    allowed_paths:
+      - Chummer.Hub.Registry
+      - scripts
+      - docs
+    owned_surfaces:
+      - artifact_identity_registry
+      - artifact_publication_bindings
+  - title: Tighten artifact-factory and public-proof language so preview, proof, fallback, and flagship claims cannot blur together
+    task: Bound artifact-factory, preview, proof, fallback, and flagship wording so public shelf claims stay honest.
+    package_id: next90-m107-design-artifact-proof-language
+    work_task_id: 107.4
+    frontier_id: 3640572293
+    milestone_id: 107
+    wave: W9
+    repo: chummer6-design
+    status: complete
+    proof:
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_LANDING_POLICY.md now scopes proof-shelf wording to posted files, named flows, and recent checks a person can inspect today, and keeps fallback and artifact-factory language visibly subordinate to the install shelf.
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_DOWNLOADS_POLICY.md and PUBLIC_RELEASE_EXPERIENCE.yaml now separate recommended install routes from inspectable proof artifacts, fallback routes, and flagship claims.
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_LANDING_MANIFEST.yaml and FLAGSHIP_PRODUCT_BAR.md now keep inspectable preview proof, fallback language, and flagship language as distinct public promises.
+      - /docker/chummercomplete/chummer-design/products/chummer/public-guide/DOWNLOAD.md, README.md, and FROM_CHUMMER5A_TO_CHUMMER6.md now inherit the tightened proof-scope, fallback-only, and flagship-boundary wording.
+      - /docker/chummercomplete/chummer-design/scripts/ai/materialize_public_guide_bundle.py now keeps public-guide regeneration moving even when local derivative encoders such as `ffmpeg` are absent.
+      - /docker/chummercomplete/chummer-design/tests/test_materialize_public_guide_bundle.py covers the tightened public-proof wording and the derivative fail-soft path.
+      - /docker/chummercomplete/chummer-design/feedback/2026-04-23-next90-m107-design-artifact-proof-language.md records the package-local wording boundary and refresh scope for worker-safe resume.
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - artifact_policy:public_proof_shelf
+      - artifact_policy:flagship_claims
   - title: Compose campaign cold-open and mission-briefing bundles from approved packs
     task: Turn approved campaign primer and mission packs into locale-matched cold-open and briefing requests with audience-safe proof anchors.
     package_id: next90-m108-hub-campaign-briefing-bundles
@@ -1375,6 +1430,64 @@ items:
     owned_surfaces:
       - campaign_home:artifact_launch
       - mission_briefing:mobile
+  - title: Render campaign primer and mission briefing bundles with captions, previews, and fallback siblings
+    task: Render locale-matched cold-open and briefing bundles with captions, previews, and bounded fallback siblings.
+    package_id: next90-m108-media-factory-campaign-briefing-renders
+    work_task_id: 108.2
+    milestone_id: 108
+    wave: W10
+    repo: chummer6-media-factory
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - campaign_briefing_bundle_rendering
+      - campaign_artifact_receipts
+  - title: Surface primer and briefing artifacts in campaign home on the primary desktop route
+    task: Launch primer and mission-briefing artifacts from the promoted desktop campaign home without browser ritual.
+    package_id: next90-m108-ui-campaign-home-artifacts
+    work_task_id: 108.3
+    milestone_id: 108
+    wave: W10
+    repo: chummer6-ui
+    allowed_paths:
+      - Chummer.Avalonia
+      - Chummer.Desktop.Runtime
+      - Chummer.Tests
+      - scripts
+    owned_surfaces:
+      - campaign_home:artifact_launch
+      - mission_briefing:desktop
+  - title: Make campaign cold-open and mission-briefing artifacts first-class campaign OS promises with audience and locale rules
+    task: Keep campaign artifacts first-class but bounded by audience, locale, and spoiler-safe campaign OS rules.
+    package_id: next90-m108-design-campaign-briefing-canon
+    work_task_id: 108.5
+    frontier_id: 1728354534
+    milestone_id: 108
+    wave: W10
+    repo: chummer6-design
+    status: complete
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M108 chummer6-design campaign briefing canon is complete; future shards must verify the campaign artifact policy doc, machine-readable video brief rules, standard verifier wiring, feedback closeout note, and the canonical registry plus design queue rows instead of reopening the audience-locale spoiler-safe canon slice.
+    proof:
+      - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_COLD_OPEN_AND_MISSION_BRIEFING_POLICY.md
+      - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md
+      - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_AND_LANGUAGE_SYSTEM.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_VIDEO_BRIEFS.yaml
+      - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m108_design_campaign_briefing_canon.py
+      - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
+      - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-04-23-next90-m108-design-campaign-briefing-canon-closeout.md
+      - python3 scripts/ai/validate_next90_m108_design_campaign_briefing_canon.py exits 0.
+      - bash scripts/ai/verify.sh exits 0.
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - campaign_os:artifact_promise
+      - campaign_os:audience_locale_rules
   - title: Expose approved Build Lab explain packets and proof anchors for companion artifact generation
     task: Turn Build Lab explain output into approved packet anchors the artifact factory can render without losing engine truth.
     package_id: next90-m109-core-build-explain-packets
@@ -1440,6 +1553,50 @@ items:
     owned_surfaces:
       - build_explain:artifact_launch
       - explain_receipts:desktop
+  - title: Render build explainer video, audio, preview-card, and packet siblings from approved explain packets
+    task: Render approved Build Lab explain packets into video, audio, preview-card, and packet companions without mutating engine truth.
+    package_id: next90-m109-media-factory-build-explain-bundles
+    work_task_id: 109.3
+    milestone_id: 109
+    wave: W9
+    repo: chummer6-media-factory
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - build_explain_companion_rendering
+      - explain_artifact_receipts
+  - title: Keep Build and Explain artifact policy grounded in inspectable engine truth
+    task: Keep Build and Explain media claims subordinate to inspectable engine receipts, anchors, and approval truth.
+    package_id: next90-m109-design-explain-truth-policy
+    work_task_id: 109.4
+    frontier_id: 1886875416
+    milestone_id: 109
+    wave: W9
+    repo: chummer6-design
+    status: complete
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M109 chummer6-design explain truth policy is complete; future shards must verify the Build and Explain artifact policy doc, linked canon updates, standard verifier wiring, feedback closeout note, and the canonical registry plus design queue rows instead of reopening the inspectable-engine-truth claim-bounding slice.
+    proof:
+      - /docker/chummercomplete/chummer-design/products/chummer/BUILD_EXPLAIN_ARTIFACT_TRUTH_POLICY.md
+      - /docker/chummercomplete/chummer-design/products/chummer/BUILD_LAB_PRODUCT_MODEL.md
+      - /docker/chummercomplete/chummer-design/products/chummer/STRUCTURED_VIDEO_AND_NARRATED_MEDIA_MODEL.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_VIDEO_BRIEFS.yaml
+      - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_AND_LANGUAGE_SYSTEM.md
+      - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m109_design_explain_truth_policy.py
+      - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
+      - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-04-23-next90-m109-design-explain-truth-policy-closeout.md
+      - python3 scripts/ai/validate_next90_m109_design_explain_truth_policy.py exits 0.
+      - bash scripts/ai/verify.sh exits 0.
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - build_explain_policy
+      - inspectable_engine_truth:artifact_claims
   - title: Render runsite host clips, route previews, and orientation bundle receipts
     task: Make runsite orientation a first-class artifact bundle with host clips, previews, and route-linked receipts.
     package_id: next90-m110-media-factory-runsite-bundles
@@ -1503,6 +1660,65 @@ items:
     owned_surfaces:
       - runsite_host_mode:mobile
       - campaign_orientation:mobile
+  - title: Compose runsite orientation requests from approved runsite packs and route summaries
+    task: Compose governed runsite orientation requests from approved runsite packs, route summaries, and preview-safe pre-session truth.
+    package_id: next90-m110-hub-runsite-orientation-requests
+    work_task_id: 110.1
+    milestone_id: 110
+    wave: W10
+    repo: chummer6-hub
+    allowed_paths:
+      - Chummer.Run.Api
+      - scripts
+      - tests
+    owned_surfaces:
+      - runsite_orientation_requests
+      - route_summary:artifact_launch
+  - title: Surface orientation entry points and preview-safe pre-session launch flows for campaign members
+    task: Launch runsite orientation artifacts on mobile and travel shells with preview-safe pre-session entry points.
+    package_id: next90-m110-mobile-runsite-orientation-entry
+    work_task_id: 110.3
+    milestone_id: 110
+    wave: W10
+    repo: chummer6-mobile
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - campaign_orientation:mobile
+      - runsite_host_mode:entry
+  - title: Keep runsite host mode bounded under route, tour, and inspection truth
+    task: Bound host-mode orientation under route, tour, and inspection truth so media never becomes tactical authority.
+    package_id: next90-m110-design-runsite-host-bounds
+    work_task_id: 110.4
+    frontier_id: 2624042542
+    milestone_id: 110
+    wave: W10
+    repo: chummer6-design
+    status: complete
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M110 chummer6-design runsite host bounds is complete; future shards must verify the runsite host-mode policy doc, route/tour inspection truth updates, standard validator wiring, feedback closeout note, and the canonical registry plus design queue rows instead of reopening the media-never-becomes-tactical-authority slice.
+    proof:
+      - /docker/chummercomplete/chummer-design/products/chummer/RUNSITE_HOST_MODE_POLICY.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_VIDEO_BRIEFS.yaml
+      - /docker/chummercomplete/chummer-design/products/chummer/MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml
+      - /docker/chummercomplete/chummer-design/products/chummer/STRUCTURED_VIDEO_AND_NARRATED_MEDIA_MODEL.md
+      - /docker/chummercomplete/chummer-design/products/chummer/VIDBOARD_AND_LTD_WOW_FACTOR_WORKFLOWS.md
+      - /docker/chummercomplete/chummer-design/products/chummer/EXTERNAL_TOOLS_PLANE.md
+      - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m110_design_runsite_host_bounds.py
+      - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
+      - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-04-23-next90-m110-design-runsite-host-bounds-closeout.md
+      - python3 scripts/ai/validate_next90_m110_design_runsite_host_bounds.py exits 0.
+      - bash scripts/ai/verify.sh exits 0.
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - runsite_orientation_policy
+      - route_inspection_truth
   - title: Emit install-aware release, support, and public concierge packets from installed-build truth
     task: Compile support closure and release explainer packets, plus public trust wrapper flows with first-party fallbacks, from installed build, channel, and support-case truth.
     package_id: next90-m111-hub-support-concierge
@@ -1566,12 +1782,47 @@ items:
     owned_surfaces:
       - install_aware_artifact_registry
       - release_channel_truth:concierge
-  - title: Gate followthrough mail, public proof promotion, and concierge rollout against install-aware receipts
-    task: Promote release and support concierge artifacts and public trust-surface concierge flows only when install-aware recovery receipts, publication refs, and kill-switch posture agree.
+  - title: Render release explainer, support closure, and public concierge companion bundles with captions, previews, and sibling notes
+    task: Render install-aware release, support, and public concierge companions with captions, previews, and bounded sibling notes.
+    package_id: next90-m111-media-factory-concierge-bundles
+    work_task_id: 111.3
+    milestone_id: 111
+    wave: W9
+    repo: chummer6-media-factory
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - release_explainer_artifacts
+      - support_closure_artifacts
+      - public_concierge_companions
+  - title: Gate followthrough mail and public proof promotion against install-aware receipts
+    task: Promote release and support concierge artifacts only when install-aware recovery receipts and publication refs agree.
     package_id: next90-m111-fleet-install-aware-followthrough
+    work_task_id: 111.4
+    frontier_id: 5200108449
     milestone_id: 111
     wave: W9
     repo: fleet
+    status: complete
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M111 Fleet install-aware followthrough is complete; future shards must verify the install-aware gate receipt, standalone verifier, registry row, queue row, and design queue row instead of reopening the followthrough-mail and public-proof promotion package.
+    proof:
+      - /docker/fleet/scripts/materialize_next90_m111_fleet_install_aware_followthrough.py
+      - /docker/fleet/scripts/verify_next90_m111_fleet_install_aware_followthrough.py
+      - /docker/fleet/tests/test_materialize_next90_m111_fleet_install_aware_followthrough.py
+      - /docker/fleet/tests/test_verify_next90_m111_fleet_install_aware_followthrough.py
+      - /docker/fleet/scripts/verify_script_bootstrap_no_pythonpath.py
+      - /docker/fleet/tests/test_fleet_script_bootstrap_without_pythonpath.py
+      - /docker/fleet/.codex-studio/published/NEXT90_M111_FLEET_INSTALL_AWARE_FOLLOWTHROUGH.generated.json
+      - /docker/fleet/feedback/2026-04-23-next90-m111-fleet-install-aware-followthrough-closeout.md
+      - python3 tests/test_materialize_next90_m111_fleet_install_aware_followthrough.py exits 0
+      - python3 tests/test_verify_next90_m111_fleet_install_aware_followthrough.py exits 0
+      - python3 scripts/verify_next90_m111_fleet_install_aware_followthrough.py --artifact /docker/fleet/.codex-studio/published/NEXT90_M111_FLEET_INSTALL_AWARE_FOLLOWTHROUGH.generated.json --support-packets /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json --weekly-governor-packet /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json --weekly-product-pulse /docker/fleet/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json --progress-report /docker/fleet/.codex-design/product/PROGRESS_REPORT.generated.json --successor-registry /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml --queue-staging /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml --json exits 0
+      - regenerated queue closure metadata drift fails the standalone verifier
+      - regenerated registry closure metadata drift fails the standalone verifier
     allowed_paths:
       - scripts
       - tests
@@ -1580,7 +1831,33 @@ items:
     owned_surfaces:
       - install_aware_followthrough
       - product_governor:artifact_promotion
-      - product_governor:public_concierge
+  - title: Keep public concierge widgets bounded to low-risk public surfaces with honest fixed, fallback, preview, and recovery posture
+    task: Keep public concierge surfaces low-risk, bounded, and honest about preview, fallback, fixed, and recovery posture.
+    package_id: next90-m111-design-public-concierge-bounds
+    work_task_id: 111.5
+    milestone_id: 111
+    wave: W9
+    repo: chummer6-design
+    status: complete
+    frontier_id: 2596348058
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M111 chummer6-design public concierge bounds is complete; future shards must verify the public concierge policy docs, public-surface recovery posture rules, standard validator wiring, feedback closeout note, and the canonical registry plus design queue rows instead of reopening the low-risk public concierge bounds slice.
+    proof:
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_CONCIERGE_AND_TRUST_WIDGET_MODEL.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_CONCIERGE_WORKFLOWS.yaml
+      - /docker/chummercomplete/chummer-design/products/chummer/EXTERNAL_TOOLS_PLANE.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_DOWNLOADS_POLICY.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_HELP_COPY.md
+      - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml
+      - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m111_design_public_concierge_bounds.py
+      - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-04-23-next90-m111-design-public-concierge-bounds-closeout.md
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - public_concierge_policy
+      - recovery_posture:public_surfaces
   - title: Promote campaign consequence state into governed campaign APIs
     task: Land downtime, aftermath, heat, faction, contact, and reputation state with receipts and return-loop actions.
     package_id: next90-m112-hub-campaign-consequence-truth
@@ -1638,6 +1915,7 @@ items:
   - title: Publish rule-environment studio contracts and explain receipts
     task: Build amend-package lifecycle, promotion, diff, and explain-receipt contracts for downstream UI and support surfaces.
     package_id: next90-m114-core-rule-environment-studio
+    work_task_id: 114.1
     milestone_id: 114
     wave: W12
     repo: chummer6-core
@@ -1652,6 +1930,7 @@ items:
   - title: Add rule-environment studio entry points to desktop workflows
     task: Surface amend-package lifecycle, before-after diffs, and explain receipts in mechanical desktop workflows.
     package_id: next90-m114-ui-rule-studio
+    work_task_id: 114.2
     milestone_id: 114
     wave: W12
     repo: chummer6-ui
@@ -1663,9 +1942,39 @@ items:
     owned_surfaces:
       - rule_environment_studio:desktop
       - explain_receipts:desktop
+  - title: Keep campaign, support, and install-aware diagnostics tied to the same rule-environment receipts
+    task: Keep campaign, support, and install-aware diagnostics tied to the same rule-environment receipts.
+    package_id: next90-m114-hub-rule-environment-receipts
+    work_task_id: 114.3
+    milestone_id: 114
+    wave: W12
+    repo: chummer6-hub
+    allowed_paths:
+      - Chummer.Run.Api
+      - scripts
+      - tests
+    owned_surfaces:
+      - campaign_rule_environment_receipts
+      - support_rule_environment_receipts
+      - install_aware_support_receipts
+  - title: Tighten rules and explain canon so media companions can cite but never replace engine truth
+    task: Tighten rules and explain canon so media companions can cite but never replace engine truth.
+    package_id: next90-m114-design-rule-environment-policy
+    work_task_id: 114.4
+    milestone_id: 114
+    wave: W12
+    repo: chummer6-design
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - rule_environment_truth
+      - explain_policy:grounded_media
   - title: Define portable dossier, replay, recap, and exchange contracts
     task: Add lineage, compatibility, loss, provenance, and portability receipts for dossier, campaign, replay, recap, and external exchange outputs.
     package_id: next90-m115-core-exchange-contracts
+    work_task_id: 115.1
     milestone_id: 115
     wave: W12
     repo: chummer6-core
@@ -1677,9 +1986,25 @@ items:
     owned_surfaces:
       - portable_dossier_contracts
       - replay_recap_exchange_contracts
+  - title: Orchestrate campaign federation and replay or recap package flows from governed source packs
+    task: Orchestrate campaign federation and replay or recap package flows from governed source packs.
+    package_id: next90-m115-hub-dossier-federation-orchestration
+    work_task_id: 115.2
+    milestone_id: 115
+    wave: W12
+    repo: chummer6-hub
+    allowed_paths:
+      - Chummer.Run.Api
+      - scripts
+      - tests
+    owned_surfaces:
+      - dossier_federation:hub
+      - replay_package_federation
+      - recap_package_federation
   - title: Store lineage and publication refs for exchange artifacts
     task: Normalize provenance, compatibility, bounded-loss, and publication refs for dossier, campaign, replay, recap, and exchange artifacts.
     package_id: next90-m115-registry-exchange-lineage
+    work_task_id: 115.3
     milestone_id: 115
     wave: W12
     repo: chummer6-hub-registry
@@ -1690,9 +2015,40 @@ items:
     owned_surfaces:
       - exchange_lineage_registry
       - portability_truth
+  - title: Surface exchange, replay, and portability actions on desktop
+    task: Surface exchange, replay, and portability actions on desktop.
+    package_id: next90-m115-ui-portable-dossier
+    work_task_id: 115.4
+    milestone_id: 115
+    wave: W12
+    repo: chummer6-ui
+    allowed_paths:
+      - Chummer.Avalonia
+      - Chummer.Desktop.Runtime
+      - Chummer.Tests
+      - scripts
+    owned_surfaces:
+      - exchange_replay_ui
+      - portable_dossier_export_ui
+  - title: Render recap, replay, and exchange preview artifacts with receipts and siblings
+    task: Render recap, replay, and exchange preview artifacts with receipts and siblings.
+    package_id: next90-m115-media-factory-exchange-previews
+    work_task_id: 115.5
+    milestone_id: 115
+    wave: W12
+    repo: chummer6-media-factory
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - recap_preview_artifacts
+      - replay_exchange_preview_artifacts
   - title: Build creator publication discovery and moderation orchestration
     task: Make creator publication discovery, submission, moderation, trust ranking, and correction flows run from approved manifests.
     package_id: next90-m116-hub-creator-publication
+    work_task_id: 116.1
     milestone_id: 116
     wave: W13
     repo: chummer6-hub
@@ -1706,6 +2062,7 @@ items:
   - title: Publish creator lineage, moderation, ranking, and revocation facts
     task: Store creator artifact lineage, moderation, ranking, compatibility, and revocation facts in registry truth.
     package_id: next90-m116-registry-creator-trust
+    work_task_id: 116.2
     milestone_id: 116
     wave: W13
     repo: chummer6-hub-registry
@@ -1716,9 +2073,54 @@ items:
     owned_surfaces:
       - creator_trust_registry
       - publication_revocation_truth
+  - title: Surface creator publication and moderation actions on desktop
+    task: Surface creator publication and moderation actions on desktop.
+    package_id: next90-m116-ui-creator-publication
+    work_task_id: 116.3
+    milestone_id: 116
+    wave: W13
+    repo: chummer6-ui
+    allowed_paths:
+      - Chummer.Avalonia
+      - Chummer.Desktop.Runtime
+      - Chummer.Tests
+      - scripts
+    owned_surfaces:
+      - creator_publication:desktop
+      - moderation_flow:desktop
+  - title: Render creator promo kits from approved manifests
+    task: Render creator promo kits from approved manifests.
+    package_id: next90-m116-media-factory-creator-promo-kits
+    work_task_id: 116.4
+    milestone_id: 116
+    wave: W13
+    repo: chummer6-media-factory
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - creator_promo_kits
+      - publication_preview_artifacts
+  - title: Keep creator publication language honest about trust ranking and moderation
+    task: Keep creator publication language honest about trust ranking, moderation, and compatibility.
+    package_id: next90-m116-design-creator-publication-policy
+    work_task_id: 116.5
+    milestone_id: 116
+    wave: W13
+    repo: chummer6-design
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - creator_publication_policy
+      - trust_ranking_claims
   - title: Build artifact shelf APIs and audience filters
     task: Serve personal, campaign, creator, and public artifact shelves with proof, preview, captions, sibling packets, audience, locale, retention, and publication state.
     package_id: next90-m117-hub-artifact-shelf-v2
+    work_task_id: 117.1
     milestone_id: 117
     wave: W13
     repo: chummer6-hub
@@ -1732,6 +2134,7 @@ items:
   - title: Add artifact shelf entry points to desktop surfaces
     task: Expose artifact shelves from desktop home, campaign, build, and publication surfaces without hiding source truth.
     package_id: next90-m117-ui-artifact-shelf
+    work_task_id: 117.3
     milestone_id: 117
     wave: W13
     repo: chummer6-ui
@@ -1743,9 +2146,53 @@ items:
     owned_surfaces:
       - artifact_shelf:desktop
       - public_proof_shelf:desktop
+  - title: Normalize shelf refs for preview, caption, locale, retention, and publication state
+    task: Normalize shelf refs for preview, caption, locale, retention, and publication state.
+    package_id: next90-m117-hub-registry-artifact-shelf
+    work_task_id: 117.2
+    milestone_id: 117
+    wave: W13
+    repo: chummer6-hub-registry
+    allowed_paths:
+      - Chummer.Hub.Registry
+      - scripts
+      - docs
+    owned_surfaces:
+      - artifact_shelf:registry
+      - shelf_ref_normalization
+  - title: Add mobile artifact shelf views for campaign, travel, and recap artifacts
+    task: Add mobile artifact shelf views for campaign, travel, and recap artifacts.
+    package_id: next90-m117-mobile-artifact-shelf
+    work_task_id: 117.4
+    milestone_id: 117
+    wave: W13
+    repo: chummer6-mobile
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - artifact_shelf:mobile
+      - artifact_recap_view:mobile
+  - title: Keep shelf policy tied to audience, locale, retention, and inspectable source truth
+    task: Keep shelf policy tied to audience, locale, retention, and inspectable source truth.
+    package_id: next90-m117-design-artifact-shelf-policy
+    work_task_id: 117.5
+    milestone_id: 117
+    wave: W13
+    repo: chummer6-design
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - artifact_shelf_policy
+      - shelf_truth_boundaries
   - title: Land organizer, league, convention, and season contracts
     task: Add roles, rosters, events, permissions, artifact publication, and support escalation contracts for community-scale operations.
     package_id: next90-m118-hub-organizer-ops
+    work_task_id: 118.1
     milestone_id: 118
     wave: W13
     repo: chummer6-hub
@@ -1756,10 +2203,26 @@ items:
     owned_surfaces:
       - organizer_ops
       - league_convention_season_ops
+  - title: Surface organizer operations on desktop without confusing GM, player, creator, and operator roles.
+    task: Surface organizer operations on desktop without confusing GM, player, creator, and operator roles.
+    package_id: next90-m118-ui-organizer-ops
+    work_task_id: 118.2
+    milestone_id: 118
+    wave: W13
+    repo: chummer6-ui
+    allowed_paths:
+      - Chummer.Avalonia
+      - Chummer.Desktop.Runtime
+      - Chummer.Tests
+      - scripts
+    owned_surfaces:
+      - organizer_ops:desktop
+      - organizer_roles_ui
   - title: Compile organizer health and publication readiness packets
     task: Add fleet and EA operator-loop packets for organizer health, event prep, support risk, and publication readiness.
     package_id: next90-m118-fleet-ea-organizer-packets
     milestone_id: 118
+    work_task_id: 118.4
     wave: W13
     repo: fleet
     allowed_paths:
@@ -1770,9 +2233,38 @@ items:
     owned_surfaces:
       - organizer_health_packets
       - publication_readiness:operator
+  - title: Compile organizer packets, event prep, and followthrough from governed operations truth.
+    task: Compile organizer packets, event prep, and followthrough from governed operations truth.
+    package_id: next90-m118-ea-organizer-followthrough
+    work_task_id: 118.3
+    milestone_id: 118
+    wave: W13
+    repo: executive-assistant
+    allowed_paths:
+      - scripts
+      - feedback
+      - docs
+    owned_surfaces:
+      - organizer_followthrough:ea
+      - event_prep_packets
+  - title: Define role and audit boundaries for community-scale operations.
+    task: Define role and audit boundaries for community-scale operations.
+    package_id: next90-m118-design-organizer-boundaries
+    work_task_id: 118.5
+    milestone_id: 118
+    wave: W13
+    repo: chummer6-design
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - organizer_roles_policy
+      - community_scale_audit_boundaries
   - title: Orchestrate guided first-playable-session onboarding
     task: Join install, claim, campaign primer, starter build, briefing, and support-safe recovery into a measured first-session lane.
     package_id: next90-m119-hub-first-session-onboarding
+    work_task_id: 119.1
     milestone_id: 119
     wave: W14
     repo: chummer6-hub
@@ -1786,6 +2278,7 @@ items:
   - title: Render starter primer and first-session companion artifacts
     task: Produce localized starter primers, first-session briefings, and support-safe onboarding artifacts from approved source packs.
     package_id: next90-m119-media-factory-starter-artifacts
+    work_task_id: 119.4
     milestone_id: 119
     wave: W14
     repo: chummer6-media-factory
@@ -1797,9 +2290,54 @@ items:
     owned_surfaces:
       - starter_primer_artifacts
       - first_session_briefing_artifacts
+  - title: Add first playable session flow to desktop home and campaign entry points
+    task: Add first playable session flow to desktop home and campaign entry points.
+    package_id: next90-m119-ui-first-session-flow
+    work_task_id: 119.2
+    milestone_id: 119
+    wave: W14
+    repo: chummer6-ui
+    allowed_paths:
+      - Chummer.Avalonia
+      - Chummer.Desktop.Runtime
+      - Chummer.Tests
+      - scripts
+    owned_surfaces:
+      - first_playable_session:desktop
+      - campaign_entry:first_session
+  - title: Add travel and mobile starter continuity for primer and briefing artifacts
+    task: Add travel and mobile starter continuity for primer and briefing artifacts.
+    package_id: next90-m119-mobile-onboarding-continuity
+    work_task_id: 119.3
+    milestone_id: 119
+    wave: W14
+    repo: chummer6-mobile
+    allowed_paths:
+      - src
+      - tests
+      - docs
+      - scripts
+    owned_surfaces:
+      - starter_onboarding:mobile
+      - first_session_briefing:mobile
+  - title: Define first-playable-session success metrics and bounded onboarding claims
+    task: Define first-playable-session success metrics and bounded onboarding claims.
+    package_id: next90-m119-design-onboarding-metrics
+    work_task_id: 119.5
+    milestone_id: 119
+    wave: W14
+    repo: chummer6-design
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - onboarding_metrics
+      - onboarding_claims
   - title: Publish public trust, status, release, and proof-shelf surfaces from governor truth
     task: Compile live, preview, fallback, revoked, fixed, blocked, proof freshness, support pulse, and adoption health into public status surfaces.
     package_id: next90-m120-hub-public-launch-health
+    work_task_id: 120.1
     milestone_id: 120
     wave: W14
     repo: chummer6-hub
@@ -1813,6 +2351,7 @@ items:
   - title: Compile launch pulse and adoption health into governor packets
     task: Produce launch pulse, adoption health, support risk, proof freshness, and public followthrough packets from governed release truth.
     package_id: next90-m120-fleet-launch-pulse
+    work_task_id: 120.3
     milestone_id: 120
     wave: W14
     repo: fleet
@@ -1824,4 +2363,47 @@ items:
     owned_surfaces:
       - launch_pulse
       - adoption_health:governor
+  - title: Normalize adoption health, proof freshness, release channel, and revocation facts for public surfaces
+    task: Normalize adoption health, proof freshness, release channel, and revocation facts for public surfaces.
+    package_id: next90-m120-hub-registry-launch-truth
+    work_task_id: 120.2
+    milestone_id: 120
+    wave: W14
+    repo: chummer6-hub-registry
+    allowed_paths:
+      - Chummer.Hub.Registry
+      - scripts
+      - docs
+    owned_surfaces:
+      - public_trust_metrics
+      - revocation_facts
+  - title: Draft reporter, operator, and public followthrough from launch-pulse truth
+    task: Draft reporter, operator, and public followthrough from launch-pulse truth.
+    package_id: next90-m120-ea-launch-pulse-followthrough
+    work_task_id: 120.4
+    milestone_id: 120
+    wave: W14
+    repo: executive-assistant
+    allowed_paths:
+      - skills
+      - feedback
+      - docs
+      - tests
+    owned_surfaces:
+      - launch_followthrough_drafts
+      - reporter_followthrough:public
+  - title: Keep public launch health language precise about live, preview, fallback, fixed, revoked, and blocked posture
+    task: Keep public launch health language precise about live, preview, fallback, fixed, revoked, and blocked posture.
+    package_id: next90-m120-design-launch-health-language
+    work_task_id: 120.5
+    milestone_id: 120
+    wave: W14
+    repo: chummer6-design
+    allowed_paths:
+      - products
+      - scripts
+      - feedback
+    owned_surfaces:
+      - public_launch_health_language
+      - launch_posture_claims
 source_queue_fingerprint: next90-staging-20260415-next-big-wins-widening
