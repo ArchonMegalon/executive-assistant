@@ -106,53 +106,55 @@ milestones:
           - /docker/fleet/tests/test_materialize_external_proof_runbook.py, /docker/fleet/tests/test_verify_external_proof_closure.py, and /docker/fleet/tests/test_verify_next90_m101_fleet_external_proof_lane.py cover runbook, closure, and package-verifier regressions including zero-backlog host-lane retention and design-queue assignment drift.
           - /docker/fleet/scripts/verify_script_bootstrap_no_pythonpath.py and /docker/fleet/tests/test_fleet_script_bootstrap_without_pythonpath.py include the standalone M101 verifier in no-PYTHONPATH bootstrap proof.
           - /docker/fleet/feedback/2026-04-19-next90-m101-fleet-external-proof-lane-closeout.md records the do-not-reopen rule and exact proof anchors for future shards.
+          - /docker/fleet commit 4e8295bb tightens the M101 external proof lane guard so encoded run-control citations cannot close the completed package.
       - id: 101.2
         owner: chummer6-hub-registry
         title: Publish per-head promotion, fallback, and rollback rationale directly in channel truth.
         status: complete
         evidence:
-          - /docker/chummercomplete/chummer6-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json now publishes verifier-bound desktopTupleCoverage.desktopRouteTruth rows for Avalonia primary and Blazor fallback on Linux, Windows, and macOS.
-          - /docker/chummercomplete/chummer6-hub-registry/.codex-studio/published/releases.json carries matching verifier-bound desktopRouteTruth rows so the compatibility download shelf cannot drift from canonical release-channel truth.
-          - /docker/chummercomplete/chummer6-hub-registry/scripts/verify_public_release_channel.py fail-closes missing, blank, stale, or non-canonical promotion, fallback, rollback, revoke, update, and install-posture rationale.
-          - /docker/chummercomplete/chummer6-hub-registry/scripts/verify_next90_m101_registry_promotion_discipline.py fail-closes canonical registry, Fleet queue staging, release-channel, compatibility-shelf, pipeline-doc, closeout-doc, worklist, and standard verify wiring drift for this completed package.
-          - /docker/chummercomplete/chummer6-hub-registry/docs/next90-m101-registry-promotion-discipline.proof.yaml records the successor frontier id, landed commit, owned surfaces, allowed paths, exact six desktop route-truth tuples, guardrails, and do-not-reopen conditions.
-          - /docker/chummercomplete/chummer6-hub-registry/docs/next90-m101-registry-promotion-discipline.closeout.md records the do-not-reopen rule and exact proof conditions for future shards.
-          - /docker/chummercomplete/chummer6-hub-registry commit b404b36 tightens the package verifier so Fleet and design queue staging must both pin successor frontier 3017689961 for this completed package row.
-          - /docker/chummercomplete/chummer6-hub-registry commit 5d948b1 pins the latest M101 tuple self-test proof floor into the verifier, proof receipt, and closeout note so future shards verify the closed package instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit e91fe39 tightens the M101 self-test so completed queue proof fails on wrong successor frontier or non-complete package status.
-          - /docker/chummercomplete/chummer6-hub-registry commit 1586dfc pins the M101 queue authority guard so future shards verify the completed package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit f1d0763 pins the latest M101 queue authority proof so future shards verify the current completed-package floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit e88ac6c tightens the M101 guardrail commit self-test so future shards verify the current completed-package floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 8391bdb tightens M101 canonical proof hygiene so future shards reject active-run helper evidence in canonical registry and queue authority rows.
-          - /docker/chummercomplete/chummer6-hub-registry commit 868f85b pins the M101 closeout headline guard so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 87cfff0 pins the current M101 registry proof floor so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit df3587f tightens M101 authority helper proof self-test so future shards prove canonical registry, Fleet queue, and design queue rows all reject active-run helper evidence.
-          - /docker/chummercomplete/chummer6-hub-registry commit 2cd1872 pins the M101 authority helper proof guard so future shards verify the current completed-package floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit d8f3911 pins the M101 authority helper proof floor so future shards verify the latest completed-package guard instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 894c200 pins the M101 authority proof floor so future shards verify the latest completed-package guard instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 061cc27 tightens the M101 helper proof casing guard so canonical registry, Fleet queue, design queue, proof receipt, and closeout helper-evidence scans are case-insensitive.
-          - /docker/chummercomplete/chummer6-hub-registry commit 66564d4 pins the M101 mixed-case helper proof guard so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 800b65d pins M101 mixed-case helper proof floor so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit e16f6aa tightens M101 design queue proof guard so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 5c799e0 pins M101 design queue proof floor so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 572b677 pins the repo-local M101 proof receipt and closeout to the 5c799e0 proof floor.
-          - /docker/chummercomplete/chummer6-hub-registry commit f2b4ef6 tightens M101 queue scope guard so future shards verify exact allowed paths and owned surfaces instead of repeating or widening this completed package.
-          - /docker/chummercomplete/chummer6-hub-registry commit d1c9a12 pins the M101 queue-scope proof floor into the verifier, proof receipt, and closeout note.
-          - /docker/chummercomplete/chummer6-hub-registry commit cfb928b pins the M101 queue proof citation floor so canonical registry and queue staging cite the current completed-package proof floor.
-          - /docker/chummercomplete/chummer6-hub-registry commit 2f7a422 tightens the M101 duplicate route-truth guard so future shards reject repeated desktopTupleCoverage.desktopRouteTruth tuple ids instead of repeating the completed package.
-          - /docker/chummercomplete/chummer6-hub-registry commit b3a945b tightens the M101 tuple rationale and encoded helper proof floor so future shards verify the current completed-package proof instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit c8829ac tightens the M101 closed queue proof so Fleet and design queue rows must carry verify_closed_package_only plus a package-specific do-not-reopen reason before future shards trust the completed package row.
-          - /docker/chummercomplete/chummer6-hub-registry commit 2dbbd5e tightens the M101 duplicate closed queue row guard so Fleet and design queue staging cannot carry copied completed-package rows that make future shards repeat or fork this package.
-          - /docker/chummercomplete/chummer6-hub-registry commit 75a248f tightens the M101 queue identity guard so Fleet and design queue staging must keep the assigned title, task, and wave on the completed package row.
-          - /docker/chummercomplete/chummer6-hub-registry commit d767fba pins M101 route proof command floor so future shards verify the current completed-package proof floor instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 63a5583 tightens M101 desktop rollback route truth so primary rollback posture must match sibling fallback route truth before future shards trust the completed package row.
-          - /docker/chummercomplete/chummer6-hub-registry commit 0b52f5f tightens M101 sibling fallback rollback rationale so primary rollback reasons name the exact fallback route id before future shards trust the completed package row.
-          - /docker/chummercomplete/chummer6-hub-registry commit 98f8b88 pins the M101 fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 1cf64e1 pins M101 current fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
-          - /docker/chummercomplete/chummer6-hub-registry commit 49dd07a tightens the M101 route-truth row-shape guard so future shards reject non-object desktop route-truth rows instead of repeating the current completed-package guard.
-          - /docker/chummercomplete/chummer6-hub-registry commit acb881d tightens the M101 projection alias proof guard so future shards reject release-channel versus compatibility-shelf alias drift on generatedAt/generated_at and keep the documented six-tuple successor matrix aligned with the completed-package guard.
-          - /docker/chummercomplete/chummer6-hub-registry commit a1da9ca tightens the M101 exact route-tuple rationale proof so future shards reject platform-only desktop route rationale and verify the direct regression tests together with the canonical release-channel rows.
-          - /docker/chummercomplete/chummer6-hub-registry commit a4e47da landed the package slice and ./scripts/ai/verify.sh exits 0.
+          - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json now publishes verifier-bound desktopTupleCoverage.desktopRouteTruth rows for Avalonia primary and Blazor fallback on Linux, Windows, and macOS.
+          - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json carries matching verifier-bound desktopRouteTruth rows so the compatibility download shelf cannot drift from canonical release-channel truth.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py fail-closes missing, blank, stale, or non-canonical promotion, fallback, rollback, revoke, update, and install-posture rationale.
+          - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m101_registry_promotion_discipline.py fail-closes canonical registry, Fleet queue staging, release-channel, compatibility-shelf, pipeline-doc, closeout-doc, worklist, and standard verify wiring drift for this completed package.
+          - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.proof.yaml records the successor frontier id, landed commit, owned surfaces, allowed paths, exact six desktop route-truth tuples, guardrails, and do-not-reopen conditions.
+          - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.closeout.md records the do-not-reopen rule and exact proof conditions for future shards.
+          - /docker/chummercomplete/chummer-hub-registry commit b404b36 tightens the package verifier so Fleet and design queue staging must both pin successor frontier 3017689961 for this completed package row.
+          - /docker/chummercomplete/chummer-hub-registry commit 5d948b1 pins the latest M101 tuple self-test proof floor into the verifier, proof receipt, and closeout note so future shards verify the closed package instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit e91fe39 tightens the M101 self-test so completed queue proof fails on wrong successor frontier or non-complete package status.
+          - /docker/chummercomplete/chummer-hub-registry commit 1586dfc pins the M101 queue authority guard so future shards verify the completed package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit f1d0763 pins the latest M101 queue authority proof so future shards verify the current completed-package floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit e88ac6c tightens the M101 guardrail commit self-test so future shards verify the current completed-package floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 8391bdb tightens M101 canonical proof hygiene so future shards reject active-run helper evidence in canonical registry and queue authority rows.
+          - /docker/chummercomplete/chummer-hub-registry commit 868f85b pins the M101 closeout headline guard so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 87cfff0 pins the current M101 registry proof floor so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit df3587f tightens M101 authority helper proof self-test so future shards prove canonical registry, Fleet queue, and design queue rows all reject active-run helper evidence.
+          - /docker/chummercomplete/chummer-hub-registry commit 2cd1872 pins the M101 authority helper proof guard so future shards verify the current completed-package floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit d8f3911 pins the M101 authority helper proof floor so future shards verify the latest completed-package guard instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 894c200 pins the M101 authority proof floor so future shards verify the latest completed-package guard instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 061cc27 tightens the M101 helper proof casing guard so canonical registry, Fleet queue, design queue, proof receipt, and closeout helper-evidence scans are case-insensitive.
+          - /docker/chummercomplete/chummer-hub-registry commit 66564d4 pins the M101 mixed-case helper proof guard so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 800b65d pins M101 mixed-case helper proof floor so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit e16f6aa tightens M101 design queue proof guard so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 5c799e0 pins M101 design queue proof floor so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 572b677 pins the repo-local M101 proof receipt and closeout to the 5c799e0 proof floor.
+          - /docker/chummercomplete/chummer-hub-registry commit f2b4ef6 tightens M101 queue scope guard so future shards verify exact allowed paths and owned surfaces instead of repeating or widening this completed package.
+          - /docker/chummercomplete/chummer-hub-registry commit d1c9a12 pins the M101 queue-scope proof floor into the verifier, proof receipt, and closeout note.
+          - /docker/chummercomplete/chummer-hub-registry commit cfb928b pins the M101 queue proof citation floor so canonical registry and queue staging cite the current completed-package proof floor.
+          - /docker/chummercomplete/chummer-hub-registry commit 2f7a422 tightens the M101 duplicate route-truth guard so future shards reject repeated desktopTupleCoverage.desktopRouteTruth tuple ids instead of repeating the completed package.
+          - /docker/chummercomplete/chummer-hub-registry commit b3a945b tightens the M101 tuple rationale and encoded helper proof floor so future shards verify the current completed-package proof instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit c8829ac tightens the M101 closed queue proof so Fleet and design queue rows must carry verify_closed_package_only plus a package-specific do-not-reopen reason before future shards trust the completed package row.
+          - /docker/chummercomplete/chummer-hub-registry commit 2dbbd5e tightens the M101 duplicate closed queue row guard so Fleet and design queue staging cannot carry copied completed-package rows that make future shards repeat or fork this package.
+          - /docker/chummercomplete/chummer-hub-registry commit 75a248f tightens the M101 queue identity guard so Fleet and design queue staging must keep the assigned title, task, and wave on the completed package row.
+          - /docker/chummercomplete/chummer-hub-registry commit d767fba pins M101 route proof command floor so future shards verify the current completed-package proof floor instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 63a5583 tightens M101 desktop rollback route truth so primary rollback posture must match sibling fallback route truth before future shards trust the completed package row.
+          - /docker/chummercomplete/chummer-hub-registry commit 0b52f5f tightens M101 sibling fallback rollback rationale so primary rollback reasons name the exact fallback route id before future shards trust the completed package row.
+          - /docker/chummercomplete/chummer-hub-registry commit 98f8b88 pins the M101 fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 1cf64e1 pins M101 current fallback rollback proof floor so future shards verify the current completed-package guard instead of repeating it.
+          - /docker/chummercomplete/chummer-hub-registry commit 49dd07a tightens the M101 route-truth row-shape guard so future shards reject non-object desktop route-truth rows instead of repeating the current completed-package guard.
+          - /docker/chummercomplete/chummer-hub-registry commit acb881d tightens the M101 projection alias proof guard so future shards reject release-channel versus compatibility-shelf alias drift on generatedAt/generated_at and keep the documented six-tuple successor matrix aligned with the completed-package guard.
+          - /docker/chummercomplete/chummer-hub-registry commit a1da9ca tightens the M101 exact route-tuple rationale proof so future shards reject platform-only desktop route rationale and verify the direct regression tests together with the canonical release-channel rows.
+          - /docker/chummercomplete/chummer-hub-registry commit 9919487 tightens M101 route rollback rationale proof so future shards reject generic primary fallback absence codes, missing sibling fallback rows, and generic non-revoked revoke rationale instead of repeating the completed package.
+          - /docker/chummercomplete/chummer-hub-registry commit a4e47da landed the package slice and ./scripts/ai/verify.sh exits 0.
       - id: 101.3
         owner: chummer6-ui
         title: Keep Avalonia primary-route proof independent from Blazor fallback proof on every promoted tuple.
@@ -440,6 +442,9 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 47a831ba hardens claimed install continuation action sanitization so trusted native absolute actions survive while query and fragment install-link secrets are redacted from support continuation receipts.
           - /docker/chummercomplete/chummer6-hub commit 9c0f3c17 pins the M102 receipt route proof citation.
           - /docker/chummercomplete/chummer6-hub commit 2fc1d739 pins the M102 current proof floor.
+          - /docker/chummercomplete/chummer6-hub commit f233069f hardens M102 native support requested-action secret redaction.
+          - /docker/chummercomplete/chummer6-hub commit 7be45a1b hardens M102 encoded hash separator secret redaction.
+          - /docker/chummercomplete/chummer6-hub commit e054d2f1 pins the M102 encoded hash proof floor.
           - python3 scripts/verify_desktop_native_trust_receipts.py and python3 -m unittest tests/test_desktop_native_trust_receipts.py exit 0.
           - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests" --no-restore exits 0 for net10.0 and net10.0-windows.
       - id: 102.2
@@ -709,10 +714,11 @@ milestones:
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shell/SectionPane.razor exposes Build Lab blocker receipts and before-after environment diffs in the desktop fallback build surface.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shared/RuntimeInspectorPanel.razor keeps the visible support diagnostics receipt and before-after environment diff grounded on the Blazor runtime inspector surface.
           - /docker/chummercomplete/chummer6-ui-finish/.codex-studio/published/NEXT90_M104_UI_EXPLAIN_RECEIPTS.generated.json records registry, queue, owned-surface, required-proof, and source-marker pass evidence for the desktop explain receipt slice.
-          - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh fail-closes missing registry authority, queue closure, required proof files, owned-surface markers, import receipts, build blocker receipts, and support diagnostics diffs.
+          - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh fail-closes missing registry authority, queue closure, required proof files, owned-surface markers, visible import receipts, build blocker receipts, and support diagnostics diffs.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/DesktopCrashRuntimeTests.cs verifies crash recovery summaries and receipt lines include the grounded explain receipt and before-after environment diff.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/BlazorShellComponentTests.cs covers the visible Blazor result-panel and runtime-inspector trust receipt surfaces so the closed package remains bound to the user-facing desktop fallback UI.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/DesktopTrustPanelFactoryTests.cs covers the Avalonia trust-panel fallback and section-heading render path so the closed package remains bound to the visible receipt surface instead of text helpers alone.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Compliance/Next90M104WorkerSafeProofCommandTests.cs proves the completed-package receipt and guard constants use direct worker-safe proof commands instead of blocked run-control evidence.
           - /docker/chummercomplete/chummer6-ui-finish commit b0f5a122 tightens the successor queue proof so the completed M104 package fails closed if allowed_paths or owned_surfaces widen beyond the assigned slice.
           - /docker/chummercomplete/chummer6-ui-finish commit 0a2a321f tightens M104 explain receipt guard wiring so the compliance guard is part of the completed package proof chain.
           - /docker/chummercomplete/chummer6-ui-finish commit 2c29f1be tightens M104 explain receipt commit proof so the completed package remains bound to the landed implementation commit.
@@ -758,6 +764,7 @@ milestones:
           - /docker/chummercomplete/chummer6-ui-finish commit 68b55e6e tightens M104 desktop diagnostics proof so the completed package stays bound to crash-safe support diagnostics and build blocker receipts.
           - /docker/chummercomplete/chummer6-ui-finish commit 083283e9 tightens M104 desktop explain receipt proof so closureGuard, crash diagnostics, and verify_closed_package_only proof stay pinned together.
           - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopCrashRuntimeTests|Next90M104ExplainReceiptsGuardTests" --no-restore exits 0.
+          - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "Next90M104WorkerSafeProofCommandTests" --no-restore exits 0.
           - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "BlazorShellComponentTests|AccessibilitySignoffSmokeTests" --no-restore exits 0.
           - bash scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh exits 0.
       - id: 104.4
@@ -901,6 +908,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 125aa82e recovers blank restore conflict summaries and pins the fallback in M105 workspace receipt proof.
           - /docker/chummercomplete/chummer6-hub commit da9bb74c pins the blank restore conflict summary proof in the package verifier and commit-resolution test.
           - /docker/chummercomplete/chummer6-hub commit fdac7b2f tightens the M105 closed queue action guard so Fleet and design queue rows must carry verify_closed_package_only plus the package-specific do-not-reopen reason.
+          - /docker/chummercomplete/chummer6-hub commit afea8813 tightens M105 typed recovery actions for workspace restore and entitlement conflict receipts.
           - /docker/chummercomplete/chummer6-hub commit 11a9662f pins the current M105 workspace proof floor into the closed-package verifier.
           - /docker/chummercomplete/chummer6-hub commit ec1bb219 tightens the M105 queue identity guard so copied title or frontier rows cannot make future shards repeat the closed workspace continuity package.
           - /docker/chummercomplete/chummer6-hub commit ea99e70a wires the M105 queue identity guard into standard Hub verification so future shards verify the closed queue row instead of repeating the workspace continuity package.
