@@ -292,7 +292,7 @@ def test_published_queue_overlay_stays_empty_for_materialized_uncovered_scope() 
     assert mirror_item["owned_surfaces"] == ["design_mirror:ea"]
     assert mirror_item["allowed_paths"] == [".codex-design"]
     assert mirror_item["source_items"] == [
-        "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
         "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
     assert (
@@ -311,6 +311,19 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     assert "EA_ROLE=api" in compose
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose
+
+
+def test_operator_help_and_docs_surface_design_mirror_bundle_maintenance() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "scripts/repair_design_mirror_bundle.sh" in makefile
+    assert "verify-design-mirror-bundle" in makefile
+    assert "repair-design-mirror-bundle" in makefile
+    assert "make verify-design-mirror-bundle" in readme
+    assert "make repair-design-mirror-bundle" in readme
+    assert "scripts/repair_design_mirror_bundle.sh" in runbook
 
 
 def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
@@ -369,6 +382,8 @@ def test_operator_summary_prints_grounded_packet_guidance() -> None:
     assert "support/help:" in result.stdout
     assert "support fallout:" in result.stdout
     assert "guide freshness:" in result.stdout
+    assert "overlay vision:" in result.stdout
+    assert "make overlay-vision-check" in result.stdout
 
 
 def test_support_bundle_writes_grounding_summary() -> None:

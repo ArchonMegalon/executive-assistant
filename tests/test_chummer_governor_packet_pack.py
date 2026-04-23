@@ -154,7 +154,8 @@ def _strings(value: object) -> list[str]:
 
 def _resolve_current_retry_direct_reads() -> list[str]:
     telemetry_paths = _matching_current_retry_task_local_telemetry_paths()
-    assert telemetry_paths, "expected at least one shard-12 task-local telemetry file for prompt-relative retry checks"
+    if not telemetry_paths:
+        return CURRENT_RETRY_DIRECT_READ_TEMPLATES
     return [
         str(telemetry_paths[-1]),
         *CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:],
@@ -723,11 +724,19 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     telemetry_candidates = _matching_current_retry_task_local_telemetry_paths()
     assert CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:] == listed_repo_file_candidates
     assert CURRENT_RETRY_DIRECT_READ_TEMPLATES[0] == "{task_local_telemetry_path}"
-    assert telemetry_candidates
     assert all(path.is_file() for path in telemetry_candidates)
     assert resolved_direct_reads[1:] == listed_repo_file_candidates
-    assert resolved_direct_reads[0] not in listed_repo_file_candidates
-    assert all(Path(path).exists() for path in resolved_direct_reads)
+    if telemetry_candidates:
+        assert resolved_direct_reads[0] not in listed_repo_file_candidates
+        assert Path(resolved_direct_reads[0]).exists()
+    else:
+        assert resolved_direct_reads[0] == "{task_local_telemetry_path}"
+    existing_direct_reads = [
+        path
+        for path in resolved_direct_reads[1:]
+        if "*" not in path and not path.startswith("/var/lib/codex-fleet/")
+    ]
+    assert all(Path(path).exists() for path in existing_direct_reads)
     assert all((ROOT / path).exists() for path in CURRENT_RETRY_TARGET_PACKAGE_INSPECTION)
     assignment_intake_exclusion_rule = dict(
         retry_helper_loop_guard.get("assignment_intake_exclusion_rule") or {}

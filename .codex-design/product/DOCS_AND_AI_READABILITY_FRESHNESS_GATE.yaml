@@ -1,0 +1,24 @@
+version: 1
+last_reviewed: "2026-04-23"
+purpose: Keep AI-readable public docs aligned with Chummer canon and cited release truth.
+release_blocking: false
+sources:
+  model: DOCS_AND_AI_READABILITY_MODEL.md
+  public_guide_policy: PUBLIC_GUIDE_POLICY.md
+  public_help_copy: PUBLIC_HELP_COPY.md
+  freshness_receipt_type: docs_ai_readability_receipt
+thresholds:
+  max_docs_publish_age_hours: 720
+  require_llms_txt: true
+  require_cited_answers: true
+requirements:
+  - id: docs_publish_receipt_exists
+    description: A Chummer-owned receipt records source canon, generated public docs, reviewer, and publish target.
+  - id: llms_txt_is_present
+    description: AI-readable entry points expose approved public docs without replacing source canon.
+  - id: answers_are_cited
+    description: Public AI-readable answers cite the product, release, guide, or support source they summarize.
+failure_modes:
+  - uncited_public_answer
+  - stale_public_docs_export
+  - generated_doc_claim_not_backed_by_canon

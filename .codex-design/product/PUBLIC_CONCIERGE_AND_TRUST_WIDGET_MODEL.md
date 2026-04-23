@@ -45,6 +45,48 @@ The concierge layer must:
 * degrade gracefully when the external widget is disabled
 * never become the canonical owner of support, install, campaign, or publication state
 
+## Truth and posture vocabulary
+
+Public concierge surfaces must use one explicit posture vocabulary:
+
+* fixed posture: the first-party route, release note, support article, status page, or intake path the user can rely on even when the widget is gone
+* preview posture: the optional concierge overlay, explainer card, or branching helper that can make the entrypoint warmer without becoming the authority
+* fallback posture: the visible secondary or manual path that still works when the recommended route is unavailable, gated, or support-directed
+* recovery posture: the first-party article, intake, relinking, or human-escalation path that gets the user back to a safe next action without asking the widget to hold secrets or private truth
+
+The widget may describe these paths.
+The widget may not blur them.
+
+## Posture rules
+
+Every public concierge flow must keep the following distinctions visible:
+
+* fixed routes stay first-party and must be reachable without opening the widget
+* preview copy must say it is an optional guide, explainer, or concierge layer rather than the product authority
+* fallback copy must explicitly say when a route is secondary, compatibility-only, manual, or support-directed
+* recovery copy must name the real first-party help, relinking, or escalation path and must not imply the widget repaired anything itself
+
+If public copy says a route is fixed, recommended, current, or available now, that claim must already be true in the first-party release, help, or status surface that owns it.
+
+## Public recovery posture
+
+Recovery is allowed on public concierge surfaces only as an orientation or routing layer.
+
+Allowed recovery moves:
+
+* open the first-party recovery article or install-help page
+* route to Deftform pre-intake when structured details help support
+* route to Lunacal when the documented escalation policy says a human help session is warranted
+* route to first-party relinking, release, or status copy that explains what the user can safely do next
+
+Forbidden recovery moves:
+
+* collecting claim codes, auth secrets, or private case identifiers inside the widget
+* presenting the widget as the recovery mechanism itself
+* hiding the first-party fallback or recovery path behind the widget
+* implying a fix is available for this user merely because code merged or a video exists
+* turning a compatibility fallback, raw package, or manual route into the recommended path through concierge phrasing
+
 ## Surface classes
 
 ### Class P0 - Public trust surfaces
@@ -271,6 +313,7 @@ Concierge flows must produce Chummer-owned receipts such as:
 
 * `concierge_flow_id`
 * `concierge_entry_surface`
+* `concierge_posture_label`
 * `concierge_variant_id`
 * `concierge_route_choice`
 * `linked_help_article_ref`
@@ -289,6 +332,7 @@ Any concierge flow that can publish or capture public assets must require:
 * Chummer-owned approval state
 * kill switch
 * fallback first-party path
+* fixed/fallback/preview/recovery copy review
 * explicit moderation for public testimonial publication
 * accessibility and locale review
 

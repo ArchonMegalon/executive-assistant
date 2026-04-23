@@ -40,12 +40,25 @@ defaults:
   required_controls:
     - kill_switch
     - first_party_fallback
+    - posture_copy_review
+    - recovery_link_set
     - telemetry_event_logging
     - locale_review
     - accessibility_review
+  posture_taxonomy:
+    fixed: first_party_route_or_status_truth
+    preview: optional_public_widget_or_explainer_overlay
+    fallback: visible_secondary_or_manual_path_that_remains_user_usable
+    recovery: first_party_help_relinking_or_human_escalation_path_without_secrets
+  forbidden_claims:
+    - widget_claims_issue_is_fixed
+    - widget_claims_fallback_is_primary
+    - widget_collects_claim_codes_or_auth_secrets
+    - widget_hides_first_party_recovery
   receipt_fields:
     - concierge_flow_id
     - entry_surface
+    - posture_label
     - route_choice
     - locale
     - provider_receipt
@@ -69,6 +82,20 @@ flows:
       - public_release_truth
       - locale
       - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: first_party_downloads
+      fallback_route_targets:
+        - public_downloads_page
+        - platform_guide_or_release_explainer
+      recovery_route_targets:
+        - public_install_help_article
+        - deftform_setup_preintake
+        - lunacal_setup_clinic
+      copy_requirements:
+        - recommended_download_must_stay_first_party
+        - fallback_assets_must_be_labeled_fallback_or_manual
+        - recovery_paths_must_not_claim_fix_completion
 
   - id: campaign_invite_concierge
     audience: invited_player_or_gm
@@ -88,6 +115,19 @@ flows:
       - invite_policy
       - locale
       - private_truth_not_exposed
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: first_party_invite_or_join_page
+      fallback_route_targets:
+        - campaign_primer_packet
+        - first_party_invite_help_article
+      recovery_route_targets:
+        - deftform_campaign_question_form
+        - lunacal_session_zero_booking
+      copy_requirements:
+        - invite_truth_must_stay_first_party
+        - private_or_authenticated_campaign_truth_must_not_surface_here
+        - recovery_copy_must_route_to_help_not_private_case_state
 
   - id: creator_consult_concierge
     audience: public_or_creator
@@ -106,6 +146,19 @@ flows:
       - creator_publish_policy
       - locale
       - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: creator_page
+      fallback_route_targets:
+        - creator_packet
+        - creator_explainer_video_or_packet
+      recovery_route_targets:
+        - deftform_creator_interest
+        - lunacal_creator_consult
+      copy_requirements:
+        - creator_publication_truth_must_stay_first_party
+        - consult_booking_must_not_be_the_only_help_path
+        - fallback_copy_must_not_read_like_release_authority
 
   - id: release_concierge
     audience: public_or_pre_auth_help_entry
@@ -124,6 +177,20 @@ flows:
       - release_channel_truth
       - locale
       - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: release_notes_page
+      fallback_route_targets:
+        - public_release_page
+        - public_help_article
+      recovery_route_targets:
+        - deftform_update_help_preintake
+        - lunacal_setup_clinic
+        - public_install_recovery_article
+      copy_requirements:
+        - fixed_release_truth_must_match_channel_and_build_posture
+        - fallback_head_or_manual_update_paths_must_be_labeled_fallback
+        - recovery_copy_must_not_imply_fix_shipped_for_this_user
 
   - id: testimonial_capture
     audience: opted_in_user
@@ -142,6 +209,19 @@ flows:
       - retention_policy
       - kill_switch
       - publication_ref_if_approved
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: first_party_testimonial_policy_page
+      fallback_route_targets:
+        - metasurvey_usefulness
+        - public_contact_path
+      recovery_route_targets:
+        - first_party_opt_out_or_privacy_page
+        - public_support_entry
+      copy_requirements:
+        - publication_requires_moderation
+        - fallback_copy_must_keep_non_video_paths_visible
+        - recovery_copy_must_name_opt_out_and_privacy_paths
 
   - id: runsite_host_choice
     audience: player_or_gm
@@ -157,3 +237,16 @@ flows:
     proof_anchors:
       - approved_runsite_pack
       - locale
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: runsite_page
+      fallback_route_targets:
+        - runsite_route_overlay
+        - runsite_tour
+      recovery_route_targets:
+        - public_runsite_help_article
+        - public_support_entry
+      copy_requirements:
+        - route_and_tour_truth_must_stay_first_party
+        - preview_clip_must_not_outrank_route_or_tour_truth
+        - recovery_copy_must_route_to_help_when_orientation_is_insufficient

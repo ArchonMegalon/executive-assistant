@@ -37,6 +37,8 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * Build Lab consumes `Chummer.Engine.Contracts`; it does not become a second rules engine.
 * Build Lab outputs may seed a living dossier or campaign plan, but dossier identity and campaign continuity remain in `Chummer.Campaign.Contracts`.
 * Explain hooks must remain visible enough that "why this variant" can be audited without private operator folklore.
+* Any narrated, video, audio, or preview-card companion for Build Lab must stay subordinate to `BUILD_EXPLAIN_ARTIFACT_TRUTH_POLICY.md`, with the packet, receipt anchors, and approval record outranking the media layer.
+* Any companion artifact must preserve the exact packet revision, rule-environment identity, anchor scope, and approval scope it summarizes; otherwise the launch surface must fall back to the inspectable packet or localized text summary.
 * Build Lab must expose source-linked hints, grouped organizational state, and receipt-backed conditional toggles instead of hiding these behind freeform notes or silent modifiers.
 * Build Lab must compute against an explicit compiled rule environment, not against implicit local custom-data state.
 * Preview and compare views must be able to show what changed because of source packs, presets, or amend packages before the user commits a variant or handoff.
@@ -51,6 +53,8 @@ Build Lab is not flagship grade until:
 * ruleset-specific differences are surfaced with authored terminology and UI where needed
 * the active rule environment is visible enough that a user can tell whether a package choice changed the outcome
 * a player can understand "why this variant" without leaving the product or trusting invisible operator knowledge
+* any companion artifact can always hand the user back to the exact inspectable packet and anchor set it summarized
+* companion launch chrome exposes the packet revision, approval posture, and rule-environment context instead of making the rendered media look self-authenticating
 
 ## Non-goals
 
