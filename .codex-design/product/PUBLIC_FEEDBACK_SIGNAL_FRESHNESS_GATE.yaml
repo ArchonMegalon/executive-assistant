@@ -1,0 +1,23 @@
+version: 1
+last_reviewed: "2026-04-23"
+purpose: Keep ProductLift-style public feedback signals advisory until Chummer-owned triage and status receipts accept them.
+release_blocking: false
+sources:
+  model: PUBLIC_FEEDBACK_AND_ROADMAP_SIGNAL_MODEL.md
+  signal_loop: FEEDBACK_AND_SIGNAL_OODA_LOOP.md
+  feedback_status_model: FEEDBACK_AND_CRASH_STATUS_MODEL.md
+  receipt_type: public_feedback_signal_sync_receipt
+thresholds:
+  max_feedback_signal_sync_age_hours: 168
+  require_design_triage_mapping: true
+requirements:
+  - id: signal_sync_receipt_exists
+    description: A Chummer-owned receipt records exported signals, source time window, owner, and review state.
+  - id: every_signal_maps_to_design_triage
+    description: Accepted signals map to design triage, support status, docs action, queue action, or no-action rationale.
+  - id: public_status_is_advisory_only
+    description: Public roadmap labels do not imply committed work without approved release or support status truth.
+failure_modes:
+  - public_vote_treated_as_commitment
+  - signal_without_triage_owner
+  - private_support_detail_exposed

@@ -154,11 +154,16 @@ assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/tes
 assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_product_workflows.py"
 
 pulse = json.loads(Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json").read_text(encoding="utf-8"))
-assert pulse["contract_name"] == "ea.weekly_product_pulse"
-assert pulse["release_truth_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
-assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+assert pulse["contract_name"] in {"chummer.weekly_product_pulse", "ea.weekly_product_pulse"}
+if pulse["contract_name"] == "ea.weekly_product_pulse":
+    assert pulse["release_truth_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+    assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+    assert pulse["supporting_signals"]["flagship_release_receipt_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+else:
+    assert pulse["contract_name"] == "chummer.weekly_product_pulse"
+    assert pulse["scorecard_source"] == "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml"
+    assert pulse["progress_report_source"] == "products/chummer/PROGRESS_REPORT.generated.json"
 assert pulse["supporting_signals"]["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
-assert pulse["supporting_signals"]["flagship_release_receipt_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert pulse["supporting_signals"]["launch_readiness"]
 assert pulse["governor_decisions"]
 PY
@@ -4590,6 +4595,14 @@ then
   fi
 else
   echo "missing: provider registry capability routing milestone" >&2
+  missing=1
+fi
+
+if python3 scripts/verify_saas_stack_contracts.py >/tmp/ea_saas_stack_verify.out 2>/tmp/ea_saas_stack_verify.err; then
+  cat /tmp/ea_saas_stack_verify.out
+else
+  cat /tmp/ea_saas_stack_verify.out
+  cat /tmp/ea_saas_stack_verify.err >&2
   missing=1
 fi
 

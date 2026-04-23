@@ -1,0 +1,23 @@
+version: 1
+last_reviewed: "2026-04-23"
+purpose: Keep SaaS-assisted music cues attached to approved Chummer-owned media receipts instead of unsupported product truth.
+release_blocking: false
+sources:
+  model: SONIC_IDENTITY_AND_MUSIC_CUE_MODEL.md
+  media_policy: PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md
+  recipe_registry: MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml
+  receipt_type: sonic_identity_music_cue_receipt
+thresholds:
+  max_music_cue_receipt_age_hours: 720
+  require_chummer_owned_receipt: true
+requirements:
+  - id: cue_receipt_exists
+    description: A Chummer-owned receipt names the prompt class, approved surface, reviewer, and rendered cue asset.
+  - id: prompt_class_is_generic
+    description: Cue prompts exclude campaign-private, credential-bearing, unreleased plot, and user-identifying content.
+  - id: attachment_surface_is_approved
+    description: The cue attaches only to an approved public media, guide, or release asset slot.
+failure_modes:
+  - missing_receipt
+  - private_prompt_material
+  - unapproved_surface_attachment
