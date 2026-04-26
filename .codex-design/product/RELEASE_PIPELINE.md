@@ -136,6 +136,14 @@ These are updater-facing artifacts consumed by desktop clients:
 
 The registry is the canonical source for both classes after promotion. The UI repo is the owner of how clients consume machine update payloads.
 
+## Public distribution rule
+
+`chummer.run` is the only official source for downloading the Chummer client.
+
+Release automation must never publish build artifacts directly to GitHub releases, GitHub Actions artifact shelves, repo attachments, or any repo-hosted binary channel as a user-facing client download. GitHub remains source and development evidence infrastructure only. If a user can acquire an installer, archive, update payload, or preview client, that acquisition path must start from `chummer.run` and resolve through registry-backed release truth.
+
+Repo-local build outputs may exist only as private CI/staging evidence until they are promoted into the registry-backed `chummer.run` download or install handoff surface.
+
 ## Claimable install rule
 
 Chummer makes installs claimable and account-aware without personalizing the delivered binary.
@@ -182,12 +190,14 @@ Authority rule:
 
 * Fleet prepares and verifies the candidate manifest during promotion.
 * `chummer6-hub-registry` publishes the promoted manifest as canonical release truth.
-* GitHub releases, `/downloads`, updater feeds, and downstream guide/status surfaces are projections from that registry-owned manifest.
+* `/downloads`, updater feeds, and downstream guide/status surfaces are projections from that registry-owned manifest.
+* GitHub must not be a binary release projection for client acquisition; it may reference source, evidence, or the `chummer.run` download route only.
 
 Failure rule:
 
-* promotion must fail if GitHub release notes, public downloads, updater metadata, or guide projections disagree with the canonical registry manifest for the same promoted head
-* GitHub releases and public file shelves must never be treated as the authority that overrides registry channel truth
+* promotion must fail if public downloads, updater metadata, or guide projections disagree with the canonical registry manifest for the same promoted head
+* promotion must fail if a workflow attempts to publish client binaries directly to GitHub instead of routing acquisition through `chummer.run`
+* GitHub release notes and repo README links must never be treated as download authority; they may point to `chummer.run` and must not override registry channel truth
 
 ## Initial ship rule
 

@@ -231,7 +231,8 @@ page_types:
     - current build matrix
     - honest artifact format
     - checksums
-    - raw release fallback
+    - chummer.run download authority
+    - bounded fallback and recovery routes
   deep_source_trail:
     audience: deeper_public
     max_technical_depth: high

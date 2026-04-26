@@ -5,7 +5,7 @@ cards:
   - id: product_story
     bucket: start_here
     title: Build
-    summary: Create and inspect a character inside the explainable Shadowrun campaign OS.
+    summary: Create and advance a runner inside the explainable Shadowrun campaign OS.
     href: /downloads
     badge: Workflow
     audience: public
@@ -30,8 +30,8 @@ cards:
     payoff: The answer stays inspectable when somebody asks where the number came from.
   - id: get_the_poc
     bucket: start_here
-    title: Run
-    summary: Keep the session and campaign state coherent when devices or networks drift.
+    title: Campaign
+    summary: Keep the session, campaign ledger, and next-session state coherent when devices or networks drift.
     href: /now#real-mobile-prep
     badge: Workflow
     audience: public
@@ -42,17 +42,17 @@ cards:
     payoff: Receipt-backed continuity keeps the table moving even when the network does not cooperate.
   - id: publish_grounded_artifacts
     bucket: start_here
-    title: Publish
-    summary: Turn grounded dossiers, packets, videos, and primers into finished artifacts with provenance.
+    title: Exchange
+    summary: Move dossiers, recaps, packets, and support proof across tools without severing provenance.
     href: /artifacts
     badge: Workflow
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
-    action_label: See creator outputs
-    proof_note: "Proof: publication now has first-party packet and video artifact families, preview routes, and provenance rules instead of only horizon prose."
-    pain: Mission packets and creator outputs are usually manual, fragile, and hard to trust.
-    payoff: Finished artifacts stay tied to manifests, previews, and receipts.
+    action_label: See portable outputs
+    proof_note: "Proof: exchange and publication are now governed by manifests, previews, and provenance rules instead of copy-paste folklore."
+    pain: Export, support, and creator handoff usually lose context right when you need trust the most.
+    payoff: Portable outputs stay tied to manifests, compatibility, and receipts.
   - id: improve_the_product
     bucket: start_here
     title: Improve
@@ -111,7 +111,7 @@ cards:
   - id: lane_gm
     bucket: choose_your_lane
     title: GM
-    summary: Run from a reliable campaign ledger, recover state, and brief the team.
+    summary: Run from a reliable campaign ledger, recover state, and return to the right next-session context.
     href: /now#real-mobile-prep
     badge: Mixed
     audience: public
@@ -153,7 +153,7 @@ cards:
   - id: real_mobile_prep
     bucket: whats_real_now
     title: Local-first prep and session continuity
-    summary: Session posture already assumes devices drift and continuity has to survive it.
+    summary: Session posture already assumes devices drift, and continuity is designed to survive it.
     href: /now#real-mobile-prep
     badge: Inspectable
     audience: public
@@ -232,9 +232,9 @@ cards:
     image_family: boulevard_of_futures
     detail_route: /roadmap/karma-forge
     render_mode: external_explainer
-    action_label: Suggest this product direction
-    detail_primary_href: /participate#participate-future
-    detail_primary_label: Suggest this product direction
+    action_label: Start KARMA FORGE discovery
+    detail_primary_href: /participate/karma-forge
+    detail_primary_label: Start KARMA FORGE discovery
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -493,6 +493,36 @@ cards:
     action_label: Inspect the after-action preview
     detail_primary_href: /roadmap/ghostwire
     detail_primary_label: See related roadmap item
+  - id: productlift_feedback
+    bucket: participate
+    title: Public feedback board
+    summary: Suggest features, vote on public ideas, and keep support/private data out of the public board.
+    href: /feedback
+    badge: Public
+    audience: public
+    image_family: archive_stair
+    action_label: Open feedback board
+    proof_note: "Projection only: ProductLift collects demand, while Chummer-owned design, support, release, and closeout evidence remain authoritative."
+  - id: productlift_roadmap
+    bucket: supporting_reads
+    title: Public roadmap projection
+    summary: See selected public direction without mistaking votes or roadmap cards for implementation priority.
+    href: /roadmap
+    badge: Projection
+    audience: public
+    image_family: boulevard_of_futures
+    action_label: View public roadmap
+    proof_note: "Projection only: planned and shipped statuses require Chummer-owned design, milestone, release, or closeout evidence."
+  - id: productlift_changelog
+    bucket: supporting_reads
+    title: User-requested changelog
+    summary: Follow shipped updates and voter closeouts that are backed by release, guide, Hub route, or artifact proof.
+    href: /changelog
+    badge: Closeout
+    audience: public
+    image_family: dossier_desk
+    action_label: View changelog
+    proof_note: "Closeout proof is Chummer-owned before ProductLift notifies voters."
   - id: participate_feedback
     bucket: participate
     title: Report a problem
@@ -504,15 +534,15 @@ cards:
     action_label: Open support intake
   - id: participate_future
     bucket: participate
-    title: Suggest a future
-    summary: Tell Chummer what would help your table next, then keep the product team pointed at the right lane.
-    href: /signup?next=/account/settings
+    title: Start KARMA FORGE discovery
+    summary: Turn house-rule pain into governed discovery packets with Icanpreneur prompts, receipts, and Product Governor routing.
+    href: /participate/karma-forge
     badge: Public
     audience: public
     image_family: boulevard_of_futures
-    guest_href: /signup?next=/account/settings
-    registered_href: /account/settings
-    action_label: Create account to suggest a future
+    guest_href: /participate/karma-forge
+    registered_href: /participate/karma-forge
+    action_label: Start KARMA FORGE discovery
   - id: participate_booster
     bucket: participate
     title: Guided contribution
@@ -546,6 +576,6 @@ cards:
     audience: public
     image_family: facility_exterior
     render_mode: external_explainer
-    fallback_route: https://github.com/ArchonMegalon/Chummer6/releases
-    fallback_label: Open GitHub releases
+    fallback_route: https://chummer.run/downloads/
+    fallback_label: Open chummer.run downloads
     external_ok: true
