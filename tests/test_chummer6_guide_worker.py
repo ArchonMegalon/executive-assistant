@@ -102,6 +102,58 @@ def test_ea_json_can_execute_visual_director_skill_identity(monkeypatch) -> None
     assert request.skill_key == "chummer6_visual_director"
 
 
+def test_black_ledger_source_packet_reaches_horizon_prompts() -> None:
+    worker = _load_worker_module()
+    item = dict(worker.HORIZONS["black-ledger"])
+    section_oodas = {"black-ledger": {"act": {"visual_prompt_seed": "living city map"}}}
+
+    packet = worker.horizon_source_packet("black-ledger", item)
+    bundle_prompt = worker.build_horizons_bundle_prompt(
+        items={"black-ledger": item},
+        global_ooda={},
+        section_oodas=section_oodas,
+    )
+    media_prompt = worker.build_media_prompt(
+        "horizon",
+        "black-ledger",
+        item,
+        ooda={},
+        section_ooda=section_oodas["black-ledger"],
+    )
+
+    assert "Open Runs and the Shadowcasters Network" in packet
+    assert "Seattle Tick 001" in packet
+    assert "Mission Market" in bundle_prompt
+    assert "Table Pulse/GOD consent gates" in bundle_prompt
+    assert "living city map or world-tick control surface" in media_prompt
+
+
+def test_black_ledger_media_defaults_are_living_city_map() -> None:
+    worker = _load_worker_module()
+    item = dict(worker.HORIZONS["black-ledger"])
+    item["slug"] = "black-ledger"
+    media = {
+        "badge": "Horizon",
+        "title": "BLACK LEDGER",
+        "subtitle": "The city remembers",
+        "kicker": "Mission Market pressure",
+        "note": "Reviewed world ticks become useful prep.",
+        "meta": "living city memory",
+        "visual_prompt": "A living city map world-tick control surface with mission pins and faction pressure.",
+        "overlay_hint": "source-aware city map",
+        "visual_motifs": ["district map", "mission pins"],
+        "overlay_callouts": ["heat shifts", "public-safe news"],
+        "scene_contract": {},
+    }
+
+    normalized = worker.normalize_media_override("horizon", media, item)
+    contract = normalized["scene_contract"]
+
+    assert contract["metaphor"] == "living city ledger"
+    assert contract["composition"] == "district_map"
+    assert "GM-only intel filters" in contract["overlays"]
+
+
 def test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director(monkeypatch) -> None:
     worker = _load_worker_module()
     captured: list[str] = []
