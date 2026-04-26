@@ -185,7 +185,7 @@ scorecards:
         measurement: Every Artifact Factory output must cite an approved source packet, visibility class, privacy/IP review, and publication or retirement owner.
       - name: journey_proof_event_linkage
         target: 100%
-        measurement: Public growth, BLACK LEDGER, Shadowcasters, ProductLift, and KARMA FORGE closeout campaigns must link provider telemetry to Chummer-owned JourneyProofEventRefs before Product Governor interpretation.
+        measurement: Public growth, BLACK LEDGER, Community Hub, ProductLift, and KARMA FORGE closeout campaigns must link provider telemetry to Chummer-owned JourneyProofEventRefs before Product Governor interpretation.
 
   - id: public_content_optimization_honesty
     owner_repo: chummer6-hub

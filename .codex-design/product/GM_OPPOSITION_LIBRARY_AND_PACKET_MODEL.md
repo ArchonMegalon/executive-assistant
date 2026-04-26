@@ -36,7 +36,7 @@ opposition_packet:
   type: corp_security_team
   professional_rating: 3
   faction_ref: renraku
-  rule_environment_ref: sr6_shadowcasters_seattle
+  rule_environment_ref: sr6_community_hub_seattle
   heat_triggers:
     - matrix_heat_4
     - security_heat_3

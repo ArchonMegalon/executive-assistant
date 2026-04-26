@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the gamified recognition layer for Open Runs, BLACK LEDGER, and the Shadowcasters Network.
+This file defines the gamified recognition layer for Open Runs, BLACK LEDGER, and the Community Hub.
 
 The intended feeling is:
 

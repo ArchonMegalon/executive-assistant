@@ -177,11 +177,11 @@ The GM can adopt it, edit it, schedule it, fork it, reject it, or ask Chummer fo
 
 BLACK LEDGER suggests. The GM decides.
 
-## Open Runs And Shadowcasters
+## Open Runs And Community Hub
 
 A GM can turn a mission into an `OpenRun`.
 
-That run can appear on the world map or the Shadowcasters Network with a player-safe listing:
+That run can appear on the world map or the Community Hub with a player-safe listing:
 
 * title
 * pitch
@@ -636,4 +636,4 @@ It becomes the place where factions scheme, GMs find jobs, players join runs, ru
 * `products/chummer/BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md`
 * `products/chummer/BLACK_LEDGER_SEASON_OPERATOR_PLAYBOOK.md`
 * `products/chummer/SIGNITIC_FACTION_WAR_AND_WORLD_TICK_CAMPAIGNS.md`
-* `products/chummer/SHADOWCASTERS_OPERATIONS_MODEL.md`
+* `products/chummer/COMMUNITY_HUB_OPERATIONS_MODEL.md`

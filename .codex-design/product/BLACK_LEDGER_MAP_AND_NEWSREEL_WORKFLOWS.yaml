@@ -134,7 +134,7 @@ workflows:
       - Hub receives an approved WorldTick publication package and first-party destination URLs.
       - Product Governor or world operator approves public-safe banner claims, segment list, expiry, and rollback owner.
       - Hub emits a WorldTickSignatureCampaign packet with source receipts, variants, UTM naming, and forbidden-state assertions.
-      - Signitic projects the approved variants through managed Chummer, Fleet, Hub, Shadowcasters, or operator signatures.
+      - Signitic projects the approved variants through managed Chummer, Fleet, Hub, Community Hub, or operator signatures.
       - Hub and Fleet read UTM landing conversions, support side effects, and world-effect receipts after the click.
       - Campaigns are retired or superseded when the source tick, claim, destination, or visibility grade changes.
     non_goals:

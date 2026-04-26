@@ -25,7 +25,7 @@ The contract should make expectations explicit before roster lock:
 
 ```yaml
 table_contract:
-  id: tc_shadowcasters_beginner_001
+  id: tc_community_hub_beginner_001
   style:
     tone:
       - noir

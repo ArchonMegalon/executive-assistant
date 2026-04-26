@@ -43,7 +43,7 @@ run_application_preflight:
   open_run_ref: openrun_001
   applicant_ref: user_456
   selected_runner_ref: dossier_789
-  community_rule_environment_ref: cre_shadowcasters_seattle_01
+  community_rule_environment_ref: cre_community_hub_seattle_01
   result: warn
   checks:
     account_claimed: pass
@@ -85,7 +85,7 @@ The player should see:
 
 ## First proof gate
 
-**Shadowcasters Open Run 001**
+**Community Hub Open Run 001**
 
 Includes:
 

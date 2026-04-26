@@ -106,7 +106,7 @@ Current horizon-facing posture:
 * `jackpoint` - structured presenter-video and multilingual briefing lanes may use `vidBoard`; narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
 * `black-ledger` - world-tick and faction-war operations may use `Teable` for admin projection and AdminIntent entry, `NextStep` for SOP execution, `ApproveThis` for guest approvals, `Signitic` for passive signature campaigns, `Emailit` for Hub-owned digest and closeout mail, `vidBoard` / `Taja` / `PeekShot` / `MarkupGo` / `Soundmadeseen` for approved artifacts, and first-party map infrastructure for map truth
 * `karma-forge` - governed house-rule discovery may use `Icanpreneur` for interviews and synthesis, `Deftform` for pre-screening, `Lunacal` for follow-up clinics, `MetaSurvey` for quant validation, `Teable` for candidate review boards and AdminIntent entry, `NextStep` for sprint/process execution, and bounded `FacePop` / `Signitic` / `Emailit` / `vidBoard` / `Taja` for recruitment, closeout, and approved discovery explainers
-* `shadowcasters-network` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `Teable`, `NextStep`, `MetaSurvey`, `Emailit`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting, application review, invite delivery, and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
+* `community-hub` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `Teable`, `NextStep`, `MetaSurvey`, `Emailit`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting, application review, invite delivery, and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
 * `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`; route, map, and tour siblings stay first-party inspectable truth and the media layer may not become tactical authority
 * `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
 * `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with later bounded player-safe recap / GM-private debrief video from `vidBoard`, plus bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
@@ -971,7 +971,7 @@ Passive outreach and signature-campaign projection lane.
 * release or launch campaign amplification
 * KARMA FORGE, BLACK LEDGER, or companion discovery campaigns
 * BLACK LEDGER world-tick and faction-war signature campaigns after source approval
-* Shadowcasters open-run, GM recruitment, and creator-program CTA rotation
+* Community Hub open-run, GM recruitment, and creator-program CTA rotation
 * creator-program CTA rotation
 
 ### Owner
@@ -992,7 +992,7 @@ Passive outreach and signature-campaign projection lane.
 
 ### Campaign packet requirements
 
-Every BLACK LEDGER or Shadowcasters Signitic campaign must carry approved source receipts, first-party destination URLs, UTM campaign naming, segment scope, expiry or review date, rollback owner, and a kill-switch path.
+Every BLACK LEDGER or Community Hub Signitic campaign must carry approved source receipts, first-party destination URLs, UTM campaign naming, segment scope, expiry or review date, rollback owner, and a kill-switch path.
 
 Signitic metrics are campaign telemetry only. Hub and Fleet may review clickthrough, landing conversion, support confusion, and world-effect receipts, but Product Governor interpretation remains Chummer-owned.
 
@@ -1007,7 +1007,7 @@ Outbound delivery provider candidate for Hub-owned lifecycle, digest, invite, an
 * claim/install emails
 * support closure and fix-available notices
 * ProductLift voter closeout follow-ups
-* Shadowcasters open-run invitations, acceptance, waitlist, and reminder mail
+* Community Hub open-run invitations, acceptance, waitlist, and reminder mail
 * Lunacal companion confirmations when Hub needs a first-party mail receipt
 * BLACK LEDGER world-tick digests and faction newsletters
 * creator-program updates

@@ -300,20 +300,20 @@ cards:
     payoff: Grounded primers become first-class artifacts instead of random PDFs.
     proof_note: "Proof: RUNBOOK PRESS already points at first-party primer packet and primer-video previews instead of only future-facing copy."
     microproof: Primer packet|Primer-video lane|First-party detail page
-  - id: horizon_shadowcasters_network
+  - id: horizon_community_hub
     bucket: coming_next
-    title: SHADOWCASTERS NETWORK
+    title: COMMUNITY HUB
     summary: Find a run, see the rules, get scheduled cleanly, and let the world remember the outcome.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/shadowcasters-network.md
+    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
     badge: Research
     audience: public
     image_family: boulevard_of_futures
-    detail_route: /roadmap/shadowcasters-network
+    detail_route: /roadmap/community-hub
     render_mode: external_explainer
     action_label: Read the network horizon
     detail_primary_href: /roadmap/black-ledger
     detail_primary_label: See the world-state foundation
-    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/shadowcasters-network.md
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Finding a table still means juggling community rules, approvals, chats, calendars, and follow-up by hand.

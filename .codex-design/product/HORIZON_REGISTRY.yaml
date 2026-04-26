@@ -326,11 +326,11 @@ horizons:
   free_later_intent: Long-run intent is broad community access after operator seams, authority policy, and publication safety prove stable.
   recognition_eligible: false
   owner_handoff_gate: Keep campaign truth and world truth separate; GM or organizer authority must be explicit before shared-city scale features are promoted.
-- id: shadowcasters-network
-  title: SHADOWCASTERS NETWORK
+- id: community-hub
+  title: COMMUNITY HUB
   status: horizon
   family: campaign_world_state
-  canon_doc: products/chummer/horizons/shadowcasters-network.md
+  canon_doc: products/chummer/horizons/community-hub.md
   public_guide:
     enabled: true
     order: 86

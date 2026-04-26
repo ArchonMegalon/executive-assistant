@@ -14,7 +14,7 @@ Premium must not buy faction victory, leaderboard rank, rules advantage, safety 
 - GM workspace premium
 - creator publication premium
 - BLACK LEDGER private world
-- Shadowcasters season tools
+- Community Hub season tools
 - Table Pulse debrief packs
 - KARMA FORGE creator/community packs
 - human GM clinics via Lunacal

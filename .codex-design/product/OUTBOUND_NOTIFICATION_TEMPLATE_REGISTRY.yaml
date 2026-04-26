@@ -40,7 +40,7 @@ families:
     forbidden:
       - private_operator_notes
       - unsupported_fix_claim
-  - key: shadowcasters_open_runs
+  - key: community_hub_open_runs
     source_truth:
       - Chummer.World.Contracts.OpenRun
       - Chummer.World.Contracts.RunApplication

@@ -4417,7 +4417,7 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "why_waits": "The layer has to prove authority boundaries, spoiler policy, and consequence receipts before it deserves to affect a living campaign.",
             "pitch_line": "Let the city remember the run without letting the software become the GM.",
         },
-        "shadowcasters-network": {
+        "community-hub": {
             "hook": "Open-run recruiting, scheduling, prep, and closeout built on governed campaign truth.",
             "problem": "Finding a run is easy to fake; finding the right table, legal runner, consent boundary, and closeout loop is not.",
             "table_scene": "\n".join(

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file defines the practical stance for recognition inside BLACK LEDGER and Shadowcasters Network.
+This file defines the practical stance for recognition inside BLACK LEDGER and Community Hub.
 
 It complements:
 

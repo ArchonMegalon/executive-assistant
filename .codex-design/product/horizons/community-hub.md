@@ -1,4 +1,4 @@
-# SHADOWCASTERS NETWORK
+# COMMUNITY HUB
 
 ## The problem
 
@@ -6,7 +6,7 @@ Finding a table still means juggling community rules, approvals, chats, calendar
 
 ## What it would do
 
-SHADOWCASTERS NETWORK would turn BLACK LEDGER and campaign prep into a practical recruitment, scheduling, prep, and closeout layer.
+COMMUNITY HUB would turn BLACK LEDGER and campaign prep into a practical recruitment, scheduling, prep, and closeout layer.
 
 It would let a GM:
 
@@ -71,4 +71,4 @@ This only works if Chummer can prove four things at once:
 3. third-party scheduling, meeting, and play surfaces never outrank Chummer-owned receipts,
 4. observer and debrief assistance never slips into hidden surveillance, and seasonal honors stay motivating without turning into a toxic ranking game.
 
-Until those seams are strong enough, SHADOWCASTERS NETWORK should remain a horizon rather than a shipped community promise.
+Until those seams are strong enough, COMMUNITY HUB should remain a horizon rather than a shipped community promise.

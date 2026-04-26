@@ -75,7 +75,7 @@ Read `horizons/README.md` first, then the relevant lane docs:
 * `horizons/alice.md`
 * `horizons/karma-forge.md`
 * `horizons/black-ledger.md`
-* `horizons/shadowcasters-network.md`
+* `horizons/community-hub.md`
 * `horizons/knowledge-fabric.md`
 * `horizons/jackpoint.md`
 * `horizons/runsite.md`

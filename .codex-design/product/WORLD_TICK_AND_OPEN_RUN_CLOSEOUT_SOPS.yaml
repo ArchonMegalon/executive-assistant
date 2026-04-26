@@ -3,7 +3,7 @@ key: world_tick_and_open_run_closeout_sops
 owner: fleet
 status: design
 purpose: >
-  SOP families for BLACK LEDGER and Shadowcasters weekly operations. NextStep
+  SOP families for BLACK LEDGER and Community Hub weekly operations. NextStep
   may run these checklists; Hub and design registries remain process truth.
 sops:
   - key: world_tick_closeout

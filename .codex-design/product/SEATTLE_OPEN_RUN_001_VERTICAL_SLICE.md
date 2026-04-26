@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This file is the concrete execution slice for the practical BLACK LEDGER and SHADOWCASTERS NETWORK expansion.
+This file is the concrete execution slice for the practical BLACK LEDGER and COMMUNITY HUB expansion.
 
 It exists to prevent scope drift.
 
@@ -98,7 +98,7 @@ If this slice does not feel useful, the broader horizon should not widen.
 
 ## Companion canon
 
-- `OPEN_RUNS_AND_SHADOWCASTERS_NETWORK.md`
+- `OPEN_RUNS_AND_COMMUNITY_HUB.md`
 - `COMMUNITY_RULE_ENVIRONMENTS_AND_APPROVAL.md`
 - `RUN_APPLICATION_PREFLIGHT_MODEL.md`
 - `QUICKSTART_RUNNER_AND_PREGEN_FLOW.md`

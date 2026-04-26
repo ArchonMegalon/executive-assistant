@@ -29,7 +29,7 @@ Approved source packet
 
 - BLACK LEDGER city update
 - KARMA FORGE house-rule explainer
-- Shadowcasters open-run announcement
+- Community Hub open-run announcement
 - mission briefing reel
 - campaign primer
 - season recap

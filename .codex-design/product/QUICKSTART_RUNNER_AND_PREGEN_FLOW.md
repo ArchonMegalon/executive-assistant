@@ -34,12 +34,12 @@ Quickstarts reduce all four.
 
 ```yaml
 quickstart_runner_pack:
-  id: qrp_shadowcasters_starter_decker
+  id: qrp_community_hub_starter_decker
   label: Starter Decker
   intended_role: matrix_support
-  rule_environment_ref: sr6_shadowcasters_seattle
+  rule_environment_ref: sr6_community_hub_seattle
   community_rule_environment_refs:
-    - cre_shadowcasters_seattle_01
+    - cre_community_hub_seattle_01
   approval_state: preapproved
   surfaces:
     - mobile_apply

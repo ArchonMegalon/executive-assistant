@@ -60,7 +60,7 @@ Current policy:
 
 ### Future open-run and network authority policy
 
-Open-run and Shadowcasters Network authority stays narrower than campaign truth:
+Open-run and Community Hub authority stays narrower than campaign truth:
 
 * GMs own run listing, roster, and closeout decisions for one `OpenRun` unless an explicit organizer-curated mode says otherwise.
 * Organizers may define visibility scope, season policy, and moderation policy, but they do not silently seize GM run truth.

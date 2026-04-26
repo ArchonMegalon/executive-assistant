@@ -318,12 +318,12 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: roadmap detail only
-  - path: /roadmap/shadowcasters-network
-    title: SHADOWCASTERS NETWORK detail
+  - path: /roadmap/community-hub
+    title: COMMUNITY HUB detail
     audience: public
     purpose: roadmap_detail
     requires_auth: false
-    guest_fallback: /roadmap/shadowcasters-network
+    guest_fallback: /roadmap/community-hub
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: roadmap detail only

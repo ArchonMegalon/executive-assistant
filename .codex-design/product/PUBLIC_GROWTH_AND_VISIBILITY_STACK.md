@@ -29,7 +29,7 @@ ClickRank audit
 - `/roadmap`
 - `/changelog`
 - `/open-runs`
-- `/shadowcasters`
+- `/community-hub`
 - `/black-ledger`
 - `/karma-forge`
 - `/table-pulse`
@@ -64,5 +64,5 @@ The stack is working when:
 - support misroutes decrease
 - download and claim journeys complete more often
 - ProductLift ideas close out with evidence
-- BLACK LEDGER and Shadowcasters pages drive real engagement
+- BLACK LEDGER and Community Hub pages drive real engagement
 - no public claim outruns Chummer-owned release evidence

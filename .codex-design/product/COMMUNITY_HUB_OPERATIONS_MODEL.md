@@ -1,8 +1,8 @@
-# Shadowcasters Operations Model
+# Community Hub Operations Model
 
 ## Purpose
 
-Shadowcasters is not only a feature set. It is an operations model for running open tables, scheduling, approvals, closeout, and community trust.
+Community Hub is not only a feature set. It is an operations model for running open tables, scheduling, approvals, closeout, and community trust.
 
 ## Core rule
 
@@ -22,7 +22,7 @@ Shadowcasters is not only a feature set. It is an operations model for running o
 ## Operating stack
 
 ```yaml
-shadowcasters_ops_stack:
+community_hub_ops_stack:
   truth_owner: chummer6-hub
   process_runner: NextStep
   admin_projection: Teable

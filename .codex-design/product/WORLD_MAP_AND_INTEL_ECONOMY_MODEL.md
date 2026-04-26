@@ -152,7 +152,7 @@ Lunacal must not decide:
 - whether a world consequence fired
 - whether a run succeeded
 
-### Open runs and Shadowcasters Network
+### Open runs and Community Hub
 
 BLACK LEDGER can widen into a governed run-network layer.
 
@@ -164,7 +164,7 @@ That layer should let a GM:
 - hand accepted players off to Discord, Teams, or another meeting space
 - close the run back into `ResolutionReport`, world-tick input, and newsreel candidates
 
-The `Shadowcasters Network` is the discoverability and recruiting layer for those open runs.
+The `Community Hub` is the discoverability and recruiting layer for those open runs.
 It is not a generic public LFG board.
 
 Practical bridges that make this lane usable:

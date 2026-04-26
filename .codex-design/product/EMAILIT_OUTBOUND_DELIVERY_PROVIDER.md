@@ -18,7 +18,7 @@ Emailit may deliver:
 - support closure emails
 - fixed-on-your-channel notifications
 - ProductLift voter-closeout follow-ups
-- Shadowcasters open-run invitations
+- Community Hub open-run invitations
 - GM application decisions
 - scheduling companion emails for Lunacal-backed flows
 - BLACK LEDGER world tick digests
@@ -102,7 +102,7 @@ emailit_template_families:
       - bug_fixed_on_channel
       - workaround_available
       - case_closed_with_release
-  shadowcasters_ops:
+  community_hub_ops:
     owner: chummer6-hub
     examples:
       - open_run_invite

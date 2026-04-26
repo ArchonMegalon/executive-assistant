@@ -45,16 +45,16 @@ Without that bridge, players still have to guess whether their runner is valid f
 
 ```yaml
 community_rule_environment:
-  id: cre_shadowcasters_seattle_01
-  community_ref: shadowcasters_network
+  id: cre_community_hub_seattle_01
+  community_ref: community_hub
   season_ref: season_seattle_001
   world_ref: seattle_shared_01
-  base_rule_environment_ref: sr6_shadowcasters_seattle
+  base_rule_environment_ref: sr6_community_hub_seattle
   source_packs:
     - sr6_core
     - sr6_companion_allowed
   house_rule_packs:
-    - shadowcasters_season_01_house_rules
+    - community_hub_season_01_house_rules
   banned_content:
     - preview_ware_alpha
     - deprecated_matrix_technique_set
@@ -86,7 +86,7 @@ community_rule_environment:
 
 The user should be able to see:
 
-> Your runner is legal for base SR6, but not yet legal for Shadowcasters Seattle Season 01.
+> Your runner is legal for base SR6, but not yet legal for Community Hub Seattle Season 01.
 > Here are the three conflicts, the blocked tags, and the next safe action.
 
 That message is the product value.
