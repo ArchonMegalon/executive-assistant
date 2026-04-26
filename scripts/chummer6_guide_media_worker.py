@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import hashlib
 import json
@@ -89,10 +90,9 @@ TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-tro
 CHUMMER6_REPO_ROOT = Path("/docker/chummercomplete/Chummer6")
 DEFAULT_PROVIDER_ORDER = [
     "media_factory",
+    "magixai",
     "browseract_prompting_systems",
     "browseract_magixai",
-    "magixai",
-    "onemin",
 ]
 PALETTES = [
     ("#0f766e", "#34d399"),
@@ -263,6 +263,7 @@ STRICT_ONEMIN_MODEL_TARGETS = frozenset(
     }
 )
 MAGIXAI_PREFERRED_TARGETS = frozenset(QUALITY_FOCUS_TARGETS)
+COMFYUI_PREFERRED_TARGETS = frozenset(FIRST_CONTACT_TARGETS)
 MEDIA_FACTORY_PREFERRED_TARGETS = frozenset(
     {
         "assets/pages/horizons-index.png",
@@ -350,6 +351,12 @@ _ONEMIN_SLOT_HEALTH_CACHE: dict[str, object] = {
     "fetched_at": 0.0,
     "hints": {},
 }
+_OLLAMA_ENDPOINT_CACHE: dict[str, object] = {
+    "expires_at": 0.0,
+    "base_url": "",
+    "available": False,
+}
+_OLLAMA_READY_MODELS: set[tuple[str, str]] = set()
 _MEDIA_BRIEFS_CACHE: dict[str, object] | None = None
 _PAGE_REGISTRY_CACHE: dict[str, object] | None = None
 
@@ -1319,6 +1326,14 @@ def _boolish(value: object, *, default: bool) -> bool:
     return default
 
 
+def truthy_env(name: str, *, default: bool = False) -> bool:
+    return _boolish(env_value(name), default=default)
+
+
+def _is_onemin_provider_allowed() -> bool:
+    return _boolish(env_value("CHUMMER6_ENABLE_ONEMIN_PROVIDER"), default=False)
+
+
 def _floatish(value: object, *, default: float = 0.0) -> float:
     try:
         return float(str(value).strip())
@@ -1432,7 +1447,7 @@ def overlay_mode_for_target(target: str) -> str:
         return normalized_mode
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
-        return "medscan_diagnostic"
+        return "cyberarm_fit_diagnostic"
     if normalized == "assets/pages/horizons-index.png":
         return "ambient_diegetic"
     if normalized == "assets/horizons/karma-forge.png":
@@ -1442,6 +1457,12 @@ def overlay_mode_for_target(target: str) -> str:
 
 def overlay_mode_prompt_clause(*, target: str, compact: bool = False) -> str:
     mode = overlay_mode_for_target(target)
+    if mode == "cyberarm_fit_diagnostic":
+        return (
+            "cyberarm fit diagnostic: NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, anchored to implant work"
+            if compact
+            else "Render only runner-relevant cyberarm fitting diagnostics in the painted scene: sparse labels such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT, plus calibration rings, seam-following light traces, clamp-alignment glows, small bracket marks, and color-coded scan dots anchored to the new cyberarm, surgical clamps, tools, and med rig. Do not render generic HUD menus, pseudo-writing, floating lore labels, storefront signage, or detached status panels."
+        )
     if mode == "medscan_diagnostic":
         return (
             "medscan diagnostic: anticipatory streetdoc triage rail, anchored callouts, status capsules, no face-covering panels"
@@ -1473,9 +1494,9 @@ def flagship_prompt_intro(target: str, *, compact: bool = False, fallback: str) 
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
         return (
-            "illustrated cover-grade Shadowrun runner-prep poster scene"
+            "illustrated cover-grade Shadowrun streetdoc cyberarm poster scene"
             if compact
-            else "Illustrated cover-grade Shadowrun runner-prep poster scene with painted rulebook-cover energy. Poster energy is welcome when it stays tied to a lived scene."
+            else "Illustrated cover-grade Shadowrun streetdoc cyberarm poster scene with painted rulebook-cover energy. Poster energy is welcome when it stays tied to a lived scene."
         )
     if normalized == "assets/pages/horizons-index.png":
         return (
@@ -2471,19 +2492,29 @@ SEMANTIC_REVIEW_NOTES = frozenset(
 )
 
 
+
+def _media_factory_uses_onemin_backend() -> bool:
+    backend = (env_value("CHUMMER_MEDIA_FACTORY_IMAGE_BACKEND") or "onemin").strip().lower()
+    return backend in {"", "default", "onemin", "ea_onemin", "one_min", "1min"}
+
+
 def provider_order() -> list[str]:
-    preferred = list(DEFAULT_PROVIDER_ORDER)
-    raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER")
-    if not raw:
-        return _normalized_provider_order(preferred)
-    values = [part.strip().lower().replace("-", "_") for part in raw.split(",") if part.strip()]
-    filtered: list[str] = []
-    for value in values:
-        if value in {"markupgo", "pollinations", "ooda_compositor", "scene_contract_renderer", "local_raster"}:
+    raw = env_value("CHUMMER6_IMAGE_PROVIDER_ORDER") or ",".join(DEFAULT_PROVIDER_ORDER)
+    requested = [item.strip().lower().replace("-", "_") for item in re.split(r"[,\s]+", raw) if item.strip()]
+    order: list[str] = []
+    for value in requested:
+        if value in {"onemin", "ea_onemin", "one_min", "1min"} and not _is_onemin_provider_allowed():
             continue
-        if value not in filtered:
-            filtered.append(value)
-    return filtered or list(preferred)
+        if (
+            value == "media_factory"
+            and _media_factory_uses_onemin_backend()
+            and not _is_onemin_provider_allowed()
+            and not truthy_env("CHUMMER6_MEDIA_FACTORY_ALLOW_ONEMIN_FALLBACK")
+        ):
+            continue
+        if value not in order:
+            order.append(value)
+    return order or list(DEFAULT_PROVIDER_ORDER)
 
 
 def routed_provider_order_for_target(target: str, *, providers: list[str] | None = None) -> list[str]:
@@ -2501,8 +2532,12 @@ def routed_provider_order_for_target(target: str, *, providers: list[str] | None
         ordered.remove(lowered)
         ordered.insert(0, lowered)
 
-    if normalized_target in DIRECT_ONEMIN_PREFERRED_TARGETS:
-        if not provider_should_skip_for_health(provider="onemin", target=normalized_target):
+    if _comfyui_render_enabled() and normalized_target in COMFYUI_PREFERRED_TARGETS:
+        if "comfyui" not in ordered:
+            ordered.insert(0, "comfyui")
+        _prioritize("comfyui")
+    elif normalized_target in DIRECT_ONEMIN_PREFERRED_TARGETS:
+        if _is_onemin_provider_allowed() and not provider_should_skip_for_health(provider="onemin", target=normalized_target):
             ordered = [value for value in ordered if value != "onemin"]
             scored = [(provider_health_penalty(provider=value, target=normalized_target), index, value) for index, value in enumerate(ordered)]
             ordered = ["onemin"] + [value for _penalty, _index, value in sorted(scored, key=lambda item: (item[0], item[1]))]
@@ -2522,7 +2557,13 @@ def _normalized_provider_order(values: list[str]) -> list[str]:
         value = str(raw or "").strip().lower().replace("-", "_")
         if not value:
             continue
-        target = deferred_onemin if value in {"onemin", "1min", "1min_ai", "oneminai"} else normalized
+        if value in {"onemin", "1min", "1min_ai", "1min.ai", "oneminai"}:
+            if _is_onemin_provider_allowed():
+                target = deferred_onemin
+            else:
+                continue
+        else:
+            target = normalized
         if value not in normalized and value not in deferred_onemin:
             target.append(value)
     return normalized + deferred_onemin
@@ -3439,6 +3480,63 @@ def run_command_provider(
     if output_path.exists() and output_path.stat().st_size > 0:
         return True, f"{name}:rendered"
     return False, f"{name}:empty_output"
+
+
+def run_comfyui_provider(
+    *,
+    prompt: str,
+    output_path: Path,
+    width: int,
+    height: int,
+) -> tuple[bool, str]:
+    if not _comfyui_render_enabled():
+        return False, "comfyui:not_configured"
+    ea_app_root = EA_ROOT / "ea"
+    if str(ea_app_root) not in sys.path:
+        sys.path.insert(0, str(ea_app_root))
+    try:
+        from app.services import tool_execution_comfyui_adapter as comfyui_adapter
+    except Exception as exc:
+        return False, f"comfyui:adapter_unavailable:{str(exc)[:180]}"
+    try:
+        result = comfyui_adapter._call_comfyui(
+            prompt,
+            width=width,
+            height=height,
+            steps=comfyui_adapter._int_env("COMFYUI_STEPS", 4),
+        )
+        prompt_id = str((result or {}).get("prompt_id") or "").strip()
+        if not prompt_id:
+            return False, "comfyui:no_prompt_id"
+        generation_result = comfyui_adapter._wait_for_generation(prompt_id)
+        outputs = generation_result.get("outputs", {}) if isinstance(generation_result, dict) else {}
+        image_info = comfyui_adapter._first_image_info(outputs)
+        if not image_info:
+            return False, "comfyui:no_image_output"
+        asset_url = comfyui_adapter._build_asset_url(image_info)
+        request_headers = {
+            key: value
+            for key, value in dict(comfyui_adapter._comfyui_headers()).items()
+            if str(key).lower() != "content-type"
+        }
+        request_headers["User-Agent"] = "EA-Chummer6-ComfyUI/1.0"
+        request = urllib.request.Request(asset_url, headers=request_headers)
+        with urllib.request.urlopen(
+            request,
+            timeout=(
+                comfyui_adapter._int_env("COMFYUI_CONNECT_TIMEOUT_SECONDS", 10)
+                + comfyui_adapter._int_env("COMFYUI_HISTORY_TIMEOUT_SECONDS", 30)
+            ),
+        ) as response:
+            payload = response.read()
+        if not payload:
+            return False, "comfyui:empty_output"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(payload)
+        return True, "comfyui:rendered"
+    except Exception as exc:
+        detail = str(exc or "").strip()
+        return False, f"comfyui:render_failed:{detail[:220]}"
 
 
 def run_url_provider(name: str, template: str, *, prompt: str, output_path: Path, width: int, height: int) -> tuple[bool, str]:
@@ -4548,6 +4646,7 @@ def sanitize_prompt_for_provider(prompt: str, *, provider: str) -> str:
     original = cleaned
     provider_name = str(provider or "").strip().lower()
     if provider_name in {
+        "comfyui",
         "onemin",
         "1min",
         "1min.ai",
@@ -5338,6 +5437,634 @@ def _ffmpeg_rgba_color(color: tuple[int, int, int, int]) -> str:
     return f"0x{red:02x}{green:02x}{blue:02x}@{max(0.0, min(1.0, alpha / 255.0)):.3f}"
 
 
+def _comfyui_render_enabled() -> bool:
+    explicit = env_value("CHUMMER6_ENABLE_COMFYUI")
+    if explicit:
+        return _boolish(explicit, default=True)
+    return bool(env_value("COMFYUI_URL"))
+
+
+def _overlay_vision_enabled(*, target: str) -> bool:
+    if not first_contact_target(target):
+        return False
+    explicit = env_value("CHUMMER6_OVERLAY_VISION_ENABLED")
+    if explicit:
+        return _boolish(explicit, default=True)
+    return bool(
+        env_value("CHUMMER6_OLLAMA_URL")
+        or env_value("OLLAMA_URL")
+        or env_value("OLLAMA_HOST")
+    )
+
+
+def _overlay_vision_model() -> str:
+    configured = (
+        env_value("CHUMMER6_OVERLAY_VISION_MODEL")
+        or env_value("OLLAMA_VISION_MODEL")
+        or env_value("CHUMMER6_OLLAMA_MODEL")
+    )
+    normalized = str(configured or "").strip()
+    return normalized or "llama3.2-vision:11b"
+
+
+def _overlay_vision_endpoint_cache_ttl_seconds() -> float:
+    raw = env_value("CHUMMER6_OLLAMA_CACHE_TTL_SECONDS") or "300"
+    try:
+        return max(10.0, min(1800.0, float(raw)))
+    except Exception:
+        return 300.0
+
+
+def _overlay_vision_request_timeout_seconds() -> float:
+    raw = env_value("CHUMMER6_OLLAMA_TIMEOUT_SECONDS") or "90"
+    try:
+        return max(5.0, min(600.0, float(raw)))
+    except Exception:
+        return 90.0
+
+
+def _overlay_vision_probe_timeout_seconds() -> float:
+    raw = env_value("CHUMMER6_OLLAMA_PROBE_TIMEOUT_SECONDS") or "3"
+    try:
+        return max(0.5, min(30.0, float(raw)))
+    except Exception:
+        return 3.0
+
+
+def _overlay_vision_pull_timeout_seconds() -> float:
+    raw = env_value("CHUMMER6_OLLAMA_PULL_TIMEOUT_SECONDS") or "900"
+    try:
+        return max(30.0, min(3600.0, float(raw)))
+    except Exception:
+        return 900.0
+
+
+def _overlay_vision_auto_pull_enabled() -> bool:
+    explicit = env_value("CHUMMER6_OLLAMA_AUTO_PULL")
+    if explicit:
+        return _boolish(explicit, default=True)
+    return True
+
+
+def _normalize_http_base_url(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if not re.match(r"^https?://", raw, re.IGNORECASE):
+        raw = f"http://{raw}"
+    parsed = urllib.parse.urlparse(raw)
+    scheme = parsed.scheme or "http"
+    netloc = parsed.netloc or parsed.path
+    path = parsed.path if parsed.netloc else ""
+    cleaned_path = path.rstrip("/")
+    if cleaned_path.endswith("/api"):
+        cleaned_path = cleaned_path[: -len("/api")]
+    return urllib.parse.urlunparse((scheme, netloc, cleaned_path, "", "", "")).rstrip("/")
+
+
+def _overlay_vision_base_url_candidates() -> list[str]:
+    candidates: list[str] = []
+
+    def _add(value: object) -> None:
+        normalized = _normalize_http_base_url(value)
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+
+    for value in (
+        env_value("CHUMMER6_OLLAMA_URL"),
+        env_value("OLLAMA_URL"),
+        env_value("OLLAMA_HOST"),
+    ):
+        _add(value)
+
+    comfyui_url = env_value("COMFYUI_URL")
+    if comfyui_url:
+        parsed = urllib.parse.urlparse(comfyui_url)
+        host = str(parsed.hostname or "").strip()
+        scheme = str(parsed.scheme or "https").strip() or "https"
+        if host:
+            _add(f"http://{host}:11434")
+            _add(f"{scheme}://{host}/ollama")
+            _add(f"{scheme}://{host}/ollama/api")
+    return candidates
+
+
+def _overlay_vision_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "EA-Chummer6-OllamaOverlay/1.0",
+    }
+    client_id = (
+        env_value("OLLAMA_CF_ACCESS_CLIENT_ID")
+        or env_value("COMFYUI_CF_ACCESS_CLIENT_ID")
+        or env_value("CF_ACCESS_CLIENT_ID")
+    )
+    client_secret = (
+        env_value("OLLAMA_CF_ACCESS_CLIENT_SECRET")
+        or env_value("COMFYUI_CF_ACCESS_CLIENT_SECRET")
+        or env_value("CF_ACCESS_CLIENT_SECRET")
+    )
+    if client_id and client_secret:
+        headers["CF-Access-Client-Id"] = client_id
+        headers["CF-Access-Client-Secret"] = client_secret
+    return headers
+
+
+def _overlay_vision_json_request(
+    *,
+    base_url: str,
+    path: str,
+    payload: dict[str, object] | None,
+    method: str,
+    timeout_seconds: float,
+) -> tuple[object | None, str]:
+    url = f"{str(base_url or '').rstrip('/')}/{str(path or '').lstrip('/')}"
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        headers=_overlay_vision_headers(),
+        data=data,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read().decode("utf-8", errors="replace").strip()
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace").strip()
+        return None, f"http_{exc.code}:{body[:220]}"
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        detail = getattr(exc, "reason", exc)
+        return None, f"urlerror:{str(detail)[:220]}"
+    if not body:
+        return None, "empty_response"
+    try:
+        return json.loads(body), ""
+    except Exception:
+        return None, f"invalid_json:{body[:220]}"
+
+
+def _overlay_vision_list_models(base_url: str) -> tuple[list[str] | None, str]:
+    payload, detail = _overlay_vision_json_request(
+        base_url=base_url,
+        path="/api/tags",
+        payload=None,
+        method="GET",
+        timeout_seconds=_overlay_vision_probe_timeout_seconds(),
+    )
+    if payload is None:
+        return None, detail
+    if not isinstance(payload, dict):
+        return None, "invalid_tags_payload"
+    rows = payload.get("models")
+    if not isinstance(rows, list):
+        return [], ""
+    models: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if name and name not in models:
+            models.append(name)
+    return models, ""
+
+
+def _resolve_overlay_vision_base_url() -> str:
+    now = time.monotonic()
+    cached_expires = _floatish(_OLLAMA_ENDPOINT_CACHE.get("expires_at"), default=0.0)
+    if cached_expires > now:
+        if _boolish(_OLLAMA_ENDPOINT_CACHE.get("available"), default=False):
+            return str(_OLLAMA_ENDPOINT_CACHE.get("base_url") or "").strip()
+        return ""
+    for base_url in _overlay_vision_base_url_candidates():
+        models, detail = _overlay_vision_list_models(base_url)
+        if models is not None and not detail:
+            _OLLAMA_ENDPOINT_CACHE["expires_at"] = now + _overlay_vision_endpoint_cache_ttl_seconds()
+            _OLLAMA_ENDPOINT_CACHE["base_url"] = base_url
+            _OLLAMA_ENDPOINT_CACHE["available"] = True
+            return base_url
+    _OLLAMA_ENDPOINT_CACHE["expires_at"] = now + _overlay_vision_endpoint_cache_ttl_seconds()
+    _OLLAMA_ENDPOINT_CACHE["base_url"] = ""
+    _OLLAMA_ENDPOINT_CACHE["available"] = False
+    return ""
+
+
+def _overlay_vision_model_ready(*, base_url: str, model: str) -> bool:
+    normalized_model = str(model or "").strip()
+    if not base_url or not normalized_model:
+        return False
+    cache_key = (base_url, normalized_model)
+    if cache_key in _OLLAMA_READY_MODELS:
+        return True
+    models, detail = _overlay_vision_list_models(base_url)
+    if models is None:
+        return False
+    wanted_base = normalized_model.split(":", 1)[0]
+    if any(
+        str(entry or "").strip() == normalized_model
+        or str(entry or "").strip().split(":", 1)[0] == wanted_base
+        for entry in models
+    ):
+        _OLLAMA_READY_MODELS.add(cache_key)
+        return True
+    if not _overlay_vision_auto_pull_enabled():
+        return False
+    payload, detail = _overlay_vision_json_request(
+        base_url=base_url,
+        path="/api/pull",
+        payload={"name": normalized_model, "stream": False},
+        method="POST",
+        timeout_seconds=_overlay_vision_pull_timeout_seconds(),
+    )
+    if payload is None:
+        return False
+    _OLLAMA_READY_MODELS.add(cache_key)
+    return True
+
+
+def _extract_json_payload_from_text(text: str) -> object | None:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return None
+    for candidate in (cleaned, cleaned.strip("`")):
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+    starts = [index for index in (cleaned.find("{"), cleaned.find("[")) if index >= 0]
+    if not starts:
+        return None
+    start = min(starts)
+    for end in range(len(cleaned), start + 1, -1):
+        snippet = cleaned[start:end].strip()
+        if not snippet:
+            continue
+        try:
+            return json.loads(snippet)
+        except Exception:
+            continue
+    return None
+
+
+def _overlay_vision_text(text: object, *, limit: int = 22) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+    cleaned = re.sub(r"[^A-Za-z0-9:/+.\- ]+", "", cleaned).strip()
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    telemetry_words = "camera|cam|route|heat|safe|clear|jack|crack|drift|cone|lock|risk|approval|witness"
+    if re.search(r"\d", cleaned):
+        if re.search(r"\d+(?:\.\d+)?\s*(?:%|m|ms|s|sec|meter|meters)\b", lowered):
+            return ""
+        if re.search(rf"(?:{telemetry_words})\b[^A-Za-z0-9]+\d", lowered):
+            return ""
+        cleaned = re.sub(r"\b\d+(?:\.\d+)?\b", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -:/.")
+    if not cleaned:
+        return ""
+    if len(cleaned) <= limit:
+        return cleaned
+    clipped = cleaned[:limit].rstrip(" -:/.")
+    return clipped or cleaned[:limit]
+
+
+def _overlay_vision_color(kind: str, color: object) -> tuple[int, int, int, int]:
+    token = str(color or "").strip().lower()
+    palette = {
+        "cyan": (52, 214, 255, 188),
+        "amber": (255, 184, 72, 184),
+        "red": (255, 92, 110, 192),
+        "lime": (112, 255, 142, 184),
+        "green": (112, 255, 142, 184),
+        "magenta": (255, 104, 214, 180),
+    }
+    if token in palette:
+        return palette[token]
+    by_kind = {
+        "route": palette["lime"],
+        "camera": palette["cyan"],
+        "identity": palette["amber"],
+        "ward": palette["magenta"],
+        "medical": palette["red"],
+        "forge": palette["amber"],
+        "network": palette["cyan"],
+        "gear": palette["lime"],
+        "generic": palette["cyan"],
+    }
+    return by_kind.get(str(kind or "").strip().lower(), palette["cyan"])
+
+
+def _overlay_vision_anchor_rect(value: object) -> tuple[float, float, float, float] | None:
+    if isinstance(value, dict):
+        x = _floatish(value.get("x"), default=-1.0)
+        y = _floatish(value.get("y"), default=-1.0)
+        w = _floatish(value.get("w"), default=-1.0)
+        h = _floatish(value.get("h"), default=-1.0)
+    elif isinstance(value, (list, tuple)) and len(value) >= 4:
+        x = _floatish(value[0], default=-1.0)
+        y = _floatish(value[1], default=-1.0)
+        w = _floatish(value[2], default=-1.0)
+        h = _floatish(value[3], default=-1.0)
+    else:
+        return None
+    if min(x, y, w, h) < 0.0 or w <= 0.0 or h <= 0.0:
+        return None
+    x = max(0.0, min(0.96, x))
+    y = max(0.0, min(0.96, y))
+    w = max(0.03, min(0.80, w))
+    h = max(0.03, min(0.80, h))
+    if x + w > 0.98:
+        w = max(0.03, 0.98 - x)
+    if y + h > 0.98:
+        h = max(0.03, 0.98 - y)
+    return x, y, w, h
+
+
+def _overlay_vision_pixel_rect(
+    anchor_rect: tuple[float, float, float, float],
+    *,
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int]:
+    x = _clamp_int(anchor_rect[0] * width, lower=0, upper=max(0, width - 12))
+    y = _clamp_int(anchor_rect[1] * height, lower=0, upper=max(0, height - 12))
+    w = _clamp_int(anchor_rect[2] * width, lower=12, upper=max(12, width))
+    h = _clamp_int(anchor_rect[3] * height, lower=12, upper=max(12, height))
+    if x + w >= width:
+        w = max(12, width - x - 1)
+    if y + h >= height:
+        h = max(12, height - y - 1)
+    return x, y, w, h
+
+
+def _overlay_vision_chip_placement(
+    *,
+    anchor_rect: tuple[int, int, int, int],
+    placement: object,
+    text: str,
+    font_size: int,
+    width: int,
+    height: int,
+) -> tuple[int, int, int, int, int, int]:
+    x, y, w, h = anchor_rect
+    chip_w, chip_h = _chip_text_extent(text, font_size=font_size)
+    placement_token = str(placement or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not placement_token or placement_token == "auto":
+        placement_token = "right" if x + (w / 2.0) < (width * 0.5) else "left"
+    anchor_x = _clamp_int(x + (w / 2.0), lower=0, upper=max(0, width - 1))
+    anchor_y = _clamp_int(y + (h / 2.0), lower=0, upper=max(0, height - 1))
+    if placement_token in {"above", "top"}:
+        chip_x = _clamp_int(x + (w / 2.0) - (chip_w / 2.0), lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y - chip_h - 18, lower=16, upper=max(16, height - chip_h - 16))
+    elif placement_token in {"below", "bottom"}:
+        chip_x = _clamp_int(x + (w / 2.0) - (chip_w / 2.0), lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y + h + 18, lower=16, upper=max(16, height - chip_h - 16))
+    elif placement_token in {"upper_left", "top_left"}:
+        chip_x = _clamp_int(x - chip_w - 18, lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y - chip_h - 12, lower=16, upper=max(16, height - chip_h - 16))
+    elif placement_token in {"upper_right", "top_right"}:
+        chip_x = _clamp_int(x + w + 18, lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y - chip_h - 12, lower=16, upper=max(16, height - chip_h - 16))
+    elif placement_token in {"lower_left", "bottom_left"}:
+        chip_x = _clamp_int(x - chip_w - 18, lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y + h + 12, lower=16, upper=max(16, height - chip_h - 16))
+    elif placement_token in {"lower_right", "bottom_right"}:
+        chip_x = _clamp_int(x + w + 18, lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y + h + 12, lower=16, upper=max(16, height - chip_h - 16))
+    elif placement_token == "left":
+        chip_x = _clamp_int(x - chip_w - 18, lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y + (h / 2.0) - (chip_h / 2.0), lower=16, upper=max(16, height - chip_h - 16))
+    else:
+        chip_x = _clamp_int(x + w + 18, lower=16, upper=max(16, width - chip_w - 16))
+        chip_y = _clamp_int(y + (h / 2.0) - (chip_h / 2.0), lower=16, upper=max(16, height - chip_h - 16))
+    return chip_x, chip_y, chip_w, chip_h, anchor_x, anchor_y
+
+
+def _overlay_vision_candidate_texts(
+    *,
+    target: str,
+    base_layout: dict[str, list[dict[str, object]]],
+    spec: dict[str, object] | None,
+) -> list[str]:
+    candidates: list[str] = []
+    row = spec.get("media_row") if isinstance(spec, dict) and isinstance(spec.get("media_row"), dict) else {}
+    contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+    for source in (
+        row.get("overlay_callouts"),
+        contract.get("overlays"),
+        row.get("overlays"),
+        target_visual_contract(target).get("required_overlay_schema"),
+    ):
+        for entry in _string_list(source):
+            normalized = _overlay_vision_text(entry, limit=28)
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+    for chip in base_layout.get("chips", []):
+        normalized = _overlay_vision_text(chip.get("text"), limit=28)
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+    return candidates[:12]
+
+
+def _overlay_vision_prompt(
+    *,
+    target: str,
+    spec: dict[str, object] | None,
+    base_layout: dict[str, list[dict[str, object]]],
+) -> str:
+    contract = target_visual_contract(target)
+    row = spec.get("media_row") if isinstance(spec, dict) and isinstance(spec.get("media_row"), dict) else {}
+    scene_contract = row.get("scene_contract") if isinstance(row.get("scene_contract"), dict) else {}
+    scene_subject = _overlay_vision_text(scene_contract.get("subject"), limit=120)
+    scene_action = _overlay_vision_text(scene_contract.get("action"), limit=120)
+    overlay_hint = _overlay_vision_text(row.get("overlay_hint") or scene_contract.get("overlay_hint"), limit=140)
+    overlay_mode = overlay_mode_for_target(target)
+    anchors = ", ".join(_string_list(contract.get("must_show_semantic_anchors"))[:6])
+    suggested = ", ".join(_overlay_vision_candidate_texts(target=target, base_layout=base_layout, spec=spec))
+    return "\n".join(
+        [
+            "Plan the second-stage smart-glasses overlay for the attached Shadowrun image.",
+            "The base image is already rendered. Choose only overlays that the visible scene geometry actually supports.",
+            f"Target asset: {target}",
+            f"Overlay mode: {overlay_mode or 'generic_runner_ar'}",
+            f"Scene subject: {scene_subject or 'runner under pressure'}",
+            f"Scene action: {scene_action or 'runner prep and risk evaluation'}",
+            f"Intent hint: {overlay_hint or overlay_mode_prompt_clause(target=target, compact=True)}",
+            f"Must-show semantic anchors: {anchors or 'geometry-bound tactical relevance only'}",
+            f"Suggested vocabulary: {suggested or 'route, camera, smartlink, medscan, trust, ward, gear, network'}",
+            "Rules:",
+            "- Return JSON only.",
+            "- Choose 2 to 6 chips max.",
+            "- Every chip must anchor to visible anatomy, door, route, rail, camera, cyberware seam, tool, or apparatus.",
+            "- Route and camera chips are forbidden unless those cues are visibly present.",
+            "- Text must read like terse runner smart-glasses copy, not a sentence.",
+            "- No center-screen HUD slabs, no giant rectangles, no decorative overlays.",
+            "- Use normalized 0..1 anchor_rect values for x, y, w, h.",
+            "- placement must be one of: auto, left, right, above, below, upper_left, upper_right, lower_left, lower_right.",
+            "- color must be one of: cyan, amber, red, lime, magenta.",
+            "Return schema:",
+            '{"chips":[{"text":"camera angle","kind":"camera","color":"cyan","placement":"upper_right","anchor_rect":{"x":0.72,"y":0.16,"w":0.08,"h":0.10},"reason":"visible ceiling camera"}]}',
+        ]
+    )
+
+
+def _overlay_vision_plan(
+    *,
+    image_path: Path,
+    target: str,
+    spec: dict[str, object] | None,
+    base_layout: dict[str, list[dict[str, object]]],
+) -> dict[str, object] | None:
+    if not image_path.exists():
+        return None
+    base_url = _resolve_overlay_vision_base_url()
+    if not base_url:
+        return None
+    model = _overlay_vision_model()
+    if not _overlay_vision_model_ready(base_url=base_url, model=model):
+        return None
+    encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+    payload = {
+        "model": model,
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": 0.1,
+        },
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a precise augmented-reality overlay planner for runner smart-glasses. Return JSON only.",
+            },
+            {
+                "role": "user",
+                "content": _overlay_vision_prompt(target=target, spec=spec, base_layout=base_layout),
+                "images": [encoded],
+            },
+        ],
+    }
+    response, detail = _overlay_vision_json_request(
+        base_url=base_url,
+        path="/api/chat",
+        payload=payload,
+        method="POST",
+        timeout_seconds=_overlay_vision_request_timeout_seconds(),
+    )
+    if not isinstance(response, dict):
+        return None
+    content = ""
+    if isinstance(response.get("message"), dict):
+        content = str((response.get("message") or {}).get("content") or "").strip()
+    if not content:
+        content = str(response.get("response") or "").strip()
+    parsed = _extract_json_payload_from_text(content)
+    if not isinstance(parsed, dict):
+        return None
+    chips = parsed.get("chips")
+    if not isinstance(chips, list):
+        return None
+    return {
+        "model": model,
+        "chips": [dict(entry) for entry in chips if isinstance(entry, dict)],
+    }
+
+
+def _vision_first_contact_overlay_layout(
+    *,
+    target: str,
+    width: int,
+    height: int,
+    image_path: Path,
+    spec: dict[str, object] | None,
+) -> dict[str, list[dict[str, object]]] | None:
+    if not _overlay_vision_enabled(target=target):
+        return None
+    base_layout = copy.deepcopy(_static_first_contact_overlay_layout(target=target, width=width, height=height))
+    plan = _overlay_vision_plan(
+        image_path=image_path,
+        target=target,
+        spec=spec,
+        base_layout=base_layout,
+    )
+    if not isinstance(plan, dict):
+        return None
+    normalized_chips: list[dict[str, object]] = []
+    normalized_boxes: list[dict[str, object]] = []
+    normalized_lines: list[dict[str, object]] = []
+    seen_boxes: set[tuple[int, int, int, int]] = set()
+    for row in [dict(entry) for entry in (plan.get("chips") or []) if isinstance(entry, dict)][:6]:
+        text = _overlay_vision_text(row.get("text"))
+        if not text:
+            continue
+        kind = str(row.get("kind") or "").strip().lower() or _overlay_semantic_kind(text)
+        anchor_rect = _overlay_vision_anchor_rect(
+            row.get("anchor_rect")
+            or row.get("anchor_box")
+            or row.get("box")
+        )
+        if anchor_rect is None:
+            continue
+        pixel_rect = _overlay_vision_pixel_rect(anchor_rect, width=width, height=height)
+        font_size = max(8, min(18, int(_floatish(row.get("font_size"), default=10.0))))
+        color = _overlay_vision_color(kind, row.get("color"))
+        chip_x, chip_y, chip_w, chip_h, anchor_x, anchor_y = _overlay_vision_chip_placement(
+            anchor_rect=pixel_rect,
+            placement=row.get("placement") or row.get("chip_position"),
+            text=text,
+            font_size=font_size,
+            width=width,
+            height=height,
+        )
+        normalized_chips.append(
+            {
+                "x": chip_x,
+                "y": chip_y,
+                "text": text,
+                "color": color,
+                "font_size": font_size,
+            }
+        )
+        normalized_lines.append(
+            {
+                "points": (
+                    chip_x + (chip_w // 2),
+                    chip_y + chip_h,
+                    anchor_x,
+                    anchor_y,
+                ),
+                "color": color,
+                "width": 2,
+            }
+        )
+        box = pixel_rect
+        if kind == "route" and box[2] >= int(width * 0.18) and box[3] <= int(height * 0.16):
+            continue
+        if box not in seen_boxes:
+            seen_boxes.add(box)
+            normalized_boxes.append(
+                {
+                    "x": box[0],
+                    "y": box[1],
+                    "w": box[2],
+                    "h": box[3],
+                    "color": color,
+                    "width": 2,
+                    "radius": 8,
+                }
+            )
+    if len(normalized_chips) < 2:
+        return None
+    return {
+        "fills": [],
+        "boxes": normalized_boxes[:5],
+        "lines": normalized_lines[:6],
+        "chips": normalized_chips,
+        "arcs": [],
+        "_source": "vision_ollama",
+        "_model": str(plan.get("model") or ""),
+    }
+
+
 def _static_first_contact_overlay_layout(*, target: str, width: int, height: int) -> dict[str, list[dict[str, object]]]:
     cyan = (39, 212, 255, 110)
     amber = (255, 166, 87, 95)
@@ -5366,12 +6093,12 @@ def _static_first_contact_overlay_layout(*, target: str, width: int, height: int
                 {"box": (int(width * 0.62), int(height * 0.6), int(width * 0.96), int(height * 0.94)), "start": 214, "end": 300, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.04), "y": int(height * 0.145), "text": "SIN maybe fake", "color": amber, "font_size": 10},
-                {"x": int(width * 0.04), "y": int(height * 0.2), "text": "smartlink green", "color": lime, "font_size": 9},
-                {"x": int(width * 0.04), "y": int(height * 0.255), "text": "ward bleed low", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.76), "y": int(height * 0.75), "text": "cam jack 67%", "color": amber, "font_size": 9},
-                {"x": int(width * 0.04), "y": int(height * 0.81), "text": "cover route 3.1s", "color": cyan, "font_size": 9},
-                {"x": int(width * 0.28), "y": int(height * 0.85), "text": "next: side door", "color": lime, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.145), "text": "ID check", "color": amber, "font_size": 10},
+                {"x": int(width * 0.04), "y": int(height * 0.2), "text": "chrome sync", "color": lime, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.255), "text": "ward edge", "color": cyan, "font_size": 10},
+                {"x": int(width * 0.79), "y": int(height * 0.75), "text": "camera angle", "color": amber, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.81), "text": "door route", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.28), "y": int(height * 0.85), "text": "side-door option", "color": lime, "font_size": 9},
             ],
         }
     if target == "assets/pages/horizons-index.png":
@@ -5398,10 +6125,10 @@ def _static_first_contact_overlay_layout(*, target: str, width: int, height: int
             ],
             "chips": [
                 {"x": int(width * 0.11), "y": int(height * 0.13), "text": "clinic 44m", "color": amber, "font_size": 9},
-                {"x": int(width * 0.38), "y": int(height * 0.07), "text": "cover route 2.4s", "color": cyan, "font_size": 9},
-                {"x": int(width * 0.70), "y": int(height * 0.12), "text": "cam crack 67%", "color": lime, "font_size": 9},
-                {"x": int(width * 0.20), "y": int(height * 0.72), "text": "SIN maybe fake", "color": cyan, "font_size": 9},
-                {"x": int(width * 0.62), "y": int(height * 0.72), "text": "heat rising east", "color": amber, "font_size": 9},
+                {"x": int(width * 0.38), "y": int(height * 0.07), "text": "clinic lane", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.70), "y": int(height * 0.12), "text": "camera angle", "color": lime, "font_size": 9},
+                {"x": int(width * 0.20), "y": int(height * 0.72), "text": "ID check", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.62), "y": int(height * 0.72), "text": "heat pocket", "color": amber, "font_size": 9},
             ],
         }
     if target == "assets/horizons/karma-forge.png":
@@ -5428,18 +6155,18 @@ def _static_first_contact_overlay_layout(*, target: str, width: int, height: int
             ],
             "chips": [
                 {"x": int(width * 0.24), "y": int(height * 0.54), "text": "clamp now", "color": cyan, "font_size": 9},
-                {"x": int(width * 0.39), "y": int(height * 0.11), "text": "seal drift 14%", "color": amber, "font_size": 9},
-                {"x": int(width * 0.63), "y": int(height * 0.18), "text": "witness lock weak", "color": red, "font_size": 8},
-                {"x": int(width * 0.63), "y": int(height * 0.42), "text": "rollback safe 62%", "color": cyan, "font_size": 8},
-                {"x": int(width * 0.56), "y": int(height * 0.68), "text": "blast cone 12m", "color": amber, "font_size": 9},
+                {"x": int(width * 0.39), "y": int(height * 0.11), "text": "seal drift", "color": amber, "font_size": 9},
+                {"x": int(width * 0.63), "y": int(height * 0.18), "text": "witness pressure", "color": red, "font_size": 8},
+                {"x": int(width * 0.63), "y": int(height * 0.42), "text": "rollback path", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.56), "y": int(height * 0.68), "text": "blast edge", "color": amber, "font_size": 9},
             ],
         }
     if target in {"assets/pages/horizons-index.png", "assets/pages/parts-index.png"}:
         left_label = "clinic 44m" if target == "assets/pages/horizons-index.png" else "rules core live"
-        center_label = "cover route 2.4s" if target == "assets/pages/horizons-index.png" else "design pressure high"
-        right_label = "cam crack 67%" if target == "assets/pages/horizons-index.png" else "registry trust 82%"
-        lower_right = "heat rising east" if target == "assets/pages/horizons-index.png" else "ui in one glance"
-        lower_left = "SIN maybe fake" if target == "assets/pages/horizons-index.png" else "mobile fallback ready"
+        center_label = "clinic lane" if target == "assets/pages/horizons-index.png" else "design pressure high"
+        right_label = "camera angle" if target == "assets/pages/horizons-index.png" else "registry trust 82%"
+        lower_right = "heat pocket" if target == "assets/pages/horizons-index.png" else "ui in one glance"
+        lower_left = "ID check" if target == "assets/pages/horizons-index.png" else "mobile fallback ready"
         return {
             "fills": [
                 {"x": int(width * 0.08), "y": int(height * 0.12), "w": int(width * 0.10), "h": int(height * 0.005), "color": amber},
@@ -5836,7 +6563,7 @@ def _overlay_semantic_kind(text: str) -> str:
 def _overlay_semantic_tags(kind: str) -> tuple[str, ...]:
     return {
         "route": ("path", "frame"),
-        "camera": ("fixture", "apparatus"),
+        "camera": ("fixture",),
         "identity": ("subject", "apparatus"),
         "ward": ("subject", "apparatus"),
         "medical": ("subject", "apparatus"),
@@ -5976,6 +6703,8 @@ def _choose_overlay_candidate(
     for candidate in observations:
         tags = set(str(entry).strip() for entry in (candidate.get("tags") or ()))
         if not (wanted & tags):
+            continue
+        if kind == "camera" and not {"fixture", "upper"} <= tags:
             continue
         score = float(candidate.get("score") or 0.0)
         if side_hint in tags:
@@ -6123,10 +6852,18 @@ def _first_contact_overlay_layout(
     image_path: Path | None = None,
     spec: dict[str, object] | None = None,
 ) -> dict[str, list[dict[str, object]]]:
-    del spec
     layout = copy.deepcopy(_static_first_contact_overlay_layout(target=target, width=width, height=height))
     if image_path is None:
         return layout
+    vision_layout = _vision_first_contact_overlay_layout(
+        target=target,
+        width=width,
+        height=height,
+        image_path=image_path,
+        spec=spec,
+    )
+    if isinstance(vision_layout, dict):
+        return vision_layout
     observations = _scene_overlay_observations(image_path=image_path, target=target)
     return _observed_overlay_layout(
         layout=layout,
@@ -8830,15 +9567,15 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
         )
     if overlay_density == "high":
         parts.append(
-            "Diegetic overlays must do real semantic work and stay visibly present through the frame."
+            "Expose enough believable geometry and semantic anchors for a second-pass smart-glasses overlay to do real work across the full frame."
             if not compact
-            else "heavy semantic overlays"
+            else "dense overlay anchors"
         )
     elif overlay_density == "medium":
         parts.append(
-            "Include visible diegetic overlay traces that clarify the scene instead of decorative glow."
+            "Expose a few clear geometry anchors so a second-pass smart-glasses overlay can clarify the scene instead of decorative glow doing the work."
             if not compact
-            else "visible semantic overlays"
+            else "clear overlay anchors"
         )
     if required_overlay_mode:
         parts.append(
@@ -8847,9 +9584,9 @@ def visual_contract_prompt_parts(*, target: str, compact: bool = False) -> list[
             else f"overlay posture {required_overlay_mode}"
         )
         parts.append(
-            "Make the AR visibly present in the base artwork as diegetic smart-glasses or cybereye guidance anchored to real geometry; if a verified post-composite layer exists, use it to sharpen the same semantics rather than introducing AR from nothing."
+            "Render the base artwork clean enough for a second-stage smart-glasses pass to inspect it. If diegetic AR appears in-scene, keep it faint, geometry-anchored, and semantically consistent so verified post-composite overlays can choose, place, and sharpen the final chips."
             if not compact
-            else "visible geometry-anchored AR in base art; composite only sharpens it"
+            else "base art exposes geometry; second-pass overlay chooses final chips"
         )
     if overlay_geometry:
         joined = ", ".join(entry for entry in overlay_geometry if entry)
@@ -9232,13 +9969,13 @@ def critical_asset_onemin_scene_brief(target: str) -> str:
     normalized = str(target or "").replace("\\", "/").strip()
     if normalized == "assets/hero/chummer6-hero.png":
         return (
-            "Ultra-wide 16:9 illustrated flagship Shadowrun runner-prep poster scene inside a lived-in safehouse garage staging bay. "
-            "Set the camera several meters back and slightly above eye level. A visibly augmented metahuman quartermaster or fixer works a standing prep rail while a tusked troll or ork runner locks in gear and cyberware fit, with a third teammate crowding the opposite edge with route help, med patches, or hard practical light. "
-            "The full staging bay must stay visible at once: open garage door with rain outside, parked wreck or bike, ceiling fixtures, tool wall, armor rack, weapon cases, cable nests, med kit, ammo trays, patched coats, fake-ID sticks, hanging straps, comm gear, wet concrete, and improvised work lights. "
-            "The room must tell as much of the story as the people, with the bay, shelves, floor, doorway, and prep hardware occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. "
-            "Add lived Sixth World clutter: six-sided dice, med-gel, a commlink cradle, route scribbles, spent stim debris, a devil-rat trap, one hidden blurred megacorp shell, and a faint magical focus or totem clue near the wall. "
-            "Keep the palette dirty-bright and vividly punctured by cyan tactical spill, hot amber task light, and magenta or acid-green neon or astral bleed instead of grayscale olive murk. "
-            "More surroundings than portrait anatomy, more prep clutter than clean surfaces, no surgery, no hospital showroom, no desk tableau, no readable screens, and no blown-out doorway turning into a blank white panel."
+            "Ultra-wide 16:9 illustrated flagship Shadowrun streetdoc cyberarm poster scene inside a bright converted clinic shack or back-alley implant bay. "
+            "Set the camera several meters back and slightly above eye level. A visibly augmented streetdoc or cybertech fits a new cyberarm onto a runner in a hacked repair recliner, with an assistant, teammate, or witness crowding the edge of the treatment bay. "
+            "The full streetdoc bay must stay visible at once: open shop front or container doorway, ceiling fixtures, tool wall, surgical clamps, implant trays, chrome arm parts, med rig, cable nests, wet concrete, tarps, extension cords, bottles, gauze, and improvised clinic lamps. "
+            "The room must tell as much of the story as the people, with the bay, shelves, floor, doorway, and treatment hardware occupying well over half the frame and any one figure staying smaller than a quarter-frame crop. "
+            "Add lived Sixth World clutter: med-gel, spent stim debris, a blurred megacorp shell, chipped clinic waste, old gauze, patched jackets, and a faint talis or totem clue near the wall. "
+            "Keep the palette bright, vivid, and punctured by cyan diagnostic spill, hot amber clinic light, saturated magenta or acid-green neon, and chrome reflections instead of grayscale olive murk. "
+            "More surroundings than portrait anatomy, more cyberarm fitting hardware than clean surfaces, no generic hospital showroom, no desk tableau, no readable shop signs, and no blown-out doorway turning into a blank white panel."
         )
     if normalized == "assets/pages/horizons-index.png":
         return (
@@ -9346,24 +10083,24 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
         return clip_prompt_text(
             " ".join(
                 [
-                    "Illustrated cover-grade cyberpunk-fantasy runner-prep cover art.",
+                    "Illustrated cover-grade cyberpunk-fantasy streetdoc cyberarm cover art.",
                     "Ultra-wide establishing shot, environment first, camera several meters back and slightly above eye level, the room occupies well over half the frame, and figures occupy less than one quarter of frame.",
                     lived_story_clause(normalized),
                     chummer_dev_clause(normalized),
-                    "Make the frame read like a short Shadowrun story with three beats visible at once: the crew is staging now, the hard readiness call is being made now, and the next ugly move back into the sprawl is already hanging over the room.",
-                    "In-game runner safehouse staging bay inside a barrens auto garage, unmistakably Shadowrun-adjacent, with a full prep lane instead of a bedside crop.",
-                    "A visibly augmented metahuman quartermaster or fixer with obvious chrome checks a tusked troll or ork runner's field gear and cyberware readiness at a standing prep rail while a second teammate assists from the far edge with route help, med patches, or hard practical light.",
-                    "Fill the room wall to wall: open garage door with rain spill, wet reflective floor, doorway, shelves, tool wall, armor rack, weapon cases, patched coats, fake-ID sticks, commlink cradle, ammo trays, dangling cables, sputtering caf machine, storage cages, tarps, and improvised work lights.",
-                    "Anchor the scene with hard Shadowrun crumbs: one clipped Ares or Renraku shell with blurred logos, a Blood Orchid leaf plate, stacked cyberlimb housings, devil rat bait tin, a magical focus or totemic ward residue on wall paint, and route scribbles tucked into the clutter.",
-                    "Keep the social cost in frame with rat tracks, spent stim patch, old gauze, chipped armor, and visible fatigue.",
+                    "Make the frame read like a short Shadowrun story with three beats visible at once: the cyberarm is being fitted now, the runner is deciding whether the implant proof holds now, and the next ugly move back into the sprawl is already hanging over the room.",
+                    "In-game streetdoc shack or converted clinic bay, unmistakably Shadowrun-adjacent, with a full treatment lane instead of a bedside crop.",
+                    "A visibly augmented metahuman streetdoc or cybertech with obvious chrome fits a new cyberarm onto a runner in a hacked repair recliner while a second teammate or assistant watches from the far edge with med patches, hard practical light, or a tool tray.",
+                    "Fill the room wall to wall: open container doorway or clinic front with bright spill, wet reflective floor, shelves, tool wall, implant trays, surgical clamps, chrome arm parts, med rig, patched coats, gauze, bottles, dangling cables, storage cages, tarps, and improvised clinic lamps.",
+                    "Anchor the scene with hard Shadowrun crumbs: one clipped Ares or Renraku shell with blurred logos, stacked cyberlimb housings, spent stim patch, chipped clinic waste, old gauze, and a magical focus or totemic ward residue on wall paint.",
+                    "Keep the social cost in frame with old gauze, chipped armor, visible fatigue, and the runner's new arm still visibly under calibration.",
                     "Force a dirty-bright color triad in the rendered scene itself: cyan smart-glasses spill, hot amber work-light bloom, and vivid magenta or acid-green neon or astral bleed must all register on props, walls, chrome, or wet floor reflections; do not let the palette collapse into olive mud or monochrome shadow.",
-                    "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and prep clutter; avoid blank dark wall or empty negative space.",
+                    "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and streetdoc clutter; avoid blank dark wall or empty negative space.",
                     "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy, and cast roles must read clearly at a glance.",
                     "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, saturated civic color highlights, and bold silhouette grouping.",
-                    "AR posture is smartlink tactical; readable rails, sync callouts, route chips, and readiness status should already exist in-scene and stay anchored to visor lines, cyberware seams, gear cases, wrists, doors, or prep rail geometry. Make it feel like a smart assistant already answering the next questions about fake SIN confidence, comm health, gear handshake, route viability, injury risk, and safest next action. Verified post-composite may sharpen them, not invent them.",
-                    "Negative constraints: medium shot, bedside crop, close portrait, surgery, gore, clean clinic, hospital showroom, medbay monitor wall, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces, back-view idle pair, or a blown-out doorway panel.",
+                    "AR posture is cyberarm fit diagnostic: expose cyberware seams, clamp points, implant trays, med-rig arms, fingers, wrists, tool placement, and wet-floor reflections cleanly so a second-pass vision planner can decide the final NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, and TORQUE LIMIT callouts from the rendered image. Any diegetic AR inside the base art must stay sparse and welded to real implant geometry; verified post-composite is where the explicit runner questions get answered.",
+                    "Negative constraints: medium shot, bedside crop, close portrait, gore, clean clinic, hospital showroom, medbay monitor wall, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces, back-view idle pair, or a blown-out doorway panel.",
                     "Do not paint signage, title text, or public-facing UI walls into the scene. No pseudo monitors and no dashboard-style screens.",
-                    "Short tactical chips are allowed when welded to anatomy, tools, rail geometry, or route lines. No watermark. 16:9.",
+                    "Short cyberarm-fit chips are allowed when welded to the implant, anatomy, clamps, tools, or med-rig geometry. No watermark. 16:9.",
                 ]
             ),
             limit=3200,
@@ -9381,7 +10118,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "Keep the frame packed with route clutter, partial crowds, vehicle traces, tram wires, barrier posts, maintenance gantries, wet reflections, cable halos, depot edges, transit hardware, and district pressure.",
                     "Seed the location with unmistakable lore pressure: Chicago Bug City tower scars on the horizon, Ork Underground tilework edges, Arcology silhouette breaks, Redmond Barrens transit remnants, and at least one critter photo, Paper Lotus charm, or totem residue hiding in the scene. Use bright, saturated lane color accents (magenta, cyan, acid green, amber) with grime rather than monochrome gloom.",
                     "The frame must read as a place before it reads as a person, with no centered hero, no trio of back-facing silhouettes marching toward center, no kiosk centerpiece, no glowing rectangle, no billboard, no retail shopfront canyon, no vertical hotel-like word sign, and no single corridor vanishing point.",
-                    "Ambient smart-glasses guidance should already be visible in-scene through anchored lane arcs, threat drift, branch markers, biomon pings, and sparse short chips welded to ramps, barriers, crowd lanes, puddles, or tunnel mouths; make it feel like a smart route assistant already surfacing the next branch, threat lane, cover option, escape line, or better route choice a runner would want before asking. No diagnostic HUD slabs, floating cards, or giant center boxes.",
+                    "Keep the first pass environment-rich and route-legible so a second-pass smart-glasses planner can inspect ramps, barriers, crowd lanes, puddles, tunnel mouths, clinic glows, and branch geometry before choosing the final route chips. Any in-scene AR should stay faint, sparse, and welded to the world, never as diagnostic HUD slabs, floating cards, or giant center boxes.",
                     "Poster-grade realism with sharp street texture, brighter lane highlights, stronger rain reflections, bolder branch color separation, richer city-depth layering, and painted rulebook-cover finish instead of etched contour maps.",
                     "Do not paint ad copy, title text, or public-facing UI walls into the scene. Avoid readable signs, menu boards, pseudo map walls, shop windows, storefront logos, vertical kana-like sign pillars, or lane names such as clinic, relay, tactical, archive, or approval rendered inside the art.",
                     "Sparse route chips are allowed when welded to real geometry. No watermark. 16:9.",
@@ -9405,7 +10142,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "Keep the camera slightly off-axis so the forge reads like an industrial proving bay under pressure instead of a perfect centered altar shot.",
                     "Keep any base-scene review instrumentation abstract and nonverbal: no right-margin callout stacks, no corner label tabs, no boxed overlay words, no provenance tags, and no readable approval or rollback language baked into the art.",
                     "Poster-grade realism with harder edges, denser industrial clutter, brighter hot highlights, harder sodium-and-cyan lighting, clearer machinery silhouettes, more apparatus than faces, and painted rulebook-cover finish instead of etched contour maps.",
-                    "Forge-review guidance should already be visible in-scene and anchored to apparatus, rails, packet flow, hanging prototypes, or machine geometry. Make it feel like a smart review assistant surfacing seal drift, safe revert, witness pressure, countermeasure risk, blast radius, or provenance gap before the operators ask. Verified post-composite may sharpen them, not invent them.",
+                    "Keep the first pass apparatus-rich and machine-legible so a second-pass vision planner can inspect rails, packet flow, hanging prototypes, seals, chambers, sample racks, and rollback geometry before choosing the final forge-review chips. Any in-scene AR should stay faint, sparse, and welded to apparatus rather than presenting readable approval language inside the base art.",
                     "Negative constraints: close workstation crop, two people at a table, paperwork review, handheld tablet, generic workshop chat, literal blacksmith forge, giant UI rectangles, face-covering labels, empty dark ceiling, soft promotional still, painterly blur, etched contour-map rendering, or posterized linework.",
                     "Do not paint title text, generic logos, signage, or public-facing UI walls into the scene. No big approved screens, no pseudo dashboard walls, and no header wordmarks.",
                     "Short approval chips are allowed when anchored to rails or apparatus. No watermark. 16:9.",
@@ -9756,7 +10493,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     }:
         hard_block = "If a paper, binder tab, monitor, sheet front, or handheld screen starts to face camera, remove it and replace it with chips, sleeves, rails, clamps, bands, or abstract light traces."
     if target == "assets/hero/chummer6-hero.png":
-        hard_block += " The hero must show at least two people: a visibly augmented metahuman quartermaster, fixer, or support figure beside a tusked runner at a standing prep rail or service rack. The environment must read as a rain-dark safehouse bay with tool-chest grime, armor or gear racks, open cases, work lamps, wet floor, and runner clutter. Show the full bay and its surroundings, including floor, shelves, and doorway, not a tight bedside crop. No surgery, no hospital energy, no crate desk, bench, tabletop, seated brood, dominant face crop, hallway symmetry, or blown-out doorway panel."
+        hard_block += " The hero must show a bright streetdoc shack or converted clinic bay where a runner is getting a new cyberarm fitted by a visibly augmented streetdoc or cybertech, with an assistant, teammate, or witness in frame. The cyberarm, surgical clamps, implant trays, tool wall, med rig, warm clinic lamps, vivid color spill, wet floor, and street-level clutter must read before any abstract mood. Show the full bay and its surroundings, including floor, shelves, doorway, and treatment hardware, not a tight bedside crop. Any readable AR text must be useful to the runner or streetdoc, such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT, and must anchor to implant work. No generic HUD menus, pseudo-writing, shop signs, crate desk, seated brood, dominant face crop, hallway symmetry, or blown-out doorway panel."
     elif target == "assets/pages/what-chummer6-is.png":
         hard_block += " Show enough of the room and proof anchors to explain the tool; no face-only portrait, no whiteboard glamour, and no giant blank panel."
     elif target in {"assets/pages/current-status.png", "assets/pages/public-surfaces.png"}:
@@ -9785,7 +10522,7 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
         overlay_mode = overlay_mode_for_target(target)
         parts = [
             flagship_prompt_intro(target, fallback="Grounded cinematic Shadowrun scene still."),
-            "Render the base scene with visible geometry-anchored AR already present; any verified post-composite pass should only sharpen the same chips, rails, and callouts instead of inventing AR from nothing.",
+            "Render the first pass as a clean, geometry-rich scene that a second-stage smart-glasses planner can inspect. If diegetic AR appears in the base art, keep it faint, sparse, and welded to real geometry so verified post-composite chooses the final explicit chips instead of fighting the painting.",
             "Base-scene framing must stay pulled back enough to show the room, hardware, and clutter around the people; avoid portrait-tight crops or figure-only compositions.",
             overlay_clause if overlay_clause else "",
             story_clause if story_clause else "",
@@ -9799,7 +10536,11 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
             f"Composition: {composition}." if composition else "",
             " ".join(visual_contract_prompt_parts(target=target)) if target else "",
             f"Key props: {props}." if props else "",
-            "Keep the AR sparse, tactical, and geometry-anchored. Short readable chips are allowed when they cling to rails, cyberware seams, crates, doors, wounds, lenses, or route lines. No dashboard walls, no face-covering panes, and no free-floating label slabs.",
+            (
+                "If any diegetic AR appears in the hero base scene, it must be runner-facing cyberarm fit diagnostics: NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, calibration rings, seam traces, clamp brackets, color dots, and alignment glows anchored to the cyberarm, clamps, tools, or med rig. No generic HUD menus, pseudo-writing, signs, or detached label slabs."
+                if overlay_mode == "cyberarm_fit_diagnostic"
+                else "If any diegetic AR appears in the base scene, keep it sparse, tactical, and geometry-anchored. Short readable chips are allowed only when they cling to rails, cyberware seams, crates, doors, wounds, lenses, or route lines. No dashboard walls, no face-covering panes, and no free-floating label slabs."
+            ),
             f"Smartlink cues: {smartlink}." if smartlink and not overlay_mode else "",
             f"Lore cues: {lore}." if lore else "",
             f"Meaning: {metaphor}." if metaphor else "",
@@ -9812,7 +10553,11 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
             "Avoid desk-only still lifes unless this target explicitly calls for dossier or prop-detail framing.",
             "No readable ad copy, signboards, paperwork fronts, or wall labels anywhere.",
             "Do not center signboards, menu boards, glowing panels, bright screens, or text rectangles.",
-            "Use smart-glasses chips, brackets, pictograms, arrows, glyphs, traces, stamps, and silhouette icons instead of full-screen lettering or menu-board copy.",
+            (
+                "Use only short runner-relevant AR labels and diagnostic geometry for the hero overlay: NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, rings, brackets, dots, glows, and seam traces. No generic labels or pseudo-writing."
+                if overlay_mode == "cyberarm_fit_diagnostic"
+                else "Use smart-glasses chips, brackets, pictograms, arrows, glyphs, traces, stamps, and silhouette icons instead of full-screen lettering or menu-board copy."
+            ),
             "No watermark. 16:9.",
         ]
         prompt_limit = 1800
@@ -10433,12 +11178,12 @@ def ooda_variant_spec(
         providers.insert(0, lowered)
 
     flagship_rotation = {
-        "assets/hero/chummer6-hero.png": ["onemin", "magixai", "media_factory", "browseract_prompting_systems"],
-        "assets/pages/horizons-index.png": ["magixai", "onemin", "media_factory", "browseract_prompting_systems"],
-        "assets/horizons/karma-forge.png": ["media_factory", "onemin", "magixai", "browseract_prompting_systems"],
-        "assets/horizons/nexus-pan.png": ["magixai", "onemin", "media_factory"],
-        "assets/parts/core.png": ["magixai", "onemin", "media_factory", "browseract_prompting_systems"],
-        "assets/parts/media-factory.png": ["onemin", "magixai", "media_factory", "browseract_prompting_systems"],
+        "assets/hero/chummer6-hero.png": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
+        "assets/pages/horizons-index.png": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
+        "assets/horizons/karma-forge.png": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
+        "assets/horizons/nexus-pan.png": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
+        "assets/parts/core.png": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
+        "assets/parts/media-factory.png": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
     }.get(normalized, [])
     if flagship_rotation:
         rotated_provider = flagship_rotation[(variant - 1) % len(flagship_rotation)]
@@ -10449,8 +11194,8 @@ def ooda_variant_spec(
 
     if previous_provider:
         if quality_focus_target(normalized) and champion_score > float("-inf") and previous_score + 8.0 < champion_score:
-            if previous_provider == "onemin":
-                next_provider = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
+            if previous_provider == "magixai":
+                next_provider = "media_factory"
                 _prioritize(next_provider)
                 provider_tags.append(f"prefer_{next_provider}_challenger")
             elif previous_provider == "media_factory":
@@ -10458,11 +11203,8 @@ def ooda_variant_spec(
                 provider_tags.append("prefer_browseract_challenger")
         if {"visual_audit:soft_finish", "critical_visual_gate:soft_finish", "visual_audit:insufficient_flash", "critical_visual_gate:insufficient_flash"} & notes:
             if previous_provider == "media_factory":
-                _prioritize("onemin")
-                provider_tags.append("prefer_onemin_finish")
-            elif previous_provider == "onemin" and normalized == "assets/horizons/karma-forge.png":
-                _prioritize("media_factory")
-                provider_tags.append("prefer_media_factory_apparatus")
+                _prioritize("magixai")
+                provider_tags.append("prefer_magixai_finish")
         if {
             "visual_audit:environment_share_too_low",
             "visual_audit:subject_crop_too_tight",
@@ -10470,12 +11212,12 @@ def ooda_variant_spec(
             "visual_audit:apparatus_share_too_low",
             "critical_visual_gate:apparatus_share_too_low",
             } & notes:
-            if previous_provider == "onemin" and normalized != "assets/hero/chummer6-hero.png":
+            if previous_provider == "media_factory":
+                _prioritize("magixai")
+                provider_tags.append("prefer_magixai_room")
+            elif previous_provider == "magixai":
                 _prioritize("media_factory")
                 provider_tags.append("prefer_media_factory_room")
-            elif previous_provider == "media_factory" and normalized == "assets/hero/chummer6-hero.png":
-                _prioritize("onemin")
-                provider_tags.append("prefer_onemin_hero_finish")
         if {
             "visual_audit:readable_signage_risk",
             "visual_audit:text_sprawl",
@@ -10489,9 +11231,9 @@ def ooda_variant_spec(
             "critical_visual_gate:workzone_story_weak",
         } & notes:
             if previous_provider == "media_factory":
-                _prioritize("onemin")
-                provider_tags.append("prefer_onemin_text_density_recovery")
-            elif previous_provider == "onemin":
+                _prioritize("magixai")
+                provider_tags.append("prefer_magixai_text_density_recovery")
+            elif previous_provider == "magixai":
                 _prioritize("media_factory")
                 provider_tags.append("prefer_media_factory_text_density_recovery")
     if normalized == "assets/pages/horizons-index.png" and {
@@ -10499,7 +11241,7 @@ def ooda_variant_spec(
         "visual_audit:workzone_story_weak",
         "visual_audit:world_marker_spread_weak",
     } & notes:
-        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "onemin"
+        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
         _prioritize(preferred)
         provider_tags.append(f"prefer_{preferred}_district_plurality")
     if normalized == "assets/hero/chummer6-hero.png" and {
@@ -10508,7 +11250,7 @@ def ooda_variant_spec(
         "visual_audit:insufficient_flash",
         "critical_visual_gate:insufficient_flash",
     } & notes:
-        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "onemin"
+        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
         _prioritize(preferred)
         provider_tags.append(f"prefer_{preferred}_hero_poster")
     if normalized == "assets/horizons/karma-forge.png" and {
@@ -10524,7 +11266,7 @@ def ooda_variant_spec(
         "visual_audit:environment_share_too_low",
         "critical_visual_gate:environment_share_too_low",
     } & notes:
-        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "onemin"
+        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
         _prioritize(preferred)
         provider_tags.append(f"prefer_{preferred}_nexus_brightness")
     if normalized == "assets/parts/core.png" and {
@@ -10533,7 +11275,7 @@ def ooda_variant_spec(
         "visual_audit:readable_signage_risk",
         "critical_visual_gate:readable_signage_risk",
     } & notes:
-        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "onemin"
+        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
         _prioritize(preferred)
         provider_tags.append(f"prefer_{preferred}_core_flagship")
     if normalized == "assets/parts/media-factory.png" and {
@@ -10542,7 +11284,7 @@ def ooda_variant_spec(
         "visual_audit:workzone_story_weak",
         "critical_visual_gate:workzone_story_weak",
     } & notes:
-        preferred = "onemin" if "onemin" in providers else ("magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory")
+        preferred = "magixai" if env_value("AI_MAGICX_API_KEY") else "media_factory"
         _prioritize(preferred)
         provider_tags.append(f"prefer_{preferred}_media_poster")
 
@@ -10573,6 +11315,8 @@ def render_with_ooda(
         providers = provider_order()
     if explicit_provider_filter or not isinstance(requested_order, list):
         providers = routed_provider_order_for_target(target, providers=providers)
+    if not _is_onemin_provider_allowed():
+        providers = [value for value in providers if value not in {"onemin", "1min", "1min_ai", "oneminai", "1min.ai"}]
     attempts: list[str] = []
     queue_wait_round = 0
     queue_wait_limit = 6 if _flagship_target(target) else 3
@@ -10604,7 +11348,19 @@ def render_with_ooda(
                         temporary_waits.append(scheduled_wait)
                     continue
             actual_attempt_made = True
-            if normalized == "pollinations":
+            if normalized == "comfyui":
+                try:
+                    safe_prompt = sanitize_prompt_for_provider(prompt, provider=normalized)
+                    ok, detail = run_comfyui_provider(
+                        prompt=safe_prompt,
+                        output_path=output_path,
+                        width=width,
+                        height=height,
+                    )
+                finally:
+                    if acquired and target:
+                        _release_provider_scheduler_slot(provider=normalized, target=target)
+            elif normalized == "pollinations":
                 safe_prompt = build_safe_pollinations_prompt(prompt=prompt, spec=spec)
                 try:
                     ok, detail = run_pollinations_provider(prompt=safe_prompt, output_path=output_path, width=width, height=height)
@@ -10793,7 +11549,7 @@ def asset_specs() -> list[dict[str, object]]:
         )
         smartlink_clause = smartlink_overlay_clause(contract)
         overlay_plate_clause = (
-            "Keep the same AR language visibly present in the base scene and let the deterministic post-composite overlay layer sharpen or verify it. Do not replace the scene with boxed HUD slabs, dashboard walls, or floating label stacks."
+            "Keep the scene readable for a deterministic second-pass overlay planner. Any base-scene AR should stay faint, sparse, and geometry-anchored so post-composite can choose and verify the final chips without fighting boxed HUD slabs, dashboard walls, or floating label stacks."
             if verified_overlay
             else ""
         )
@@ -10812,13 +11568,17 @@ def asset_specs() -> list[dict[str, object]]:
             f"Humor note: {humor}." if humor else "",
             f"Concrete visible props: {props}." if props else "",
             (
-                "Keep the scene-specific overlay semantics visible in-scene and let the verified composite layer sharpen the same chips, rails, and labels rather than replacing them with a detached UI pass."
+                "Keep the hero overlay semantics runner-facing in-scene and let the verified composite layer sharpen the same cyberarm fit labels, rings, dots, brackets, and seam traces rather than replacing them with generic HUD text."
+                if overlay_mode_for_target(target) == "cyberarm_fit_diagnostic" and overlays and verified_overlay
+                else "Keep the scene-specific overlay semantics visible in-scene and let the verified composite layer sharpen the same chips, rails, and labels rather than replacing them with a detached UI pass."
                 if overlays and verified_overlay
                 else (f"Useful diegetic overlays in-scene: {overlays}." if overlays else "")
             ),
             f"Secondary motif cues: {motifs}." if motifs else "",
             (
-                "Short readable chips or terse labels are allowed only when they stay sparse, local, and anchored to anatomy, tools, rails, routes, or apparatus geometry."
+                "For this hero, callouts must be cyberarm-fit useful: NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, rings, dots, brackets, glow bands, and seam traces; no generic labels or pseudo-writing."
+                if overlay_mode_for_target(target) == "cyberarm_fit_diagnostic" and callouts and verified_overlay
+                else "Short readable chips or terse labels are allowed only when they stay sparse, local, and anchored to anatomy, tools, rails, routes, or apparatus geometry."
                 if callouts and verified_overlay
                 else (f"Nonverbal idea cues only: {callouts}." if callouts else "")
             ),
@@ -10898,8 +11658,8 @@ def asset_specs() -> list[dict[str, object]]:
             "target": target,
             "role": role,
             "prompt": render_prompt_from_row(row, role=role, target=target),
-            "width": 960,
-            "height": 540,
+            "width": 1600,
+            "height": 900,
             "media_row": row,
             "style_epoch": style_epoch,
             "providers": provider_order(),
@@ -10907,24 +11667,24 @@ def asset_specs() -> list[dict[str, object]]:
 
     target_scene_policies: dict[str, dict[str, object]] = {
         "assets/hero/chummer6-hero.png": {
-            "required": "service_rack",
+            "required": "streetdoc_bay",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
             "flash_level": "bold",
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun runner-life poster, not a quiet mood still: obvious metahuman presence, pre-run trust pressure, gear calibration, smart-glasses intelligence, and strong foreground-midground-background layering. One foreground body must read unmistakably as an ork or troll at banner scale, with visible tusks and heavy metahuman proportions; a baseline-human trio is failure. Pull the camera far enough back that the full staging bay, doorway, floor, racks, machinery, and clutter are obvious at a glance. Push harder on poster energy with stronger orange-cyan contrast, vivid magenta or acid-green accent spill, harsher rim light, wetter reflections, sharper prop detail, and a real safehouse prep feel. The scene should feel urgent and dirty-bright, never grayscale murk. This is a rain-dark garage safehouse or back-room staging lane with at least two active people in frame, not surgery, not desk glamour, not a clean hospital exam room, and not a monitor-heavy tech showroom. No readable words on clothing, props, signs, or back patches.",
-            "environment": "a rain-dark runner safehouse garage staging bay with an open roll-up door, tool chests, armor rack, weapon cases, hanging cables, med-gel, ammo trays, fake-ID sticks, patched coats, commlink cradles, six-sided dice, a magical focus, extension cords, rust, oil stains, wet concrete, a sputtering caf machine, and hard fluorescent strips fighting with amber work lamps across the room",
-            "subject": "a tusked ork or troll runner with visible chrome dominating the left foreground while a metahuman quartermaster or fixer checks the loadout from center-right frame",
-            "action": "the crew is locking in fake SIN validity, camera hijack options, cyberware readiness, ward risk, and route timing before rolling out",
-            "metaphor": "trust becoming visible before the run",
-            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy runner-prep scene in a rain-dark safehouse garage staging bay. Set the camera several meters back so the room tells at least half the story: open roll-up door, wet floor, shelves, tool walls, armor rack, weapon cases, cable bundles, patched coats, commlink cradle, ammo tray, med kit, side bench clutter, hanging work lamps, and deep bay hardware must stay visible around the figures. Put an unmistakably tusked ork or troll runner with heavy metahuman mass, scarred skin, patched street gear, and visible chrome in the left foreground at a standing prep rail or service rack. A visibly augmented metahuman quartermaster or fixer must be actively checking that runner's gear and cyberware readiness from center or right frame while one assistant or teammate crowds the opposite edge with route help, med patches, or hard practical light. Do not let a slim baseline-human figure become the apparent lead. Layer physical props everywhere: open case, patched jacket, ammo tray, commlink, med-gel, fake-ID stick, route scribbles, magical focus, cable bundles, cheap fluorescent strips, work lamps, hanging cables, rust, oil stains, wet concrete, and three vivid light families inside the scene itself: electric-cyan smart-glasses spill, hot amber task light, and saturated magenta or acid-green neon or astral bleed reflecting off chrome and puddles. The frame must feel grimy, mythic, and specific enough that a new viewer immediately reads Shadowrun runner-life pressure, team trust, visible prep work, and gear readiness instead of generic sci-fi maintenance. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and no murky monochrome shadow wash. Show at least two active people clearly in frame with visible hands doing work and more room, floor, doorway, and hardware than portrait anatomy. No readable words, slogans, jacket patches, or back text anywhere in frame. No surgery, no gore, no clinic exam room, no clean hospital room, no desk, no bench, no crate, no lone gadget hero prop, no framed monitors, no number readouts, and no dashboard wall.",
-            "framing": "ultra-wide establishing safehouse-prep shot with strong diagonal composition, the keyed-up ork or troll runner anchored in the left foreground, the quartermaster or fixer readable in center-right, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead work lights, shelf props, tool storage, visible floor and doorway, and deep background bay hardware visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
-            "avoid": "extreme face crop, surgery, gore, alley crate posing, alley corridor, desk glamour, storefront windows, neon words, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, a clean suburban clinic, a floating ECG line, a human-looking trio, a slim central baseline-human lead, readable jacket text, readable back patch slogans, or any CHUMMER DEV text",
-            "overlay_hint": "SIN validity, camera hijack odds, smartlink readiness, route window, ward bleed, and safest-next-action cues",
-            "props": ["tool chest", "armor rack", "weapon case", "ammo tray", "med kit", "commlink cradle", "fake-ID stick", "six-sided dice"],
-            "overlays": ["SIN maybe fake", "cam jack 67%", "smartlink green", "cover route 3.1s", "ward bleed low", "next: side door"],
-            "visual_motifs": ["safehouse prep", "runner crew", "gear rail", "team trust", "smart-glasses guidance", "loadout check", "wet garage grime"],
-            "overlay_callouts": ["SIN maybe fake", "cam jack 67%", "smartlink green", "cover route 3.1s", "ward bleed low", "next: side door"],
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun streetdoc cyberarm poster, not a quiet mood still: obvious metahuman presence, implant trust pressure, cyberarm fitting, useful runner-facing AR diagnostics, and strong foreground-midground-background layering. The runner, new cyberarm, streetdoc, treatment chair, clamp hardware, tool wall, med rig, and clinic clutter must read at banner scale. Pull the camera far enough back that the full streetdoc bay, doorway, floor, shelves, machinery, and clutter are obvious at a glance. Push harder on poster energy with stronger orange-cyan contrast, vivid magenta or acid-green accent spill, harsher rim light, wetter reflections, sharper prop detail, and a bright street-level clinic feel. This is a converted shack, container, or back-room implant bay with at least two active people in frame, not desk glamour, not a clean hospital exam room, and not a monitor-heavy tech showroom. Any AR text must be useful to the runner or streetdoc and anchored to the cyberarm work.",
+            "environment": "a bright streetdoc shack or converted clinic bay with an open container doorway, cyberarm fitting chair, surgical clamps, tool wall, implant trays, chrome arm parts, med rig, gauze, bottles, patched coats, extension cords, wet concrete, tarps, and cyan diagnostic spill fighting with amber clinic lamps across the room",
+            "subject": "a runner receiving a new cyberarm in a hacked repair recliner while a visibly augmented metahuman streetdoc or cybertech calibrates the implant from center-right frame",
+            "action": "the streetdoc is checking nerve sync, joint seal, grip test, pain response, and torque limits before the runner gets back into the sprawl",
+            "metaphor": "trust becoming visible during the cyberarm fit",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy streetdoc cyberarm scene in a bright converted clinic shack or back-alley implant bay. Set the camera several meters back so the room tells at least half the story: open container doorway, wet floor, shelves, tool walls, surgical clamps, implant trays, chrome cyberarm parts, med rig, side clutter, hanging clinic lamps, and deep bay hardware must stay visible around the figures. Put a runner in a hacked repair recliner receiving a new cyberarm while a visibly augmented metahuman streetdoc or cybertech actively calibrates the implant from center or right frame and one assistant, teammate, or witness crowds the opposite edge with med patches, a tool tray, or hard practical light. Layer physical props everywhere: implant trays, tool chest, gauze, bottles, med-gel, chrome housings, cable bundles, cheap fluorescent strips, clinic lamps, hanging cables, rust, wet concrete, and three vivid light families inside the scene itself: electric-cyan diagnostic spill, hot amber task light, and saturated magenta or acid-green neon or astral bleed reflecting off chrome and puddles. The frame must feel grimy, mythic, bright, and specific enough that a new viewer immediately reads Shadowrun streetdoc pressure, implant trust, visible cyberarm work, and runner risk instead of generic sci-fi maintenance. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and no murky monochrome shadow wash. Show at least two active people clearly in frame with visible hands doing work and more room, floor, doorway, and hardware than portrait anatomy. Readable AR text is allowed only for runner-relevant diagnostics such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT when anchored to the implant, clamps, tools, or med rig. No readable shop signs, slogans, jacket patches, gore, clean hospital room, desk, bench, crate, lone gadget hero prop, framed monitors, generic number readouts, or dashboard wall.",
+            "framing": "ultra-wide establishing streetdoc-bay shot with strong diagonal composition, the runner and cyberarm anchored through the center, the streetdoc or cybertech readable in center-right, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead clinic lights, shelf props, tool storage, visible floor and doorway, and deep background bay hardware visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
+            "avoid": "extreme face crop, gore, alley crate posing, alley corridor, desk glamour, storefront signs, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, a clean suburban clinic, a floating ECG line, readable jacket text, readable back patch slogans, or any CHUMMER DEV text",
+            "overlay_hint": "NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, and clamp-alignment cues",
+            "props": ["cyberarm fitting chair", "surgical clamps", "implant tray", "tool wall", "med rig", "gauze", "chrome arm housings", "bottles"],
+            "overlays": ["NERVE SYNC", "JOINT SEAL", "GRIP TEST", "PAIN WATCH", "TORQUE LIMIT"],
+            "visual_motifs": ["streetdoc bay", "new cyberarm", "runner risk", "implant trust", "cyberarm diagnostics", "clinic clutter", "wet street grime"],
+            "overlay_callouts": ["ID check", "camera angle", "chrome sync", "door route", "ward edge", "side-door option"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -10933,15 +11693,15 @@ def asset_specs() -> list[dict[str, object]]:
         "assets/hero/poc-warning.png": {
             "preferred": "street_front",
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
-            "prompt_nudge": "Treat this as a dangerous concept warning in the world: a sealed crate, shuttered kiosk, or alley-side warning surface, not a desk still life with readable labels.",
-            "subject": "a suspicious concept crate or warning package left where a curious runner could still find it",
-            "environment": "a rain-slick alley threshold or shuttered street-front kiosk with hazard tape and hard practical light",
-            "action": "warning the viewer that almost nothing here should be mistaken for dependable software",
-            "mood": "tense, cautionary, and dry",
-            "replace_visual_prompt": "A sealed concept warning case or barricade block abandoned at a shuttered street-front kiosk in the rain, hazard tape and hard practical light, tactile and believable. The object may carry one torn triangle glyph, stripe bands, or abstract hazard pictograms, but never a label plate, poster, engraved plate, stencil word, or readable warning text. Do not print the word warning anywhere. Keep the object scarred and lived-in, not a clean product-shot cube. No desk still life.",
-            "avoid": "readable warning labels, the word warning, crate nameplates, poster text, pseudo-branding, stencil words, engraved plates, desk still life, or a clean product-shot cube",
-            "overlay_hint": "subtle hazard glyphs and provenance traces",
-            "providers": ["browseract_prompting_systems", "media_factory", "onemin", "browseract_magixai", "magixai"],
+            "prompt_nudge": "Treat this as a vivid quarantined proof shelf in the world: a runner-side prep counter where a risky artifact is checked before it reaches a live table, not a desk still life or title card.",
+            "subject": "a visibly augmented runner-side quartermaster quarantining a proof artifact before it reaches a campaign table",
+            "environment": "a rain-wet runner prep counter with scarred hardcase, data chip, sealed pouches, reflective tape, med trash, tool rails, wet floor arrows, and dirty practical light",
+            "action": "checking provenance, sync state, and risk boundaries before a proof artifact reaches a live campaign table",
+            "mood": "vivid, tense, polished, and runner-practical",
+            "replace_visual_prompt": "16:9 polished flagship poster-quality cyberpunk-fantasy campaign-OS warning shelf. Show a real moment, not a title card: a visibly augmented courier, GM, or quartermaster quarantines a proof artifact at a rain-wet runner prep counter before it reaches a live table. Use a scarred hardcase, data chip, sealed pouches, reflective hazard tape, med trash, chipped tool rails, wet floor arrows, and dirty practical light. Push vivid sodium orange, acid cyan, magenta, and clinic-white highlights with glossy rain reflections and dense foreground-midground-background clues. AR must make sense to a runner seeing it through smart glasses: translucent hazard brackets anchored to case edges, a provenance halo around the chip, route arrows anchored to the wet floor, and wrist-sync rails tied to visible cyberware. No readable words, no letters, no logos, no title card, no giant warning text, no desk still life, no clean product cube.",
+            "avoid": "readable warning labels, the word warning, crate nameplates, poster text, pseudo-branding, stencil words, engraved plates, desk still life, clean product-shot cube, empty darkness, flat monochrome palette, or decorative AR that is not anchored to visible geometry",
+            "overlay_hint": "semantic AR hazard brackets, provenance halo, floor route arrow, and wrist sync rail anchored to physical geometry",
+            "providers": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
         },
         "assets/pages/what-chummer6-is.png": {
             "required": "review_bay",
@@ -10953,7 +11713,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "One runner at a cramped standing review bay, upper torso and both hands visible while translucent markers, stamped chips, gear tokens, cause bands, and short AR trust chips are pegged onto a vertical trace rail under hard practical light. Trust is assembled from physical traces in the open, not from paper receipts or a glowing device. Use translucent plastic markers, chips, bands, rail clips, and geometry-anchored AR instead of notes, paper, or monitor screens. No handwritten cards and no loose printed sheets.",
             "avoid": "paper receipts with printed lines, handheld paper cards, loose slips, readable forms, pinned handwritten notes, glowing room numbers, glowing handhelds, wall monitors, or a desk spread",
             "overlay_hint": "rule-source provenance tags, trust arrows, and receipt traces",
-            "providers": ["browseract_prompting_systems", "media_factory", "onemin", "browseract_magixai", "magixai"],
+            "providers": ["browseract_prompting_systems", "media_factory", "browseract_magixai", "magixai"],
         },
         "assets/pages/where-to-go-deeper.png": {
             "required": "archive_room",
@@ -10964,7 +11724,7 @@ def asset_specs() -> list[dict[str, object]]:
             "metaphor": "follow the source trail deeper into the stacks",
             "replace_visual_prompt": "A narrow archive aisle with drawer towers, sealed canisters, hanging translucent sleeves, shelf rails, and one reader tracing a source deeper into the stacks while standing; shelves and drawer fronts dominate. Use unlabeled containers, plastic sleeves, and hardware pulls instead of binders, paper fronts, or note cards. No desk spread, no CRT hero prop, no paper layout, and no front-facing monitor.",
             "avoid": "desk spreads, seated desk posture, front-facing monitor text, loose paper map spreads, binder spines, label tabs, shelf cards, or a lone CRT taking over the scene",
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
         },
         "assets/pages/start-here.png": {
             "required": "transit_checkpoint",
@@ -10976,7 +11736,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "A rain-dark checkpoint split where one runner chooses between useful lanes marked by floor arrows, barrier posts, lane paint, hazard pylons, grounded route cues, and sparse AR branch chips welded to the path. The scene should read as navigation through real product choices under pressure, not a kiosk interaction or wall-reading moment. No public terminal, no menu board, no poster wall, and no giant route sign.",
             "avoid": "kiosk, ATM, public terminal, menu board, billboard, poster wall, giant route sign, wall-sized text mark, or readable text",
             "overlay_hint": "lane brackets and route markers",
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
         },
         "assets/pages/current-status.png": {
             "preferred": "street_front",
@@ -10991,7 +11751,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "medium-wide standing street shot with the physical public shelf or notice niche clearly visible and no dominant overhead sign, wall display, or handheld",
             "overlay_hint": "faint provenance traces, weak receipt halos, and fragile target brackets",
             "avoid": "phone glamour close-up, tablet in hand, giant overhead sign, billboard, glowing wall panel, dashboard wallpaper, public monitor, printed portrait poster, flyer wall, or triumphant product hero shot",
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
         },
         "assets/pages/public-surfaces.png": {
             "required": "city_edge",
@@ -11003,7 +11763,7 @@ def asset_specs() -> list[dict[str, object]]:
             "replace_visual_prompt": "A concrete underpass threshold where several rough public traces survive across physical surfaces: scratched utility windows, taped notice pockets, seal strips, route tiles, and small abstract glows embedded in the wall. One runner passes through the scene standing up, but no device is in their hands and no single panel becomes the composition anchor. No storefront sign, no desk, no readable UI text, no wall placards, and no monitor bank.",
             "avoid": "desk surfaces, seated desk posture, handheld tablet, pocket device glamour, readable storefront signs, OPEN signs, shop windows, wall placards, neat monitor triptychs on a counter, or screen layouts dominated by text lines",
             "overlay_hint": "cross-surface state echoes and route markers",
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
         },
         "assets/pages/horizons-index.png": {
             "required": "horizon_boulevard",
@@ -11022,7 +11782,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["future-lane brackets", "route halos", "threat ghosts", "branch markers", "district arcs", "biomon pings", "domain clue bands"],
             "visual_motifs": ["branching ramps", "future lanes", "district pressure", "stacked route choices", "street-level cyberpunk clues", "small live story beats"],
             "overlay_callouts": ["route branch", "future lane", "threat drift", "district split", "risk path"],
-            "providers": ["magixai", "media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai"],
+            "providers": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
             "magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-2-pro", "fal-ai/ideogram/v2"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
@@ -11041,7 +11801,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "medium-wide off-axis shot with the standing proof rail larger than either body but narrower than a screen wall, upper torsos and both hands visible, a clear second presence, and enough room grime to read as a real Sixth World bay",
             "avoid": "macro dice close-up, isolated chip glamour, receipt slip hero prop, tabletop tray, abstract x-ray overlay with no operator, face-only portrait, paper card, clipboard, printed rules board, pinned note wall, whiteboard, clean game table, seated boardgame posture, centered dashboard slab, wide icon-grid panel, freestanding transparent HUD pane, numeric grid, calculator glyphs, readable rail words such as wound recoil cover edge fire mod, generic office, a horizontal desk surface dominating the frame, or loose colorful game tokens spread on a table",
             "overlay_hint": "cause-and-effect traces, receipt markers, and posture brackets",
-            "providers": ["magixai", "onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
+            "providers": ["magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
             "magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-2-pro", "fal-ai/ideogram/v2"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
@@ -11078,7 +11838,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "medium-wide aisle shot with racks on both sides, the operator moving through the corridor, and a secondary presence or team trace surviving in depth",
             "avoid": "seated terminal posture, giant monitor, keyboard hero shot, dashboard wall, generic SOC screen room, hanging label tags, readable jacket logo, or handheld slate glamour",
             "overlay_hint": "relay seams, hosted-state brackets, and remote presence pings",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11096,7 +11856,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "oblique room view with the planner, witness, layered prototype surfaces, hanging fragments, route-string geometry, and lore clutter visible together",
             "avoid": "blueprint wall full of text, architecture-presentation board, pinned note wall, readable sticky notes, rolled plan hero prop, tidy drafting table spread, or generic office strategy room",
             "overlay_hint": "direction arrows, scope brackets, and ownership traces",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11115,7 +11875,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "show the designer, secondary presence, the vertical review board, the clipped rail, and the hanging sample frame together in one compact workshop view",
             "avoid": "monitor-on-desk trope, paired monitors, readable design docs, generic swatch wall, clean showroom, or a single framed UI mockup taking over the whole image",
             "overlay_hint": "component echoes and shared-state alignment markers",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11133,7 +11893,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "oblique intake-lane view with the registrar, secondary pressure beat, shelves, scanner rails, bins, and quarantine sleeves all visible together",
             "avoid": "clean library aisle, generic records room, office file archive, desk stack, close-up hand-on-scanner shot, or readable hanging tags",
             "overlay_hint": "intake stamps and compatibility bands",
-            "providers": ["onemin", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11149,7 +11909,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "vertical-lane medium shot with the operator, the handoff or review beat, the hanging proofs kept edge-on, output racks, and approval rails all visible together",
             "avoid": "empty printer glamour, abstract machine macro, isolated hands on buttons, readable page fronts, centered feature print, held page hero shot, framed flower plate, clean specimen poster, approval lightbox, newspaper layouts, frontal proof sheets, wall-mounted paper grids, or a clean print-shop mood",
             "overlay_hint": "publication-path arrows, provenance seals, and approval bands",
-            "providers": ["media_factory", "magixai", "onemin", "browseract_prompting_systems", "browseract_magixai"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-2-pro", "fal-ai/ideogram/v2"],
         },
         "assets/horizons/nexus-pan.png": {
@@ -11164,7 +11924,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "farther-back oblique van-interior shot from the side door or rear quarter with dense cabling, rack seams, wet floor, doorway geometry, cradle hardware, and a secondary presence visible in the left, center, and right thirds; the operator is small and secondary to the rig",
             "avoid": "close-up of fingers on a phone, neutral tablet portrait, cropped gadget glamour, bright wall panel, front-facing dashboard screen, windshield sign bleed, menu-board windows, chest-up portrait framing, or a handheld lifted into the foreground",
             "overlay_hint": "signal halos, route weighting arcs, comms-handshake health, and posture brackets",
-            "providers": ["magixai", "onemin", "media_factory"],
+            "providers": ["magixai", "media_factory"],
             "magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-2-pro", "fal-ai/ideogram/v2"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
@@ -11181,7 +11941,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "ultra-wide oblique view across the crash lane with layered rig hardware in foreground, midground, and rear walls; the restrained subject, technician, and witness stay secondary to the apparatus",
             "avoid": "giant result word, FAIL sign, wall display, lab report panel, glass booth signage, placard wall, centered mannequin shrine, clean empty box room, or a neat social huddle",
             "overlay_hint": "hazard arcs, cyberlimb stress halos, and test-lane brackets",
-            "providers": ["onemin", "media_factory"],
+            "providers": ["media_factory"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11221,8 +11981,8 @@ def asset_specs() -> list[dict[str, object]]:
             "props": ["diff strips", "approval tabs", "rollback cassettes", "provenance rails", "seal bands", "control markers", "witness locks", "consequence nodes"],
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets", "consequence nodes", "witness locks"],
             "visual_motifs": ["rules lab", "rollback rig", "approval pressure", "controlled experimentation", "review witness", "consequence chamber"],
-            "overlay_callouts": ["DIFF", "APPROVAL", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "WITNESS LOCK", "REVERT COST"],
-            "providers": ["media_factory", "onemin", "browseract_prompting_systems", "browseract_magixai", "magixai"],
+            "overlay_callouts": ["seal drift", "approval rail", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "witness line LOCK", "REVERT COST"],
+            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11240,7 +12000,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "off-axis loading-bay corner view with foreground barrier clutter, midground route hardware, rear dock clutter, and a secondary lookout or team trace all visible together",
             "avoid": "tabletop hologram slab, readable tablet screen, wall map board, floor plan poster, transparent plan pane, kneeling over a crate as if it were a desk, bright square lightbox, neat projection stage, or any single flat planning surface taking over the frame",
             "overlay_hint": "ingress cones, threat-posture marks, teammate posture, and ghost-lane overlays",
-            "providers": ["onemin", "media_factory"],
+            "providers": ["media_factory"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11272,7 +12032,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "wide warehouse-corner room view with multiple distinct physical work zones visible at once, diagonal floor routes, staggered station depth across the concrete, and no empty dead center",
             "avoid": "top-down tabletop composition, central command table, boardgame layout, kiosks, terminal banks, labeled doorways, wall signage, framed station headers, floating labels, title banners, glass control rooms, specialist desks, neat laptops arranged around one surface, or large posed hero figures dominating the room",
             "overlay_hint": "route lines, approval halos, queue pings, and district callout chips",
-            "providers": ["onemin", "media_factory"],
+            "providers": ["media_factory"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11481,7 +12241,7 @@ def asset_specs() -> list[dict[str, object]]:
         if surface_heavy_count > 4:
             raise RuntimeError(f"whole_pack_audit_failed:surface_scene_monoculture:{surface_heavy_count}")
         for expected_target, required in (
-            ("assets/hero/chummer6-hero.png", "service_rack"),
+            ("assets/hero/chummer6-hero.png", "streetdoc_bay"),
             ("assets/pages/horizons-index.png", "horizon_boulevard"),
             ("assets/parts/ui.png", "mirror_split"),
             ("assets/parts/mobile.png", "platform_edge"),
@@ -11508,8 +12268,8 @@ def asset_specs() -> list[dict[str, object]]:
             "target": "assets/hero/chummer6-hero.png",
             "role": "landing hero",
             "prompt": render_prompt_from_row(hero_row, role="landing hero", target="assets/hero/chummer6-hero.png"),
-            "width": 960,
-            "height": 540,
+            "width": 1600,
+            "height": 900,
             "media_row": hero_row,
             "style_epoch": style_epoch,
             "providers": provider_order(),
@@ -11539,8 +12299,8 @@ def asset_specs() -> list[dict[str, object]]:
                 "target": target,
                 "role": f"{slug} part page",
                 "prompt": render_prompt_from_row(row, role=f"{slug} part page", target=target),
-                "width": 960,
-                "height": 540,
+                "width": 1600,
+                "height": 900,
                 "media_row": row,
                 "style_epoch": style_epoch,
                 "providers": provider_order(),
@@ -11558,8 +12318,8 @@ def asset_specs() -> list[dict[str, object]]:
                 "target": target,
                 "role": f"{slug} horizon page",
                 "prompt": render_prompt_from_row(row, role=f"{slug} horizon page", target=target),
-                "width": 960,
-                "height": 540,
+                "width": 1600,
+                "height": 900,
                 "media_row": row,
                 "style_epoch": style_epoch,
                 "providers": provider_order(),

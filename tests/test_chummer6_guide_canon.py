@@ -60,6 +60,10 @@ def test_load_horizon_canon_tracks_live_design_horizons() -> None:
     assert "heat-web" not in catalog
     assert "## Mission Market" in catalog["black-ledger"]["public_body"]
     assert "## Rule Environment" in catalog["karma-forge"]["public_body"]
+    assert "## Canon Links" not in catalog["black-ledger"]["public_body"]
+    assert "## Canon Links" not in catalog["karma-forge"]["public_body"]
+    assert "products/chummer/" not in catalog["black-ledger"]["public_body"]
+    assert "products/chummer/" not in catalog["karma-forge"]["public_body"]
     assert "C0 - campaign, run, and Hub-owned receipt boundaries" in catalog["black-ledger"]["foundations"]
     assert "D2 - restore-safe sync, package portability, and missing-package warnings" in catalog["karma-forge"]["foundations"]
 
@@ -104,12 +108,13 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
 
     assert hero["visual_density_profile"] == "first_contact_hero"
     assert hero["required_person_count"] == "duo_or_team"
-    assert hero["required_overlay_mode"] == "medscan_diagnostic"
+    assert hero["required_overlay_mode"] == "cyberarm_fit_diagnostic"
     assert hero["critical_style_overrides_shared_prompt_scaffold"] is True
     assert hero["style_epoch_force_only"] is True
     assert hero["overlay_render_strategy"] == "verified_post_composite_only"
     assert hero["render_layers"] == ["base_scene", "verified_overlay"]
-    assert "AGI or ESS" in hero["status_binding_rule"]
+    assert "NERVE SYNC" in hero["status_binding_rule"]
+    assert "cyberarm" in hero["status_binding_rule"]
     assert "tusks" in " ".join(hero["required_troll_markers"]).lower()
     assert hero["world_marker_minimum"] == 4
     assert hero["environment_share_minimum"] == 0.58
@@ -119,7 +124,7 @@ def test_asset_visual_profile_derives_critical_first_contact_requirements() -> N
     assert "metahuman presence" in " ".join(hero["world_marker_bucket"]).lower()
     assert "paper lotus" in " ".join(hero["world_marker_bucket"]).lower()
     assert "megacorp" in " ".join(hero["world_marker_bucket"]).lower()
-    assert "slim attribute rails" in " ".join(hero["overlay_geometry"]).lower()
+    assert "fit-status microcopy" in " ".join(hero["overlay_geometry"]).lower()
     assert "illustrated cover-grade promo poster" in hero["critical_style_anchor"].lower()
     assert "visible operator relationship" in " ".join(hero["must_show_semantic_anchors"]).lower()
     assert readme["visual_density_profile"] == "first_contact_hero"

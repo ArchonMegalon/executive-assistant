@@ -94,6 +94,15 @@ def test_provider_order_defaults_to_non_onemin_media_providers_before_onemin(mon
     assert media.provider_order() == ["media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
 
 
+def test_provider_order_prepends_comfyui_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.delenv("CHUMMER6_IMAGE_PROVIDER_ORDER", raising=False)
+    monkeypatch.setattr(media, "LOCAL_ENV", {"COMFYUI_URL": "https://images.example"})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    assert media.provider_order() == ["comfyui", "media_factory", "browseract_prompting_systems", "browseract_magixai", "magixai", "onemin"]
+
+
 def test_onemin_model_candidates_prefer_quality_ladder(monkeypatch: pytest.MonkeyPatch) -> None:
     media = _load_module()
     monkeypatch.delenv("CHUMMER6_ONEMIN_MODEL", raising=False)
@@ -198,6 +207,8 @@ def test_routed_provider_order_prefers_onemin_for_direct_room_recovery_targets_w
 
 def test_routed_provider_order_keeps_media_factory_first_for_forge() -> None:
     media = _load_module()
+    media.LOCAL_ENV = {}
+    media.POLICY_ENV = {}
 
     routed = media.routed_provider_order_for_target(
         "assets/horizons/karma-forge.png",
@@ -205,6 +216,19 @@ def test_routed_provider_order_keeps_media_factory_first_for_forge() -> None:
     )
 
     assert routed[0] == "media_factory"
+
+
+def test_routed_provider_order_inserts_comfyui_for_first_contact_targets_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "LOCAL_ENV", {"COMFYUI_URL": "https://images.example"})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    routed = media.routed_provider_order_for_target(
+        "assets/hero/chummer6-hero.png",
+        providers=["media_factory", "magixai", "onemin"],
+    )
+
+    assert routed[0] == "comfyui"
 
 
 def test_routed_provider_order_demotes_unhealthy_provider_for_target_family(
@@ -1534,6 +1558,59 @@ def test_render_with_ooda_preserves_spec_provider_order_without_env_filter(
     assert result["provider"] == "browseract_prompting_systems"
 
 
+def test_run_comfyui_provider_downloads_rendered_asset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    media = _load_module()
+    monkeypatch.setattr(media, "LOCAL_ENV", {"COMFYUI_URL": "https://images.example"})
+    monkeypatch.setattr(media, "POLICY_ENV", {})
+
+    fake_adapter = types.ModuleType("tool_execution_comfyui_adapter")
+    fake_adapter._call_comfyui = lambda prompt, **kwargs: {"prompt_id": "prompt-123"}
+    fake_adapter._wait_for_generation = lambda prompt_id: {"outputs": {"node": {"images": [{"filename": "hero.png"}]}}}
+    fake_adapter._first_image_info = lambda outputs: {"filename": "hero.png"}
+    fake_adapter._build_asset_url = lambda image_info: "https://images.example/view?filename=hero.png"
+    fake_adapter._comfyui_headers = lambda: {"Authorization": "Bearer token", "Content-Type": "application/json"}
+    fake_adapter._int_env = lambda name, default: default
+
+    fake_app = types.ModuleType("app")
+    fake_services = types.ModuleType("app.services")
+    fake_services.tool_execution_comfyui_adapter = fake_adapter
+    fake_app.services = fake_services
+
+    monkeypatch.setitem(sys.modules, "app", fake_app)
+    monkeypatch.setitem(sys.modules, "app.services", fake_services)
+    monkeypatch.setitem(sys.modules, "app.services.tool_execution_comfyui_adapter", fake_adapter)
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b"png-bytes"
+
+    def fake_urlopen(request, timeout=0):
+        assert request.full_url == "https://images.example/view?filename=hero.png"
+        assert request.headers["Authorization"] == "Bearer token"
+        assert request.headers["User-agent"] == "EA-Chummer6-ComfyUI/1.0"
+        return FakeResponse()
+
+    monkeypatch.setattr(media.urllib.request, "urlopen", fake_urlopen)
+
+    output_path = tmp_path / "hero.png"
+    ok, detail = media.run_comfyui_provider(
+        prompt="runner safehouse bay",
+        output_path=output_path,
+        width=1600,
+        height=900,
+    )
+
+    assert ok is True
+    assert detail == "comfyui:rendered"
+    assert output_path.read_bytes() == b"png-bytes"
+
+
 def test_canonical_horizon_visual_contract_uses_canon_not_bespoke_fallback_map() -> None:
     media = _load_module()
 
@@ -1805,8 +1882,8 @@ def test_build_safe_pollinations_prompt_adds_hero_and_map_specific_hard_blocks()
     )
 
     assert "no crate desk" in hero_prompt.lower()
-    assert "illustrated cover-grade shadowrun streetdoc poster scene" in hero_prompt.lower()
-    assert "overlay mode medscan diagnostic" in hero_prompt.lower()
+    assert "illustrated cover-grade shadowrun streetdoc cyberarm poster scene" in hero_prompt.lower()
+    assert "cyberarm fit diagnostic" in hero_prompt.lower()
     assert "no central signboard" in horizons_prompt.lower()
     assert "ambient diegetic" in horizons_prompt.lower()
 
@@ -1846,7 +1923,7 @@ def test_build_safe_onemin_prompt_adds_target_specific_layout_blocks() -> None:
     )
 
     assert "hacked repair recliner" in hero_prompt.lower()
-    assert "illustrated cover-grade cyberpunk-fantasy streetdoc cover art." in hero_prompt.lower()
+    assert "illustrated cover-grade cyberpunk-fantasy streetdoc cyberarm cover art." in hero_prompt.lower()
     assert "environment first" in hero_prompt.lower()
     assert "figures occupy less than one quarter of frame" in hero_prompt.lower()
     assert "no face-only portrait" in what_prompt.lower()
@@ -1956,7 +2033,7 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
                     "composition": "clinic_intake",
                     "mood": "tense",
                     "props": ["tool chest", "med-gel", "cyberarm parts", "magical focus"],
-                    "overlays": ["BOD rail", "ESS state", "cyberlimb calibration"],
+                    "overlays": ["NERVE SYNC", "JOINT SEAL", "GRIP TEST"],
                 },
             },
         },
@@ -1966,7 +2043,7 @@ def test_build_safe_onemin_prompt_keeps_critical_scene_brief_before_clip() -> No
     assert "hairy troll" in lowered
     assert "full treatment bay" in lowered or "wet floor" in lowered or "tool wall" in lowered
     assert "verified post-composite may sharpen them, not invent them" in lowered
-    assert "medscan diagnostic" in lowered
+    assert "cyberarm fit diagnostic" in lowered
     assert "cyberlimb calibration" not in lowered
     assert "bod rail" not in lowered
     assert "figures occupy less than one quarter of frame" in lowered
@@ -1997,7 +2074,7 @@ def test_onemin_size_candidates_prioritize_auto_for_wide_gpt_image_targets() -> 
 def test_overlay_mode_for_target_maps_flagship_assets() -> None:
     media = _load_module()
 
-    assert media.overlay_mode_for_target("assets/hero/chummer6-hero.png") == "medscan_diagnostic"
+    assert media.overlay_mode_for_target("assets/hero/chummer6-hero.png") == "cyberarm_fit_diagnostic"
     assert media.overlay_mode_for_target("assets/pages/horizons-index.png") == "ambient_diegetic"
     assert media.overlay_mode_for_target("assets/horizons/karma-forge.png") == "forge_review_ar"
     assert media.overlay_mode_for_target("assets/pages/start-here.png") == "ambient_diegetic"
@@ -2202,14 +2279,14 @@ def test_target_visual_contract_loads_density_profile_and_blocks_flagship_humor(
     alice_contract = media.target_visual_contract("assets/horizons/alice.png")
 
     assert hero_contract["person_count_target"] == "duo_or_team"
-    assert any("improvised garage clinic" in marker for marker in hero_contract["required_setting_markers"])
-    assert "BOD" in hero_contract["required_overlay_schema"]
-    assert hero_contract["required_overlay_mode"] == "medscan_diagnostic"
+    assert any("bright streetdoc shack" in marker for marker in hero_contract["required_setting_markers"])
+    assert "NERVE SYNC" in hero_contract["required_overlay_schema"]
+    assert hero_contract["required_overlay_mode"] == "cyberarm_fit_diagnostic"
     assert hero_contract["critical_style_overrides_shared_prompt_scaffold"] is True
     assert contract["density_target"] == "high"
     assert contract["overlay_density"] == "high"
     assert contract["person_count_target"] == "duo_preferred"
-    assert "DIFF" in contract["required_overlay_schema"]
+    assert "PROVENANCE" in contract["required_overlay_schema"]
     assert core_contract["required_overlay_mode"] == "smartlink_tactical"
     assert core_contract["overlay_render_strategy"] == "verified_post_composite_public"
     assert core_contract["overlay_anchor_required"] is True
@@ -2227,22 +2304,22 @@ def test_visual_contract_prompt_parts_add_cast_density_clauses() -> None:
     forge_parts = media.visual_contract_prompt_parts(target="assets/horizons/karma-forge.png")
 
     assert any("two to four people" in part.lower() for part in hero_parts)
-    assert any("metahuman clinician" in part.lower() for part in hero_parts)
+    assert any("streetdoc" in part.lower() or "cybertech" in part.lower() for part in hero_parts)
     assert any("flagship poster" in part.lower() or "cover-grade promo poster" in part.lower() for part in hero_parts)
     assert any("override the softer shared guide-still scaffold" in part.lower() for part in hero_parts)
     assert any("do not fall back to the softer secondary guide-still epoch" in part.lower() for part in hero_parts)
-    assert any("overlay posture to medscan diagnostic" in part.lower() for part in hero_parts)
-    assert any("visibly present in the base artwork" in part.lower() and "introducing ar from nothing" in part.lower() for part in hero_parts)
+    assert any("overlay posture to cyberarm fit diagnostic" in part.lower() for part in hero_parts)
+    assert any("second-stage smart-glasses" in part.lower() or "runner-facing" in part.lower() for part in hero_parts)
     assert any("overlay render strategy: verified post composite only" in part.lower() for part in hero_parts)
     assert any("pipeline layers: base scene, verified overlay" in part.lower() for part in hero_parts)
-    assert any("troll patient must read clearly" in part.lower() for part in hero_parts)
+    assert any("runner markers" in part.lower() or "metahuman runner must read clearly" in part.lower() for part in hero_parts)
     assert any("shadowrun world markers visible" in part.lower() for part in hero_parts)
     assert any("lore crumb on a prop or wall" in part.lower() for part in hero_parts)
     assert any("paper lotus" in part.lower() or "megacorp" in part.lower() or "barghest" in part.lower() for part in hero_parts)
     assert any("room, district, or surrounding environment doing at least about 58% of the storytelling area" in part.lower() for part in hero_parts)
     assert any("single figure or tight subject cluster read larger than about 26% of the frame" in part.lower() for part in hero_parts)
     assert any("any overlay chip, rail, or callout must clearly anchor" in part.lower() or "all overlays must visibly anchor" in part.lower() for part in hero_parts)
-    assert any("slim attribute rails" in part.lower() or "capsule chips" in part.lower() for part in hero_parts)
+    assert any("fit-status microcopy" in part.lower() or "clamp alignment" in part.lower() for part in hero_parts)
     assert any("visible reviewer" in part.lower() or "second pair of hands" in part.lower() for part in forge_parts)
     assert any("prototype cyberlimb assembly" in part.lower() or "chrome-bearing ork rulesmith" in part.lower() for part in forge_parts)
     assert any("cover-grade promo poster" in part.lower() or "flagship poster" in part.lower() for part in forge_parts)
@@ -2485,6 +2562,7 @@ def test_apply_first_contact_overlay_postpass_uses_ffmpeg_when_pil_missing(
     monkeypatch.setattr(media, "ImageDraw", None)
     monkeypatch.setattr(media, "ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(media, "_ffmpeg_overlay_fontfile", lambda: "/tmp/font.ttf")
+    monkeypatch.setattr(media, "_vision_first_contact_overlay_layout", lambda **kwargs: None)
     monkeypatch.setattr(media.subprocess, "run", fake_run)
 
     result = media.apply_first_contact_overlay_postpass(
@@ -2562,6 +2640,46 @@ def test_hero_overlay_layout_uses_edge_biased_rails_over_large_boxes() -> None:
     assert int(wound["y"]) > int(0.68 * 540)
 
 
+def test_hero_overlay_layout_prefers_vision_second_pass_when_available(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    media = _load_module()
+    image_path = tmp_path / "hero.png"
+    image_path.write_bytes(b"png")
+
+    monkeypatch.setenv("CHUMMER6_OVERLAY_VISION_ENABLED", "1")
+    monkeypatch.setattr(
+        media,
+        "_vision_first_contact_overlay_layout",
+        lambda **kwargs: {
+            "fills": [],
+            "boxes": [{"x": 610, "y": 112, "w": 96, "h": 84, "color": (52, 214, 255, 188), "width": 2, "radius": 8}],
+            "lines": [{"points": (540, 140, 658, 154), "color": (52, 214, 255, 188), "width": 2}],
+            "chips": [{"x": 430, "y": 108, "text": "cam loop 67%", "color": (52, 214, 255, 188), "font_size": 10}],
+            "arcs": [],
+            "_source": "vision_ollama",
+            "_model": "llama3.2-vision:11b",
+        },
+    )
+    monkeypatch.setattr(
+        media,
+        "_scene_overlay_observations",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("fallback observations must not run when vision layout succeeds")),
+    )
+
+    layout = media._first_contact_overlay_layout(
+        target="assets/hero/chummer6-hero.png",
+        width=960,
+        height=540,
+        image_path=image_path,
+        spec={"target": "assets/hero/chummer6-hero.png"},
+    )
+
+    assert layout["_source"] == "vision_ollama"
+    assert layout["_model"] == "llama3.2-vision:11b"
+    assert [chip["text"] for chip in layout["chips"]] == ["cam loop 67%"]
+
+
 def test_core_overlay_layout_uses_smartlink_style_chips() -> None:
     media = _load_module()
 
@@ -2592,12 +2710,16 @@ def test_hero_overlay_layout_drops_route_and_camera_chips_without_observed_geome
     draw.rectangle((600, 120, 860, 430), fill=(58, 86, 116))
     image.save(image_path)
 
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(media, "_vision_first_contact_overlay_layout", lambda **kwargs: None)
+
     layout = media._first_contact_overlay_layout(
         target="assets/hero/chummer6-hero.png",
         width=960,
         height=540,
         image_path=image_path,
     )
+    monkeypatch.undo()
 
     texts = {str(chip["text"]) for chip in layout["chips"]}
     assert "SIN maybe fake" in texts
@@ -2914,13 +3036,14 @@ def test_render_prompt_from_row_uses_clean_scene_plate_for_flagship_assets() -> 
     hero_prompt = str(hero_spec["prompt"])
     karma_prompt = str(karma_spec["prompt"])
 
-    assert "make the ar visibly present in the base artwork" in hero_prompt.lower()
-    assert "deterministic post-composite overlay layer" in hero_prompt
-    assert "keep the scene-specific overlay semantics visible in-scene" in hero_prompt.lower()
-    assert "short readable chips or terse labels are allowed" in hero_prompt.lower()
-    assert "troll patient must read clearly" in hero_prompt
+    assert "nerve sync" in hero_prompt.lower()
+    assert "new cyberarm" in hero_prompt.lower()
+    assert "verified post-composite" in hero_prompt.lower()
+    assert "runner-facing ar text" in hero_prompt.lower() or "cyberarm fit" in hero_prompt.lower()
+    assert "nerve sync" in hero_prompt.lower()
+    assert "new cyberarm" in hero_prompt.lower()
     assert "Trust Check" not in hero_prompt
-    assert "make the ar visibly present in the base artwork" in karma_prompt.lower()
+    assert "forge review" in karma_prompt.lower() or "approval rail" in karma_prompt.lower()
     assert "Keep the shared guide continuity in palette, texture, and world feel without softening the flagship poster finish." in karma_prompt
     assert "approval" in karma_prompt.lower()
 

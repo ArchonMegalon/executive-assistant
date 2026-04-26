@@ -88,6 +88,15 @@ The next full pass should deliberately switch to a different style epoch instead
 
 ## Visual constitution
 
+### Reality-anchored AR overlays
+
+- Render the source plate as reality first: a believable scene with clean surfaces, readable object geometry, and no baked HUD text from the base image model.
+- Add AR as a second editorial layer only after the image has something to attach to: a real door frame, path, lens, rail, wound, seal, clamp, threshold, skyline, crowd, or apparatus.
+- Drop unsupported overlays. A sparse, grounded image is stronger than a busy image full of synthetic readouts.
+- Use semantic labels such as `camera angle`, `ward edge`, `clinic lane`, or `rollback path`; do not invent exact percentages, meter counts, timers, IDs, or status diagnostics.
+- Avoid grain, sensor noise, fake film damage, scratched-print texture, and crunchy sharpening. These pages should feel premium, intentional, and current.
+
+
 - Show a scene, not a concept poster.
 - Give the image one focal action, one readable prop cluster, and one secondary clue.
 - First-contact assets need stronger density: layered foreground, readable midground action, and a background that carries semantic clues instead of empty darkness.
@@ -122,6 +131,7 @@ Use real scene families and rotate them on purpose:
 - `simulation_lab`
 - `workshop_bench`
 - `service_rack`
+- `streetdoc_bay`
 - `street_front`
 - `transit_checkpoint`
 - `horizon_boulevard`

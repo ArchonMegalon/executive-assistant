@@ -207,7 +207,7 @@ horizons:
     enabled: true
     order: 40
   pain_label: I want dossiers, recaps, and briefings that feel good without making things up.
-  wow_promise: The table gets polished short-to-medium-form dossiers, recaps, and briefings that still show their source trail.
+  wow_promise: The table gets polished short-to-medium-form dossiers, recaps, and briefings that still show where the facts came from.
   table_scene: After a run, the GM exports a dossier-plus-recap packet with narration, evidence rooms, and share-safe previews.
   build_path:
     intent: eventual_product_lane

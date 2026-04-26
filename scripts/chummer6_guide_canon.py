@@ -102,12 +102,34 @@ def _paragraph(text: str) -> str:
     return " ".join(parts).strip()
 
 
+def _meaningful_horizon_wait(text: str) -> str:
+    value = " ".join(str(text or "").split()).strip()
+    if value.casefold() in {"horizon", "future", "future idea", "future lane"}:
+        return ""
+    return value
+
+
 def _public_horizon_body(path: Path) -> str:
     text = _read_text(path)
     match = re.search(r"^##\s+(Human Promise|The Promise)\s*$", text, flags=re.MULTILINE | re.IGNORECASE)
     if not match:
         return ""
-    return text[match.start() :].strip()
+    return _strip_public_only_sections(text[match.start() :]).strip()
+
+
+def _strip_public_only_sections(text: str) -> str:
+    blocked = {"canon links", "source links", "design links", "repo links"}
+    lines: list[str] = []
+    skipping = False
+    for raw in str(text or "").splitlines():
+        section_match = SECTION_RE.match(raw.strip())
+        if section_match:
+            skipping = section_match.group(1).strip().casefold() in blocked
+            if skipping:
+                continue
+        if not skipping:
+            lines.append(raw)
+    return "\n".join(lines).strip()
 
 
 def load_page_registry() -> dict[str, object]:
@@ -198,7 +220,7 @@ def _critical_asset_target(target_path: str) -> tuple[str, str, str]:
 def _critical_overlay_mode(target_path: str) -> str:
     normalized = str(target_path or "").replace("\\", "/").strip()
     if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
-        return "medscan_diagnostic"
+        return "cyberarm_fit_diagnostic"
     if normalized == "assets/pages/horizons-index.png":
         return "ambient_diegetic"
     if normalized == "assets/horizons/karma-forge.png":
@@ -306,15 +328,15 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
     if normalized_target in {"assets/hero/chummer6-hero.png", "README.md"}:
         merged.setdefault(
             "status_binding_rule",
-            "Only show AGI or ESS upgrade-state markers when they are anchored to medscan anatomy, cyberware calibration, or wound-stability context.",
+            "Use sparse runner-facing labels such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT only when they are anchored to the cyberarm, clamps, tools, or med rig.",
         )
         overlay_geometry = _string_list(merged.get("overlay_geometry"))
         overlay_geometry = [
-            "slim attribute rails" if item.casefold() == "slim gear rails" else item
+            "fit-status microcopy" if item.casefold() in {"slim gear rails", "slim attribute rails"} else item
             for item in overlay_geometry
         ]
-        if "slim attribute rails" not in {item.casefold() for item in overlay_geometry}:
-            overlay_geometry.insert(0, "slim attribute rails")
+        if "fit-status microcopy" not in {item.casefold() for item in overlay_geometry}:
+            overlay_geometry.insert(0, "fit-status microcopy")
         merged["overlay_geometry"] = overlay_geometry
     if str(target_path or "").replace("\\", "/").strip() in {
         "assets/hero/chummer6-hero.png",
@@ -432,7 +454,7 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
                 title = doc_title
         problem = _paragraph(sections.get("table pain", "")) or str(row.get("pain_label") or "").strip()
         use_case = _paragraph(sections.get("bounded product move", "")) or str(row.get("wow_promise") or "").strip()
-        not_now = _paragraph(sections.get("why still a horizon", "")) or str((row.get("build_path") or {}).get("current_state") or "").strip()
+        not_now = _meaningful_horizon_wait(_paragraph(sections.get("why still a horizon", ""))) or _meaningful_horizon_wait(str((row.get("build_path") or {}).get("current_state") or ""))
         foundation_lines = [value.replace("`", "") for value in _bullet_lines(sections.get("foundations", ""))]
         foundations = foundation_lines or [str(value).strip() for value in (row.get("foundations") or []) if str(value).strip()]
         repos = [str(value).strip() for value in (row.get("owning_repos") or []) if str(value).strip()]

@@ -117,7 +117,7 @@ parts:
   - id: media-factory
     title: Media Factory
     public_tagline: The dedicated media studio.
-    you_touch_this_when: You care about finished images, teaser media, dossiers, narrated packets, or other polished outputs that still need a clear source trail.
+    you_touch_this_when: You care about finished images, teaser media, dossiers, narrated packets, or other polished outputs that still need a clear evidence path.
     why_you_care: This is how the product can look finished without letting style quietly rewrite the facts.
     what_you_notice:
       - cleaner asset generation and preview flows

@@ -1,27 +1,28 @@
 {
   "assets/hero/chummer6-hero.png": {
-    "visual_prompt": "First-contact Shadowrun cover scene in a cramped streetdoc intake bay or runner prep cage, never an alley and never a tabletop. One standing runner works a vertical prep wall crowded with hanging gear rails, clipped med tags, sealed pouches, harness straps, intake bins, translucent stat markers, med drawers, stained gauze, cheap med trash, and proof anchors while build-state provenance traces and fit-check brackets cling to those physical props. The frame must feel dense, layered, desperate, and immediately specific to character-build trust, rules inspection pressure, and Chummer-style visible reasoning. Push it toward packed flashy cover energy: stronger orange-cyan contrast, harder rim light, bruising, dried blood, grime, ugly clinic fatigue, and obvious foreground-midground-background separation. If the outside world is visible, let it hint at a recognizable lore place such as Chicago after Bug City or an Arcology-shadow district. Show metahuman bodies, visible chrome, and social damage without splatter spectacle. Strong foreground props, readable midground posture, rich background clues, no readable text, no table scene, no desk glamour, no cards or paper in hand, no phone hero prop, no empty darkness, and no quiet side-profile portrait.",
+    "visual_prompt": "First-contact Shadowrun cover scene in a bright streetdoc shack or converted clinic bay where a runner is getting a new cyberarm fitted, not an alley and not a flat prop layout. The runner sits in a hacked repair recliner while a visibly augmented streetdoc or cybertech calibrates the implant with surgical clamps, implant trays, tool wall, med rig, chrome arm parts, stained gauze, cheap med trash, bottles, and proof anchors around them. Runner-facing AR text is allowed only when it is useful and anchored to the implant work: NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT. The frame must feel dense, layered, desperate, and immediately specific to cyberarm trust, streetdoc risk, and Chummer-style visible reasoning. Push it toward packed flashy cover energy: stronger orange-cyan contrast, harder rim light, bright clinic lamps, vivid color spill, grime, ugly clinic fatigue, and obvious foreground-midground-background separation. If the outside world is visible, let it hint at a recognizable lore place such as Chicago after Bug City or an Arcology-shadow district. Show metahuman bodies, visible chrome, and social damage without splatter spectacle. Strong foreground props, readable midground posture, rich background clues, no shop signs, no flat prop layout, no desk glamour, no cards or paper in hand, no phone hero prop, no empty darkness, and no quiet side-profile portrait.",
     "scene_contract": {
-      "subject": "one standing runner deciding whether tonight's build can be trusted before stepping back into the rain",
-      "environment": "a cramped streetdoc intake bay or runner prep cage packed with hanging gear rails, clipped med tags, sealed med pouches, harness straps, intake bins, med drawers, stained gauze, cheap med waste, translucent rule markers, and hard practical spill",
-      "action": "pausing mid-prep with both hands on hanging gear and clipped tags while layered trust traces, fit checks, and proof anchors live through the room around them",
-      "composition": "clinic_intake",
-      "props": ["hanging gear rail", "clipped med tags", "sealed med pouch", "stained gauze", "cheap med waste", "translucent stat marker"],
-      "overlays": ["provenance ticks", "fit-check brackets", "trust markers", "state deltas"],
+      "subject": "a runner and a visibly augmented streetdoc deciding whether the new cyberarm fit is safe enough",
+      "environment": "a bright streetdoc shack or converted clinic bay packed with surgical clamps, implant trays, a tool wall, chrome cyberarm parts, med rig, stained gauze, bottles, cheap med waste, and hard practical spill",
+      "action": "calibrating nerve sync, joint seal, grip response, pain state, and torque limits while proof anchors live through the room around them",
+      "composition": "streetdoc_bay",
+      "props": ["hacked repair recliner", "surgical clamps", "implant tray", "chrome cyberarm", "stained gauze", "med rig"],
+      "overlays": ["NERVE SYNC", "JOINT SEAL", "GRIP TEST", "PAIN WATCH", "TORQUE LIMIT"],
       "mood": "tense, ugly, and high-pressure instead of brooding",
       "easter_egg_policy": "forbid",
       "humor_policy": "forbid"
     }
   },
   "assets/hero/poc-warning.png": {
-    "visual_prompt": "A grimy desk still life for a risky prerelease: test build case, hazard tape, small warning lights, USB stick, and coffee ring under hard shop lighting, tactile and believable, no readable labels or paperwork.",
+    "visual_prompt": "16:9 polished flagship poster-quality Shadowrun campaign-OS warning shelf, a quarantined proof artifact being checked at a runner prep counter before it reaches a live table. A visibly augmented courier, GM, or quartermaster leans over a scarred hardcase and data chip under vivid sodium orange, acid cyan, magenta, and clinic-white practical light, with wet reflective tape, sealed pouches, med trash, chipped tool rails, and a route arrow on the floor. AR must make sense to a runner seeing it through smart glasses: translucent hazard brackets locked to case edges, a provenance halo around the chip, a route arrow anchored to the wet floor, and wrist-sync rails tied to visible cyberware. No readable words, no letters, no logos, no title card, no giant warning text.",
     "scene_contract": {
-      "subject": "a suspicious prerelease package on a workbench",
-      "environment": "a scarred desk with hazard tape, scattered notes, and one unforgiving task lamp",
-      "action": "daring the viewer to stop reading and risk their evening",
-      "composition": "desk_still_life",
-      "props": ["build case", "USB stick", "warning tape", "coffee ring"],
-      "mood": "funny, risky, and slightly singed",
+      "subject": "a visibly augmented runner-side quartermaster quarantining a proof artifact before it reaches a campaign table",
+      "environment": "a rain-wet prep counter with scarred hardcase, data chip, sealed pouches, reflective hazard tape, med trash, tool rails, and dirty practical lights",
+      "action": "checking provenance, sync state, and risk boundaries before the artifact can be trusted",
+      "composition": "service_rack",
+      "props": ["scarred hardcase", "data chip", "sealed pouch", "reflective tape", "tool rail", "wrist cyberware"],
+      "overlays": ["hazard brackets", "provenance halo", "floor route arrow", "wrist sync rail"],
+      "mood": "vivid, tense, polished, and runner-practical",
       "easter_egg_kind": "troll sticker",
       "easter_egg_placement": "on the pelican-style build case near the lower-left third",
       "easter_egg_detail": "classic horned Chummer troll as a worn sticker with scuffed edges",

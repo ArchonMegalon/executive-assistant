@@ -42,5 +42,5 @@ The public artifact registry already carries first-party preview shapes for doss
 
 ## Why it is not ready yet
 
-These outputs only matter if the source trail survives writing, narration, preview generation, and publication.
+These outputs only matter if the evidence path survives writing, narration, preview generation, and publication.
 Until that chain is reliable, Chummer should not sell the studio as ready.

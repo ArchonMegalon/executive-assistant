@@ -6,6 +6,8 @@ style_epoch:
   comparison_between_builds: allowed
   note: A full landing build pass should share one major visual family, while later passes may intentionally compare different epochs.
 render_rules:
+  semantic_ar_policy: >-
+    Semantic AR only: labels must describe visible reality, not invented telemetry; if an anchor is not visible, omit the overlay.
   raster_only: true
   no_svg: true
   master_format: png
@@ -70,9 +72,9 @@ rules:
   - Hero, index, and flagship horizon art must carry visible semantic anchors for what the product does; style alone is not enough.
   - The shared prompt scaffold is for secondary guide stills only; hero, horizons index, and flagship horizons should let the flagship poster epoch override it.
   - Poster energy is welcome on flagship assets when it still reads as a lived product scene instead of a title card or fashion pose.
-  - Critical public assets must choose one overlay posture before compositing: ambient diegetic, smartlink tactical, medscan diagnostic, or forge review AR.
-  - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, and capsule chips over large face-covering rectangles.
-  - Public-facing assets should ship with visible diegetic AR or smart-glasses traces in the frame; generic overlay-free cyberpunk mood art is failure.
+  - Critical public assets must choose one overlay posture before compositing: ambient diegetic, smartlink tactical, cyberarm fit diagnostic, or forge review AR.
+  - Overlay geometry on flagship art should prefer rails, brackets, spline traces, radial halos, color dots, seam-bound glows, and sparse anchored microcopy over large face-covering rectangles.
+  - Public-facing assets should ship with visible diegetic AR or smart-glasses traces in the frame; any readable AR text must answer something a runner in that scene would actually care about.
   - Flagship and public-guide poster finishes should read like clean premium print, not distressed film stock: no fake grain layer, dust pass, sensor-noise wash, or crunchy noise texture.
   - Flagship assets should usually carry both a metahuman cue and a body-worn cyberware cue; rain and grime alone do not make the frame feel Shadowrun.
   - Every image should imply a lived story beat with a clear before-and-after, not just a posed concept frame: someone is warning, bargaining, patching, sorting, checking, arguing, recovering, or choosing in the middle of a real moment.
@@ -113,40 +115,41 @@ visual_contract:
   first_contact_hero:
     density_target: high
     overlay_density: medium
-    required_overlay_mode: smartlink_tactical
+    required_overlay_mode: cyberarm_fit_diagnostic
     allowed_overlay_modes:
-      - smartlink_tactical
+      - cyberarm_fit_diagnostic
     overlay_geometry:
-      - slim gear rails
-      - capsule chips
-      - bracket fragments
-      - curved callout splines
+      - fit-status microcopy
       - seam-following anchors
+      - clamp alignment glows
+      - small bracket marks
+      - color-coded scan dots
     overlay_priority_order:
-      - SIN validity
-      - camera hijack odds
-      - cyberware handshake
-      - route window
+      - cyberarm fit
+      - clamp alignment
+      - nerve interface stability
+      - tool placement
     overlay_actionability_rule: >
-      Only show prep info: fake SIN validity, camera hijack odds, comm sync,
-      cyberware readiness, ward risk, route window, and next action, and only
-      when the observed rendered scene shows a real place to anchor each cue.
+      Show only runner-relevant cyberarm fitting diagnostics anchored to the
+      cyberarm, clamps, tools, and med rig. Readable text must be short,
+      scene-specific, and useful to the patient or streetdoc; no generic HUD
+      menus, pseudo-writing, floating lore labels, or sign-like panels.
     negative_space_cap: low
     flash_level: bold
     person_count_target: duo_or_team
     humor_allowed: false
     pseudo_text_allowed: false
     required_setting_markers:
-      - rain-dark safehouse garage required
-      - prep rail, gear rack, or service wall required
-      - tool chest or lift bay residue required
-      - cheap fluorescent strips or work lamps required
+      - bright streetdoc shack or converted clinic bay required
+      - cyberarm fitting chair, surgical clamps, or med rig required
+      - tool wall, implant trays, or chrome parts required
+      - warm clinic lamps and vivid color spill required
       - wet concrete, tarp, or extension-cord grime required
-      - visible route, med, or loadout clutter required
-      - visible vermin or rat pressure required
+      - visible med, implant, or loadout clutter required
+      - street-level Shadowrun residue required
     required_cast_markers:
-      - metahuman quartermaster or support tech required
-      - tusked or chrome-heavy runner required
+      - metahuman streetdoc or cybertech required
+      - runner receiving a new cyberarm required
       - assistant or teammate encouraged
     required_troll_markers:
       - tusks or obvious metahuman physiology
@@ -159,14 +162,19 @@ visual_contract:
       - readable chrome seams or worn straps
       - visible fatigue or pre-run stress cue
     required_overlay_schema:
-      - SIN validity
-      - camera hijack odds
-      - smartlink handshake
-      - route window
-      - ward bleed
-      - safest next action
+      - NERVE SYNC
+      - JOINT SEAL
+      - GRIP TEST
+      - PAIN WATCH
+      - torque-limit arc
+      - seam-following light traces
+      - clamp alignment glows
+      - color-coded scan dots
     required_status_labels:
-      - READY
+      - NERVE SYNC
+      - JOINT SEAL
+      - GRIP TEST
+      - PAIN WATCH
     forbidden_environment_markers:
       - clean hospital exam room
       - clean van interior with no staging cues
@@ -267,8 +275,8 @@ visual_contract:
       - consequence or rollback machinery required
       - provenance seals or rule cassettes required
     required_overlay_schema:
-      - DIFF
-      - APPROVAL
+      - seal drift
+      - approval rail
       - PROVENANCE
       - ROLLBACK
     required_action_posture:
@@ -297,35 +305,52 @@ visual_contract:
 asset_overlay_contracts:
   assets/hero/chummer6-hero.png:
     style_epoch_force_only: true
-    required_overlay_mode: smartlink_tactical
+    required_overlay_mode: cyberarm_fit_diagnostic
     world_marker_minimum: 4
     environment_share_minimum: 0.58
     subject_crop_maximum: 0.26
     cast_readability_required: true
     overlay_anchor_required: true
     allowed_overlay_modes:
-      - smartlink_tactical
+      - cyberarm_fit_diagnostic
     overlay_geometry:
-      - slim gear rails
-      - seam-following anchors
-      - capsule status chips
-      - curved callout splines
-      - small route halos
+      - fit-status microcopy
+      - seam-following light traces
+      - clamp alignment glows
+      - small bracket marks
+      - color-coded scan dots
     overlay_priority_order:
-      - SIN validity
-      - camera hijack odds
-      - cyberware handshake
-      - route window
+      - cyberarm fit
+      - clamp alignment
+      - nerve interface stability
+      - tool placement
+    required_overlay_schema:
+      - NERVE SYNC
+      - JOINT SEAL
+      - GRIP TEST
+      - PAIN WATCH
+      - torque-limit arc
+      - seam-following light traces
+      - clamp alignment glows
+      - color-coded scan dots
+    required_status_labels:
+      - NERVE SYNC
+      - JOINT SEAL
+      - GRIP TEST
+      - PAIN WATCH
     overlay_actionability_rule: >
-      Show only staging info: fake SIN validity, camera hijack odds, comm sync,
-      cyberware readiness, ward risk, route window, and next action.
+      Use only runner-relevant cyberarm fitting diagnostics anchored to the
+      cyberarm, clamps, tools, and med rig. Labels may include NERVE SYNC,
+      JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT when they are visibly
+      attached to the implant work; no generic HUD menus, pseudo-writing,
+      floating lore labels, or sign-like panels.
     overlay_render_strategy: verified_post_composite_only
     render_layers:
       - base_scene
       - verified_overlay
     overlay_attachment_rule: >
-      Anchor chips to visors, wrists, weapon slings, cyberlimbs, prep rails,
-      cases, doors, or route lines; avoid face or torso coverage.
+      Anchor non-text light rings, dots, brackets, and seam traces to the
+      cyberarm, surgical clamps, tools, and med rig; avoid face or torso coverage.
   assets/pages/horizons-index.png:
     overlay_density: high
     world_marker_minimum: 4
@@ -410,12 +435,14 @@ asset_overlay_contracts:
       - ambient_diegetic
     overlay_geometry:
       - hazard brackets
-      - provenance traces
-      - crate-edge pings
-      - threshold arrows
+      - provenance halo
+      - case-edge pings
+      - floor route arrows
+      - wrist sync rails
     overlay_actionability_rule: >
-      Keep warning traces welded to crate edges, hazard tape, shutter seams,
-      or street threshold geometry; never let a giant signboard do the job.
+      Keep warning traces welded to hardcase edges, data-chip provenance,
+      wrist cyberware, hazard tape, or wet floor route geometry; never let a
+      giant signboard do the job.
     overlay_render_strategy: verified_post_composite_public
     render_layers:
       - base_scene
