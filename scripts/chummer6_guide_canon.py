@@ -102,6 +102,14 @@ def _paragraph(text: str) -> str:
     return " ".join(parts).strip()
 
 
+def _public_horizon_body(path: Path) -> str:
+    text = _read_text(path)
+    match = re.search(r"^##\s+(Human Promise|The Promise)\s*$", text, flags=re.MULTILINE | re.IGNORECASE)
+    if not match:
+        return ""
+    return text[match.start() :].strip()
+
+
 def load_page_registry() -> dict[str, object]:
     return _read_yaml(_source_path("page_registry", "PUBLIC_GUIDE_PAGE_REGISTRY.yaml"))
 
@@ -425,7 +433,8 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
         problem = _paragraph(sections.get("table pain", "")) or str(row.get("pain_label") or "").strip()
         use_case = _paragraph(sections.get("bounded product move", "")) or str(row.get("wow_promise") or "").strip()
         not_now = _paragraph(sections.get("why still a horizon", "")) or str((row.get("build_path") or {}).get("current_state") or "").strip()
-        foundations = [str(value).strip() for value in (row.get("foundations") or []) if str(value).strip()]
+        foundation_lines = [value.replace("`", "") for value in _bullet_lines(sections.get("foundations", ""))]
+        foundations = foundation_lines or [str(value).strip() for value in (row.get("foundations") or []) if str(value).strip()]
         repos = [str(value).strip() for value in (row.get("owning_repos") or []) if str(value).strip()]
         catalog[slug] = {
             "title": title,
@@ -436,6 +445,7 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
             "foundations": foundations,
             "repos": repos,
             "not_now": not_now,
+            "public_body": _public_horizon_body(canon_doc) if canon_doc.exists() else "",
             "access_posture": str(row.get("access_posture") or "").strip(),
             "resource_burden": str(row.get("resource_burden") or "").strip(),
             "booster_nudge": str(row.get("booster_nudge") or "").strip(),
@@ -511,6 +521,7 @@ def merge_horizon_canon(defaults: dict[str, dict[str, object]]) -> dict[str, dic
         row["foundations"] = list(parsed.get("foundations") or row.get("foundations") or [])
         row["repos"] = list(parsed.get("repos") or row.get("repos") or [])
         row["not_now"] = str(parsed.get("not_now") or row.get("not_now") or "").strip()
+        row["public_body"] = str(parsed.get("public_body") or row.get("public_body") or "").strip()
         row["why_great"] = str(parsed.get("use_case") or row.get("why_great") or row.get("use_case") or "").strip()
         row["why_waits"] = str(parsed.get("not_now") or row.get("why_waits") or row.get("not_now") or "").strip()
         row["hook"] = str(parsed.get("hook") or row.get("hook") or "").strip()

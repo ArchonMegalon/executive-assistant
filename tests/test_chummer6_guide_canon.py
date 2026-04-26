@@ -58,6 +58,10 @@ def test_load_horizon_canon_tracks_live_design_horizons() -> None:
     assert "local-co-processor" not in catalog
     assert "rule-x-ray" not in catalog
     assert "heat-web" not in catalog
+    assert "## Mission Market" in catalog["black-ledger"]["public_body"]
+    assert "## Rule Environment" in catalog["karma-forge"]["public_body"]
+    assert "C0 - campaign, run, and Hub-owned receipt boundaries" in catalog["black-ledger"]["foundations"]
+    assert "D2 - restore-safe sync, package portability, and missing-package warnings" in catalog["karma-forge"]["foundations"]
 
 
 def test_load_faq_and_help_canon_track_public_question_sets() -> None:
