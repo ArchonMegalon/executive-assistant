@@ -1,0 +1,57 @@
+version: 1
+key: karma_forge_discovery_lab_workflows
+owner: chummer6-design
+status: design
+purpose: >
+  Repeatable product-discovery loop for house-rule and campaign-rule demand.
+  The loop turns public signal into governed HouseRuleDemandPackets without
+  letting any external tool become feature, backlog, or rules truth.
+workflow:
+  - step: public_signal
+    tools:
+      - ProductLift
+      - Signitic
+      - FacePop
+    output: PublicSignalReceipt
+    boundary: public_signal_only
+  - step: structured_prescreen
+    tools:
+      - Deftform
+    output: HouseRulePrescreenReceipt
+    boundary: no_raw_sourcebook_text
+  - step: adaptive_interview
+    tools:
+      - Icanpreneur
+      - Lunacal
+    output: DiscoveryInterviewReceipt
+    boundary: interview_signal_not_product_truth
+  - step: quant_validation
+    tools:
+      - MetaSurvey
+    output: ValidationSurveyReceipt
+    boundary: ranking_signal_not_priority_truth
+  - step: review_board
+    tools:
+      - Teable
+      - NextStep
+    output: AdminIntent
+    boundary: projection_and_process_only
+  - step: decision
+    tools:
+      - Product Governor
+      - chummer6-design
+    output: HouseRuleDemandPacketDecision
+    boundary: canonical_decision_only_here
+  - step: closeout
+    tools:
+      - ProductLift
+      - Emailit
+      - Signitic
+    output: PublicCloseoutReceipt
+    boundary: closeout_must_match_design_truth
+required_packet: HouseRuleDemandPacket
+forbidden:
+  - external_tool_as_backlog_truth
+  - raw_copyrighted_rules_text_capture
+  - public_vote_as_priority_truth
+  - Teable_as_rules_database

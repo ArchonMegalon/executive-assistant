@@ -1,0 +1,31 @@
+version: 1
+key: companion_line_pack_registry
+owner: chummer6-design
+status: design
+line_pack_defaults:
+  requires_review_receipt: true
+  requires_locale: true
+  requires_trigger_ref: true
+  requires_dismissability: true
+  requires_annoyance_budget: true
+packs:
+  - key: desktop_first_run_switch
+    trigger_refs:
+      - first_run_companion_card
+    surfaces:
+      - desktop_install_linking_shell
+      - claimed_desktop_home
+    media_allowed: false
+  - key: mission_brief_ready
+    trigger_refs:
+      - mission_brief_ready_companion_moment
+    surfaces:
+      - campaign_home
+      - mobile_campaign_home
+    media_allowed: true
+  - key: build_trap_intervention
+    trigger_refs:
+      - build_trap_intervention_card
+    surfaces:
+      - build_lab_compare
+    media_allowed: false

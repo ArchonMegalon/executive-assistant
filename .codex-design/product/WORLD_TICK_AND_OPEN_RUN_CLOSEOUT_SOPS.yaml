@@ -1,0 +1,35 @@
+version: 1
+key: world_tick_and_open_run_closeout_sops
+owner: fleet
+status: design
+purpose: >
+  SOP families for BLACK LEDGER and Shadowcasters weekly operations. NextStep
+  may run these checklists; Hub and design registries remain process truth.
+sops:
+  - key: world_tick_closeout
+    steps:
+      - collect_candidate_inputs
+      - verify_source_receipts
+      - review_visibility_class
+      - approve_or_reject_world_tick
+      - publish_hub_truth
+      - render_media_artifacts
+      - approve_signitic_campaign
+      - approve_email_digest
+      - review_journey_proof
+  - key: open_run_closeout
+    steps:
+      - verify_roster_lock
+      - verify_schedule_receipt
+      - collect_resolution_report
+      - review_consent_and_spoiler_class
+      - update_run_truth
+      - escalate_world_tick_candidate
+      - notify_participants
+  - key: seasonal_honors_closeout
+    steps:
+      - collect_typed_reputation_events
+      - review_abuse_and_leaderboard_risk
+      - approve_public_safe_honors
+      - publish_honors_page
+      - send_digest_or_campaign

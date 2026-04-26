@@ -7,6 +7,7 @@ This file defines the default privacy, retention, and redaction rules for the ca
 It exists so support, crash, install-linking, survey, assistant, and provider traces do not silently turn into an ungoverned data lake.
 
 The product-steering telemetry model and concrete opt-out event schema that sit inside these boundaries are defined in `PRODUCT_USAGE_TELEMETRY_MODEL.md` and `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`.
+User-contribution privacy, IP, and visibility rules for BLACK LEDGER intel, house-rule submissions, open-run applications, session debriefs, media artifacts, public feedback, and creator submissions are defined in `USER_CONTRIBUTION_PRIVACY_AND_IP_POLICY.md` and `USER_CONTRIBUTION_VISIBILITY_REGISTRY.yaml`.
 
 ## Default rules
 
@@ -108,6 +109,21 @@ Redaction baseline:
 * no unbounded PII spill into provider prompts, logs, or eval traces
 * grounding packs should prefer case IDs, release IDs, and rule receipt IDs over raw user text where possible
 
+### User contribution and external workbench projections
+
+Owner: `chummer6-hub`
+
+Retention posture:
+
+* Teable/AdminIntent projection rows: retain only while the source queue item is active, then collapse into `AdminIntentReceipt` and source-object history
+* raw user-contribution payloads in external intake tools: mirror needed receipts into Hub, then summarize or delete from the external tool according to the contribution class
+* public-safe contribution summaries and credit receipts: retain while the contribution is published plus 18 months
+
+Redaction baseline:
+
+* never collect raw sourcebook text, private table spoilers, faction secrets, or support notes into public or vendor-visible contribution queues unless a Hub-owned projection explicitly permits the field
+* private submissions must move through visibility classes before becoming public lore, job seeds, map markers, videos, newsletters, or Signitic/Emailit campaign payloads
+
 ### Publication and artifact telemetry
 
 Owner: `chummer6-media-factory` plus `chummer6-hub-registry`
@@ -156,3 +172,4 @@ Redaction baseline:
 * a surface that persists raw secrets, raw provider traces, or undefined retention windows fails release signoff
 * a new assistant/help/provider integration must declare redaction and retention posture before it can be promoted
 * product-governor review may freeze a wave when retention or privacy posture drifts behind shipped user trust claims
+* any new contribution, Teable, Emailit, Signitic, ProductLift, Icanpreneur, Hedy, Nonverbia, Unmixr, or Deftform workflow must declare contribution class, visibility class, redaction posture, and delete-or-summarize rule before promotion

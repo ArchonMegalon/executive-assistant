@@ -1,0 +1,24 @@
+version: 1
+key: premium_capability_registry
+owner: chummer6-hub
+status: design
+truth_owner: chummer6-hub
+forbidden:
+  - rules_advantage
+  - faction_victory
+  - leaderboard_rank
+  - support_truth_bypass
+  - privacy_bypass
+candidate_capabilities:
+  - key: gm_workspace_capacity
+    value_type: capacity
+  - key: creator_publication_pipeline
+    value_type: publishing
+  - key: private_black_ledger_world
+    value_type: organizer_tooling
+  - key: table_pulse_debrief_pack
+    value_type: media_and_coaching_capacity
+  - key: artifact_generation_quota
+    value_type: media_capacity
+  - key: human_gm_clinic
+    value_type: human_service

@@ -1,5 +1,5 @@
 group_id: chummer-vnext
-last_reviewed: 2026-03-25
+last_reviewed: 2026-04-23
 
 packages:
   - id: Chummer.Engine.Contracts
@@ -119,7 +119,7 @@ packages:
 
   - id: Chummer.World.Contracts
     owner_repo: chummer6-hub
-    purpose: World-state, mission-market, and campaign-adjacent consequence contracts.
+    purpose: World-state, mission-market, and campaign-adjacent consequence contracts, initially bounded inside chummer6-hub until a later extraction is warranted.
     status: in_progress
     versioning_policy: SemVer. Breaking world-frame semantics, packet ownership rules, or consequence receipts is major; additive world object fields and cosmetic metadata are minor; compatible clarifications are patch.
     deprecation_policy: Deprecations are announced in design and hub with rollback guidance and are applied only when replacement contracts carry equivalent campaign/world observability contracts.
@@ -191,6 +191,19 @@ contract_sets:
       - delivery
       - notifications
       - orchestration receipts
+
+  - id: outbound_notification_delivery_vnext
+    canonical_package: Chummer.Run.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - notification template refs
+      - recipient and suppression refs
+      - provider route refs
+      - EmailDeliveryReceipt
+      - bounce and suppression event refs
+      - user-visible closeout linkage
+    rule: "Hub owns notification, recipient, template, suppression, and closeout truth. Emailit or any later email provider only delivers through an adapter and returns provider receipts."
 
   - id: participation_workflow_vnext
     canonical_package: Chummer.Run.Contracts
@@ -439,6 +452,32 @@ contract_sets:
       - defer or reject reasons
       - closure notices
     rule: "Hub owns raw intake and closure, Fleet may synthesize clustered evidence packets, and product-governor or designer review may route the packet; raw signals do not become backlog or canon truth without synthesis."
+
+  - id: admin_projection_and_intent_vnext
+    canonical_package: Chummer.Control.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - AdminProjectionReceipt
+      - AdminIntent
+      - AdminIntentReceipt
+      - editable-field allowlists
+      - role and authority scope
+      - stale-projection conflict detection
+      - source-object refs
+    rule: "External admin workbenches such as Teable may show projections and collect proposed operator changes, but they must submit AdminIntent packets. Hub validates authority, visibility, invariants, and current source revision before any canonical state change."
+
+  - id: journey_proof_vnext
+    canonical_package: Chummer.Control.Contracts
+    semantic_owner: chummer6-hub
+    status: in_progress
+    includes:
+      - JourneyProofEventRef
+      - golden-journey funnel events
+      - public campaign attribution refs
+      - support side-effect refs
+      - product-governor interpretation packets
+    rule: "PostHog, Sentry, provider dashboards, Signitic, ProductLift, and email metrics may feed evidence, but Chummer-owned journey-proof events and Product Governor interpretation remain canonical."
 
   - id: crash_automation_vnext
     canonical_package: Chummer.Control.Contracts

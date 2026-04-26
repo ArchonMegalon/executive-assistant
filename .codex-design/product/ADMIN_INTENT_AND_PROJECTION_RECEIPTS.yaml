@@ -1,0 +1,55 @@
+version: 1
+key: admin_intent_and_projection_receipts
+owner: chummer6-hub
+status: design
+purpose: >
+  Shared receipt model for admin projection tools such as Teable. Projection
+  rows may be edited by operators, but all writes return as AdminIntent and are
+  accepted only after Chummer-owned validation.
+projection_receipt:
+  required_fields:
+    - projection_id
+    - projection_kind
+    - source_system
+    - source_contract
+    - source_id
+    - source_version
+    - source_hash
+    - projection_generated_at
+    - visibility_class
+    - editable_fields
+    - forbidden_fields
+    - kill_switch_key
+admin_intent:
+  required_fields:
+    - intent_id
+    - idempotency_key
+    - source_projection_id
+    - actor
+    - requested_action
+    - target
+    - payload
+    - submitted_at
+    - validation_requirements
+admin_intent_receipt:
+  states:
+    - accepted
+    - rejected
+    - superseded
+    - requires_clarification
+    - duplicate_ignored
+  required_fields:
+    - intent_id
+    - receipt_id
+    - state
+    - decided_at
+    - canonical_write_refs
+    - rejection_or_clarification_reason
+validation_requirements:
+  - actor_authority_check
+  - source_version_match
+  - object_visibility_check
+  - forbidden_field_scan
+  - idempotency_check
+  - kill_switch_check
+  - privacy_policy_check

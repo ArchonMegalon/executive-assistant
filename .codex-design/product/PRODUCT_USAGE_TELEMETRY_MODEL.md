@@ -20,6 +20,7 @@ The point is to answer a small number of high-value product questions honestly:
 
 Privacy, retention, and redaction boundaries still live in `PRIVACY_AND_RETENTION_BOUNDARIES.md`.
 Concrete event names, rollup shapes, and install-level settings live in `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md`.
+Golden-journey proof across install, open runs, BLACK LEDGER, ProductLift, KARMA FORGE, public campaigns, and closure loops is defined in `PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md` and `JOURNEY_PROOF_EVENTS.yaml`.
 
 ## Non-goals
 
@@ -271,6 +272,11 @@ Gather bounded funnel facts for high-value journeys:
 * import legacy file -> repair prompts -> successful open
 * update available -> update start -> relaunch success
 * crash -> recovery -> successful reopen
+* open run -> apply -> accepted -> scheduled -> played -> resolved
+* intel submitted -> reviewed -> adopted -> generated job or world-tick input
+* ProductLift idea -> discovery -> accepted or rejected -> shipped or closed out -> voter notified
+* KARMA FORGE request -> interview -> packet -> candidate -> prototype decision
+* world tick -> map/newsreel -> Signitic/Taja/Emailit distribution -> first-party landing conversion
 
 For each funnel, gather:
 

@@ -1,0 +1,33 @@
+version: 1
+key: media_recipe_execution_and_closeout
+owner: chummer6-media-factory
+status: design
+purpose: >
+  Execution and closeout fields required for artifact factory runs.
+required_fields:
+  - media_recipe_id
+  - source_packet_ref
+  - source_hash
+  - spoiler_class
+  - visibility_class
+  - privacy_review_receipt
+  - approval_receipt
+  - render_provider_receipts
+  - accessibility_receipt
+  - locale_receipt
+  - publication_ref
+  - takedown_owner
+  - retention_policy
+closeout_states:
+  - drafted
+  - review_required
+  - approved
+  - rendered
+  - published
+  - superseded
+  - retired
+forbidden:
+  - artifact_without_source_packet
+  - public_publish_without_approval
+  - vendor_dashboard_as_publication_truth
+  - media_metrics_as_product_truth

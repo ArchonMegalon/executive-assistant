@@ -17,12 +17,17 @@ It does not imply that every owned tool must be integrated.
 * `Prompting Systems` - prompt, style, and persona support for guide, horizon, and media workflows
 * `BrowserAct` - no-API automation fallback, account verification, capture, and ops bridge
 * `ApproveThis` - approval inbox bridge
+* `ClickRank` - public site visibility, crawl-health, technical SEO, schema, metadata, and AI-search audit lane
 * `Icanpreneur` - bounded discovery interview and validation lane
+* `Katteb` - public-guide and public-content optimization lane downstream of approved source packets
 * `MetaSurvey` - structured feedback and future-signal collection, not crash telemetry or ticket truth
 * `NextStep` - operator process execution and governed checklist lane
+* `ProductLift` - public feedback, voting, roadmap projection, changelog projection, and voter closeout lane
 * `Soundmadeseen` - narrated media, recap, and briefing clips
 * `Signitic` - passive outreach and signature-campaign projection lane
+* `Emailit` - outbound delivery provider candidate for Hub-owned lifecycle, digest, and closeout mail
 * `Taja` - approved media repurposing and distribution lane
+* `Teable` - operator admin projection and AdminIntent workbench, never system of record
 * `vidBoard` - structured presenter-video and multilingual walkthrough lane
 * `Crezlo Tours` - explorable GM run-site artifacts
 * `Deftform` - structured intake and concierge handoff lane
@@ -39,7 +44,6 @@ It does not imply that every owned tool must be integrated.
 
 * `Paperguide` - cited research and grounding helper
 * `Vizologi` - product strategy and ideation support only
-* `Teable` - curation and projection board only, never system of record
 * `ApiX-Drive` - low-risk automation glue only, never truth
 * `Browserly` - bounded browser capture and reference-pack helper
 * `FacePop` - bounded public trust / concierge widget and moderated testimonial capture lane
@@ -56,7 +60,7 @@ It does not imply that every owned tool must be integrated.
 * `FastestVPN PRO`
 * `OneAir`
 * `Headway`
-* `Invoiless`
+* `Invoiless` - back-office billing utility only; not entitlement or premium truth
 
 ## Owner map
 
@@ -83,8 +87,13 @@ Working rule:
 
 * `Icanpreneur` may collect adaptive interviews and synthesis, but Chummer-owned packets and Product Governor decisions remain canonical.
 * `NextStep` may execute governed discovery, world-tick, media, release, and closeout checklists, but mirrored registries and canon remain the process truth.
-* `Signitic` may amplify recruitment and release CTAs only as passive projection into first-party destinations.
+* `Signitic` may amplify recruitment, release, BLACK LEDGER world-tick, and faction-war CTAs only as passive projection into first-party destinations.
+* `Emailit` may deliver lifecycle and digest email only from Hub-owned notification truth, template refs, delivery receipts, and opt-out posture.
+* `Teable` may expose operator workbenches and collect admin intent, but Hub validates authority, visibility, and invariants before any canonical write.
 * `Taja` may repurpose approved media only after claim and publication approval; it does not become artifact truth.
+* `ProductLift` may collect public ideas, votes, and reactions, but Chummer-owned packets and Product Governor decisions remain canonical.
+* `Katteb` may draft or optimize public content only from approved source packets; accepted changes return to Chummer-owned source before publication.
+* `ClickRank` may audit public crawl health, metadata, schema, internal links, and AI-search visibility, but Chummer-owned source and Product Governor/content-owner review remain canonical.
 
 ## Public concierge / trust posture
 
@@ -93,25 +102,58 @@ Working rule:
 * `FacePop` is bounded to public, low-risk trust surfaces with a kill switch and first-party fallback.
 * `Lunacal` may provide human escalation and booking, but it may not become support-case or campaign truth.
 * `Deftform` may provide structured intake, but Hub-owned receipts and first-party followthrough remain canonical.
-* `Signitic` may amplify public recruitment or release campaigns, but those campaigns remain projections into first-party pages rather than notification truth.
+* `Signitic` may amplify public recruitment, release, world-tick, or faction-war campaigns, but those campaigns remain projections into first-party pages rather than notification truth, world truth, or authorization truth.
+* `Emailit` may send claim/install mail, support closure, open-run invitations, world-tick digests, faction newsletters, creator-program mail, and ProductLift closeout only when Hub owns the notification event and suppression state.
+* `ProductLift` may project `/feedback`, `/roadmap`, and `/changelog`, but it may not replace support, release, roadmap, or design truth.
+* `Katteb` may improve public guide/article clarity, but it may not edit generated guide output directly or invent rules, support, campaign, or availability claims.
+* `ClickRank` may recommend search and crawl improvements for public pages, but it may not mutate generated guide output, roadmap status, release status, support claims, or unshipped feature claims.
 * Desktop, mobile, updater, claim-code, signed-in workspace, and support-thread surfaces remain first-party only.
 
 ## Bounded owner assignments
 
 * `Paperguide` - `chummer6-design` for design research, `chummer6-hub` for operator help/research assist
-* `Teable` - `chummer6-hub` for curation/projection workflows
+* `Teable` - `chummer6-hub` for admin projections, curation queues, review boards, and AdminIntent receipt routing
+* `Emailit` - `chummer6-hub` for outbound template selection, suppression, delivery receipts, and lifecycle notification closeout
 * `ApiX-Drive` - `chummer6-hub` for low-risk automation glue
 * `Browserly` - `chummer6-hub` for bounded capture/reference packets
 * `Icanpreneur` - `chummer6-design` for discovery-interview posture and validation policy, `executive-assistant` for synthesis and packet normalization
+* `ProductLift` - `chummer6-hub` for public routes and fallback behavior, `chummer6-design` for taxonomy and truth boundaries, `fleet` for digest and closeout evidence synthesis
+* `Katteb` - `chummer6-hub` for public content destinations, `executive-assistant` for source briefs and synthesis, `chummer6-design` for allowed claims and upstream source truth
+* `ClickRank` - `chummer6-hub` for public site crawl and metadata remediation, `chummer6-design` for search-visibility policy and source-truth boundaries, `executive-assistant` for findings normalization, `fleet` for weekly pulse evidence synthesis
 * `FacePop` - `chummer6-hub` for public-surface routing, consent, fallback, and intake receipt mirroring; `chummer6-media-factory` for moderated testimonial derivative support
 * `Deftform` - `chummer6-hub` for structured intake routing and receipt mirroring
 * `Lunacal` - `chummer6-hub` for booking linkage and escalation routing
 * `NextStep` - `fleet` for governed process execution and mirrored operator runbooks
-* `Signitic` - `chummer6-hub` for destination shaping and public recruitment/release campaign routing; `fleet` for bounded measurement review
+* `Signitic` - `chummer6-hub` for destination shaping, segment routing, UTM naming, and public recruitment/release/world-tick campaign routing; `chummer6-design` for public-safe claim boundaries; `fleet` for bounded measurement review
 * `Taja` - `chummer6-media-factory` for approved media repurposing and distribution only
 * `hedy.ai` - `chummer6-hub` for consent-gated coaching packet orchestration, `chummer6-media-factory` for transcript prep and rendered recap packet support
 * `Nonverbia` - `chummer6-hub` for coaching analysis and privacy gating, `chummer6-media-factory` for bounded rendered outputs
 * `Unmixr AI` - `chummer6-media-factory` for bounded voice experiments
+
+## Composed product systems
+
+The owned LTD stack should be evaluated as governed product loops, not isolated vendor notes.
+
+* Public Growth System - `ClickRank`, `Katteb`, `ProductLift`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` route public discovery into first-party pages, changelog proof, and closeout.
+* Discovery System - `ProductLift`, `Deftform`, `Icanpreneur`, `MetaSurvey`, `Lunacal`, `Teable`, and Product Governor convert public demand into Chummer-owned packets and decisions.
+* Artifact Factory - `vidBoard`, `MarkupGo`, `PeekShot`, `Taja`, `Soundmadeseen`, `Unmixr AI`, and `First Book ai` render approved source packets into repeatable media, document, and share artifacts.
+* BLACK LEDGER Ops - Hub, `Teable`, `NextStep`, `ApproveThis`, `Signitic`, `Emailit`, and first-party map infrastructure run world ticks, faction operations, open-run closeout, and operator review.
+* Table Pulse / Companion Lab - `hedy.ai`, `Nonverbia`, `Unmixr AI`, `Soundmadeseen`, `MarkupGo`, `PeekShot`, `Prompting Systems`, `ChatPlayground AI`, and `Teable` support consent-gated debriefs and reviewed line packs.
+* Trust / Closure System - Hub, Registry, Fleet, Product Governor, `ProductLift`, `Emailit`, and first-party analytics/observability prove that install, support, roadmap, and release promises actually closed.
+
+Non-LTD production infrastructure candidates such as PostHog, Sentry, MapLibre, and LiveKit may be designed as first-party infrastructure lanes when needed. They are not substitutes for Chummer-owned truth.
+
+## Optional purchase watchlist
+
+The current leverage is wiring, governance, and receipts, not another generic AI tool. Optional buys are only justified when they fill a concrete operating gap:
+
+* `SendFox` - public newsletter and digest list if Emailit stays primarily transactional.
+* `Flonnect` - bounded QA, bug reproduction, support evidence, tutorial, and operator-training capture.
+* `CutMe Short` - branded links, UTM discipline, expiry, rotators, and campaign-link analytics if Signitic/Taja/vidBoard/FacePop links get hard to govern.
+* `Backona AI` - operator question layer over GA4/Search Console only if ClickRank, PostHog, and GSC dashboards are not getting used.
+* `Visby` - optional AI-answer visibility and competitor/gap monitoring after ClickRank and Katteb are already in use.
+
+Do not chase more generic AI writers, support widgets, no-code databases, meeting recorders, project-management apps, or video generators until the six composed product systems above produce receipts.
 
 ## Horizon capability map
 
@@ -134,6 +176,7 @@ Working rule:
   `Icanpreneur` is the promoted discovery interview and synthesis lane for house-rule demand.
   `Deftform`, `Lunacal`, and `MetaSurvey` are the promoted pre-screen, follow-up, and quant-validation lanes.
   `NextStep` is the promoted governed process runner for discovery sprints and prototype approvals.
+  `Teable` is the promoted review-board and AdminIntent surface for candidate triage.
   `FacePop` and `Signitic` are bounded recruitment-entry and passive amplification lanes only.
   `Taja` and `vidBoard` are bounded approved-media lanes for discovery explainers only.
 

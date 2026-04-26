@@ -1,0 +1,138 @@
+version: 1
+key: ltd_runtime_and_projection_registry
+owner: chummer6-design
+status: design
+purpose: >
+  Capability-slot registry for owned LTDs and adjacent optional tools. The
+  registry groups tools into repeatable product systems instead of one-off
+  vendor integrations.
+core_rule: Chummer owns truth; tools collect, administer, render, publish, schedule, archive, or amplify it.
+capability_slots:
+  truth_owner:
+    primary: Hub
+    notes: Canonical writes stay in Chummer-owned contracts and stores.
+  admin_projection:
+    primary: Teable
+    contract: TEABLE_ADMIN_PROJECTION_AND_INTENT_LAYER.md
+    boundary: projection_and_intent_only
+  approval_gate:
+    primary:
+      - NextStep
+      - ApproveThis
+    boundary: process_or_external_approval_only
+  intake:
+    primary:
+      - Deftform
+      - FacePop
+      - ProductLift
+    boundary: receipt_mirrored_to_hub
+  outbound_delivery:
+    primary: Emailit
+    contract: EMAILIT_OUTBOUND_DELIVERY_PROVIDER.md
+    boundary: delivery_only
+  passive_campaign_projection:
+    primary: Signitic
+    contract: SIGNITIC_FACTION_WAR_AND_WORLD_TICK_CAMPAIGNS.md
+    boundary: managed_signature_cta_only
+  artifact_rendering:
+    primary:
+      - vidBoard
+      - MarkupGo
+      - PeekShot
+      - Soundmadeseen
+      - Taja
+    boundary: approved_source_packet_only
+  discovery_research:
+    primary:
+      - Icanpreneur
+      - MetaSurvey
+      - Paperguide
+      - ChatPlayground AI
+    boundary: product_signal_only
+  automation_glue:
+    primary: ApiX-Drive
+    boundary: low_risk_noncritical_glue
+  archive:
+    primary: Internxt Cloud Storage
+    boundary: cold_archive_not_hot_truth
+  journey_proof:
+    primary:
+      - first_party_hub_events
+      - PostHog_candidate
+      - Sentry_candidate
+    boundary: analytics_and_observability_not_user_truth
+product_systems:
+  public_growth_system:
+    tools:
+      - ClickRank
+      - Katteb
+      - ProductLift
+      - Signitic
+      - Emailit
+      - Taja
+      - vidBoard
+    contract: PUBLIC_GROWTH_AND_VISIBILITY_STACK.md
+  discovery_system:
+    tools:
+      - ProductLift
+      - Deftform
+      - Icanpreneur
+      - MetaSurvey
+      - Lunacal
+      - Teable
+      - Product Governor
+    contract: KARMA_FORGE_DISCOVERY_LAB_WORKFLOWS.yaml
+  artifact_factory:
+    tools:
+      - vidBoard
+      - MarkupGo
+      - PeekShot
+      - Taja
+      - Soundmadeseen
+      - Unmixr AI
+      - First Book ai
+    contract: ARTIFACT_FACTORY_PIPELINE_MODEL.md
+  black_ledger_ops:
+    tools:
+      - Hub
+      - Teable
+      - NextStep
+      - ApproveThis
+      - Signitic
+      - Emailit
+      - MapLibre_candidate
+    contract: BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md
+  table_pulse_companion_lab:
+    tools:
+      - hedy.ai
+      - Nonverbia
+      - Unmixr AI
+      - Soundmadeseen
+      - first_party_consent_model
+    contract: TABLE_PULSE_DEBRIEF_STUDIO_WORKFLOWS.yaml
+  trust_closure_system:
+    tools:
+      - Hub
+      - Sentry_candidate
+      - ProductLift
+      - Emailit
+      - PostHog_candidate
+      - Fleet
+      - Product Governor
+    contract: PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md
+optional_purchase_watchlist:
+  SendFox:
+    fit: public_newsletter_digest_layer
+    buy_posture: only_if_Emailit_stays_transactional
+  CutMe Short:
+    fit: branded_links_utm_expiry_campaign_analytics
+    buy_posture: optional_if_campaign_links_get_messy
+  Backona AI:
+    fit: operator_chat_over_GA4_and_Search_Console
+    buy_posture: optional_if_operators_will_not_read_dashboards
+  Flonnect:
+    fit: QA_bug_repro_support_evidence_tutorial_capture
+    buy_posture: bounded_ops_tool_candidate
+  Visby:
+    fit: AI_answer_visibility_gap_monitoring
+    buy_posture: optional_after_ClickRank_and_Katteb

@@ -1,0 +1,47 @@
+version: 1
+key: journey_proof_events
+owner: chummer6-hub
+status: design
+purpose: >
+  First journey-proof event registry for product analytics and closure
+  evidence. PostHog/Sentry candidates may observe or aggregate, but Hub owns
+  receipts and Product Governor owns interpretation.
+privacy_defaults:
+  no_raw_character_content: true
+  no_raw_campaign_notes: true
+  no_raw_sourcebook_text: true
+  pseudonymous_install_id: true
+  retain_raw_events_days_max: 30
+events:
+  - key: download_started
+    journey: download_claim_launch_update
+  - key: claim_completed
+    journey: download_claim_launch_update
+  - key: app_launched
+    journey: download_claim_launch_update
+  - key: update_applied
+    journey: download_claim_launch_update
+  - key: open_run_viewed
+    journey: open_run_lifecycle
+  - key: application_submitted
+    journey: open_run_lifecycle
+  - key: schedule_confirmed
+    journey: open_run_lifecycle
+  - key: resolution_submitted
+    journey: open_run_lifecycle
+  - key: intel_submitted
+    journey: intel_to_job
+  - key: intel_reviewed
+    journey: intel_to_job
+  - key: job_packet_published
+    journey: intel_to_job
+  - key: productlift_idea_clustered
+    journey: productlift_to_ship
+  - key: voter_notified
+    journey: productlift_to_ship
+  - key: karma_demand_packet_created
+    journey: karma_forge_discovery
+  - key: world_tick_approved
+    journey: world_tick_distribution
+  - key: email_digest_sent
+    journey: world_tick_distribution

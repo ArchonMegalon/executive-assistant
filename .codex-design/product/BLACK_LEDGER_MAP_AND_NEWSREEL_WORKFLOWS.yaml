@@ -25,12 +25,15 @@ workflows:
       - FacePop
       - Deftform
       - Icanpreneur
+      - Teable
     steps:
       - User enters through Hub or a bounded FacePop public concierge.
       - Deftform captures structured intel fields.
       - Optional Icanpreneur discovery expands high-signal world-input themes.
       - Hub stores an IntelReport in pending review.
+      - Hub projects a redacted review row to Teable when the operator queue needs it.
       - Curator reviews consent, spoiler class, and intended use.
+      - Any Teable edit returns as AdminIntent and Hub validates it before changing IntelReport state.
       - Approved intel becomes a marker candidate, job-seed input, or rumor/news candidate.
     non_goals:
       - User intel does not become canon automatically.
@@ -40,27 +43,111 @@ workflows:
     owner_repo: fleet
     external_tools:
       - NextStep
+      - Teable
+      - ApproveThis
       - vidBoard
       - Taja
       - PeekShot
       - MarkupGo
       - Signitic
+      - Emailit
     steps:
       - Fleet drafts a WorldTick packet from governed inputs.
       - NextStep runs the operator approval process.
+      - Hub projects pending tick, faction, job, intel, and newsreel rows to Teable for operator review.
       - Executive Assistant drafts news candidates and copy variants.
       - Hub or a world operator approves visibility grade and publication class.
-      - Media Factory renders ticker cards, short host reels, printable bulletins, and social-safe cuts.
+      - Media Factory renders flagship-poster-quality ticker cards, short host reels, printable bulletins, and social-safe cuts with vivid, runner-readable AR overlays.
       - Hub publishes the public, campaign, faction, or GM variants.
-      - Signitic may rotate approved outbound CTA campaigns to first-party world pages.
+      - Fleet or Hub emits a WorldTickSignatureCampaign packet when passive managed-signature amplification is approved.
+      - Signitic may rotate approved outbound CTA variants to first-party world pages.
+      - Hub may emit Emailit world-tick digest or faction-newsletter deliveries when recipients, template refs, and opt-outs are valid.
     non_goals:
+      - Teable AdminIntent does not bypass Hub validation.
       - Media outputs do not become world truth.
       - Signitic metrics do not become canonical product analytics truth.
+      - Emailit does not own notification, roster, support, campaign, or world truth.
+      - Signitic segments do not encode private player, runner, support-case, account, or faction-secret state.
+
+  - key: black_ledger_admin_workbench_projection
+    owner_repo: chummer6-hub
+    external_tools:
+      - Teable
+      - NextStep
+      - ApproveThis
+    steps:
+      - Hub exports redacted operator projections for pending intel, faction moves, job seeds, open-run adoption, resolution reports, newsreel candidates, and seasonal honors.
+      - Teable shows the projection as the BLACK LEDGER control room with role-scoped editable fields.
+      - Operators assign reviewers, add notes, propose status changes, and request guest approvals.
+      - Teable write-backs enter Hub as AdminIntent packets with projection version, actor, field changes, and source refs.
+      - Hub validates authority, visibility, invariants, and stale-projection conflicts before changing canonical World objects.
+      - Hub refreshes Teable projections and records AdminIntentReceipt closeout.
+    non_goals:
+      - Teable is not the BLACK LEDGER database.
+      - Teable does not expose private table material, faction secrets, or support notes unless a Hub-owned projection explicitly permits it.
+      - ApproveThis guest approval does not replace Hub-owned approval truth.
+
+  - key: faction_war_communications_engine
+    owner_repo: chummer6-hub
+    external_tools:
+      - vidBoard
+      - Taja
+      - PeekShot
+      - MarkupGo
+      - Signitic
+      - Emailit
+      - ProductLift
+    steps:
+      - Hub receives an approved BLACK LEDGER event, faction conflict, or world tick.
+      - Executive Assistant drafts faction-voice variants from approved source truth.
+      - Media Factory renders host reels, ticker cards, bulletins, social cuts, and share cards.
+      - Hub publishes first-party pages for the public truth, faction statements, open jobs, and intel/report CTAs.
+      - Signitic projects approved banners through managed signatures.
+      - Emailit delivers approved digests or faction newsletters from Hub-owned recipient and opt-out truth.
+      - ProductLift or first-party feedback routes collect public reaction without becoming roadmap or world truth.
+      - Fleet reviews campaign telemetry, landing conversion, support confusion, and world-effect receipts.
+    non_goals:
+      - Faction propaganda does not become world truth.
+      - Campaign engagement does not grant access or prove conversion.
+      - External metrics do not replace first-party journey proof.
+
+  - key: world_tick_email_digest
+    owner_repo: chummer6-hub
+    external_tools:
+      - Emailit
+    steps:
+      - Hub selects an approved WorldTickDigest template ref and audience segment.
+      - Hub resolves recipients from first-party subscription, role, and opt-out truth.
+      - Hub renders public-safe or role-safe content from approved WorldTick source packets.
+      - Emailit sends through the outbound provider adapter and returns delivery, bounce, and suppression events.
+      - Hub records EmailDeliveryReceipt and any user-visible closeout state.
+      - Product Governor reviews side effects and conversion only through Chummer-owned journey proof.
+    non_goals:
+      - Emailit does not own recipient eligibility, subscriptions, suppression, authorization, or world truth.
+      - Digest delivery does not imply the recipient is authorized for private campaign or faction-secret pages.
+
+  - key: world_tick_signature_campaign
+    owner_repo: chummer6-hub
+    external_tools:
+      - Signitic
+    steps:
+      - Hub receives an approved WorldTick publication package and first-party destination URLs.
+      - Product Governor or world operator approves public-safe banner claims, segment list, expiry, and rollback owner.
+      - Hub emits a WorldTickSignatureCampaign packet with source receipts, variants, UTM naming, and forbidden-state assertions.
+      - Signitic projects the approved variants through managed Chummer, Fleet, Hub, Shadowcasters, or operator signatures.
+      - Hub and Fleet read UTM landing conversions, support side effects, and world-effect receipts after the click.
+      - Campaigns are retired or superseded when the source tick, claim, destination, or visibility grade changes.
+    non_goals:
+      - Signitic does not own notification, campaign, world, support, analytics, or authorization truth.
+      - Segments do not encode private player, runner, faction-secret, account, entitlement, or support-case state.
+      - Banner clicks do not prove conversion or grant access.
 
   - key: gm_publishes_open_run
     owner_repo: chummer6-hub
     external_tools:
       - Lunacal
+      - Teable
+      - Emailit
       - Discord
       - Microsoft Teams
     steps:
@@ -68,9 +155,13 @@ workflows:
       - Hub drafts a spoiler-safe OpenRun listing with visibility, join-policy, and table-contract controls.
       - The listing binds to a CommunityRuleEnvironment when the run is community or season scoped.
       - GM publishes the listing onto the world map or network run board.
+      - Hub may project applications and roster decisions to a Teable operator board.
       - Players submit dossier-aware join requests and GM curates the roster.
+      - Hub may send Emailit invite, decision, or reminder mail from template refs and recipient consent.
       - Hub records scheduling and meeting-handoff receipts when the roster locks.
     non_goals:
+      - Teable does not own roster or run truth.
+      - Emailit does not own delivery truth beyond provider receipts and never owns run access.
       - Meeting providers do not own run or roster truth.
       - Open-run discoverability does not bypass GM authority or visibility policy.
 
@@ -106,12 +197,18 @@ workflows:
       - hedy.ai
       - Nonverbia
       - Table Pulse
+      - Teable
+      - Emailit
     steps:
       - GM files the run resolution after play.
       - Optional debrief assistance may draft recap or follow-up notes behind consent gates.
+      - Hub may project redacted resolution and honor candidates to Teable for operator review.
       - Hub updates the map marker and feeds the result into BLACK LEDGER.
       - Typed reputation events and seasonal-honor candidates are generated.
       - Public-safe honors and newsreel variants route through operator approval.
+      - Hub may send player-safe recap, honor, or closeout mail through Emailit after visibility approval.
     non_goals:
+      - Teable does not assign final outcomes.
+      - Emailit does not expose private resolution details or faction-secret state.
       - Observer or transcript tools do not directly assign public scores.
       - Reputation events do not become public without typed sources and visibility policy.

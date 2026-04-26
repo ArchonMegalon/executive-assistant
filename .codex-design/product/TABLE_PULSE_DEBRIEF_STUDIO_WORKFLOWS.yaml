@@ -1,0 +1,49 @@
+version: 1
+key: table_pulse_debrief_studio_workflows
+owner: chummer6-design
+status: design
+purpose: >
+  Consent-first post-session debrief workflow using Hedy, Unmixr, Nonverbia,
+  Soundmadeseen, MarkupGo, PeekShot, and vidBoard as bounded helpers.
+core_rule: No live surveillance, no player scoring, no moderation truth, no canonical session memory from external tools.
+workflow:
+  - step: consent_and_upload
+    owner: chummer6-hub
+    tools:
+      - first_party_consent_ui
+    output: TablePulseConsentReceipt
+  - step: transcript_prep
+    owner: chummer6-media-factory
+    tools:
+      - Unmixr AI
+    output: TranscriptPrepReceipt
+    minimization: prefer_transcript_over_raw_audio_or_video
+  - step: structure_digest
+    owner: chummer6-hub
+    tools:
+      - hedy.ai
+    output: SessionStructureDigest
+  - step: coaching_analysis
+    owner: chummer6-hub
+    tools:
+      - Nonverbia
+    output: GMPrivateCoachingPacket
+  - step: player_safe_recap
+    owner: chummer6-media-factory
+    tools:
+      - MarkupGo
+      - Soundmadeseen
+      - vidBoard
+      - PeekShot
+    output: PlayerSafeRecapArtifact
+  - step: review_and_publish
+    owner: chummer6-hub
+    tools:
+      - Teable
+      - NextStep
+    output: DebriefPublicationReceipt
+boundaries:
+  - outputs_are_GM_private_by_default
+  - player_safe_artifacts_require_review
+  - raw_transcripts_have_short_retention
+  - no_public_reputation_from_analysis_tools

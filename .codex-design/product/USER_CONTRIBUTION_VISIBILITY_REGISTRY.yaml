@@ -1,0 +1,25 @@
+version: 1
+key: user_contribution_visibility_registry
+owner: chummer6-hub
+status: design
+visibility_classes:
+  private_to_submitter: visible only to submitter and authorized operators
+  table_private: visible to approved table participants and operators
+  gm_private: visible to GM and authorized operators
+  faction_secret: visible only to authorized faction/season operators
+  operator_only: visible to operations roles
+  public_safe: reviewed and safe for public projection
+required_labels:
+  - contribution_class
+  - spoiler_class
+  - visibility_class
+  - consent_ref
+  - retention_policy
+  - reviewer_receipt
+forbidden_public_payloads:
+  - raw_sourcebook_text
+  - private_campaign_spoilers_without_review
+  - support_case_private_state
+  - account_or_entitlement_state
+  - raw_transcripts
+  - faction_secret_state

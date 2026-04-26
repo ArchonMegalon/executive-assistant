@@ -258,8 +258,25 @@ recipe_families:
       - hub_campaign_home
       - mobile_campaign_home
       - artifacts_gallery
+    truth_order:
+      - approved_runsite_pack
+      - approved_route_summary
+      - inspectable_route_or_tour_sibling
+      - rendered_host_mode
+    inspection_siblings:
+      - runsite_route_overlay
+      - runsite_tour
+      - approved_runsite_pack
+    launch_requirements:
+      - route_overlay_visible_before_playback
+      - route_overlay_reachable_during_playback
+      - tour_sibling_visible_when_available
+      - host_mode_never_only_surface
     proof_anchors:
       - approved_runsite_pack
+      - approved_route_summary
+      - inspectable_route_ref
+      - inspectable_pack_ref
       - route_preview
       - preview_card
       - publication_ref
@@ -451,3 +468,70 @@ recipe_families:
       - locale
       - preview_card
       - publication_ref
+  - id: black_ledger_city_tick_pack
+    family: world_tick_distribution_bundle
+    source_pack: approved_world_tick_publication_packet
+    primary_lane:
+      tool: vidBoard
+      output: city_tick_host_reel
+    fallback_lanes:
+      - tool: MarkupGo
+        output: world_tick_bulletin
+        when: inspectable_digest_is_primary
+      - tool: PeekShot
+        output: world_tick_share_card
+        when: compact_public_or_operator_card_is_needed
+      - tool: Soundmadeseen
+        output: city_tick_audio
+        when: audio_native_distribution_is_needed
+      - tool: Taja
+        output: approved_social_cuts
+        when: source_video_is_approved_for_public_distribution
+    approval_path: world_tick_publication
+    publish_surfaces:
+      - world_latest_page
+      - city_ticker_page
+      - faction_dispatch_page
+      - artifacts_gallery
+    distribution_lanes:
+      - Signitic
+      - Emailit
+      - ProductLift
+    proof_anchors:
+      - world_tick_ref
+      - visibility_class
+      - spoiler_class
+      - publication_ref
+      - signature_campaign_ref
+      - email_delivery_receipt_ref
+      - journey_proof_event_ref
+  - id: karma_forge_discovery_explainer
+    family: public_discovery_bundle
+    source_pack: approved_house_rule_demand_packet_summary
+    primary_lane:
+      tool: MarkupGo
+      output: karma_forge_candidate_packet
+    fallback_lanes:
+      - tool: vidBoard
+        output: karma_forge_candidate_explainer
+        when: public_recruitment_or_closeout_video_is_approved
+      - tool: PeekShot
+        output: house_rule_candidate_card
+        when: compact_public_signal_card_is_needed
+      - tool: Taja
+        output: approved_short_clips
+        when: approved_video_needs_public_distribution
+    approval_path: product_governor_discovery_closeout
+    publish_surfaces:
+      - karma_forge_participation_page
+      - productlift_closeout
+      - public_guide_article
+    distribution_lanes:
+      - ProductLift
+      - Signitic
+      - Emailit
+    proof_anchors:
+      - house_rule_demand_packet_ref
+      - product_governor_decision_ref
+      - privacy_ip_review_receipt
+      - public_closeout_receipt

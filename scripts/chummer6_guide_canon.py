@@ -190,7 +190,7 @@ def _critical_asset_target(target_path: str) -> tuple[str, str, str]:
 def _critical_overlay_mode(target_path: str) -> str:
     normalized = str(target_path or "").replace("\\", "/").strip()
     if normalized in {"assets/hero/chummer6-hero.png", "README.md"}:
-        return "smartlink_tactical"
+        return "medscan_diagnostic"
     if normalized == "assets/pages/horizons-index.png":
         return "ambient_diegetic"
     if normalized == "assets/horizons/karma-forge.png":
@@ -295,6 +295,19 @@ def asset_visual_profile(target_path: str) -> dict[str, object]:
     overlay_mode = _critical_overlay_mode(target_path)
     if overlay_mode:
         merged["required_overlay_mode"] = overlay_mode
+    if normalized_target in {"assets/hero/chummer6-hero.png", "README.md"}:
+        merged.setdefault(
+            "status_binding_rule",
+            "Only show AGI or ESS upgrade-state markers when they are anchored to medscan anatomy, cyberware calibration, or wound-stability context.",
+        )
+        overlay_geometry = _string_list(merged.get("overlay_geometry"))
+        overlay_geometry = [
+            "slim attribute rails" if item.casefold() == "slim gear rails" else item
+            for item in overlay_geometry
+        ]
+        if "slim attribute rails" not in {item.casefold() for item in overlay_geometry}:
+            overlay_geometry.insert(0, "slim attribute rails")
+        merged["overlay_geometry"] = overlay_geometry
     if str(target_path or "").replace("\\", "/").strip() in {
         "assets/hero/chummer6-hero.png",
         "assets/pages/horizons-index.png",
@@ -409,7 +422,7 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
             doc_title, sections = _markdown_sections(canon_doc)
             if doc_title:
                 title = doc_title
-        problem = str(row.get("pain_label") or "").strip() or _paragraph(sections.get("table pain", ""))
+        problem = _paragraph(sections.get("table pain", "")) or str(row.get("pain_label") or "").strip()
         use_case = _paragraph(sections.get("bounded product move", "")) or str(row.get("wow_promise") or "").strip()
         not_now = _paragraph(sections.get("why still a horizon", "")) or str((row.get("build_path") or {}).get("current_state") or "").strip()
         foundations = [str(value).strip() for value in (row.get("foundations") or []) if str(value).strip()]
@@ -498,6 +511,8 @@ def merge_horizon_canon(defaults: dict[str, dict[str, object]]) -> dict[str, dic
         row["foundations"] = list(parsed.get("foundations") or row.get("foundations") or [])
         row["repos"] = list(parsed.get("repos") or row.get("repos") or [])
         row["not_now"] = str(parsed.get("not_now") or row.get("not_now") or "").strip()
+        row["why_great"] = str(parsed.get("use_case") or row.get("why_great") or row.get("use_case") or "").strip()
+        row["why_waits"] = str(parsed.get("not_now") or row.get("why_waits") or row.get("not_now") or "").strip()
         row["hook"] = str(parsed.get("hook") or row.get("hook") or "").strip()
         row["brutal_truth"] = str(parsed.get("brutal_truth") or row.get("brutal_truth") or "").strip()
         row["access_posture"] = str(parsed.get("access_posture") or row.get("access_posture") or "").strip()

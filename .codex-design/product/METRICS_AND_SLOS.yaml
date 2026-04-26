@@ -147,6 +147,83 @@ scorecards:
         target: 0
         measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
 
+  - id: public_signal_closeout
+    owner_repo: chummer6-hub
+    user_promise: Users can suggest, vote, and see user-requested work close without mistaking ProductLift for support, priority, or release truth.
+    metrics:
+      - name: idea_to_triage_time_p50
+        target: "under 7 days"
+        measurement: ProductLift ideas above the review threshold should appear in an EA/Product Governor digest within one week.
+      - name: idea_to_decision_time_p50
+        target: "under 30 days for high-signal items"
+        measurement: High-signal public ideas should receive a Product Governor decision, discovery route, duplicate merge, or public-safe rejection within the review window.
+      - name: shipped_voter_notification_evidence_rate
+        target: 100%
+        measurement: Every ProductLift-linked shipped notification must cite release, guide, Hub route, artifact, or closeout proof before notifying voters.
+      - name: support_misroute_rate
+        target: decreasing
+        measurement: ProductLift posts containing crash, install, account, private support, private campaign, or copyrighted source material should decrease after boundary copy and routing improvements.
+      - name: stale_planned_items
+        target: 0
+        measurement: No ProductLift planned item may exceed the review window without design, milestone, horizon, or Product Governor evidence.
+
+  - id: governed_ltd_operating_systems
+    owner_repo: chummer6-hub
+    user_promise: Owned tools make operations faster without becoming hidden product truth.
+    metrics:
+      - name: admin_intent_receipt_coverage
+        target: 100%
+        measurement: Every Teable-originated accepted, rejected, or superseded operator change must have an AdminIntentReceipt and a Chummer-owned source-object ref.
+      - name: outbound_delivery_receipt_coverage
+        target: 100%
+        measurement: Every Emailit-delivered lifecycle, digest, invite, or closeout message must have an EmailDeliveryReceipt, template version, suppression check, and source event.
+      - name: external_campaign_private_truth_breaches
+        target: 0
+        measurement: Signitic, Emailit, ProductLift, Taja, and public pages must not expose private runner, campaign, faction-secret, support, account, entitlement, or sourcebook payloads.
+      - name: artifact_factory_source_packet_coverage
+        target: 100%
+        measurement: Every Artifact Factory output must cite an approved source packet, visibility class, privacy/IP review, and publication or retirement owner.
+      - name: journey_proof_event_linkage
+        target: 100%
+        measurement: Public growth, BLACK LEDGER, Shadowcasters, ProductLift, and KARMA FORGE closeout campaigns must link provider telemetry to Chummer-owned JourneyProofEventRefs before Product Governor interpretation.
+
+  - id: public_content_optimization_honesty
+    owner_repo: chummer6-hub
+    user_promise: Public articles and guide pages get clearer and easier to find without drifting from Chummer-owned canon.
+    metrics:
+      - name: katteb_jobs_without_source_packet
+        target: 0
+        measurement: Every Katteb audit or draft job must carry source refs, allowed claims, forbidden claims, reviewer, target, and privacy/IP check.
+      - name: accepted_katteb_recommendations_without_upstream_change
+        target: 0
+        measurement: Accepted Katteb recommendations must land in design canon or public-guide source registries before generated guide output changes.
+      - name: public_article_review_pass_rate
+        target: 100%
+        measurement: Katteb-assisted public articles must be human-reviewed before publication.
+      - name: unsupported_public_content_claims
+        target: 0
+        measurement: Public content must not invent rules, support answers, unshipped availability, private campaign truth, or unsupported licensing claims.
+
+  - id: public_site_visibility_health
+    owner_repo: chummer6-hub
+    user_promise: Chummer public-launch pages are findable, crawlable, and technically legible without letting SEO tooling rewrite product truth.
+    metrics:
+      - name: unresolved_clickrank_critical_issues
+        target: 0
+        measurement: Critical ClickRank findings on launch-critical pages should either be fixed through Chummer-owned source or carry an explicit no-change rationale.
+      - name: crawl_budget_spent_on_non_durable_pages
+        target: 0
+        measurement: ClickRank crawl capacity should not be spent on generated archives, duplicate paths, internal proof pages, or low-value machine outputs before durable launch pages are covered.
+      - name: metadata_schema_coverage_for_launch_pages
+        target: 100%
+        measurement: Curated public launch pages should have reviewed title, meta description, heading hierarchy, schema posture, and image alt-text coverage.
+      - name: stale_claim_pages_from_search_audit
+        target: 0
+        measurement: Search or AI-visibility audits must not leave pages claiming unavailable features, stale roadmap status, stale release posture, or incorrect support routes.
+      - name: high_impression_low_click_pages_triaged
+        target: "tracked weekly"
+        measurement: Google Search Console and ClickRank keyword opportunities should be classified as safe technical fix, content improvement, canon-sensitive claim, navigation issue, schema issue, or blocked item.
+
   - id: open_run_network_health
     owner_repo: chummer6-hub
     user_promise: A GM can recruit, schedule, hand off, and close out an open run without leaving Chummer as the organizing truth.
@@ -228,6 +305,9 @@ release_gates:
     pass_conditions:
       - PUBLIC_FEATURE_REGISTRY, RELEASE_EVIDENCE_PACK, and downstream public projections agree on available, preview, and horizon labels.
       - Public auth routes and participation CTAs match the canonical guest and registered posture.
+      - ProductLift roadmap and changelog projections only claim planned or shipped status with Chummer-owned evidence.
+      - Katteb-assisted public content changes originate from approved source packets and upstream design or public-guide source changes.
+      - ClickRank audit findings may improve crawl, metadata, schema, and search visibility only through Chummer-owned source changes or explicit no-change decisions.
 
   - id: deterministic_truth_gate
     pass_conditions:

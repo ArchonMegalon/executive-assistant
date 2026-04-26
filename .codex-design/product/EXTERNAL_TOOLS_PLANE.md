@@ -24,7 +24,9 @@ without allowing any external tool to become canonical product truth.
 
 ## Core rule
 
-External tools may assist, route, render, summarize, visualize, archive, notify, project, interview, or schedule. They may not become the canonical source of rules truth, session truth, approval truth, registry truth, media truth, or canon truth.
+External tools may assist, route, render, summarize, visualize, archive, notify, project, interview, or schedule. They may not become the canonical source of rules truth, session truth, approval truth, registry truth, media truth, notification truth, roster truth, entitlement truth, analytics interpretation truth, or canon truth.
+
+External workbenches may collect operator edits, assignments, review outcomes, and proposed status changes only as Chummer-owned `AdminIntent` inputs. Hub or the relevant canonical service must validate authority, visibility, invariants, and receipts before any canonical write.
 
 Research and interview tools may collect interviews and produce synthesis outputs, but they may not become feature truth, implementation priority, or backlog ownership.
 
@@ -52,12 +54,15 @@ Current known external-tool inventory includes:
 * AvoMap
 * BrowserAct
 * Browserly
+* ClickRank
 * Crezlo Tours
 * Deftform
 * Documentation.AI
+* Emailit
 * FacePop
 * First Book ai
 * Icanpreneur
+* Katteb
 * Invoiless
 * Lunacal
 * MarkupGo
@@ -67,6 +72,7 @@ Current known external-tool inventory includes:
 * Nonverbia
 * Paperguide
 * PeekShot
+* ProductLift
 * Signitic
 * Taja
 * Teable
@@ -85,6 +91,7 @@ Important current distinctions:
 * 1min.AI - workspace integration Tier 1
 * BrowserAct - workspace integration Tier 1
 * Teable - workspace integration Tier 2, vendor license plan Tier 4
+* Emailit - workspace integration Tier 3 until sender-domain, suppression, template, and delivery-receipt gates are complete
 * Paperguide - workspace integration Tier 3, vendor license plan Tier 4
 
 Chummer routing, rollout, and architectural ownership should follow workspace integration tier and system-of-record safety rules, not marketing or license-plan tier labels.
@@ -97,9 +104,10 @@ The horizon docs decide whether a lane is active; this document decides which ki
 Current horizon-facing posture:
 
 * `jackpoint` - structured presenter-video and multilingual briefing lanes may use `vidBoard`; narrated recap and briefing lanes may use `Soundmadeseen`; bounded candidate voice may use `Unmixr AI`; evidence/capture packets may use `Browserly`
-* `karma-forge` - governed house-rule discovery may use `Icanpreneur` for interviews and synthesis, `Deftform` for pre-screening, `Lunacal` for follow-up clinics, `MetaSurvey` for quant validation, `NextStep` for sprint/process execution, and bounded `FacePop` / `Signitic` / `vidBoard` / `Taja` for recruitment and approved discovery explainers
-* `shadowcasters-network` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `NextStep`, `MetaSurvey`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
-* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`
+* `black-ledger` - world-tick and faction-war operations may use `Teable` for admin projection and AdminIntent entry, `NextStep` for SOP execution, `ApproveThis` for guest approvals, `Signitic` for passive signature campaigns, `Emailit` for Hub-owned digest and closeout mail, `vidBoard` / `Taja` / `PeekShot` / `MarkupGo` / `Soundmadeseen` for approved artifacts, and first-party map infrastructure for map truth
+* `karma-forge` - governed house-rule discovery may use `Icanpreneur` for interviews and synthesis, `Deftform` for pre-screening, `Lunacal` for follow-up clinics, `MetaSurvey` for quant validation, `Teable` for candidate review boards and AdminIntent entry, `NextStep` for sprint/process execution, and bounded `FacePop` / `Signitic` / `Emailit` / `vidBoard` / `Taja` for recruitment, closeout, and approved discovery explainers
+* `shadowcasters-network` - open-run discovery and scheduling may use `Lunacal`, `Deftform`, `FacePop`, `Teable`, `NextStep`, `MetaSurvey`, `Emailit`, and bounded `Signitic` / `vidBoard` / `Taja` for recruiting, application review, invite delivery, and recap projection; `hedy.ai` and `Nonverbia` may assist GM-private or consent-gated debrief flows only; Discord, Teams, generic meeting URLs, Foundry, Roll20, and comparable play surfaces remain projection-only handoff or export targets and may not own run, roster, consent, or resolution truth
+* `runsite` - explorable location artifacts may use `Crezlo Tours`, `AvoMap`, and `PeekShot`; orientation-host clips may use `vidBoard`; optional narration may use `Soundmadeseen`; bounded capture/reference packets may use `Browserly`; route, map, and tour siblings stay first-party inspectable truth and the media layer may not become tactical authority
 * `runbook-press` - long-form authoring and export may use `First Book ai`, `MarkupGo`, and `Documentation.AI`; campaign primer and module explainer videos may use `vidBoard`; narrated companion assets may use `Soundmadeseen`; bounded candidate voice or reference capture may use `Unmixr AI` and `Browserly`
 * `table-pulse` - post-session coaching packets may use `Nonverbia` as the primary analysis lane, `hedy.ai` as the bounded session-structure and debrief helper lane, with later bounded player-safe recap / GM-private debrief video from `vidBoard`, plus bounded narrated/report outputs from `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot`
 
@@ -114,7 +122,11 @@ Current public-surface posture:
 * public or network-visible open-run discovery may use `FacePop`, `Deftform`, and `Lunacal` for first contact, application intake, and booking projection only when accepted-roster truth, meeting-handoff truth, and observer-consent truth remain first-party
 * community-run play surfaces such as Discord, Teams, Foundry, Roll20, or generic meeting URLs may receive handoff and export packages only when Chummer remains the first-party authority for run, roster, rule-environment, and closeout truth
 * passive outreach and recruitment projection may use `Signitic` only when the CTA lands on first-party Chummer pages and any resulting intake still lands in Chummer-owned receipts or routes
+* outbound email may use `Emailit` only when Hub owns the notification event, template reference, suppression state, delivery receipt, unsubscribe posture, and user-visible closeout truth
 * public concierge flows may use `vidBoard`, `MarkupGo`, `PeekShot`, and `Soundmadeseen` as sibling explainer and artifact lanes, but those companions remain downstream of Chummer-owned release, support, invite, and publication truth
+* public feature ideas, votes, roadmap projection, changelog projection, and voter closeout may use `ProductLift` only as a projection of Chummer-owned design, milestone, release, and closeout truth
+* public guide readability, SEO, AI-search visibility, and article-draft work may use `Katteb` only against approved source packets; accepted changes must flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes
+* public site crawl health, technical SEO, metadata/schema coverage, broken-link checks, internal-link suggestions, and AI-search visibility measurement may use `ClickRank` only as audit and recommendation output; accepted changes still patch Chummer-owned source first
 
 ## Classification model
 
@@ -190,6 +202,44 @@ Examples:
 * release closeout checklists
 * localization or review gates
 
+### Class C4 - Public feedback, roadmap, and changelog projection
+
+These collect and project public demand, visible roadmap posture, changelog entries, and voter closeout notices without becoming roadmap, support, release, or priority truth.
+
+Examples:
+
+* public feature idea boards
+* public voting and comments
+* public roadmap projection
+* changelog projection
+* voter notifications backed by Chummer-owned closeout evidence
+
+### Class C5 - Admin projection and intent-entry workbenches
+
+These expose operator queues, dashboards, review boards, and editable projections, but every write-back is an `AdminIntent` that Chummer validates before state changes.
+
+Examples:
+
+* BLACK LEDGER tick control rooms
+* intel review queues
+* open-run application review boards
+* KARMA FORGE candidate triage
+* creator-publication queues
+* companion line-pack review boards
+
+### Class C6 - Outbound delivery providers
+
+These deliver Chummer-owned lifecycle, digest, invite, and closeout messages. They do not own notification truth, support status, roadmap status, world truth, suppression policy, or analytics interpretation.
+
+Examples:
+
+* claim/install emails
+* support closure mail
+* open-run invitations and decisions
+* BLACK LEDGER world-tick digests
+* faction newsletters
+* ProductLift voter closeout follow-ups
+
 ### Class D - Research / eval / prompt-tooling integrations
 
 These inform product quality, content quality, or design quality, but they do not directly own end-user truth.
@@ -212,6 +262,30 @@ Examples:
 * follow-up validation calls
 * concept-sprint synthesis
 * post-cluster ranking surveys
+
+### Class D2 - Public content optimization and AI-search visibility
+
+These audit or draft public-facing explanatory content against approved source packets, but accepted changes must return to Chummer-owned source before publication.
+
+Examples:
+
+* generated-guide readability audits
+* public article drafts
+* SEO and AI-search visibility recommendations
+* title, description, FAQ, and metadata suggestions
+
+### Class D3 - Public site visibility and crawl health
+
+These audit crawlability, metadata, schema, internal links, broken links, search-console signals, and AI-search visibility for public surfaces. They do not own public copy, product claims, release status, roadmap status, support status, or generated-guide output.
+
+Examples:
+
+* technical SEO audits
+* Google Search Console keyword opportunity review
+* broken-link and duplicate-tag reports
+* crawler-access checks
+* schema and metadata recommendations
+* AI-search visibility measurements
 
 ### Class E - Non-product utilities
 
@@ -286,7 +360,10 @@ A bounded external widget may appear on a Hub-owned public surface only when all
 
 * the surface is public, low-risk, and not the owner of canonical truth
 * the widget is optional and removable via kill switch
+* fixed first-party route truth stays visible without the widget
+* preview language stays visibly secondary to the first-party route or status surface
 * the widget has a graceful first-party fallback path
+* recovery posture routes into first-party help, relinking, or escalation copy instead of treating the widget as the recovery mechanism
 * no vendor secret or private access token is exposed client-side
 * the widget does not become the system of record for support, install, auth, publication, or campaign truth
 * every meaningful submission or route result is mirrored back into Chummer-owned receipts or first-party destinations
@@ -328,6 +405,8 @@ A public concierge widget may not:
 * become the support ticket or case record
 * hide the first-party support path
 * block access to first-party support when disabled
+* present fallback or manual install routes as the recommended path through warmer copy
+* claim that a fix is already available for this user when the first-party release or support receipt does not say so
 
 ## Allowed and forbidden public concierge surfaces
 
@@ -735,15 +814,17 @@ Post-session coaching and social-dynamics analysis adapter.
 
 ### Role
 
-Curated projection surface.
+Admin projection and intent-entry workbench.
 
 ### Architectural use
 
-* moderation projection board
-* curation board
-* campaign-ops board
-* release-status or triage board
-* back-office operator surface
+* BLACK LEDGER world-tick control rooms
+* intel, job-seed, JobPacket, OpenRun, ResolutionReport, newsreel, and seasonal-honors queues
+* KARMA FORGE candidate review boards
+* creator-publication review queues
+* support/content signal curation boards
+* companion line-pack review boards
+* operator assignments, notes, and proposed status changes emitted as `AdminIntent`
 
 ### Owner
 
@@ -751,10 +832,15 @@ Curated projection surface.
 
 ### Hard boundary
 
-* not runtime DB
-* not session truth
-* not registry truth
-* not approval truth
+* not runtime database
+* not world, campaign, roster, support, rules, registry, release, or entitlement truth
+* not direct canonical write path
+* not approval truth without Hub-side validation and receipting
+* no private player, faction-secret, sourcebook, or support payload exposure unless a Hub-owned projection explicitly permits it
+
+### Required receipt model
+
+Teable projections must carry source object refs, projection version, editable-field allowlists, role scope, export time, expiry, and a Chummer correlation id. Teable write-backs must return as `AdminIntent` packets, not direct DB updates.
 
 ## ApiX-Drive
 
@@ -884,11 +970,15 @@ Passive outreach and signature-campaign projection lane.
 * public recruitment CTAs
 * release or launch campaign amplification
 * KARMA FORGE, BLACK LEDGER, or companion discovery campaigns
+* BLACK LEDGER world-tick and faction-war signature campaigns after source approval
+* Shadowcasters open-run, GM recruitment, and creator-program CTA rotation
 * creator-program CTA rotation
 
 ### Owner
 
 * destination shaping: `chummer6-hub`
+* campaign packet, segment, and UTM routing: `chummer6-hub`
+* public-safe claim approval: `chummer6-design` Product Governor or approved world operator
 * bounded measurement review: `fleet`
 
 ### Hard boundary
@@ -897,6 +987,50 @@ Passive outreach and signature-campaign projection lane.
 * not support-case notification truth
 * not analytics interpretation truth
 * not campaign or world truth
+* not private player, runner, faction-secret, account, security, or entitlement state
+* not individual authorization or delivery guarantees
+
+### Campaign packet requirements
+
+Every BLACK LEDGER or Shadowcasters Signitic campaign must carry approved source receipts, first-party destination URLs, UTM campaign naming, segment scope, expiry or review date, rollback owner, and a kill-switch path.
+
+Signitic metrics are campaign telemetry only. Hub and Fleet may review clickthrough, landing conversion, support confusion, and world-effect receipts, but Product Governor interpretation remains Chummer-owned.
+
+## Emailit
+
+### Role
+
+Outbound delivery provider candidate for Hub-owned lifecycle, digest, invite, and closeout mail.
+
+### Architectural use
+
+* claim/install emails
+* support closure and fix-available notices
+* ProductLift voter closeout follow-ups
+* Shadowcasters open-run invitations, acceptance, waitlist, and reminder mail
+* Lunacal companion confirmations when Hub needs a first-party mail receipt
+* BLACK LEDGER world-tick digests and faction newsletters
+* creator-program updates
+* KARMA FORGE discovery invitations
+
+### Owner
+
+* notification truth, template refs, suppression, opt-out posture, and delivery receipts: `chummer6-hub`
+* release/install availability facts used in mail: `chummer6-hub-registry`
+* public-safe claim and campaign boundaries: `chummer6-design`
+
+### Hard boundary
+
+* not notification truth
+* not support status truth
+* not roadmap or changelog truth
+* not world, campaign, roster, entitlement, security, or authorization truth
+* not analytics interpretation truth
+* no raw secret, sourcebook, support-note, or private campaign payloads in templates
+
+### Promotion gates
+
+Emailit is not production-approved until sender-domain authentication, suppression and unsubscribe policy, bounce handling, template registry, `EmailDeliveryReceipt`, kill switch, and provider-secret handling are implemented.
 
 ## Vizologi
 
@@ -1020,6 +1154,7 @@ Structured presenter-video and multilingual walkthrough adapter.
 * not canonical rules truth
 * not canonical support truth
 * not canonical session truth
+* not canonical route, map, or tour truth
 * not direct-to-client vendor coupling
 * not unapproved public publication
 
@@ -1256,6 +1391,17 @@ Add:
 * `ResearchAssistReceipt`
 * `PromptTemplateRef`
 * `PromptRouteRef`
+* `NotificationTemplateRef`
+* `EmailDeliveryReceipt`
+
+### In `Chummer.Control.Contracts`
+
+Add:
+
+* `AdminProjectionReceipt`
+* `AdminIntent`
+* `AdminIntentReceipt`
+* `JourneyProofEventRef`
 
 ### In `Chummer.Media.Contracts`
 

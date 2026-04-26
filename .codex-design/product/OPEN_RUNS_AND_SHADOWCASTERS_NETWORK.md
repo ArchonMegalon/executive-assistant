@@ -32,6 +32,10 @@ They must not become the authority for run existence, roster truth, consent trut
 
 `job packet -> open run -> join requests -> roster -> schedule -> meeting handoff -> play -> resolution -> world tick -> newsreel -> reputation event`
 
+Public demand for this loop may start in ProductLift, but ProductLift only collects ideas, votes, comments, and projection status. It does not own run truth, roster truth, scheduling truth, meeting handoff truth, world truth, or closeout truth.
+
+`SHADOWCASTERS_OPERATIONS_MODEL.md` defines the operator model for keeping this loop alive week to week. Hub owns run and roster truth, Teable may show application/review projections, NextStep may execute closeout SOPs, Emailit may deliver invite and decision mail, Signitic may recruit passively, and external meeting/calendar tools remain projection-only.
+
 ## Product move
 
 BLACK LEDGER should not stop at “a job exists.”

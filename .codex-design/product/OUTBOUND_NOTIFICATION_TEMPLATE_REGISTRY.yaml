@@ -1,0 +1,78 @@
+version: 1
+key: outbound_notification_template_registry
+owner: chummer6-hub
+status: design
+purpose: >
+  Registry of first Chummer-owned outbound notification template families.
+  Emailit may deliver these messages, but Hub owns eligibility, template
+  truth, consent, suppression, and delivery receipts.
+defaults:
+  provider_candidate: Emailit
+  notification_truth_owner: chummer6-hub
+  receipt_model: EMAIL_DELIVERY_RECEIPT_MODEL.md
+  required_controls:
+    - idempotency_key
+    - template_version
+    - consent_or_transactional_basis
+    - suppression_check
+    - provider_delivery_receipt
+    - kill_switch
+families:
+  - key: install_and_claim
+    source_truth:
+      - Chummer.Hub.Registry.Contracts.ClaimTicket
+      - Chummer.Hub.Registry.Contracts.ReleaseChannel
+    examples:
+      - claim_link
+      - install_recovery
+      - update_available
+    forbidden:
+      - release_claim_without_registry_truth
+      - entitlement_claim_without_hub_truth
+  - key: support_closure
+    source_truth:
+      - Chummer.Control.Contracts.SupportCase
+      - Chummer.Hub.Registry.Contracts.ReleaseEvidence
+    examples:
+      - bug_fixed_on_channel
+      - workaround_available
+      - case_closed
+    forbidden:
+      - private_operator_notes
+      - unsupported_fix_claim
+  - key: shadowcasters_open_runs
+    source_truth:
+      - Chummer.World.Contracts.OpenRun
+      - Chummer.World.Contracts.RunApplication
+      - Chummer.Run.Contracts.SchedulingReceipt
+    examples:
+      - open_run_invite
+      - application_accepted
+      - application_waitlisted
+      - schedule_confirmed
+    forbidden:
+      - roster_claim_without_hub_state
+      - meeting_url_without_roster_lock
+  - key: black_ledger_digest
+    source_truth:
+      - Chummer.World.Contracts.WorldTick
+      - Chummer.World.Contracts.FactionDispatch
+      - Chummer.World.Contracts.SeasonalHonors
+    examples:
+      - world_tick_digest
+      - faction_newsletter
+      - season_honors
+    forbidden:
+      - faction_secret_state
+      - private_runner_consequence
+  - key: product_feedback_closeout
+    source_truth:
+      - Chummer.Control.Contracts.PublicSignal
+      - Chummer.Control.Contracts.CloseoutEvidence
+    examples:
+      - productlift_voter_shipped
+      - discovery_followup
+      - karma_forge_candidate_update
+    forbidden:
+      - roadmap_promise_without_design_truth
+      - shipped_claim_without_release_evidence

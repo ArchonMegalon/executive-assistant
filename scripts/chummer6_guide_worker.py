@@ -1401,6 +1401,16 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             + _string_list(contract.get("required_status_labels"))
             + (
                 [
+                    "BOD",
+                    "AGI",
+                    "REA",
+                    "STR",
+                    "ESS",
+                    "EDGE",
+                    "UPGRADING",
+                    "BOD rail",
+                    "AGI upgrading rail",
+                    "ESS upgrading rail",
                     "Wound stabilized",
                     "Cyberlimb calibration",
                     "Neural link resync",
@@ -1410,6 +1420,10 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
             )
             + (
                 [
+                    "DIFF",
+                    "APPROVAL",
+                    "PROVENANCE",
+                    "ROLLBACK",
                     "Approval rail",
                     "Provenance seal",
                     "Rollback vector",
@@ -3839,15 +3853,15 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ):
             findings.append("START_HERE should route the reader toward the next useful shelf or action instead of repeating README posture.")
         if name == "what_chummer6_is":
-            if not any(token in lowered for token in ("concept", "idea", "experiment", "direction")):
-                findings.append("Explain WHAT_CHUMMER6_IS as a concept or direction first, not as a product already standing on its own feet.")
-            if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust", "trust", "artifact", "spillover", "trace", "rough")):
+            if not any(token in lowered for token in ("campaign os", "companion", "tooling", "system", "surface")):
+                findings.append("Explain WHAT_CHUMMER6_IS as a human-facing Shadowrun campaign OS or companion, not only as an abstract concept.")
+            if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust", "trust", "artifact", "spillover", "trace", "inspectable")):
                 findings.append("Tie WHAT_CHUMMER6_IS back to trust and receipts instead of leaving the trust story abstract.")
         if name == "current_phase" and not any(
-            token in lowered for token in ("trust", "receipt", "math", "before polish", "before the paint", "concept", "idea")
+            token in lowered for token in ("trust", "receipt", "math", "before polish", "before the paint", "bounded", "proof", "recovery")
         ):
-            findings.append("CURRENT_PHASE should explain that concept work and trust work still come before anything product-shaped.")
-        if name == "current_status" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "rough", "concept")):
+            findings.append("CURRENT_PHASE should explain that trust work, receipts, and bounded recovery still come before broader product expansion.")
+        if name == "current_status" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "proof", "surface")):
             findings.append("CURRENT_STATUS should point to visible explanation surfaces or inspectable artifacts, not drift back into generic product status talk.")
         if name == "current_status" and not any(token in intro_lowered for token in ("current", "today", "right now", "status")):
             findings.append("CURRENT_STATUS should sound like an honest status readout in the opening line, not a generic product pitch.")
@@ -4128,8 +4142,8 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
         }
     if page_id == "what_chummer6_is":
         return {
-            "intro": "Chummer6 is Shadowrun tooling built to make rulings inspectable instead of mystical.",
-            "body": "The promise is visible reasoning, clear receipts, and table-facing trust under pressure. Judge it through the public guide, status surfaces, and proof lanes rather than opaque claims.",
+            "intro": "Chummer6 is Shadowrun tooling for campaign-OS work: rulings, prep, and table state made inspectable instead of mystical.",
+            "body": "The promise is visible reasoning, receipts, grounded campaign artifacts, and table-facing trust under pressure. Judge it through the public guide, status surfaces, and proof lanes rather than opaque claims.",
             "kicker": "Judge by receipts and outcomes, not folklore.",
         }
     if page_id == "faq":
@@ -4186,19 +4200,19 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
 def fallback_part_copy(name: str, item: dict[str, object]) -> dict[str, str]:
     curated = {
         "core": {
-            "when": "If this idea ever becomes trustworthy, core is where the math accountability would have to live.",
-            "why": "Right now it mostly marks the responsibility that would need to exist before anyone should trust a rules engine.",
-            "now": "Today it mostly shows up as trust language, rough receipts, and arguments about what the math would need to explain before anyone should lean on it.",
+            "when": "A ruling, build change, or advancement result needs a plain explanation instead of a shrug.",
+            "why": "Core is the math engine that carries trust responsibility by making each important result traceable back to sources, modifiers, and rule-environment choices a table can challenge.",
+            "now": "The visible job is proof discipline: keep engine outcomes, explanation trails, and current build evidence clear enough that user-facing surfaces can earn trust instead of borrowing it.",
         },
         "ui": {
-            "when": "If something user-facing ever becomes real, UI is where people would feel the idea instead of just reading about it.",
-            "why": "It would eventually turn abstract rules intent into something a person could inspect.",
-            "now": "Right now this mostly means rough workbench traces that show how a build might become inspectable. It is still not a user surface that has earned trust.",
+            "when": "A player or GM wants the deeper build view, comparison tools, or the place where a changed result can be inspected.",
+            "why": "UI turns rules intent into visible build review instead of forcing people to trust a hidden calculation.",
+            "now": "The current public story is deep prep and inspection: powerful workbench surfaces need to stay distinct from live table use while the proof trail gets clearer.",
         },
         "mobile": {
-            "when": "If this concept ever survives real table chaos, mobile is where that claim would get tested hardest.",
-            "why": "It is the imagined jump from prep talk to software that could survive actual play.",
-            "now": "Today mobile is still mostly pressure from the real table: reconnects, bad signal, and movement are the test, not a solved lane.",
+            "when": "The table is moving, signal is messy, and a player needs the campaign OS to stay useful away from the desk.",
+            "why": "Mobile is where prep, continuity, and table state have to survive real play conditions instead of looking clean only on a big screen.",
+            "now": "The visible boundary is pressure-testing: reconnects, bad signal, and live-session ergonomics define the bar before mobile can claim dependable table value.",
         },
         "hub": {
             "when": "If there is ever a hosted front door, hub is the layer that would have to keep it coherent.",
@@ -4221,9 +4235,9 @@ def fallback_part_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "now": "Today it mostly means rough packet and image work that still has to prove it can clean things up without cutting the source trail loose.",
         },
         "design": {
-            "when": "Somebody wants to understand what the idea is trying to become before caring whether any artifact exists today.",
-            "why": "It gives a reader one place to see what the project is aiming for before stray artifacts start sending mixed signals.",
-            "now": "Publicly, the design shelf is still the clearest explanation of what the project wants to become, which is why it often makes more sense than the software traces around it.",
+            "when": "A reader wants the long-range product direction before deciding which visible surface deserves attention.",
+            "why": "Design keeps the campaign-OS promise, trust boundaries, and future lanes legible so stray artifacts do not become the story by accident.",
+            "now": "Publicly, the design shelf should explain the direction in human terms while the guide, status, and proof surfaces show what can be inspected today.",
         },
     }.get(str(name or "").strip())
     if isinstance(curated, dict):
@@ -4378,6 +4392,54 @@ def fallback_horizon_copy(name: str, item: dict[str, object]) -> dict[str, str]:
             "why_great": "It could make primers, handbooks, and campaign books feel like real products instead of heroic document salvage.",
             "why_waits": "A handbook only earns trust once revisions stop making the source harder to trace and the next edition less reusable.",
             "pitch_line": "Publish the book without turning it into an archaeological site.",
+        },
+        "black-ledger": {
+            "hook": "A governed city memory that turns finished runs into useful future pressure.",
+            "problem": "Campaign worlds feel alive only if consequences survive the session without stealing authority from the GM.",
+            "table_scene": "\n".join(
+                [
+                    "GM: The Redmond job is done, but the city should not forget it by next week.",
+                    "Chummer6: Resolution report staged. District pressure rises, one faction project advances, one player-safe rumor is ready.",
+                    "Player: Can the table see the fallout without seeing every spoiler?",
+                    "Fixer: I want the next job to feel connected, not prewritten.",
+                    "GM: Good. The map remembers, but I still approve what becomes true.",
+                    "Chummer6: Consequence waits for GM signoff before the ledger talks back.",
+                ]
+            ),
+            "meanwhile": "\n".join(
+                [
+                    "- World memory only helps if GM approval, spoiler boundaries, and source trails stay clear.",
+                    "- Mission-market hooks have to improve prep without turning the campaign into an autonomous strategy game.",
+                    "- Player-safe city news must be useful without leaking private campaign truth.",
+                ]
+            ),
+            "why_great": "It could make campaigns feel connected across jobs by turning approved consequences into map pressure, prep hooks, faction motion, and player-safe news the table can actually use.",
+            "why_waits": "The layer has to prove authority boundaries, spoiler policy, and consequence receipts before it deserves to affect a living campaign.",
+            "pitch_line": "Let the city remember the run without letting the software become the GM.",
+        },
+        "shadowcasters-network": {
+            "hook": "Open-run recruiting, scheduling, prep, and closeout built on governed campaign truth.",
+            "problem": "Finding a run is easy to fake; finding the right table, legal runner, consent boundary, and closeout loop is not.",
+            "table_scene": "\n".join(
+                [
+                    "Player: I found a beginner-friendly run, but I need to know whether my runner actually fits.",
+                    "Chummer6: Seat request checked against table limits, consent tags, and prep packet requirements.",
+                    "GM: I want scheduling handled, not another loose chat thread.",
+                    "Organizer: And the result has to close back into the city after the run.",
+                    "Chummer6: Roster, handoff, and resolution report stay attached to the same job.",
+                    "Player: Good. I want a table, not a rumor with a calendar link.",
+                ]
+            ),
+            "meanwhile": "\n".join(
+                [
+                    "- Open-run access only works if job packets, runner legality, consent, and scheduling stay governed.",
+                    "- BLACK LEDGER consequences must be trustworthy enough before open tables can feed them.",
+                    "- Closeout needs to return useful world truth without exposing private table details.",
+                ]
+            ),
+            "why_great": "It could turn campaign prep into a practical network where players find real seats, GMs get usable rosters, and completed sessions feed the living world with reviewable closeout.",
+            "why_waits": "The network should wait until job packets, authority handoff, consent policy, and BLACK LEDGER consequence flow can hold up under real community use.",
+            "pitch_line": "Find the run, fit the runner, schedule the table, and close the result back into the city.",
         },
         "table-pulse": {
             "hook": "Post-session coaching without pretending the software was secretly the GM all along.",
@@ -4895,8 +4957,8 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
             ],
             "user_interest_signals": highlights
             or [
-                "an idea for readable receipts instead of mystery math",
-                "less folklore if the concept ever lands",
+                "a campaign OS that makes rulings readable instead of mystical",
+                "less folklore through visible receipts and proof surfaces",
                 "future lanes that feel table-driven instead of repo-driven",
             ],
             "risks": [
@@ -4941,7 +5003,7 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
             ],
         },
         "decide": {
-            "information_order": "lead with table pain, then the idea, then the almost-nothing current truth, then the map of parts and futures",
+            "information_order": "lead with table pain, then the campaign OS promise, then current trust boundaries, then the map of parts and futures",
             "tone_rules": "keep it human, concrete, lightly wry, and allergic to architecture sermons",
             "horizon_policy": "sell each horizon as a table pain and a vivid scene, not a codename first",
             "media_strategy": "use contextual scenes that show the moment the feature matters, not abstract title-card art",
@@ -4950,10 +5012,10 @@ def _global_ooda_defaults(signals: dict[str, object]) -> dict[str, object]:
         },
         "act": {
             "landing_tagline": "An idea for less mystical Shadowrun rulings.",
-            "landing_intro": "Chummer6 is mostly an idea about making Shadowrun rulings easier to inspect while the table is loud and the stakes are dumb.",
+            "landing_intro": "Chummer6 is the human-facing campaign OS for Shadowrun tables that want visible rulings, proof trails, and fewer trust-me handwaves when the room gets loud.",
             "what_it_is": "Chummer6 is an idea about inspecting Shadowrun rulings instead of trusting folklore math or lucky table memory.",
-            "watch_intro": "If you care about receipts, future session resilience, and tools that might become useful instead of decorative, this is the concept worth watching.",
-            "horizon_intro": "Horizons are contingent idea lanes worth watching only if the concept survives long enough to carry them.",
+            "watch_intro": "If you care about receipts, future session resilience, and tools that earn trust in public, this is the campaign OS worth watching.",
+            "horizon_intro": "Horizons are future campaign-OS lanes: vivid table problems, clear boundaries, and no fake shipping promises.",
         },
     }
 
