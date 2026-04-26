@@ -975,6 +975,8 @@ BLACK_LEDGER_GENERATOR_BRIEF = (
     "- Core loop: factions create pressure, players and GMs report intel, world ticks process state, GMs receive mission "
     "opportunities, runs are scheduled and played, results are reported, the map changes, newsreels and faction "
     "briefings publish fallout, then the next tick starts from the new reality.\n"
+    "- Regeneration is explicit: every cycle renders current state plus candidate futures, branching outcomes, and alternate "
+    "counter-move branches that can become candidate missions.\n"
     "- Product surfaces: source-aware world map, Mission Market, Open Runs and the Shadowcasters Network, Lunacal "
     "scheduling handoff, result reporting, intel review, faction and megacorp engines, faction-manager operation "
     "intents, heat model, newsreels, city tickers, faction newsletters, Table Pulse or GOD Observer debrief assistance, "
@@ -2532,7 +2534,7 @@ Voice rules:
 - never drift into personal sniping, daredevil edginess, or maintainer in-jokes
 - never expose secrets, tokens, passwords, or private credentials
 - keep it exciting without pretending it is active work
-- for BLACK LEDGER, preserve the living city loop, not a generic consequence graph or abstract future label
+- for BLACK LEDGER, preserve the living city loop, not a generic consequence graph or abstract future label, and keep AR branches for competing outcomes visible
 - no mention of Fleet or EA
 - no mention of chummer5a
 - no markdown fences
@@ -2598,7 +2600,7 @@ Requirements:
 - if access posture or booster guidance exists in canon, `why_waits` and `pitch_line` should reflect it plainly instead of improvising a vague delay
 - if free-later intent exists in canon, explain broad-access intent without sounding like a paywall apology
 - avoid vague filler like future platform, foundation work, or shaky anvil when the canon gives a sharper reason
-- if this horizon is BLACK LEDGER, table_scene must include a GM or organizer using map pressure, Mission Market adoption, reviewed intel, and human signoff
+- if this horizon is BLACK LEDGER, table_scene must include a GM or organizer using map pressure, Mission Market adoption, reviewed intel, human signoff, and visible AR possibility branches
 
 Return valid JSON only.
 """
@@ -2781,7 +2783,7 @@ Rules:
 - if the source suggests strong selling points like multi-era support, Lua/scripted rules, local-first play, explain receipts, grounded dossier flows, or dangerous simulation energy, surface them
 - keep the posture flagship and user-facing; be honest about current boundaries without shrinking into self-disclaimer mode
 - if source signals clearly include multi-era support or scripted rules, make at least one section hook say so in plain language instead of burying it
-- if a section is BLACK LEDGER, preserve the living mission market, city map, faction pressure, Open Runs and the Shadowcasters Network, Lunacal scheduling, reviewed intel, world ticks, newsreels, Table Pulse/GOD consent gates, and Seattle Tick 001 proof shape
+- if a section is BLACK LEDGER, preserve the living mission market, city map, faction pressure, Open Runs and the Shadowcasters Network, Lunacal scheduling, reviewed intel, world ticks, newsreels, Table Pulse/GOD consent gates, Seattle Tick 001 proof shape, and AR possibility layers
 - do not literalize repo governance labels into the scene
 - avoid generic poster language and repeated sentence frames
 - prefer one memorable focal subject or action over abstract icon soup
@@ -3264,7 +3266,7 @@ Rules:
 - no markdown fences
 - scenes should feel specific, cool, dangerous, and actually playable
 - if the codename implies a person or metaphor, make that legible
-- if a horizon is BLACK LEDGER, preserve the living mission market, city map, faction pressure, Open Runs and the Shadowcasters Network, Lunacal scheduling, reviewed intel, world ticks, newsreels, faction newsletters, Table Pulse/GOD consent gates, seasonal honors, and Seattle Tick 001 proof shape
+- if a horizon is BLACK LEDGER, preserve the living mission market, city map, faction pressure, Open Runs and the Shadowcasters Network, Lunacal scheduling, reviewed intel, world ticks, newsreels, faction newsletters, Table Pulse/GOD consent gates, seasonal honors, Seattle Tick 001 proof shape, and AR possibility previews for competing futures
 - do not reuse the same sentence stem across multiple horizons
 - the copy should feel distinct per horizon, not like one template with swapped nouns
 - humor is optional; if it does not sharpen the horizon, leave it out
@@ -5408,7 +5410,7 @@ Requirements:
 - avoid branded weapon models, exact diagnostics, exact modifier labels, or named telemetry unless the source explicitly demands them
 - visual_prompt must describe an actual cyberpunk scene tied to this horizon
 - visual_prompt must center one memorable focal subject, setup, or action instead of icon soup
-- if this is BLACK LEDGER, the scene must show a living city map or world-tick control surface with mission pins, faction pressure, heat, news fallout, and a GM/operator adopting a job
+- if this is BLACK LEDGER, the scene must show a living city map or world-tick control surface with mission pins, faction pressure, heat, news fallout, and a GM/operator adopting a job, plus AR overlays that show multiple possible outcomes
 - if the section naturally implies a person, make that person specific and believable
 - if the concept implies a visual metaphor like x-ray, ghost, mirror, passport, dossier, web, or blackbox, make that metaphor visibly legible in-scene
 - if the title reads like a personal codename, make the focal subject feel like that codename embodied; if it reads like a feminine personal name, it is fine to make the focal subject a woman
@@ -5939,12 +5941,12 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
                 "easter_egg_policy": "deny",
             },
             "black-ledger": {
-                "subject": "a GM and world operator reading a living Seattle district map as a fixer points at a new job seed",
-                "environment": "a world-tick control room above a rain-slick Seattle map wall with Tacoma port lights, Redmond heat pins, faction dossiers, and a small newsreel monitor",
+                "subject": "a GM and world operator reading a living Seattle district map as an AR lattice projects branching mission futures",
+                "environment": "a world-tick control house above a rain-slick Seattle map wall where augmented-reality overlays map district variants, branch probabilities, and pressure forecasts",
                 "action": "turning completed-run fallout into reviewed Mission Market job seeds, heat changes, faction pressure, and player-safe news",
                 "metaphor": "living city ledger",
-                "props": ["Seattle district map", "mission pins", "faction dossiers", "heat meters", "newsreel thumbnails", "intel report cards"],
-                "overlays": ["world-tick change traces", "GM-only intel filters", "public-safe news markers", "faction pressure arcs", "open-run roster tags"],
+                "props": ["Seattle district map", "AR map projector", "branch-token deck", "mission pins", "faction dossiers", "heat meters", "newsreel thumbnails", "intel report cards", "holographic timeline markers"],
+                "overlays": ["world-tick change traces", "GM-only intel filters", "public-safe news markers", "faction pressure arcs", "open-run roster tags", "branch probability heat", "alternative timeline overlay"],
                 "composition": "district_map",
                 "palette": "rain black, Tacoma sodium, Redmond hazard red, matrix cyan",
                 "mood": "scheming, governed, and alive",
