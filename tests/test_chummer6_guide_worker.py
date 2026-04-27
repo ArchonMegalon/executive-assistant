@@ -2455,6 +2455,64 @@ def test_generate_overrides_can_skip_skill_audits_for_partial_regen(monkeypatch:
     assert overrides["meta"]["pack_skill_audit"]["reason"] == "partial_regen"
 
 
+def test_public_copy_audit_loop_revises_rejected_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    audit_statuses = iter(
+        [
+            {
+                "status": "revise",
+                "approval_state": "rejected",
+                "summary": "Developer-facing copy remains.",
+                "findings": ["Mission briefing packet is framed as an internal generation spec."],
+                "risky_scopes": ["pages.start_here"],
+                "improvement_suggestions": ["Rewrite as visitor-facing value, not an implementation checklist."],
+            },
+            {
+                "status": "ok",
+                "approval_state": "approved",
+                "summary": "Public copy is visitor-facing.",
+                "findings": [],
+                "risky_scopes": [],
+                "improvement_suggestions": [],
+            },
+        ]
+    )
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if skill_key == worker.PUBLIC_AUDITOR_SKILL_KEY:
+            return next(audit_statuses)
+        assert "Auditor result" in prompt
+        return {
+            "pages": {
+                "start_here": {
+                    "intro": "Hand players a polished briefing they can use immediately.",
+                    "body": "The GM keeps private notes and source receipts beside the player-safe version.",
+                    "kicker": "Ready to share, with proof still attached.",
+                }
+            }
+        }
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+    overrides = {
+        "pages": {
+            "start_here": {
+                "intro": "Mission briefing packet",
+                "body": "It should generate player-safe briefing text and approval state.",
+                "kicker": "Success looks like a GM can hand players a polished briefing.",
+            }
+        },
+        "parts": {},
+        "horizons": {},
+    }
+
+    result = worker.run_public_copy_audit_loop(overrides=overrides, model="ea-groundwork", max_revision_attempts=1)
+
+    assert result["status"] == "ok"
+    assert result["approval_state"] == "approved"
+    assert result["attempts"][0]["approval_state"] == "rejected"
+    assert overrides["pages"]["start_here"]["intro"] == "Hand players a polished briefing they can use immediately."
+
+
 def test_generate_overrides_falls_back_to_default_global_ooda_when_writer_returns_non_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

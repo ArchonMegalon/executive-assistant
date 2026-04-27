@@ -158,7 +158,11 @@ def _apply_visual_contract_context(payload: dict[str, object]) -> dict[str, obje
     properties.setdefault("anticipatory_overlay_brief", {"type": "string"})
     properties.setdefault("flagship_visual_bar", {"type": "string"})
     properties.setdefault("rendered_image_observation_required", {"type": "boolean"})
+    properties.setdefault("overlay_second_pass_required", {"type": "boolean"})
+    properties.setdefault("overlay_first_pass_input_required", {"type": "boolean"})
     properties.setdefault("overlay_geometry_observation_policy", {"type": "string"})
+    properties.setdefault("overlay_vision_provider", {"type": "string"})
+    properties.setdefault("overlay_vision_model", {"type": "string"})
     schema["properties"] = properties
     payload["input_schema_json"] = schema
     return payload
@@ -166,12 +170,23 @@ def _apply_visual_contract_context(payload: dict[str, object]) -> dict[str, obje
 
 def build_public_writer_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=True)
+    budget = dict(payload.get("budget_policy_json") or {})
+    budget["post_generation_audit_json"] = {
+        "enabled": True,
+        "auditor_skill_key": "chummer6_public_auditor",
+        "auditor_task_key": "chummer6_public_copy_audit",
+        "max_revision_attempts": 2,
+        "approval_states": ["approved", "rejected"],
+        "reject_on_developer_facing_copy": True,
+        "feedback_fields": ["findings", "improvement_suggestions", "risky_scopes"],
+    }
+    payload["budget_policy_json"] = budget
     payload.update(
         {
             "skill_key": "chummer6_public_writer",
             "task_key": "chummer6_public_copy_refresh",
             "name": "Chummer6 Public Writer",
-            "description": "Planner-executed public-writer lane for Chummer6 guide copy, audience translation, and reader-safe OODA framing.",
+            "description": "Builds reader-first Chummer6 guide copy with action-oriented explanations, clear next steps, and practical value for players and GMs.",
             "memory_writes": ["chummer6_public_copy_fact"],
             "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
             "provider_hints_json": {
@@ -191,7 +206,7 @@ def build_visual_director_skill_payload() -> dict[str, object]:
         {
             "skill_key": "chummer6_visual_director",
             "name": "Chummer6 Visual Director",
-            "description": "Planner-executed Chummer6 visual-direction lane: media-brief-driven scene planning, short-story beats, clean rulebook-poster finish direction, and rendered-image-observation-first AR guidance so overlay semantics are chosen only after the scene geometry is visible.",
+            "description": "Delivers flagship visual direction for Chummer6 pages: scene planning with narrative readability, cinematic poster energy, and a strict render-then-overlay flow that makes every image teachable at a glance.",
             "memory_writes": ["chummer6_style_epoch", "chummer6_scene_ledger", "chummer6_visual_critic_fact"],
             "tags": ["chummer6", "guide", "visual-direction", "style-epoch", "scene-ledger"],
             "provider_hints_json": {
@@ -208,12 +223,30 @@ def build_visual_director_skill_payload() -> dict[str, object]:
 
 def build_public_auditor_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=False)
+    payload["output_schema_json"] = {
+        "type": "object",
+        "properties": {
+            "status": {"enum": ["ok", "revise"]},
+            "approval_state": {"enum": ["approved", "rejected"]},
+            "summary": {"type": "string"},
+            "findings": {"type": "array", "items": {"type": "string"}},
+            "risky_scopes": {"type": "array", "items": {"type": "string"}},
+            "improvement_suggestions": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["status", "approval_state", "summary", "findings", "risky_scopes", "improvement_suggestions"],
+    }
+    payload["runtime_policy_json"] = {
+        **dict(payload.get("runtime_policy_json") or {}),
+        "audit_position": "post_generation_pre_publish",
+        "reject_developer_facing_public_copy": True,
+        "send_rejected_copy_back_to_generator": True,
+    }
     payload.update(
         {
             "skill_key": "chummer6_public_auditor",
             "task_key": "chummer6_public_copy_audit",
             "name": "Chummer6 Public Auditor",
-            "description": "Self-audit lane for Chummer6 public-guide copy: visitor-first voice, correct action routing, jargon cleanup, and bounded revision guidance.",
+            "description": "Audits generated public Chummer6 copy after the writer pass, approves or rejects it, and sends concrete improvement suggestions back when the text sounds internal, developer-facing, ungrounded, or weak for visitors.",
             "memory_writes": ["chummer6_public_audit_fact"],
             "tags": ["chummer6", "guide", "public-audit", "editorial", "qa"],
             "provider_hints_json": {
@@ -234,7 +267,7 @@ def build_scene_auditor_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_scene_auditor",
             "task_key": "chummer6_scene_plan_audit",
             "name": "Chummer6 Scene Auditor",
-            "description": "Audit and repair lane for Chummer6 scene plans before rendering: person-count fit, composition diversity, short-story readability, anti-generic-solo rejection, and pre-render planning that leaves room for a post-render geometry observation pass before overlay labels are committed.",
+            "description": "Audits scene plans before render so every page avoids generic table-vibe layouts and lands as a clear, cinematic story moment with room for readable overlays.",
             "memory_writes": ["chummer6_scene_audit_fact"],
             "tags": ["chummer6", "guide", "scene-audit", "visual-direction", "qa"],
             "provider_hints_json": {
@@ -255,7 +288,7 @@ def build_visual_auditor_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_visual_auditor",
             "task_key": "chummer6_visual_audit",
             "name": "Chummer6 Visual Auditor",
-            "description": "Post-render visual QA lane for Chummer6 guide assets: inspect the rendered image first, reject fake grain or oversharpened grit, verify semantic anchors, and confirm every overlay cue is justified by observed scene geometry before publish.",
+            "description": "Performs post-render visual QA for flagship-quality guide imagery: remove synthetic grain/noise, keep strong semantic anchors, and only keep overlays backed by what the scene actually shows.",
             "memory_writes": ["chummer6_visual_audit_fact"],
             "tags": ["chummer6", "guide", "visual-audit", "qa"],
             "provider_hints_json": {
@@ -277,7 +310,7 @@ def build_pack_auditor_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_pack_auditor",
             "task_key": "chummer6_pack_audit",
             "name": "Chummer6 Pack Auditor",
-            "description": "Whole-pack audit lane for Chummer6 guide output: editorial drift, style-epoch coherence, clean poster-finish consistency, rendered-image-observation overlay coherence, critical-asset readiness, and pack-level publish gates.",
+            "description": "Final pack-level curator for Chummer6 guide output: editorial consistency, flagship visual coherence, readable critical assets, and clear publish gates that preserve player value.",
             "memory_writes": ["chummer6_pack_audit_fact"],
             "tags": ["chummer6", "guide", "pack-audit", "qa"],
             "provider_hints_json": {

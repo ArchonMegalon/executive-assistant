@@ -848,6 +848,23 @@ def test_chummer6_guide_bootstrap_keeps_publish_schedule_off_auditor_skills() ->
         assert "refresh_schedule_utc" not in budget
 
 
+def test_chummer6_public_writer_declares_post_generation_audit_loop() -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+    payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+
+    audit_contract = payloads["chummer6_public_writer"]["budget_policy_json"]["post_generation_audit_json"]
+    assert audit_contract["enabled"] is True
+    assert audit_contract["auditor_skill_key"] == "chummer6_public_auditor"
+    assert audit_contract["max_revision_attempts"] == 2
+    assert audit_contract["feedback_fields"] == ["findings", "improvement_suggestions", "risky_scopes"]
+
+    auditor = payloads["chummer6_public_auditor"]
+    assert auditor["runtime_policy_json"]["audit_position"] == "post_generation_pre_publish"
+    assert auditor["runtime_policy_json"]["send_rejected_copy_back_to_generator"] is True
+    assert auditor["output_schema_json"]["properties"]["approval_state"]["enum"] == ["approved", "rejected"]
+    assert "improvement_suggestions" in auditor["output_schema_json"]["required"]
+
+
 def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_targeted_rerun_scope() -> None:
     bootstrap = load_chummer_guide_bootstrap_module()
     payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
@@ -869,6 +886,10 @@ def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_t
         assert "runner_question_ladder" in properties
         assert "anticipatory_overlay_brief" in properties
         assert "flagship_visual_bar" in properties
+        assert "overlay_second_pass_required" in properties
+        assert "overlay_first_pass_input_required" in properties
+        assert "overlay_vision_provider" in properties
+        assert "overlay_vision_model" in properties
 
     assert "public_media_briefs" not in payloads["chummer6_public_writer"]["memory_reads"]
 

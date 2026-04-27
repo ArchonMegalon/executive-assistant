@@ -3576,14 +3576,17 @@ def _pack_audit_snapshot(overrides: dict[str, object]) -> dict[str, object]:
 def build_auditor_prompt(*, label: str, focus: str, payload: dict[str, object]) -> str:
     return f"""You are auditing a generated Chummer6 public-guide pack before publish.
 
-Task: return JSON only with keys status, summary, findings, risky_scopes.
+Task: return JSON only with keys status, approval_state, summary, findings, risky_scopes, improvement_suggestions.
 
 Rules:
 - `status` must be either `ok` or `revise`
+- `approval_state` must be either `approved` or `rejected`
 - mark `revise` if the pack still sounds like maintainers explaining structure to themselves, if the calls to action are misrouted, if the copy is not useful to a curious player/GM/tester, or if the visuals feel repetitive, generic, or mismatched to the page role
+- for public copy, reject developer-facing planning language like "it should generate", "success looks like", implementation checklists, internal deliverable specs, or notes addressed to maintainers instead of visitors
 - keep `summary` to one short paragraph
 - `findings` should be a short list of concrete issues, or an empty list when the pack is clean
 - `risky_scopes` should name the page ids, part ids, horizon ids, or media groups that need attention
+- `improvement_suggestions` should be concrete rewrite instructions that can be sent back to the generator
 - do not rewrite the pack; audit it
 - no markdown fences
 
@@ -3600,6 +3603,7 @@ Return valid JSON only.
 
 def normalize_audit_result(result: dict[str, object], *, label: str) -> dict[str, object]:
     raw_status = str(result.get("status") or "").strip().lower()
+    raw_approval = str(result.get("approval_state") or result.get("approval") or "").strip().lower()
     summary = editorial_self_audit_text(
         str(result.get("summary") or "").strip(),
         fallback=f"{label} audit returned no summary.",
@@ -3614,14 +3618,27 @@ def normalize_audit_result(result: dict[str, object], *, label: str) -> dict[str
         for entry in _listish(result.get("findings"))
     ]
     risky_scopes = [entry for entry in _listish(result.get("risky_scopes")) if entry]
+    improvement_suggestions = [
+        editorial_self_audit_text(
+            entry,
+            fallback=entry,
+            context=f"audit:{label}:suggestion",
+        )
+        for entry in _listish(result.get("improvement_suggestions") or result.get("suggestions"))
+    ]
     if raw_status not in AUDITOR_OK_STATUSES | {"revise", "fail", "failed", "reject"}:
         raw_status = "ok" if not findings and not risky_scopes else "revise"
     status = "ok" if raw_status in AUDITOR_OK_STATUSES else "revise"
+    if raw_approval == "rejected":
+        status = "revise"
+    approval_state = "approved" if status == "ok" else "rejected"
     return {
         "status": status,
+        "approval_state": approval_state,
         "summary": summary,
         "findings": findings,
         "risky_scopes": risky_scopes,
+        "improvement_suggestions": improvement_suggestions,
     }
 
 
@@ -3632,6 +3649,7 @@ def run_skill_audit(
     focus: str,
     payload: dict[str, object],
     model: str,
+    reject_on_revise: bool = True,
 ) -> dict[str, object]:
     result = chat_json(
         build_auditor_prompt(label=label, focus=focus, payload=payload),
@@ -3639,11 +3657,125 @@ def run_skill_audit(
         skill_key=skill_key,
     )
     normalized = normalize_audit_result(result, label=label)
-    if normalized["status"] != "ok":
+    if reject_on_revise and normalized["status"] != "ok":
         scopes = ",".join(normalized["risky_scopes"][:8]) if normalized["risky_scopes"] else "unspecified"
-        findings = " | ".join(normalized["findings"][:4]) if normalized["findings"] else normalized["summary"]
+        messages = list(normalized["findings"][:4]) or list(normalized["improvement_suggestions"][:4])
+        findings = " | ".join(messages) if messages else normalized["summary"]
         raise RuntimeError(f"{label}_audit_failed:{scopes}:{findings}")
     return normalized
+
+
+def build_public_copy_revision_prompt(*, payload: dict[str, object], audit: dict[str, object]) -> str:
+    return f"""You are revising generated Chummer6 public-guide copy after an auditor rejected it.
+
+Return JSON only with optional top-level keys pages, parts, horizons.
+
+Rules:
+- preserve the existing object ids and field names
+- write for public visitors: curious players, GMs, testers, and creators
+- remove developer-facing planning language, implementation checklists, and internal acceptance criteria
+- keep claims grounded in the provided text; do not invent shipping status, rules math, or private roadmap commitments
+- make each revised field polished enough to publish
+- no markdown fences
+
+Auditor result:
+{json.dumps(audit, ensure_ascii=True)}
+
+Current copy snapshot:
+{json.dumps(payload, ensure_ascii=True)}
+
+Return valid JSON only.
+"""
+
+
+def _merge_revised_copy_rows(
+    current_rows: dict[str, object],
+    revised_rows: object,
+    *,
+    section_type: str,
+) -> dict[str, object]:
+    if not isinstance(revised_rows, dict):
+        return current_rows
+    merged = dict(current_rows)
+    allowed_keys = COPY_KEYS_BY_SECTION.get(section_type, ())
+    for row_id, raw_row in revised_rows.items():
+        if row_id not in merged or not isinstance(raw_row, dict):
+            continue
+        base = dict(merged.get(row_id) or {})
+        candidate = dict(base)
+        for key in allowed_keys:
+            value = str(raw_row.get(key) or "").strip()
+            if value:
+                candidate[key] = editorial_self_audit_text(
+                    value,
+                    fallback=str(base.get(key) or "").strip(),
+                    context=f"revision:{section_type}:{row_id}:{key}",
+                )
+        if len([key for key in allowed_keys if str(candidate.get(key) or "").strip()]) < max(2, min(3, len(allowed_keys))):
+            continue
+        try:
+            assert_public_reader_safe(candidate, context=f"revision:{section_type}:{row_id}")
+        except Exception:
+            continue
+        merged[row_id] = candidate
+    return merged
+
+
+def apply_public_copy_revision(overrides: dict[str, object], revision: dict[str, object]) -> None:
+    overrides["pages"] = _merge_revised_copy_rows(
+        dict(overrides.get("pages") or {}),
+        revision.get("pages"),
+        section_type="page",
+    )
+    overrides["parts"] = _merge_revised_copy_rows(
+        dict(overrides.get("parts") or {}),
+        revision.get("parts"),
+        section_type="part",
+    )
+    overrides["horizons"] = _merge_revised_copy_rows(
+        dict(overrides.get("horizons") or {}),
+        revision.get("horizons"),
+        section_type="horizon",
+    )
+
+
+def run_public_copy_audit_loop(
+    *,
+    overrides: dict[str, object],
+    model: str,
+    max_revision_attempts: int = 2,
+) -> dict[str, object]:
+    attempts: list[dict[str, object]] = []
+    focus = "Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes."
+    for attempt_index in range(max_revision_attempts + 1):
+        audit = run_skill_audit(
+            label="public",
+            skill_key=PUBLIC_AUDITOR_SKILL_KEY,
+            focus=focus,
+            payload=_copy_audit_snapshot(overrides),
+            model=model,
+            reject_on_revise=False,
+        )
+        audit["attempt"] = attempt_index + 1
+        attempts.append(audit)
+        if audit["status"] == "ok":
+            audit["attempts"] = attempts
+            return audit
+        if attempt_index >= max_revision_attempts:
+            break
+        trace(f"public audit revise: attempt {attempt_index + 1}")
+        revision = chat_json(
+            build_public_copy_revision_prompt(payload=_copy_audit_snapshot(overrides), audit=audit),
+            model=model,
+            skill_key=PUBLIC_WRITER_SKILL_KEY,
+        )
+        if isinstance(revision, dict):
+            apply_public_copy_revision(overrides, revision)
+    final = attempts[-1]
+    scopes = ",".join(final["risky_scopes"][:8]) if final["risky_scopes"] else "unspecified"
+    messages = list(final["findings"][:4]) or list(final["improvement_suggestions"][:4])
+    findings = " | ".join(messages) if messages else final["summary"]
+    raise RuntimeError(f"public_audit_failed:{scopes}:{findings}")
 
 
 COPY_KEYS_BY_SECTION: dict[str, tuple[str, ...]] = {
@@ -7375,11 +7507,8 @@ def generate_overrides(
         overrides["media"]["horizons"] = horizon_media_rows
     if run_skill_audits:
         trace("public audit")
-        overrides["meta"]["public_skill_audit"] = run_skill_audit(
-            label="public",
-            skill_key=PUBLIC_AUDITOR_SKILL_KEY,
-            focus="Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes.",
-            payload=_copy_audit_snapshot(overrides),
+        overrides["meta"]["public_skill_audit"] = run_public_copy_audit_loop(
+            overrides=overrides,
             model=model,
         )
     else:
