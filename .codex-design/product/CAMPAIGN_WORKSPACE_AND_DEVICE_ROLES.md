@@ -59,6 +59,8 @@ It must carry:
 - campaign identity and current roster
 - active rule-environment posture
 - dossier freshness and stale-state cues
+- downtime plan, aftermath summary, and next-session return actions
+- heat movement, faction pressure, contact truth, and reputation cues with visible reasons
 - session-start readiness summary
 - GM-ready runboard
 - world pressure overview and mission-market opportunities
@@ -122,10 +124,27 @@ For one user, one install, and one moment in time, Chummer must be able to say:
 
 - what changed since last use
 - why it changed
+- which downtime, aftermath, heat, faction, contact, or reputation changes need attention
 - whether it is safe to proceed
 - what the next safe action is
 
 This packet matters more than a raw notification count.
+
+### Campaign memory packet
+
+For the active campaign, Chummer must be able to project one governed campaign-memory packet that keeps the return loop legible.
+
+That packet should make visible:
+
+- downtime actions that are ready, blocked, or waiting on another actor
+- aftermath facts that changed runner, crew, or campaign posture
+- heat channels and threshold changes that alter risk
+- faction stance changes that matter to the next job or current obligations
+- contact truth changes such as favors owed, access unlocked, availability loss, compromise, or new asks
+- reputation movement and any follow-on spend or fallout cues
+
+This packet is first-class workspace truth.
+It must not degrade into diary prose, detached recap cards, or local sticky notes on one device.
 
 ### Readiness summary
 
@@ -153,12 +172,14 @@ Home and campaign workspaces may expose:
 
 - dossier packets
 - recap cards
-- briefings
+- campaign cold-open cards
+- mission briefings
 - evidence rooms
 - primers
 - other publication-safe artifacts
 
 Those outputs remain downstream of provenance-bearing truth. They do not become continuity truth themselves.
+Campaign cold-open and mission-briefing launches are first-class workspace promises only when they carry visible audience, locale, and source-pack posture instead of behaving like detached media links.
 
 ## Device roles
 
@@ -241,6 +262,13 @@ The same `workstation` may be used by:
 
 Audience overlays may change what is emphasized on a workspace, but they must reuse the same underlying campaign, install, support, and artifact truth.
 
+Audience overlays also gate campaign artifact launch:
+
+- `campaign_joiner` and `player_safe` cold-opens may appear on shared campaign home surfaces
+- `mission_briefing` defaults to the player-safe variant on general campaign surfaces
+- `gm_only` briefing variants require explicit authority and must not leak through device-role shortcuts
+- locale fallback may change presentation language, but it may not change audience or spoiler class
+
 ## State model
 
 Every home cockpit and campaign workspace should be able to fall into a bounded visible state such as:
@@ -267,11 +295,19 @@ Should be able to project:
 
 - `WorkspaceSummary`
 - `CampaignWorkspaceSummary`
+- `CampaignMemorySummary`
 - `RosterReadinessSummary`
 - `DossierFreshnessCue`
 - `RuleEnvironmentHealthCue`
 - `RunboardSummary`
 - `ContinuityConflictCue`
+- `DowntimeActionCue`
+- `AftermathChangeCue`
+- `HeatLedgerCue`
+- `FactionStandingCue`
+- `ContactTruthCue`
+- `ReputationCue`
+- `NextSessionReturnAction`
 - `RecapShelfEntry`
 - `WorldPressureCue`
 - `MissionMarketSummary`
@@ -397,6 +433,7 @@ account -> group -> campaign -> entitlement -> operator surface
 
 - The first screen must answer "what changed for me?" before it answers "what version exists?"
 - Campaign workspaces must expose rule-environment and dossier health before live play continues.
+- Downtime, aftermath, heat, faction, contact, and reputation changes are first-class workspace truth, not optional recap garnish.
 - Device roles are install-local posture and must not silently rewrite entitlements or campaign truth.
 - A fix notice is only trustworthy when support and release truth agree it reached the reporter's real channel.
 - Organizer and community operator surfaces must reuse the same account, group, and entitlement substrate rather than inventing a second authority model.

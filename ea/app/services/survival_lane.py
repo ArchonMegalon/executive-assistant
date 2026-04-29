@@ -117,7 +117,7 @@ def _clamp_text(text: str, *, limit: int) -> str:
 
 
 def _survival_route_order() -> tuple[str, ...]:
-    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "onemin,gemini_vortex,gemini_web,chatplayground")
+    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "chatplayground,gemini_web,gemini_vortex,onemin")
     ordered: list[str] = []
     seen: set[str] = set()
     aliases = {
@@ -139,7 +139,7 @@ def _survival_route_order() -> tuple[str, ...]:
             continue
         seen.add(normalized)
         ordered.append(normalized)
-    return tuple(ordered or ("onemin", "gemini_vortex", "gemini_web", "chatplayground"))
+    return tuple(ordered or ("chatplayground", "gemini_web", "gemini_vortex", "onemin"))
 
 
 def _survival_cache_ttl_seconds() -> int:
@@ -179,6 +179,24 @@ def _ui_challenge_cooldown_seconds() -> int:
 
 def _ui_challenge_max_consecutive() -> int:
     return _to_int(_env("EA_UI_CHALLENGE_MAX_CONSECUTIVE", "2"), 2, minimum=1, maximum=20)
+
+
+def _survival_unavailable_cooldown_seconds() -> int:
+    return _to_int(_env("EA_SURVIVAL_UNAVAILABLE_COOLDOWN_SECONDS", "900"), 900, minimum=30, maximum=86400)
+
+
+_SURVIVAL_BACKEND_PROVIDER_KEYS = {
+    "chatplayground": "browseract",
+    "gemini_web": "browseract",
+    "gemini_vortex": "gemini_vortex",
+    "onemin": "onemin",
+}
+_SURVIVAL_BACKEND_HEALTH_ALIASES = {
+    "chatplayground": ("chatplayground", "browseract"),
+    "gemini_web": ("gemini_web", "browseract", "chatplayground"),
+    "gemini_vortex": ("gemini_vortex",),
+    "onemin": ("onemin",),
+}
 
 
 def _cache_get(cache_key: str) -> "SurvivalResult" | None:
@@ -236,6 +254,241 @@ def _test_reset_survival_state() -> None:
     with _SURVIVAL_QUEUE_LOCK:
         _SURVIVAL_ACTIVE_REQUESTS = 0
         _SURVIVAL_QUEUE_LOCK.notify_all()
+
+
+def _survival_backend_provider_key(backend: str) -> str:
+    return str(_SURVIVAL_BACKEND_PROVIDER_KEYS.get(str(backend or "").strip().lower(), "") or "").strip()
+
+
+def _survival_backend_health_aliases(backend: str) -> tuple[str, ...]:
+    normalized = str(backend or "").strip().lower()
+    aliases = _SURVIVAL_BACKEND_HEALTH_ALIASES.get(normalized, (normalized,))
+    return tuple(str(item or "").strip() for item in aliases if str(item or "").strip())
+
+
+def _survival_provider_health_payload(
+    provider_health: dict[str, object] | None,
+    *,
+    backend: str,
+) -> tuple[str, dict[str, object]]:
+    providers = dict(((provider_health or {}).get("providers")) or {})
+    for provider_key in _survival_backend_health_aliases(backend):
+        payload = dict(providers.get(provider_key) or {})
+        if payload:
+            return provider_key, payload
+    return "", {}
+
+
+def _survival_provider_capacity(provider_payload: dict[str, object]) -> dict[str, object]:
+    slots = [dict(item) for item in (provider_payload.get("slots") or []) if isinstance(item, dict)]
+    configured_slots = int(provider_payload.get("configured_slots") or len(slots) or 0)
+    slot_states = [str(slot.get("state") or "").strip().lower() or "unknown" for slot in slots if bool(slot.get("configured", True))]
+    ready_slots = sum(1 for state in slot_states if state == "ready")
+    degraded_slots = sum(
+        1
+        for state in slot_states
+        if state in {"degraded", "cooldown", "maintenance", "unknown", "rate_limited", "quarantined", "quota_low", "throttled"}
+    )
+    unavailable_slots = max(0, configured_slots - ready_slots - degraded_slots)
+    state = str(provider_payload.get("state") or "").strip().lower()
+    if not state:
+        if ready_slots > 0:
+            state = "ready"
+        elif degraded_slots > 0:
+            state = "degraded"
+        elif configured_slots > 0:
+            state = "unknown"
+        else:
+            state = "missing"
+    elif state == "ready" and configured_slots > 0 and ready_slots <= 0:
+        state = "degraded" if degraded_slots > 0 else "unavailable"
+    return {
+        "state": state,
+        "configured_slots": configured_slots,
+        "ready_slots": ready_slots,
+        "degraded_slots": degraded_slots,
+        "unavailable_slots": unavailable_slots,
+        "detail": str(provider_payload.get("detail") or "").strip(),
+    }
+
+
+def _current_backend_failure(backend: str) -> "UiLaneFailure" | None:
+    normalized = str(backend or "").strip().lower()
+    if not normalized:
+        return None
+    now = time.time()
+    with _SURVIVAL_BACKEND_STATE_LOCK:
+        state = _SURVIVAL_BACKEND_STATE.get(normalized)
+        if state is None or state.cooldown_until <= now or not state.last_failure_code:
+            return None
+        try:
+            code = UiLaneFailureCode(state.last_failure_code)
+        except ValueError:
+            return None
+        return UiLaneFailure(
+            provider_backend=normalized,
+            code=code,
+            detail=state.last_failure_detail,
+            retryable=True,
+            cooldown_seconds=max(0, int(state.cooldown_until - now)),
+        )
+
+
+def _clear_backend_failure_state(backend: str) -> None:
+    normalized = str(backend or "").strip().lower()
+    if not normalized:
+        return
+    with _SURVIVAL_BACKEND_STATE_LOCK:
+        _SURVIVAL_BACKEND_STATE.pop(normalized, None)
+
+
+def _record_backend_failure_state(backend: str, failure: "UiLaneFailure") -> None:
+    normalized = str(backend or failure.provider_backend or "").strip().lower()
+    if not normalized:
+        return
+    now = time.time()
+    with _SURVIVAL_BACKEND_STATE_LOCK:
+        state = _SURVIVAL_BACKEND_STATE.get(normalized) or _BackendFailureState()
+        if failure.code in {
+            UiLaneFailureCode.challenge_required,
+            UiLaneFailureCode.challenge_loop,
+            UiLaneFailureCode.session_expired,
+        }:
+            state.consecutive_challenges += 1
+            if state.consecutive_challenges >= _ui_challenge_max_consecutive():
+                state.last_failure_code = UiLaneFailureCode.challenge_loop.value
+            else:
+                state.last_failure_code = failure.code.value
+            state.cooldown_until = now + float(failure.cooldown_seconds or _ui_challenge_cooldown_seconds())
+        else:
+            state.consecutive_challenges = 0
+            state.last_failure_code = failure.code.value
+            state.cooldown_until = now + float(max(0, failure.cooldown_seconds))
+        state.last_failure_detail = failure.detail
+        state.last_failure_at = now
+        _SURVIVAL_BACKEND_STATE[normalized] = state
+
+
+def _test_record_backend_failure(
+    *,
+    backend: str,
+    code: str,
+    detail: str = "",
+    cooldown_seconds: int | None = None,
+) -> None:
+    normalized_code = UiLaneFailureCode(str(code or "").strip().lower())
+    if cooldown_seconds is None:
+        if normalized_code in {
+            UiLaneFailureCode.challenge_required,
+            UiLaneFailureCode.challenge_loop,
+            UiLaneFailureCode.session_expired,
+        }:
+            cooldown_seconds = _ui_challenge_cooldown_seconds()
+        elif normalized_code == UiLaneFailureCode.lane_unavailable:
+            cooldown_seconds = _survival_unavailable_cooldown_seconds()
+        else:
+            cooldown_seconds = 0
+    _record_backend_failure_state(
+        backend,
+        UiLaneFailure(
+            provider_backend=str(backend or "").strip().lower(),
+            code=normalized_code,
+            detail=str(detail or "").strip(),
+            retryable=True,
+            cooldown_seconds=int(cooldown_seconds),
+        ),
+    )
+
+
+def survival_route_health_snapshot(
+    *,
+    provider_health: dict[str, object] | None = None,
+    browseract_binding_available: bool | None = None,
+) -> dict[str, object]:
+    route_order = _survival_route_order()
+    backends: list[dict[str, object]] = []
+    all_provider_hint_order: list[str] = []
+    provider_hint_order: list[str] = []
+    selected_backend = ""
+    selected_provider_key = ""
+    selected_health_provider_key = ""
+    selected_state = "unavailable"
+    for backend in route_order:
+        provider_key = _survival_backend_provider_key(backend)
+        if provider_key and provider_key not in all_provider_hint_order:
+            all_provider_hint_order.append(provider_key)
+        health_provider_key, provider_payload = _survival_provider_health_payload(provider_health, backend=backend)
+        capacity = _survival_provider_capacity(provider_payload)
+        ready_slots = int(capacity.get("ready_slots") or 0)
+        configured_slots = int(capacity.get("configured_slots") or 0)
+        raw_state = str(capacity.get("state") or "missing").strip().lower() or "missing"
+        failure = _current_backend_failure(backend)
+        browseract_binding_blocked = (
+            browseract_binding_available is False
+            and backend in {"chatplayground", "gemini_web"}
+        )
+        if browseract_binding_blocked:
+            advertised_state = "unavailable"
+            detail = "browseract_binding_unavailable"
+            routable = False
+        elif failure is not None:
+            advertised_state = "cooldown"
+            detail_parts = [f"cooldown_active:{failure.code.value}"]
+            if failure.cooldown_seconds > 0:
+                detail_parts.append(f"{failure.cooldown_seconds}s")
+            if failure.detail:
+                detail_parts.append(str(failure.detail))
+            detail = " ".join(part for part in detail_parts if part).strip()
+            routable = False
+        else:
+            advertised_state = "ready" if ready_slots > 0 or (configured_slots <= 0 and raw_state == "ready") else raw_state
+            detail = str(capacity.get("detail") or "").strip()
+            routable = advertised_state == "ready"
+        row = {
+            "backend": backend,
+            "provider_key": provider_key,
+            "health_provider_key": health_provider_key or provider_key,
+            "state": advertised_state,
+            "raw_state": raw_state,
+            "detail": detail,
+            "routable": routable,
+            "configured_slots": configured_slots,
+            "ready_slots": ready_slots,
+            "degraded_slots": int(capacity.get("degraded_slots") or 0),
+            "unavailable_slots": int(capacity.get("unavailable_slots") or 0),
+        }
+        backends.append(row)
+        if routable and provider_key and provider_key not in provider_hint_order:
+            provider_hint_order.append(provider_key)
+        if routable and not selected_backend:
+            selected_backend = backend
+            selected_provider_key = provider_key
+            selected_health_provider_key = str(row.get("health_provider_key") or provider_key or "").strip()
+            selected_state = advertised_state
+    if selected_backend:
+        reason = (
+            f"selected survival backend={selected_backend} "
+            f"provider={selected_provider_key or selected_health_provider_key or 'unknown'} state={selected_state}"
+        )
+    else:
+        reason = "no routable survival backends"
+        blocked = [
+            f"{row['backend']}:{row['state']}{(':' + str(row['detail'])) if row.get('detail') else ''}"
+            for row in backends
+        ]
+        if blocked:
+            reason = reason + ": " + "; ".join(blocked)
+    return {
+        "route_order": route_order,
+        "provider_hint_order": tuple(provider_hint_order),
+        "route_provider_hint_order": tuple(all_provider_hint_order),
+        "backend": selected_backend,
+        "health_provider_key": selected_health_provider_key,
+        "primary_provider_key": selected_provider_key,
+        "state": selected_state if selected_backend else "unavailable",
+        "reason": reason,
+        "backends": tuple(backends),
+    }
 
 
 @dataclass(frozen=True)
@@ -496,13 +749,16 @@ class SurvivalLaneService:
         try:
             result = self._tool_execution.execute_invocation(invocation)
         except ToolExecutionError as exc:
+            failure = self._ui_failure_from_detail(str(exc), backend_hint="onemin")
+            if failure is not None:
+                self._record_backend_failure("onemin", failure)
             attempts.append(
                 SurvivalAttempt(
                     backend="onemin",
                     started_at=started_at,
                     completed_at=time.time(),
                     status="failed",
-                    detail=str(exc),
+                    detail=(failure.code.value if failure is not None else str(exc)),
                 )
             )
             return None
@@ -524,6 +780,7 @@ class SurvivalLaneService:
                 )
             )
             return None
+        self._clear_backend_failure("onemin")
         attempts.append(
             SurvivalAttempt(
                 backend="onemin",
@@ -585,13 +842,16 @@ class SurvivalLaneService:
         try:
             result = self._tool_execution.execute_invocation(invocation)
         except ToolExecutionError as exc:
+            failure = self._ui_failure_from_detail(str(exc), backend_hint="gemini_vortex")
+            if failure is not None:
+                self._record_backend_failure("gemini_vortex", failure)
             attempts.append(
                 SurvivalAttempt(
                     backend="gemini_vortex",
                     started_at=started_at,
                     completed_at=time.time(),
                     status="failed",
-                    detail=str(exc),
+                    detail=(failure.code.value if failure is not None else str(exc)),
                 )
             )
             return None
@@ -609,6 +869,7 @@ class SurvivalLaneService:
                 )
             )
             return None
+        self._clear_backend_failure("gemini_vortex")
         attempts.append(
             SurvivalAttempt(
                 backend="gemini_vortex",
@@ -635,6 +896,16 @@ class SurvivalLaneService:
     ) -> SurvivalResult | None:
         started_at = time.time()
         if self._tool_execution is None:
+            self._record_backend_failure(
+                "gemini_web",
+                UiLaneFailure(
+                    provider_backend="gemini_web",
+                    code=UiLaneFailureCode.lane_unavailable,
+                    detail="tool_execution_unavailable",
+                    retryable=True,
+                    cooldown_seconds=_survival_unavailable_cooldown_seconds(),
+                ),
+            )
             attempts.append(
                 SurvivalAttempt(
                     backend="gemini_web",
@@ -647,6 +918,16 @@ class SurvivalLaneService:
             return None
         binding_id = self._browseract_binding_id()
         if not binding_id:
+            self._record_backend_failure(
+                "gemini_web",
+                UiLaneFailure(
+                    provider_backend="gemini_web",
+                    code=UiLaneFailureCode.lane_unavailable,
+                    detail="browseract_binding_unavailable",
+                    retryable=True,
+                    cooldown_seconds=_survival_unavailable_cooldown_seconds(),
+                ),
+            )
             attempts.append(
                 SurvivalAttempt(
                     backend="gemini_web",
@@ -741,6 +1022,16 @@ class SurvivalLaneService:
     ) -> SurvivalResult | None:
         started_at = time.time()
         if self._tool_execution is None:
+            self._record_backend_failure(
+                "chatplayground",
+                UiLaneFailure(
+                    provider_backend="chatplayground",
+                    code=UiLaneFailureCode.lane_unavailable,
+                    detail="tool_execution_unavailable",
+                    retryable=True,
+                    cooldown_seconds=_survival_unavailable_cooldown_seconds(),
+                ),
+            )
             attempts.append(
                 SurvivalAttempt(
                     backend="chatplayground",
@@ -753,6 +1044,16 @@ class SurvivalLaneService:
             return None
         binding_id = self._browseract_binding_id()
         if not binding_id:
+            self._record_backend_failure(
+                "chatplayground",
+                UiLaneFailure(
+                    provider_backend="chatplayground",
+                    code=UiLaneFailureCode.lane_unavailable,
+                    detail="browseract_binding_unavailable",
+                    retryable=True,
+                    cooldown_seconds=_survival_unavailable_cooldown_seconds(),
+                ),
+            )
             attempts.append(
                 SurvivalAttempt(
                     backend="chatplayground",
@@ -879,58 +1180,13 @@ class SurvivalLaneService:
         return "\n\n".join(part for part in parts if part).strip()
 
     def _backend_cooldown_failure(self, backend: str) -> UiLaneFailure | None:
-        normalized = str(backend or "").strip().lower()
-        if not normalized:
-            return None
-        now = time.time()
-        with _SURVIVAL_BACKEND_STATE_LOCK:
-            state = _SURVIVAL_BACKEND_STATE.get(normalized)
-            if state is None or state.cooldown_until <= now or not state.last_failure_code:
-                return None
-            try:
-                code = UiLaneFailureCode(state.last_failure_code)
-            except ValueError:
-                return None
-            return UiLaneFailure(
-                provider_backend=normalized,
-                code=code,
-                detail=state.last_failure_detail,
-                retryable=True,
-                cooldown_seconds=max(0, int(state.cooldown_until - now)),
-            )
+        return _current_backend_failure(backend)
 
     def _clear_backend_failure(self, backend: str) -> None:
-        normalized = str(backend or "").strip().lower()
-        if not normalized:
-            return
-        with _SURVIVAL_BACKEND_STATE_LOCK:
-            _SURVIVAL_BACKEND_STATE.pop(normalized, None)
+        _clear_backend_failure_state(backend)
 
     def _record_backend_failure(self, backend: str, failure: UiLaneFailure) -> None:
-        normalized = str(backend or failure.provider_backend or "").strip().lower()
-        if not normalized:
-            return
-        now = time.time()
-        with _SURVIVAL_BACKEND_STATE_LOCK:
-            state = _SURVIVAL_BACKEND_STATE.get(normalized) or _BackendFailureState()
-            if failure.code in {
-                UiLaneFailureCode.challenge_required,
-                UiLaneFailureCode.challenge_loop,
-                UiLaneFailureCode.session_expired,
-            }:
-                state.consecutive_challenges += 1
-                if state.consecutive_challenges >= _ui_challenge_max_consecutive():
-                    state.last_failure_code = UiLaneFailureCode.challenge_loop.value
-                else:
-                    state.last_failure_code = failure.code.value
-                state.cooldown_until = now + float(failure.cooldown_seconds or _ui_challenge_cooldown_seconds())
-            else:
-                state.consecutive_challenges = 0
-                state.last_failure_code = failure.code.value
-                state.cooldown_until = now + float(max(0, failure.cooldown_seconds))
-            state.last_failure_detail = failure.detail
-            state.last_failure_at = now
-            _SURVIVAL_BACKEND_STATE[normalized] = state
+        _record_backend_failure_state(backend, failure)
 
     def _ui_failure_from_detail(self, detail: str, *, backend_hint: str) -> UiLaneFailure | None:
         normalized = str(detail or "").strip()
@@ -945,11 +1201,15 @@ class SurvivalLaneService:
                 code = UiLaneFailureCode(str(code_raw or "").strip().lower())
             except ValueError:
                 return None
-            cooldown = _ui_challenge_cooldown_seconds() if code in {
+            cooldown = 0
+            if code in {
                 UiLaneFailureCode.challenge_required,
                 UiLaneFailureCode.challenge_loop,
                 UiLaneFailureCode.session_expired,
-            } else 0
+            }:
+                cooldown = _ui_challenge_cooldown_seconds()
+            elif code == UiLaneFailureCode.lane_unavailable:
+                cooldown = _survival_unavailable_cooldown_seconds()
             extra_detail = parts[3] if len(parts) > 3 else normalized
             return UiLaneFailure(
                 provider_backend=str(backend or backend_hint or "").strip().lower(),
@@ -988,6 +1248,6 @@ class SurvivalLaneService:
                 code=UiLaneFailureCode.lane_unavailable,
                 detail=normalized,
                 retryable=True,
-                cooldown_seconds=0,
+                cooldown_seconds=_survival_unavailable_cooldown_seconds(),
             )
         return None

@@ -18,6 +18,7 @@ That middle needs explicit canon for the things users actually carry across time
 * runner dossier
 * crew
 * campaign
+* campaign memory and consequence truth
 * rule environment
 * run
 * scene
@@ -60,6 +61,25 @@ The long-lived operation frame that contains:
 
 Campaign truth does not own shared-world strategy state.
 Campaigns may reference mission-market identifiers and consequence markers, but those remain adjacent objects until a dedicated shared world contract is introduced.
+
+### Campaign memory and consequence truth
+
+Campaign memory is the governed continuity layer that lets a campaign survive the space between runs.
+
+It carries first-class product truth for:
+
+* downtime plans and queued downtime actions
+* aftermath packages and explicit "what changed" receipts
+* heat movement with named channels and threshold posture
+* faction stance, favor, and consequence deltas that affect the crew now
+* contact truth such as availability, leverage, debt, compromise, and relationship drift
+* reputation gains, spends, burns, and next-session return cues
+
+This is not recap prose and it is not only world-state flavor.
+It is the durable campaign-scale consequence layer that desktop, mobile, Hub, and later publication projections must all reuse.
+
+Campaign memory may reference world-facing identifiers, district pressure, or future BLACK LEDGER objects.
+It still owns the campaign-local truth for what changed for this crew, what is stale, and what requires GM or player action before the next session.
 
 ### Run
 
@@ -153,10 +173,12 @@ It should carry:
 
 * runner dossier identity and version refs
 * crew and campaign identity
+* campaign memory packet refs for downtime, aftermath, heat, faction, contact, and reputation truth
 * rule-environment refs and compatibility fingerprints
 * run, scene, and objective refs
 * continuity snapshot refs
 * replay-safe event or recap linkage
+* next-session return action refs
 * publication-safe dossier and recap projections
 
 ## Non-goals
@@ -166,4 +188,5 @@ This file does not:
 * redefine engine legality or explain receipts
 * define every UI screen
 * turn media assets into campaign truth
+* turn world-state strategy, district governance, or faction-seat control into campaign-owned truth
 * require a new repo before the bounded context is real

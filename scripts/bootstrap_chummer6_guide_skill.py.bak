@@ -324,51 +324,11 @@ def build_pack_auditor_skill_payload() -> dict[str, object]:
     return _apply_visual_contract_context(payload)
 
 
-def build_user_auditor_skill_payload() -> dict[str, object]:
-    payload = _common_skill_fields(publishable=False)
-    payload["output_schema_json"] = {
-        "type": "object",
-        "properties": {
-            "status": {"enum": ["ok", "revise"]},
-            "approval_state": {"enum": ["approved", "rejected"]},
-            "summary": {"type": "string"},
-            "findings": {"type": "array", "items": {"type": "string"}},
-            "risky_scopes": {"type": "array", "items": {"type": "string"}},
-            "improvement_suggestions": {"type": "array", "items": {"type": "string"}},
-            "rewritten_content": {"type": "string"},
-        },
-        "required": ["status", "approval_state", "summary", "findings", "risky_scopes", "improvement_suggestions", "rewritten_content"],
-    }
-    payload["runtime_policy_json"] = {
-        **dict(payload.get("runtime_policy_json") or {}),
-        "audit_position": "post_generation_pre_publish",
-        "reject_developer_facing_public_copy": True,
-        "send_rejected_copy_back_to_generator": True,
-    }
-    payload.update(
-        {
-            "skill_key": "chummer6_user_auditor",
-            "task_key": "chummer6_user_facing_audit",
-            "name": "Chummer6 User Auditor",
-            "description": "Audits generated public Chummer6 copy and transforms developer-facing content into casual user-focused language. Ensures every section answers What's in it for me? with concrete examples, practical next steps, and player/GM value.",
-            "memory_writes": ["chummer6_user_audit_fact"],
-            "tags": ["chummer6", "guide", "user-audit", "audience", "conversion"],
-            "provider_hints_json": {
-                "primary": ["Gemini Vortex"],
-                "research": ["BrowserAct"],
-                "output": ["Gemini Vortex", "Prompting Systems"],
-                "style": ["Gemini Vortex"],
-            },
-        }
-    )
-    return payload
-
 def build_skill_payloads() -> list[dict[str, object]]:
     return [
         build_public_writer_skill_payload(),
         build_public_auditor_skill_payload(),
         build_visual_director_skill_payload(),
-        build_user_auditor_skill_payload(),
         build_scene_auditor_skill_payload(),
         build_visual_auditor_skill_payload(),
         build_pack_auditor_skill_payload(),

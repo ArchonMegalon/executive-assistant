@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 import re
+import shlex
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -68,6 +71,3356 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
         client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
+
+
+def test_tool_shim_does_not_inject_fleet_status_when_worker_prompt_forbids_it() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    You are Codex running through the Fleet codexea worker shim.
+    Task-local run context summary:
+    - remaining milestones: 27
+    Run these exact commands first and do not invent another orientation step:
+    1. `cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/run/TASK_LOCAL_TELEMETRY.generated.json`
+    Do not query supervisor status or eta from inside the worker run.
+    The task-local telemetry file is the status snapshot.
+    """
+
+    assert responses._tool_shim_direct_local_fleet_command(prompt) is None
+
+
+def test_tool_shim_direct_staged_first_command_short_circuits_initial_exec_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before staged first command")),
+    )
+
+    prompt = """
+    You are Codex running through the Fleet codexea worker shim.
+    Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
+    - Never replace those first commands with supervisor status or ETA.
+    - After reading the staged files, patch the unblock path.
+    """
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea",
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_worker_safe_first_commands_short_circuit_initial_exec_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before worker safe first command")),
+    )
+
+    prompt = """
+    Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+    - `cat /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json`
+    - `sed -n '1,220p' /docker/chummercomplete/chummer-presentation/WORKLIST.md`
+    Read these files directly first:
+    - /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json
+    - /docker/chummercomplete/chummer-presentation/WORKLIST.md
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": (
+            responses._tool_shim_direct_compact_worker_telemetry_command(
+                "/var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json"
+            )
+            + " ; sed -n '1,220p' /docker/chummercomplete/chummer-presentation/WORKLIST.md"
+        ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_staged_first_command_advances_to_next_exec_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run during staged command sequence")),
+    )
+
+    prompt = """
+    You are Codex running through the Fleet codexea worker shim.
+    Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
+    - Never replace those first commands with supervisor status or ETA.
+    - After reading the staged files, patch the unblock path.
+    """
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}
+                ),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "snippet",
+            },
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3",
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_staged_first_command_stops_before_prose_bullets() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    You are Codex running through the Fleet codexea worker shim.
+    Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
+    - Never replace those first commands with supervisor status or ETA.
+    - After reading the staged files, patch the unblock path.
+    """
+
+    next_command = responses._tool_shim_direct_staged_first_command(
+        prompt,
+        history_items=[
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}
+                ),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3"}
+                ),
+                "call_id": "call_2",
+            },
+        ],
+    )
+
+    assert next_command is None
+
+
+def test_tool_shim_direct_worker_file_list_fallback_builds_read_commands() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Read these files directly first:
+    - /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json
+    - /docker/chummercomplete/chummer-presentation/WORKLIST.md
+    - /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml
+    Required order:
+    1. Open the task-local telemetry file and one listed repo file.
+    """
+
+    commands = responses._tool_shim_staged_commands(prompt)
+
+    assert commands == [
+        "cat /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json",
+        "sed -n '1,220p' /docker/chummercomplete/chummer-presentation/WORKLIST.md",
+        "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+    ]
+
+
+def test_tool_shim_direct_file_list_accepts_shell_read_commands() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Read these files directly first:
+    $ sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh
+    $ sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs
+    """
+
+    commands = responses._tool_shim_staged_commands(prompt)
+
+    assert commands == [
+        "sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh",
+        "sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs",
+    ]
+
+
+def test_tool_shim_staged_commands_accepts_dollar_prefixed_generic_shell_commands() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Run these exact commands first:
+    $ git status --short
+    $ git add -A
+    $ git commit -m 'Stabilize CodexEA and fleet readiness routing'
+    $ git push origin HEAD
+    """
+
+    commands = responses._tool_shim_staged_commands(prompt)
+
+    assert commands == [
+        "git status --short",
+        "git add -A",
+        "git commit -m 'Stabilize CodexEA and fleet readiness routing'",
+        "git push origin HEAD",
+    ]
+
+
+def test_tool_shim_direct_staged_first_command_batches_git_commit_push_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before staged git workflow")),
+    )
+
+    prompt = """
+    Run these exact commands first:
+    $ git status --short
+    $ git add -A
+    $ git commit -m 'Stabilize CodexEA and fleet readiness routing'
+    $ git push origin HEAD
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": (
+            "bash -lc "
+            + shlex.quote(
+                "set -euo pipefail; git status --short; git add -A; "
+                "if git diff --cached --quiet; then echo '[codexea] nothing new to commit'; "
+                "else git commit -m 'Stabilize CodexEA and fleet readiness routing'; fi; "
+                "git push origin HEAD; git rev-parse HEAD"
+            )
+        ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_final_text_reports_pushed_git_commit_hash() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Run these exact commands first:
+    $ git status --short
+    $ git add -A
+    $ git commit -m 'Stabilize CodexEA and fleet readiness routing'
+    $ git push origin HEAD
+    """
+    workflow_command = (
+        "bash -lc "
+        + shlex.quote(
+            "set -euo pipefail; git status --short; git add -A; "
+            "if git diff --cached --quiet; then echo '[codexea] nothing new to commit'; "
+            "else git commit -m 'Stabilize CodexEA and fleet readiness routing'; fi; "
+            "git push origin HEAD; git rev-parse HEAD"
+        )
+    )
+
+    final_text = responses._tool_shim_direct_final_text(
+        [
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": workflow_command}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": (
+                    "[main abc1234] Stabilize CodexEA and fleet readiness routing\n"
+                    " 1 file changed, 1 insertion(+)\n"
+                    "To https://example.invalid/repo.git\n"
+                    "   abc1234..def5678  HEAD -> main\n"
+                    "0123456789abcdef0123456789abcdef01234567\n"
+                ),
+            },
+        ]
+    )
+
+    assert final_text == "Pushed commit 0123456789abcdef0123456789abcdef01234567"
+
+
+def test_tool_shim_direct_staged_first_command_short_circuits_readiness_shell_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before readiness shell reads")),
+    )
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh
+    $ sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": (
+            "sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh"
+            " ; "
+            "sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs"
+        ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_staged_first_command_batches_full_readiness_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before full readiness batch")),
+    )
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ rg -n 'trace' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh
+    $ rg -n 'B16' /docker/chummercomplete/chummer-presentation/WORKLIST.md
+    $ bash -lc 'if [ -f /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json ]; then cat /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; else echo missing:/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; fi'
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": (
+            "rg -n 'trace' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh"
+            " ; "
+            "rg -n 'B16' /docker/chummercomplete/chummer-presentation/WORKLIST.md"
+            " ; "
+            "bash -lc 'if [ -f /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json ]; then cat /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; else echo missing:/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; fi'"
+        ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_staged_first_command_advances_after_batched_readiness_reads() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh
+    $ sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs
+    $ cat /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_AUDIT.generated.json
+    """
+
+    next_command = responses._tool_shim_direct_staged_first_command(
+        prompt,
+        history_items=[
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {
+                        "cmd": (
+                            "sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh"
+                            " ; "
+                            "sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs"
+                        )
+                    }
+                ),
+                "call_id": "call_1",
+            }
+        ],
+    )
+
+    assert next_command == "cat /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_AUDIT.generated.json"
+
+
+def test_tool_shim_direct_post_readiness_materializes_passing_tmp_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before readiness materialize command")),
+    )
+
+    probe_command = "python3 -c 'print(\"probe\")'"
+    summary = {
+        "materialize_ready": True,
+        "tmp_bundle_dir": "/docker/chummercomplete/chummer-presentation/.tmp/user-journey-tester.bvU9O1",
+        "published_trace_path": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json",
+        "published_screenshot_dir": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/user-journey-tester-screenshots",
+        "published_audit_path": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_AUDIT.generated.json",
+    }
+    prompt = f"""
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ {probe_command}
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": probe_command}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(summary),
+            },
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert "cp \"$bundle/trace.json\" \"$trace\"" in decision.arguments["cmd"]
+    assert "bash scripts/ai/milestones/user-journey-tester-audit.sh" in decision.arguments["cmd"]
+    assert "USER_JOURNEY_TESTER_AUDIT.generated.json" in decision.arguments["cmd"]
+
+
+def test_tool_shim_direct_final_text_reports_readiness_success() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ python3 /docker/fleet/scripts/codex-shims/codexea_readiness_probe.py
+    """
+    final_text = responses._tool_shim_direct_final_text(
+        [
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "bash -lc 'materialize'"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "status": "pass",
+                        "reasons": [],
+                        "trace_path": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json",
+                        "tester_shard_id": "tester-shard",
+                        "fix_shard_id": "fixer-shard",
+                    }
+                ),
+            },
+        ]
+    )
+
+    assert final_text is not None
+    assert "status=pass" in final_text
+    assert "USER_JOURNEY_TESTER_TRACE.generated.json" in final_text
+
+
+def test_tool_shim_direct_final_text_reports_existing_published_readiness_success() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ python3 /docker/fleet/scripts/codex-shims/codexea_readiness_probe.py
+    """
+    final_text = responses._tool_shim_direct_final_text(
+        [
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_readiness_probe.py"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "published_trace_exists": True,
+                        "published_trace_path": "/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json",
+                        "published_audit_status": "pass",
+                        "published_audit_reasons": [],
+                    }
+                ),
+            },
+        ]
+    )
+
+    assert final_text is not None
+    assert "already materialized" in final_text
+    assert "status=pass" in final_text
+
+
+def test_tool_shim_direct_post_staged_command_short_circuits_to_repo_diff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before staged follow-up diff")),
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_build_staged_repo_diff_command",
+        lambda commands: "git -C /docker/fleet diff --stat -- scripts/codex-shims/codexea",
+    )
+
+    prompt = """
+    You are Codex running through the Fleet codexea worker shim.
+    Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
+    - Never replace those first commands with supervisor status or ETA.
+    - After reading the staged files, patch the unblock path.
+    """
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}
+                ),
+                "call_id": "call_1",
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3"}
+                ),
+                "call_id": "call_2",
+            },
+            {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "git -C /docker/fleet diff --stat -- scripts/codex-shims/codexea",
+        "max_output_tokens": 1200,
+    }
+
+
+def test_tool_shim_direct_post_staged_command_handles_combined_staged_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_build_staged_repo_diff_command",
+        lambda commands: "git -C /docker/chummercomplete/chummer-presentation diff --stat -- scripts/ai/milestones/user-journey-tester-audit.sh",
+    )
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Read these files directly first:
+    $ rg -n 'trace' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh ; rg -n 'B16' /docker/chummercomplete/chummer-presentation/WORKLIST.md
+    $ sed -n '118,132p' /docker/chummercomplete/chummer-design/products/chummer/DESKTOP_EXECUTABLE_EXIT_GATES.md ; sed -n '438,460p' /docker/chummercomplete/chummer-design/products/chummer/GOLDEN_JOURNEY_RELEASE_GATES.yaml
+    $ bash -lc 'if [ -f /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json ]; then cat /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; else echo missing:/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; fi'
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {
+                        "cmd": (
+                            "rg -n 'trace' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh"
+                            " ; "
+                            "rg -n 'B16' /docker/chummercomplete/chummer-presentation/WORKLIST.md"
+                        )
+                    }
+                ),
+                "call_id": "call_1",
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {
+                        "cmd": (
+                            "sed -n '118,132p' /docker/chummercomplete/chummer-design/products/chummer/DESKTOP_EXECUTABLE_EXIT_GATES.md"
+                            " ; "
+                            "sed -n '438,460p' /docker/chummercomplete/chummer-design/products/chummer/GOLDEN_JOURNEY_RELEASE_GATES.yaml"
+                        )
+                    }
+                ),
+                "call_id": "call_2",
+            },
+            {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {
+                        "cmd": (
+                            "bash -lc 'if [ -f /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json ]; "
+                            "then cat /docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; "
+                            "else echo missing:/docker/chummercomplete/chummer-presentation/.codex-studio/published/USER_JOURNEY_TESTER_TRACE.generated.json; fi'"
+                        )
+                    }
+                ),
+                "call_id": "call_3",
+            },
+            {"type": "function_call_output", "call_id": "call_3", "output": "missing"},
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "git -C /docker/chummercomplete/chummer-presentation diff --stat -- scripts/ai/milestones/user-journey-tester-audit.sh",
+        "max_output_tokens": 1200,
+    }
+
+
+def test_tool_shim_direct_post_staged_repo_hunks_short_circuits_after_repo_diff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before staged follow-up hunks")),
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_build_staged_repo_diff_command",
+        lambda commands: "git -C /docker/fleet diff --stat -- scripts/codex-shims/codexea",
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_build_staged_repo_hunks_command",
+        lambda commands: "git -C /docker/fleet diff --unified=0 -- scripts/codex-shims/codexea | sed -n '1,200p'",
+    )
+
+    prompt = """
+    You are Codex running through the Fleet codexea worker shim.
+    Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
+    - After reading the staged files, patch the unblock path.
+    """
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}
+                ),
+                "call_id": "call_1",
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3"}
+                ),
+                "call_id": "call_2",
+            },
+            {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "git -C /docker/fleet diff --stat -- scripts/codex-shims/codexea"}
+                ),
+                "call_id": "call_3",
+            },
+            {"type": "function_call_output", "call_id": "call_3", "output": "diffstat"},
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "git -C /docker/fleet diff --unified=0 -- scripts/codex-shims/codexea | sed -n '1,200p'",
+        "max_output_tokens": 1800,
+    }
+
+
+def test_tool_shim_direct_operator_unblock_hotspot_short_circuits_initial_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before operator hotspot command")),
+    )
+
+    prompt = """
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - Bootstrap repo context from the orientation commands has already been captured below.
+    Prepared repo context:
+    $ sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py",
+        "max_output_tokens": 1400,
+    }
+
+
+def test_tool_shim_direct_operator_unblock_hotspot_advances_through_hotspot_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run during operator hotspot sequence")),
+    )
+
+    prompt = """
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - Bootstrap repo context from the orientation commands has already been captured below.
+    Prepared repo context:
+    $ sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+                ),
+                "call_id": "call_1",
+            },
+            {"type": "function_call_output", "call_id": "call_1", "output": "snippet"},
+        ],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_live_routing_hotspots_command(),
+        "max_output_tokens": 1400,
+    }
+
+
+def test_tool_shim_direct_operator_unblock_hotspot_reads_live_shard_artifacts_after_repo_hotspots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before live shard artifact reads")),
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_latest_operator_unblock_live_shard_artifacts",
+        lambda: [],
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr),
+        "max_output_tokens": 1400,
+    }
+
+
+def test_tool_shim_direct_operator_unblock_hotspot_reads_live_shard_telemetry_before_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before live shard telemetry read")),
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_latest_operator_unblock_live_shard_artifacts",
+        lambda: [],
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}
+            ),
+            "call_id": "call_4",
+        },
+        {"type": "function_call_output", "call_id": "call_4", "output": "compact stderr"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_direct_compact_worker_telemetry_command(shard_telemetry),
+        "max_output_tokens": 1400,
+    }
+
+
+def test_tool_shim_direct_operator_unblock_hotspot_refreshes_live_shard_artifacts_over_prompt_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    prompt_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    prompt_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    live_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-9/runs/20260429T113513Z-shard-9/worker.stderr.log"
+    live_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-9/runs/20260429T113513Z-shard-9/TASK_LOCAL_TELEMETRY.generated.json"
+    live_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-9/runs/20260429T113513Z-shard-9/WORKER_EXEC_TRACE_PROMPT.md"
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before refreshed live shard artifact reads")),
+    )
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_latest_operator_unblock_live_shard_artifacts",
+        lambda: [
+            ("latest_worker_stderr", live_stderr),
+            ("latest_worker_telemetry", live_telemetry),
+            ("latest_worker_prompt", live_prompt),
+        ],
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {prompt_stderr, prompt_telemetry, prompt_prompt, live_stderr, live_telemetry, live_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {prompt_stderr}
+    - latest_worker_telemetry: {prompt_telemetry}
+    - latest_worker_prompt: {prompt_prompt}
+    """
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_direct_compact_worker_stderr_command(live_stderr),
+        "max_output_tokens": 1400,
+    }
+
+
+def test_tool_shim_direct_operator_unblock_hotspot_does_not_restart_from_new_shard_after_repo_diff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    live_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-9/runs/20260429T113513Z-shard-9/worker.stderr.log"
+    live_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-9/runs/20260429T113513Z-shard-9/TASK_LOCAL_TELEMETRY.generated.json"
+    live_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-9/runs/20260429T113513Z-shard-9/WORKER_EXEC_TRACE_PROMPT.md"
+
+    monkeypatch.setattr(
+        responses,
+        "_tool_shim_latest_operator_unblock_live_shard_artifacts",
+        lambda: [
+            ("latest_worker_stderr", live_stderr),
+            ("latest_worker_telemetry", live_telemetry),
+            ("latest_worker_prompt", live_prompt),
+        ],
+    )
+
+    repo_diff_command = responses._tool_shim_operator_unblock_repo_diff_command()
+    assert repo_diff_command is not None
+
+    next_command = responses._tool_shim_direct_operator_unblock_hotspot_command(
+        f"Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n- latest_worker_stderr: {live_stderr}\n- latest_worker_telemetry: {live_telemetry}\n- latest_worker_prompt: {live_prompt}\n",
+        history_items=[
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+                ),
+                "call_id": "call_hotspot_1",
+            },
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+                ),
+                "call_id": "call_hotspot_2",
+            },
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+                ),
+                "call_id": "call_hotspot_3",
+            },
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": repo_diff_command}),
+                "call_id": "call_repo_diff",
+            },
+        ],
+    )
+
+    assert next_command is None
+
+
+def test_tool_shim_decision_prefers_nested_shard_telemetry_over_prompt_hotspot_after_compact_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    compact_stderr_output = f"""
+Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+- `cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json`
+- `sed -n '1,220p' /docker/chummercomplete/chummer-design/WORKLIST.md`
+"""
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before shard telemetry follow-up")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}),
+            "call_id": "call_4",
+        },
+        {"type": "function_call_output", "call_id": "call_4", "output": compact_stderr_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_direct_compact_worker_telemetry_command(
+            responses._tool_shim_resolve_equivalent_shard_runtime_path(
+                "/var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+            )
+        ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_decision_prefers_operator_repo_diff_followup_over_prompt_hotspot_after_shard_telemetry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                "cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+            ],
+            "source_paths": ["/docker/fleet/WORKLIST.md", "/docker/fleet/README.md"],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before Fleet follow-up")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}),
+            "call_id": "call_stderr",
+        },
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {shard_telemetry}"}),
+            "call_id": "call_4",
+        },
+        {"type": "function_call_output", "call_id": "call_4", "output": telemetry_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_repo_diff_command(),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_decision_prefers_operator_repo_hunks_after_repo_diff_followup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                "cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+            ],
+            "source_paths": ["/docker/fleet/WORKLIST.md", "/docker/fleet/README.md"],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before repo diff hunks")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    repo_diff_command = responses._tool_shim_operator_unblock_repo_diff_command()
+    assert repo_diff_command is not None
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}),
+            "call_id": "call_stderr",
+        },
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {shard_telemetry}"}),
+            "call_id": "call_4",
+        },
+        {"type": "function_call_output", "call_id": "call_4", "output": telemetry_output},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": repo_diff_command}),
+            "call_id": "call_5",
+        },
+        {"type": "function_call_output", "call_id": "call_5", "output": "diff summary"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_repo_hunks_command(),
+        "max_output_tokens": 1800,
+    }
+
+
+def test_tool_shim_decision_prefers_operator_verify_after_repo_hunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                "cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+            ],
+            "source_paths": ["/docker/fleet/WORKLIST.md", "/docker/fleet/README.md"],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before operator verify")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    repo_diff_command = responses._tool_shim_operator_unblock_repo_diff_command()
+    repo_hunks_command = responses._tool_shim_operator_unblock_repo_hunks_command()
+    assert repo_diff_command is not None
+    assert repo_hunks_command is not None
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_1",
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_2",
+        },
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_3",
+        },
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}),
+            "call_id": "call_stderr",
+        },
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {shard_telemetry}"}),
+            "call_id": "call_4",
+        },
+        {"type": "function_call_output", "call_id": "call_4", "output": telemetry_output},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": repo_diff_command}),
+            "call_id": "call_5",
+        },
+        {"type": "function_call_output", "call_id": "call_5", "output": "diff summary"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": repo_hunks_command}),
+            "call_id": "call_6",
+        },
+        {"type": "function_call_output", "call_id": "call_6", "output": "diff hunks"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_verify_command(),
+        "max_output_tokens": 1800,
+    }
+
+
+def test_tool_shim_decision_prefers_operator_provider_health_after_verify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                "cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+            ],
+            "source_paths": ["/docker/fleet/WORKLIST.md", "/docker/fleet/README.md"],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before provider health snapshot")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt, "/docker/fleet/state/chummer_design_supervisor/ea_provider_health_cache.json"} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    repo_diff_command = responses._tool_shim_operator_unblock_repo_diff_command()
+    repo_hunks_command = responses._tool_shim_operator_unblock_repo_hunks_command()
+    verify_command = responses._tool_shim_operator_unblock_verify_command()
+    assert repo_diff_command is not None
+    assert repo_hunks_command is not None
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}), "call_id": "call_1"},
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}), "call_id": "call_2"},
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}), "call_id": "call_3"},
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}), "call_id": "call_stderr"},
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": f"cat {shard_telemetry}"}), "call_id": "call_4"},
+        {"type": "function_call_output", "call_id": "call_4", "output": telemetry_output},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": repo_diff_command}), "call_id": "call_5"},
+        {"type": "function_call_output", "call_id": "call_5", "output": "diff summary"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": repo_hunks_command}), "call_id": "call_6"},
+        {"type": "function_call_output", "call_id": "call_6", "output": "diff hunks"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": verify_command}), "call_id": "call_7"},
+        {"type": "function_call_output", "call_id": "call_7", "output": "19 passed, 95 deselected"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[{"name": "exec_command", "description": "Run a shell command.", "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}}}],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_provider_health_command(),
+        "max_output_tokens": 1800,
+    }
+
+
+def test_tool_shim_decision_prefers_operator_live_routing_hotspots_after_provider_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    shard_stderr = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/worker.stderr.log"
+    shard_telemetry = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    shard_prompt = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                "cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090124Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+            ],
+            "source_paths": ["/docker/fleet/WORKLIST.md", "/docker/fleet/README.md"],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before routing hotspots")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {shard_stderr, shard_telemetry, shard_prompt, "/docker/fleet/state/chummer_design_supervisor/ea_provider_health_cache.json"} or real_exists(path),
+    )
+
+    prompt = f"""
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - latest_worker_stderr: {shard_stderr}
+    - latest_worker_telemetry: {shard_telemetry}
+    - latest_worker_prompt: {shard_prompt}
+    """
+
+    repo_diff_command = responses._tool_shim_operator_unblock_repo_diff_command()
+    repo_hunks_command = responses._tool_shim_operator_unblock_repo_hunks_command()
+    verify_command = responses._tool_shim_operator_unblock_verify_command()
+    provider_health_command = responses._tool_shim_operator_unblock_provider_health_command()
+    assert repo_diff_command is not None
+    assert repo_hunks_command is not None
+
+    history_items = [
+        {"type": "input_text", "text": prompt},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}), "call_id": "call_1"},
+        {"type": "function_call_output", "call_id": "call_1", "output": "snippet 1"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}), "call_id": "call_2"},
+        {"type": "function_call_output", "call_id": "call_2", "output": "snippet 2"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}), "call_id": "call_3"},
+        {"type": "function_call_output", "call_id": "call_3", "output": "snippet 3"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": responses._tool_shim_direct_compact_worker_stderr_command(shard_stderr)}), "call_id": "call_stderr"},
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": f"cat {shard_telemetry}"}), "call_id": "call_4"},
+        {"type": "function_call_output", "call_id": "call_4", "output": telemetry_output},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": repo_diff_command}), "call_id": "call_5"},
+        {"type": "function_call_output", "call_id": "call_5", "output": "diff summary"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": repo_hunks_command}), "call_id": "call_6"},
+        {"type": "function_call_output", "call_id": "call_6", "output": "diff hunks"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": verify_command}), "call_id": "call_7"},
+        {"type": "function_call_output", "call_id": "call_7", "output": "19 passed, 95 deselected"},
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": provider_health_command}), "call_id": "call_8"},
+        {"type": "function_call_output", "call_id": "call_8", "output": '{"configured_slots":69,"ready_slots":0,"quarantine_slots":66,"degraded_slots":2,"reason":"onemin:unavailable"}'},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[{"name": "exec_command", "description": "Run a shell command.", "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}}}],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_live_routing_hotspots_command(),
+        "max_output_tokens": 2200,
+    }
+
+
+def test_tool_shim_direct_compact_provider_health_command_executes(tmp_path: Path) -> None:
+    from app.api.routes import responses
+
+    cache_path = tmp_path / "ea_provider_health_cache.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "cached_at": "2026-04-29T11:40:00Z",
+                "source_url": "http://127.0.0.1:8080/providers/health",
+                "payload": {
+                    "fetched_at": "2026-04-29T11:39:58Z",
+                    "providers": {
+                        "onemin": {
+                            "configured_slots": 4,
+                            "balance_basis_summary": "billing_with_live_overrides",
+                            "last_actual_balance_at": "2026-04-29T11:39:57Z",
+                            "max_credits_total": 307050000,
+                            "remaining_percent_of_max": 9.09,
+                            "estimated_remaining_credits_total": 27908651,
+                            "reason": "provider-health preflight",
+                            "slots": [
+                                {
+                                    "account_name": "acct-ready",
+                                    "slot_env_name": "ONEMIN_READY",
+                                    "state": "ready",
+                                    "remaining_credits": 120000,
+                                    "required_credits": 800,
+                                    "billing_remaining_credits": 2500000,
+                                    "last_probe_result": "ok",
+                                },
+                                {
+                                    "account_name": "acct-mismatch",
+                                    "slot_env_name": "ONEMIN_MISMATCH",
+                                    "state": "quarantine",
+                                    "remaining_credits": 900,
+                                    "required_credits": 76000,
+                                    "billing_remaining_credits": 4255550,
+                                    "estimated_credit_basis": "billing_snapshot",
+                                    "last_probe_result": "insufficient_credits",
+                                    "last_probe_detail": "requires 76000, has 900",
+                                    "last_billing_snapshot_at": "2026-04-29T11:30:00Z",
+                                    "last_success_at": "2026-04-29T10:15:00Z",
+                                    "upstream_reset_unknown": True,
+                                },
+                                {
+                                    "account_name": "acct-degraded",
+                                    "slot_env_name": "ONEMIN_DEGRADED",
+                                    "state": "degraded",
+                                    "remaining_credits": 0,
+                                    "required_credits": 1500,
+                                    "billing_remaining_credits": 15000,
+                                    "last_probe_result": "timeout",
+                                    "last_probe_detail": "probe timeout",
+                                },
+                                {
+                                    "account_name": "acct-unknown",
+                                    "slot_env_name": "ONEMIN_UNKNOWN",
+                                    "state": "unknown",
+                                },
+                            ],
+                        }
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        responses._tool_shim_direct_compact_provider_health_command(str(cache_path)),
+        shell=True,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["fetched_at"] == "2026-04-29T11:39:58Z"
+    assert payload["configured_slots"] == 4
+    assert payload["ready_slots"] == 1
+    assert payload["degraded_slots"] == 1
+    assert payload["quarantine_slots"] == 1
+    assert payload["unknown_slots"] == 1
+    assert payload["balance_basis_summary"] == "billing_with_live_overrides"
+    assert payload["last_actual_balance_at"] == "2026-04-29T11:39:57Z"
+    assert payload["max_credits_total"] == 307050000
+    assert payload["blocked_slots"][0]["slot_env_name"] == "ONEMIN_MISMATCH"
+    assert payload["billing_live_mismatch_slots"][0]["slot_env_name"] == "ONEMIN_MISMATCH"
+
+
+def test_tool_shim_direct_compact_worker_telemetry_command_keeps_fleet_paths_even_if_they_appear_late() -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/tmp/tool_shim_compact_worker_telemetry.json"
+    Path(telemetry_path).write_text(
+        json.dumps(
+            {
+                "summary": "demo",
+                "source_paths": [
+                    "/docker/chummercomplete/chummer.run-services/WORKLIST.md",
+                    "/docker/chummercomplete/chummer-design/products/chummer/projects/hub.md",
+                    "/docker/chummercomplete/chummer.run-services",
+                    "/docker/chummercomplete/chummer-core-engine/WORKLIST.md",
+                    "/docker/chummercomplete/chummer-design/products/chummer/projects/core.md",
+                    "/docker/chummercomplete/chummer-core-engine",
+                    "/docker/fleet/repos/chummer-media-factory/WORKLIST.md",
+                    "/docker/chummercomplete/chummer-design/products/chummer/projects/media-factory.md",
+                    "/docker/fleet/repos/chummer-media-factory",
+                    "/docker/chummercomplete/chummer-presentation/WORKLIST.md",
+                    "/docker/chummercomplete/chummer-presentation/feedback/2026-04-12-classic-dense-workbench-and-veteran-parity.md",
+                    "/docker/chummercomplete/chummer-presentation/feedback/2026-04-13-post-flagship-release-train-and-veteran-certification.md",
+                    "/docker/fleet/WORKLIST.md",
+                    "/docker/fleet/README.md",
+                ],
+                "first_commands": ["cat /var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/run/TASK_LOCAL_TELEMETRY.generated.json"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    compact_cmd = responses._tool_shim_direct_compact_worker_telemetry_command(telemetry_path)
+    output = subprocess.check_output(["/bin/bash", "-lc", compact_cmd], text=True)
+    payload = json.loads(output)
+
+    assert payload["source_paths"][:2] == [
+        "/docker/fleet/WORKLIST.md",
+        "/docker/fleet/README.md",
+    ]
+
+
+def test_tool_shim_direct_nested_staged_first_command_uses_worker_prompt_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090401Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090401Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    prompt_output = f"""
+You are Codex running through the Fleet codexea worker shim.
+Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+- `cat {telemetry_path}`
+- `sed -n '1,220p' /docker/fleet/WORKLIST.md`
+- `sed -n '1,220p' /docker/fleet/README.md`
+- `sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml`
+"""
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before nested staged commands")),
+    )
+
+    history_items = [
+        {
+            "type": "input_text",
+            "text": "Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n- Do not work shard backlog content or slice-specific implementation tasks.\n",
+        },
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_hotspot_1",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_1", "output": "hotspot 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_hotspot_2",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_2", "output": "hotspot 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_hotspot_3",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_3", "output": "hotspot 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"sed -n '1,220p' {prompt_path}"}),
+            "call_id": "call_prompt",
+        },
+        {"type": "function_call_output", "call_id": "call_prompt", "output": prompt_output},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": "{\"ok\":true}"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "sed -n '1,220p' /docker/fleet/WORKLIST.md",
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_staged_first_command_rewrites_missing_var_lib_telemetry_to_existing_state_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    runtime_telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T111453Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    state_telemetry_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T111453Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T111453Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    prompt_output = f"""
+You are Codex running through the Fleet codexea worker shim.
+Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+- `cat {runtime_telemetry_path}`
+- `sed -n '1,220p' /docker/fleet/WORKLIST.md`
+"""
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before nested staged telemetry rewrite")),
+    )
+    real_exists = responses.os.path.exists
+    monkeypatch.setattr(
+        responses.os.path,
+        "exists",
+        lambda path: path in {state_telemetry_path, prompt_path} or real_exists(path),
+    )
+
+    history_items = [
+        {
+            "type": "input_text",
+            "text": "Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n- Do not work shard backlog content or slice-specific implementation tasks.\n",
+        },
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_hotspot_1",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_1", "output": "hotspot 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_hotspot_2",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_2", "output": "hotspot 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_hotspot_3",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_3", "output": "hotspot 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"sed -n '1,220p' {prompt_path}"}),
+            "call_id": "call_prompt",
+        },
+        {"type": "function_call_output", "call_id": "call_prompt", "output": prompt_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_direct_compact_worker_telemetry_command(state_telemetry_path),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_staged_first_command_ignores_pytest_failure_output_with_prompt_markers() -> None:
+    from app.api.routes import responses
+
+    pytest_failure_output = """
+FAILED ../../docker/EA/tests/test_responses_api_contracts.py::test_demo
+
+Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+- `cat /var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/demo/TASK_LOCAL_TELEMETRY.generated.json`
+- `sed -n '1,220p' /docker/fleet/WORKLIST.md`
+"""
+
+    next_command = responses._tool_shim_direct_nested_staged_first_command(
+        "Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n",
+        history_items=[
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {
+                        "cmd": "PYTHONPATH=/docker/EA/ea pytest -q /docker/EA/tests/test_responses_api_contracts.py -k direct_nested_staged"
+                    }
+                ),
+                "call_id": "call_pytest",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_pytest",
+                "output": pytest_failure_output,
+            },
+        ],
+    )
+
+    assert next_command is None
+
+
+def test_tool_shim_direct_nested_post_staged_command_builds_repo_diff_after_allowed_worker_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T090401Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T090401Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    prompt_output = f"""
+Read these files directly first:
+- {telemetry_path}
+- /docker/fleet/WORKLIST.md
+- /docker/fleet/README.md
+- /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml
+"""
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before nested staged follow-up diff")),
+    )
+
+    history_items = [
+        {
+            "type": "input_text",
+            "text": "Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n- Do not work shard backlog content or slice-specific implementation tasks.\n",
+        },
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_hotspot_1",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_1", "output": "hotspot 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}
+            ),
+            "call_id": "call_hotspot_2",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_2", "output": "hotspot 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}
+            ),
+            "call_id": "call_hotspot_3",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_3", "output": "hotspot 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"sed -n '1,220p' {prompt_path}"}),
+            "call_id": "call_prompt",
+        },
+        {"type": "function_call_output", "call_id": "call_prompt", "output": prompt_output},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": "{\"ok\":true}"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1,220p' /docker/fleet/WORKLIST.md"}),
+            "call_id": "call_worklist",
+        },
+        {"type": "function_call_output", "call_id": "call_worklist", "output": "worklist"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1,220p' /docker/fleet/README.md"}),
+            "call_id": "call_readme",
+        },
+        {"type": "function_call_output", "call_id": "call_readme", "output": "readme"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "git -C /docker/fleet status --short -- WORKLIST.md README.md ; git -C /docker/fleet diff --stat -- WORKLIST.md README.md",
+        "max_output_tokens": 1200,
+    }
+
+
+def test_tool_shim_direct_nested_staged_first_command_collects_allowed_reads_from_later_prompt_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-3/runs/20260429T100143Z-shard-3/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_path = "/docker/fleet/state/chummer_design_supervisor/shard-3/runs/20260429T100143Z-shard-3/WORKER_EXEC_TRACE_PROMPT.md"
+    prompt_output = f"""
+Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+- `cat {telemetry_path}`
+- `sed -n '1,220p' /docker/chummercomplete/chummer.run-services/WORKLIST.md`
+- `sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/projects/hub.md`
+
+Read these files directly first:
+- {telemetry_path}
+- /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml
+- /docker/fleet/WORKLIST.md
+- /docker/fleet/README.md
+"""
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before later prompt-block reads")),
+    )
+
+    history_items = [
+        {
+            "type": "input_text",
+            "text": "Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n- Do not work shard backlog content or slice-specific implementation tasks.\n",
+        },
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}),
+            "call_id": "call_hotspot_1",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_1", "output": "hotspot 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_hotspot_2",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_2", "output": "hotspot 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}),
+            "call_id": "call_hotspot_3",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_3", "output": "hotspot 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"sed -n '1,220p' {prompt_path}"}),
+            "call_id": "call_prompt",
+        },
+        {"type": "function_call_output", "call_id": "call_prompt", "output": prompt_output},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": "{\"ok\":true}"},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "sed -n '1,220p' /docker/fleet/WORKLIST.md",
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_staged_first_command_batches_worker_telemetry_and_first_repo_read_without_operator_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/20260429T150000Z-shard-2/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_path = "/docker/fleet/state/chummer_design_supervisor/shard-2/runs/20260429T150000Z-shard-2/WORKER_EXEC_TRACE_PROMPT.md"
+    prompt_output = f"""
+Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+- `cat {telemetry_path}`
+- `sed -n '1,220p' /docker/chummercomplete/chummer-play/WORKLIST.md`
+
+Read these files directly first:
+- {telemetry_path}
+- /docker/chummercomplete/chummer-play/WORKLIST.md
+"""
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before nested worker telemetry batching")),
+    )
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"sed -n '1,220p' {prompt_path}"}),
+            "call_id": "call_prompt",
+        },
+        {"type": "function_call_output", "call_id": "call_prompt", "output": prompt_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": (
+            responses._tool_shim_direct_compact_worker_telemetry_command(telemetry_path)
+            + " ; sed -n '1,220p' /docker/chummercomplete/chummer-play/WORKLIST.md"
+        ),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_telemetry_first_command_uses_allowed_fleet_source_paths_from_runtime_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T100122Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                f"cat {telemetry_path}",
+                "sed -n '1,220p' /docker/chummercomplete/chummer-design/WORKLIST.md",
+                "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/ARCHITECTURE.md",
+                "sed -n '1,220p' /docker/fleet/.codex-studio/published/full-product-frontiers/shard-1.generated.yaml",
+            ],
+            "source_paths": [
+                "/docker/chummercomplete/chummer-design/WORKLIST.md",
+                "/docker/chummercomplete/chummer-design/products/chummer/ARCHITECTURE.md",
+                "/docker/fleet/WORKLIST.md",
+                "/docker/fleet/README.md",
+                "/docker/fleet",
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before telemetry-derived fleet reads")),
+    )
+
+    history_items = [
+        {
+            "type": "input_text",
+            "text": (
+                "Operator-prepared fleet unblock context:\n"
+                "- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n"
+                "- Do not work shard backlog content or slice-specific implementation tasks.\n"
+            ),
+        },
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}),
+            "call_id": "call_hotspot_1",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_1", "output": "hotspot 1"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_hotspot_2",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_2", "output": "hotspot 2"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}),
+            "call_id": "call_hotspot_3",
+        },
+        {"type": "function_call_output", "call_id": "call_hotspot_3", "output": "hotspot 3"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": telemetry_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_repo_diff_command(),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_telemetry_first_command_uses_worker_first_commands_without_operator_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/20260429T143155Z-shard-2/TASK_LOCAL_TELEMETRY.generated.json"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                f"cat {telemetry_path}",
+                "sed -n '1,220p' /docker/chummercomplete/chummer-play/WORKLIST.md",
+                "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/projects/mobile.md",
+            ],
+            "source_paths": [
+                "/docker/chummercomplete/chummer-play/WORKLIST.md",
+                "/docker/chummercomplete/chummer-design/products/chummer/projects/mobile.md",
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("planner must not run after worker telemetry-first follow-up")
+        ),
+    )
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": telemetry_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "sed -n '1,220p' /docker/chummercomplete/chummer-play/WORKLIST.md",
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_telemetry_first_command_survives_prompt_truncation_when_history_marks_operator_unblock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T102526Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                f"cat {telemetry_path}",
+                "sed -n '1,220p' /docker/chummercomplete/chummer-presentation/WORKLIST.md",
+            ],
+            "source_paths": [
+                "/docker/fleet/WORKLIST.md",
+                "/docker/fleet/README.md",
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run after operator prompt truncation")),
+    )
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}),
+            "call_id": "call_shim",
+        },
+        {"type": "function_call_output", "call_id": "call_shim", "output": "shim"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_responses",
+        },
+        {"type": "function_call_output", "call_id": "call_responses", "output": "responses"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_onemin",
+        },
+        {"type": "function_call_output", "call_id": "call_onemin", "output": "onemin"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}),
+            "call_id": "call_upstream",
+        },
+        {"type": "function_call_output", "call_id": "call_upstream", "output": "upstream"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": responses._tool_shim_direct_compact_worker_stderr_command("/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T102526Z-shard-1/worker.stderr.log")}
+            ),
+            "call_id": "call_stderr",
+        },
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": telemetry_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_repo_diff_command(),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_telemetry_first_command_skips_equivalent_var_lib_telemetry_after_prompt_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    state_telemetry_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T103120Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    runtime_telemetry_path = "/var/lib/codex-fleet/chummer_design_supervisor/shard-1/runs/20260429T103120Z-shard-1/TASK_LOCAL_TELEMETRY.generated.json"
+    prompt_path = "/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T103120Z-shard-1/WORKER_EXEC_TRACE_PROMPT.md"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                f"cat {runtime_telemetry_path}",
+                "sed -n '1,220p' /docker/chummercomplete/chummer-presentation/WORKLIST.md",
+            ],
+            "source_paths": [
+                "/docker/fleet/WORKLIST.md",
+                "/docker/fleet/README.md",
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run after equivalent telemetry read")),
+    )
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}),
+            "call_id": "call_shim",
+        },
+        {"type": "function_call_output", "call_id": "call_shim", "output": "shim"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_responses",
+        },
+        {"type": "function_call_output", "call_id": "call_responses", "output": "responses"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_onemin",
+        },
+        {"type": "function_call_output", "call_id": "call_onemin", "output": "onemin"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}),
+            "call_id": "call_upstream",
+        },
+        {"type": "function_call_output", "call_id": "call_upstream", "output": "upstream"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": responses._tool_shim_direct_compact_worker_stderr_command("/docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T103120Z-shard-1/worker.stderr.log")}
+            ),
+            "call_id": "call_stderr",
+        },
+        {"type": "function_call_output", "call_id": "call_stderr", "output": "compact stderr"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {state_telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": telemetry_output},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"sed -n '1,220p' {prompt_path}"}),
+            "call_id": "call_prompt",
+        },
+        {"type": "function_call_output", "call_id": "call_prompt", "output": "You are Codex running through the Fleet codexea worker shim."},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_repo_diff_command(),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_direct_nested_telemetry_first_command_ignores_non_fleet_task_logs_and_repo_worklists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    telemetry_path = "/docker/fleet/state/chummer_design_supervisor/shard-14/runs/20260429T103417Z-shard-14/TASK_LOCAL_TELEMETRY.generated.json"
+    telemetry_output = json.dumps(
+        {
+            "first_commands": [
+                f"cat /var/lib/codex-fleet/chummer_design_supervisor/shard-14/runs/20260429T103417Z-shard-14/TASK_LOCAL_TELEMETRY.generated.json",
+                "sed -n '1,220p' /docker/EA/TASKS_WORK_LOG.md",
+                "sed -n '1,220p' /docker/fleet/repos/chummer-media-factory/WORKLIST.md",
+            ],
+            "source_paths": [
+                "/docker/EA/TASKS_WORK_LOG.md",
+                "/docker/EA/ARCHITECTURE_MAP.md",
+                "/docker/fleet/repos/chummer-media-factory/WORKLIST.md",
+                "/docker/fleet/WORKLIST.md",
+                "/docker/fleet/README.md",
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        responses,
+        "_generate_upstream_text",
+        lambda **_: (_ for _ in ()).throw(AssertionError("planner must not run before Fleet unblock follow-up")),
+    )
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}),
+            "call_id": "call_shim",
+        },
+        {"type": "function_call_output", "call_id": "call_shim", "output": "shim"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps(
+                {"cmd": "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py"}
+            ),
+            "call_id": "call_responses",
+        },
+        {"type": "function_call_output", "call_id": "call_responses", "output": "responses"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_onemin",
+        },
+        {"type": "function_call_output", "call_id": "call_onemin", "output": "onemin"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py"}),
+            "call_id": "call_upstream",
+        },
+        {"type": "function_call_output", "call_id": "call_upstream", "output": "upstream"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": f"cat {telemetry_path}"}),
+            "call_id": "call_telemetry",
+        },
+        {"type": "function_call_output", "call_id": "call_telemetry", "output": telemetry_output},
+    ]
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-hard",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": responses._tool_shim_operator_unblock_repo_diff_command(),
+        "max_output_tokens": 1500,
+    }
+
+
+def test_tool_shim_build_staged_repo_diff_command_groups_existing_paths() -> None:
+    from app.api.routes import responses
+
+    command = responses._tool_shim_build_staged_repo_diff_command(
+        [
+            "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea",
+            "rg -n \"_resolve_prompt_route\" /docker/EA/ea/app/api/routes/responses.py",
+        ]
+    )
+
+    assert command is not None
+    assert "git -C /docker/fleet status --short -- scripts/codex-shims/codexea" in command
+    assert "git -C /docker/EA diff --stat -- ea/app/api/routes/responses.py" in command
+
+
+def test_tool_shim_planner_model_preserves_managed_lanes_and_only_downshifts_cheap_families(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
+
+    assert responses._tool_shim_planner_model("ea-coder-hard") == "ea-coder-hard"
+    assert responses._tool_shim_planner_model("ea-coder-hard-batch") == "ea-coder-hard-batch"
+    assert responses._tool_shim_planner_model("ea-coder-hard-rescue") == "ea-coder-hard-rescue"
+    assert responses._tool_shim_planner_model("ea-review-light") == "ea-review-light"
+    assert responses._tool_shim_planner_model("ea-coder-fast") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("onemin:gpt-5.4") == "onemin:gpt-4.1-nano"
+    assert responses._tool_shim_planner_model("magixai:codestral") == "magixai:codestral"
+
+
+def test_tool_shim_planner_model_uses_fast_lane_for_staged_operator_guard_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
+
+    prompt = """
+    Operator-prepared fleet unblock context:
+    - Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    - sed -n '1,140p' /docker/fleet/scripts/codex-shims/python3
+    """
+
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+
+
+def test_tool_shim_planner_model_uses_fast_lane_for_worker_safe_first_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
+
+    prompt = """
+    Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:
+    - `cat /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json`
+    Read these files directly first:
+    - /var/lib/codex-fleet/chummer_design_supervisor/shard-2/runs/run/TASK_LOCAL_TELEMETRY.generated.json
+    """
+
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+
+
+def test_tool_shim_planner_model_uses_fast_lane_for_operator_unblock_prompt_without_staged_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
+
+    prompt = """
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - Bootstrap repo context from the orientation commands has already been captured below.
+    Prepared repo context:
+    $ sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    """
+
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+
+
+def test_tool_shim_planner_model_uses_fast_lane_for_readiness_remedy_prompt_without_staged_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
+
+    prompt = """
+    Operator-prepared readiness remedy context:
+    - Scope: patch only the targeted product proof surface implied by the prompt.
+    - Stay on product proof generation, verification, and the minimal contract/tests needed to close the readiness blocker.
+    Prepared repo context:
+    $ bash /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh
+    [USER-JOURNEY-TESTER] FAIL: user journey tester trace is missing
+    """
+
+    assert responses._tool_shim_planner_model("ea-coder-hard", prompt=prompt) == "ea-coder-fast"
+
+
+def test_tool_shim_messages_compact_operator_unblock_prompt_omits_system_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setenv("EA_TOOL_SHIM_TRANSCRIPT_MAX_CHARS", "4000")
+    history_items = [
+        {
+            "type": "message",
+            "role": "system",
+            "content": [{"type": "output_text", "text": "system " + ("alpha " * 120)}],
+        },
+        {
+            "type": "input_text",
+            "text": (
+                "Operator-prepared fleet unblock context:\n"
+                "- Scope: patch only the codexea shim, EA endpoints, and the 1min manager.\n"
+                "- Do not work shard backlog content or slice-specific implementation tasks.\n"
+                "- Bootstrap repo context from the orientation commands has already been captured below.\n"
+                "\nPrepared repo context:\n"
+                "$ sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea\n"
+                "line a\nline b\n"
+                "$ git -C /docker/fleet diff --stat -- scripts/codex-shims/codexea scripts/codex-shims/python3\n"
+                "scripts/codex-shims/codexea | 734 +++++\n"
+                "\nLive fleet snapshot:\n"
+                "- active runs: 4\n"
+            ),
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "tool output " + ("beta " * 200),
+        },
+    ]
+
+    messages = responses._tool_shim_messages(
+        instructions="hidden instructions",
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert len(messages) == 2
+    assert "Operator fleet-unblock scope rules:" in messages[0]["content"]
+    assert "system alpha" not in messages[1]["content"]
+    assert "Prepared repo context summary:" in messages[1]["content"]
+    assert "Bootstrap context was already captured from 2 local commands." in messages[1]["content"]
+    assert len(messages[1]["content"]) < 2600
+
+
+def test_tool_shim_messages_compact_readiness_prompt_omits_system_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setenv("EA_TOOL_SHIM_TRANSCRIPT_MAX_CHARS", "4000")
+    history_items = [
+        {
+            "type": "message",
+            "role": "system",
+            "content": [{"type": "output_text", "text": "system " + ("alpha " * 120)}],
+        },
+        {
+            "type": "input_text",
+            "text": (
+                "Operator-prepared readiness remedy context:\n"
+                "- Scope: patch only the targeted product proof surface implied by the prompt.\n"
+                "- Read these files directly first:\n"
+                "$ sed -n '1,260p' /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh\n"
+                "$ sed -n '1,220p' /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/UserJourneyTesterAuditComplianceTests.cs\n"
+                "\nPrepared repo context:\n"
+                "$ bash /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/user-journey-tester-audit.sh\n"
+                "[USER-JOURNEY-TESTER] FAIL: user journey tester trace is missing\n"
+                "$ git -C /docker/chummercomplete/chummer-presentation diff --stat -- scripts/ai/milestones/user-journey-tester-audit.sh\n"
+                "scripts/ai/milestones/user-journey-tester-audit.sh | 12 ++++++\n"
+                "\nObjective:\n"
+                "- Patch the missing or broken product-side proof producer path implied by the prepared context.\n"
+            ),
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "tool output " + ("beta " * 200),
+        },
+    ]
+
+    messages = responses._tool_shim_messages(
+        instructions="hidden instructions",
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=history_items,
+    )
+
+    assert len(messages) == 2
+    assert "Readiness remedy scope rules:" in messages[0]["content"]
+    assert "Operator fleet-unblock scope rules:" not in messages[0]["content"]
+    assert "system alpha" not in messages[1]["content"]
+    assert "Prepared repo context summary:" in messages[1]["content"]
+    assert "Bootstrap context was already captured from 2 local commands." in messages[1]["content"]
+    assert len(messages[1]["content"]) < 2800
+
+
+def test_tool_call_rejection_reason_blocks_operator_unblock_scope_drift() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - Run these exact commands first:
+    - sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea
+    """
+
+    reason = responses._tool_call_rejection_reason(
+        tool_name="exec_command",
+        arguments={
+            "cmd": "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
+        },
+        history_items=[{"type": "input_text", "text": prompt}],
+        available_tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+    )
+
+    assert reason is not None
+    assert "scoped to the codexea shim, EA endpoints, and the 1min manager" in reason
+
+
+def test_tool_call_rejection_reason_allows_operator_unblock_shard_run_artifacts() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared fleet unblock context:
+    - Scope: patch only the codexea shim, EA endpoints, and the 1min manager.
+    - Do not work shard backlog content or slice-specific implementation tasks.
+    - Treat the live shard execution context below as the current reproduction target.
+    """
+
+    reason = responses._tool_call_rejection_reason(
+        tool_name="exec_command",
+        arguments={
+            "cmd": "sed -n '1,180p' /docker/fleet/state/chummer_design_supervisor/shard-1/runs/20260429T085607Z-shard-1/worker.stderr.log"
+        },
+        history_items=[{"type": "input_text", "text": prompt}],
+        available_tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+    )
+
+    assert reason is None
+
+
+def test_tool_call_rejection_reason_blocks_operator_unblock_ea_task_docs() -> None:
+    from app.api.routes import responses
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}),
+            "call_id": "call_shim",
+        },
+        {"type": "function_call_output", "call_id": "call_shim", "output": "shim"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_onemin",
+        },
+        {"type": "function_call_output", "call_id": "call_onemin", "output": "onemin"},
+    ]
+
+    reason = responses._tool_call_rejection_reason(
+        tool_name="exec_command",
+        arguments={"cmd": "sed -n '1,220p' /docker/EA/TASKS_WORK_LOG.md"},
+        history_items=history_items,
+        available_tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+    )
+
+    assert reason is not None
+    assert "EA endpoint/1min-manager code" in reason
+
+
+def test_tool_call_rejection_reason_blocks_operator_unblock_git_diff_on_ea_task_docs() -> None:
+    from app.api.routes import responses
+
+    history_items = [
+        {"type": "input_text", "text": "continue"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '2410,2505p' /docker/fleet/scripts/codex-shims/codexea"}),
+            "call_id": "call_shim",
+        },
+        {"type": "function_call_output", "call_id": "call_shim", "output": "shim"},
+        {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py"}),
+            "call_id": "call_onemin",
+        },
+        {"type": "function_call_output", "call_id": "call_onemin", "output": "onemin"},
+    ]
+
+    reason = responses._tool_call_rejection_reason(
+        tool_name="exec_command",
+        arguments={"cmd": "git -C /docker/EA status --short -- TASKS_WORK_LOG.md MILESTONE.json"},
+        history_items=history_items,
+        available_tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+    )
+
+    assert reason is not None
+    assert "EA endpoint and 1min-manager code only" in reason
+
+
+def test_tool_shim_messages_compact_tool_catalog_and_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.setenv("EA_TOOL_SHIM_TRANSCRIPT_MAX_CHARS", "700")
+    monkeypatch.setenv("EA_TOOL_SHIM_TRANSCRIPT_PART_MAX_CHARS", "120")
+    tools = [
+        {
+            "name": "exec_command",
+            "description": "Run a command with a long schema description",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cmd": {"type": "string", "description": "command"},
+                    "workdir": {"type": "string"},
+                    "yield_time_ms": {"type": "integer"},
+                    "max_output_tokens": {"type": "integer"},
+                    "nested": {
+                        "type": "object",
+                        "properties": {"inner": {"type": "string"}},
+                    },
+                },
+                "required": ["cmd"],
+            },
+        }
+    ]
+    history_items = [
+        {
+            "type": "message",
+            "role": "system",
+            "content": [{"type": "output_text", "text": "system " + ("alpha " * 80)}],
+        },
+        {
+            "type": "input_text",
+            "text": "user " + ("beta " * 120),
+        },
+    ]
+
+    messages = responses._tool_shim_messages(
+        instructions=None,
+        tools=tools,
+        history_items=history_items,
+    )
+
+    assert messages[0]["role"] == "system"
+    assert '"parameter_keys":["cmd","workdir","yield_time_ms","max_output_tokens","nested"]' in messages[0]["content"]
+    assert '"inner"' not in messages[0]["content"]
+    assert messages[1]["role"] == "user"
+    assert len(messages[1]["content"]) <= 900
+
+
+def test_hard_batch_tool_requests_do_not_use_background_mode() -> None:
+    from app.api.routes import responses
+
+    assert responses._should_use_background_codex_response(
+        model="ea-coder-hard-batch",
+        codex_profile="core",
+        supported_tools=[{"name": "exec_command"}],
+    ) is False
+    assert responses._should_use_background_codex_response(
+        model="ea-coder-hard-batch",
+        codex_profile="core",
+        supported_tools=[],
+    ) is True
 
 
 def test_responses_non_stream_returns_response_object(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1017,6 +4370,24 @@ def test_prompt_router_keeps_explicit_repair_profile_on_coding_task() -> None:
     assert decision.effective_model == "ea-coder-fast"
 
 
+def test_prompt_router_keeps_readiness_remedy_on_fast_lane() -> None:
+    from app.api.routes import responses
+
+    decision = responses._resolve_prompt_route(
+        prompt=(
+            "Operator-prepared readiness remedy context:\n"
+            "- Scope: patch only the targeted product proof surface implied by the prompt.\n"
+            "- Stay on product proof generation, verification, and the minimal contract/tests needed to close the readiness blocker.\n"
+        ),
+        model="ea-coder-fast",
+        codex_profile="easy",
+    )
+
+    assert decision.effective_profile == "easy"
+    assert decision.effective_model == "ea-coder-fast"
+    assert decision.reason == "operator_readiness_fast_lane"
+
+
 def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream
 
@@ -1068,7 +4439,7 @@ def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch:
     assert created_body["model"] == "ea-coder-survival"
     assert created_body["metadata"]["codex_profile"] == "survival"
     assert created_body["metadata"]["codex_lane"] == "survival"
-    assert created_body["metadata"]["survival_route_order"] == "onemin,gemini_vortex,gemini_web,chatplayground"
+    assert created_body["metadata"]["survival_route_order"] == "chatplayground,gemini_web,gemini_vortex,onemin"
 
     response_id = created_body["id"]
     completed_body: dict[str, object] | None = None
@@ -2429,9 +5800,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert review_light_profile["health_provider_key"] == "chatplayground"
     survival_profile = next(profile for profile in body["profiles"] if profile["profile"] == "survival")
     assert survival_profile["lane"] == "survival"
-    assert survival_profile["provider_hint_order"] == ["onemin", "gemini_vortex", "browseract"]
-    assert survival_profile["backend"] == "onemin"
-    assert survival_profile["health_provider_key"] == "onemin"
+    assert survival_profile["provider_hint_order"] == ["browseract", "gemini_vortex", "onemin"]
+    assert survival_profile["backend"] == "chatplayground"
+    assert survival_profile["health_provider_key"] == "chatplayground"
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == ""
     assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == ""
@@ -2449,6 +5820,51 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == ""
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
     assert review_light_lane["health_provider_key"] == "chatplayground"
+
+
+def test_codex_profiles_endpoint_hides_survival_lane_when_all_routes_are_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-profile-survival")
+    from app.api.routes import responses
+
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("EA_SURVIVAL_ROUTE_ORDER", "chatplayground,gemini_web")
+
+    def fake_provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
+        assert lightweight in {True, False}
+        return {
+            "providers": {
+                "chatplayground": {
+                    "provider_key": "chatplayground",
+                    "backend": "browseract",
+                    "state": "ready",
+                    "configured_slots": 1,
+                    "slots": [{"slot": "primary", "state": "ready"}],
+                }
+            },
+            "provider_config": {"provider_order": ["chatplayground"]},
+        }
+
+    monkeypatch.setattr(responses, "_provider_health_report", fake_provider_health_report)
+
+    response = client.get("/v1/codex/profiles")
+
+    assert response.status_code == 200
+    body = response.json()
+    survival_profile = next(profile for profile in body["profiles"] if profile["profile"] == "survival")
+    assert survival_profile["provider_hint_order"] == []
+    assert survival_profile["backend"] == ""
+    assert survival_profile["health_provider_key"] == ""
+    assert survival_profile["provider_route_state"] == "unavailable"
+    assert "browseract_binding_unavailable" in survival_profile["provider_route_detail"]
+    survival_lane_row = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "survival")
+    assert survival_lane_row["provider_hint_order"] == []
+    assert survival_lane_row["backend"] == ""
+    assert survival_lane_row["health_provider_key"] == ""
+    assert survival_lane_row["primary_state"] == "unavailable"
+    assert "browseract_binding_unavailable" in survival_lane_row["detail"]
+    assert survival_lane_row["providers"][0]["provider_key"] == "browseract"
 
 
 def test_stabilize_codex_profile_promotes_repair_model_to_onemin_backend() -> None:
@@ -2608,6 +6024,20 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     assert core_lane["primary_provider_key"] == "onemin"
 
 
+def test_responses_provider_health_allows_thirteen_hard_active_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health")
+    from app.services import responses_upstream as upstream
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "hard-cap-key")
+    monkeypatch.setenv("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS", "13")
+
+    response = client.get("/v1/responses/_provider_health?lightweight=1")
+
+    assert response.status_code == 200
+    assert response.json()["provider_config"]["hard_max_active_requests"] == 13
+
+
 def test_responses_provider_health_endpoint_supports_lightweight_query(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-health-operator", operator=True)
     from app.api.routes import responses
@@ -2719,6 +6149,89 @@ def test_responses_provider_health_aggregates_onemin_remaining_percent_of_max(mo
     healthy_slot = next(slot for slot in onemin["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
     assert healthy_slot["estimated_remaining_credits"] is None
     assert healthy_slot["estimated_credit_basis"] == "unknown_unprobed"
+
+
+def test_responses_provider_health_recovers_depleted_onemin_slot_from_actual_billing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    for key in list(os.environ.keys()):
+        if key.startswith("ONEMIN_AI_API_KEY") or key.startswith("EA_RESPONSES_ONEMIN_"):
+            monkeypatch.delenv(key, raising=False)
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "funded-primary")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY", "4000000")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY", "450000")
+    upstream._mark_onemin_failure(
+        "funded-primary",
+        "INSUFFICIENT_CREDITS:The feature requires 35194 credits, but the Funded team only has 0 credits",
+    )
+    fresh_billing_observed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 60.0))
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "remaining_credits": 4_200_000,
+            "max_credits": 4_450_000,
+            "basis": "actual_provider_api",
+            "observed_at": fresh_billing_observed_at,
+        },
+    )
+
+    health = upstream._provider_health_report()
+    onemin = health["providers"]["onemin"]
+    slot = onemin["slots"][0]
+
+    assert slot["state"] == "ready"
+    assert slot["estimated_remaining_credits"] == 4_200_000
+    assert slot["estimated_credit_basis"] == "actual_provider_api"
+    assert slot["quarantine_until"] == 0.0
+    assert slot["last_error"] == ""
+    assert onemin["estimated_remaining_credits_total"] == 4_200_000
+    assert onemin["remaining_percent_of_max"] == 94.38
+
+
+def test_responses_provider_health_keeps_onemin_slot_degraded_when_actual_billing_team_mismatches(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    for key in list(os.environ.keys()):
+        if key.startswith("ONEMIN_AI_API_KEY") or key.startswith("EA_RESPONSES_ONEMIN_"):
+            monkeypatch.delenv(key, raising=False)
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "funded-primary")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY", "4000000")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY", "450000")
+    upstream._mark_onemin_failure(
+        "funded-primary",
+        "INSUFFICIENT_CREDITS:The feature requires 35194 credits, but the Finland Office team only has 1650 credits",
+    )
+    fresh_billing_observed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 60.0))
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "remaining_credits": 4_200_000,
+            "max_credits": 4_450_000,
+            "basis": "actual_provider_api",
+            "observed_at": fresh_billing_observed_at,
+            "structured_output_json": {
+                "team_id": "team-aziliz",
+                "team_name": "Aziliz Tanguy",
+            },
+        },
+    )
+
+    health = upstream._provider_health_report()
+    slot = health["providers"]["onemin"]["slots"][0]
+
+    assert slot["state"] in {"degraded", "quarantine", "cooldown"}
+    assert "INSUFFICIENT_CREDITS" in slot["last_error"]
+    assert slot["remaining_credits"] == 1650
+    assert slot["estimated_remaining_credits"] == 1650
+    assert slot["estimated_credit_basis"] == "observed_error"
+    assert slot["billing_remaining_credits"] == 4_200_000
+    assert slot["billing_team_name"] == "Aziliz Tanguy"
+    assert slot["billing_team_mismatch"] is True
+    assert slot["billing_team_match_subject"] == "Finland Office team"
 
 
 def test_responses_provider_health_keeps_fresh_onemin_slots_unknown_until_observed(monkeypatch: pytest.MonkeyPatch) -> None:

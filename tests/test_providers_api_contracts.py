@@ -5,8 +5,10 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.parse
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -947,6 +949,8 @@ def test_onemin_billing_refresh_forwards_bound_account_login_credentials(
                     "ONEMIN_AI_API_KEY": {
                         "login_email": "slot@example.com",
                         "login_password": "slotpass",
+                        "team_id": "team-123",
+                        "team_name": "Finland Office",
                     }
                 },
             },
@@ -979,6 +983,8 @@ def test_onemin_billing_refresh_forwards_bound_account_login_credentials(
         "ONEMIN_AI_API_KEY": {
             "login_email": "slot@example.com",
             "login_password": "slotpass",
+            "team_id": "team-123",
+            "team_name": "Finland Office",
         }
     }
 
@@ -1144,8 +1150,6 @@ def test_onemin_billing_refresh_uses_owner_ledger_browseract_scope_for_global_re
 def test_onemin_billing_refresh_uses_fleet_browseract_binding_for_operator_targeted_owner_account(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from types import SimpleNamespace
-
     owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv(
         "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
@@ -2602,6 +2606,681 @@ def test_onemin_manager_does_not_count_unparsed_page_views_as_actual_billing() -
     assert actual["binding_account_count"] == 1
     assert actual["accounts_without_actual_billing_count"] == 1
     assert manager.occupancy_snapshot(principal_id="exec-2")["active_lease_count"] == 0
+
+
+def test_onemin_manager_reserve_for_candidates_prefers_persisted_actual_credits() -> None:
+    from app.domain.models import OneminAccount, OneminCredential
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    repo = InMemoryOneminManagerRepository()
+    manager = OneminManagerService(repo=repo)
+    repo.replace_state(
+        accounts=[
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_60",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_60",
+                status="ready",
+                remaining_credits=1049,
+                max_credits=15000,
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 1049.0,
+                    "actual_max_credits": 15000.0,
+                },
+            ),
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_61",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_61",
+                status="ready",
+                remaining_credits=40000,
+                max_credits=15000,
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 40000.0,
+                    "actual_max_credits": 15000.0,
+                },
+            ),
+        ],
+        credentials=[
+            OneminCredential(
+                credential_id="fallback_60",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_60",
+                slot_name="fallback_60",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_60",
+                state="ready",
+                remaining_credits=1049,
+            ),
+            OneminCredential(
+                credential_id="fallback_61",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_61",
+                slot_name="fallback_61",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_61",
+                state="ready",
+                remaining_credits=40000,
+            ),
+        ],
+    )
+
+    lease = manager.reserve_for_candidates(
+        candidates=[
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "slot_name": "fallback_60",
+                "credential_id": "fallback_60",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "state": "ready",
+                "estimated_remaining_credits": 5000000,
+                "api_key": "low-key",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "slot_name": "fallback_61",
+                "credential_id": "fallback_61",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "state": "ready",
+                "estimated_remaining_credits": None,
+                "api_key": "high-key",
+            },
+        ],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-actual-credits",
+        estimated_credits=25662,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_61"
+    assert lease["api_key"] == "high-key"
+
+
+def test_onemin_manager_keeps_unknown_budget_candidates_eligible_when_known_budget_is_insufficient() -> None:
+    from app.domain.models import OneminAccount, OneminCredential
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    repo = InMemoryOneminManagerRepository()
+    manager = OneminManagerService(repo=repo)
+    repo.replace_state(
+        accounts=[
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_60",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_60",
+                status="ready",
+                remaining_credits=1049,
+                max_credits=15000,
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 1049.0,
+                    "actual_max_credits": 15000.0,
+                },
+            )
+        ],
+        credentials=[
+            OneminCredential(
+                credential_id="fallback_60",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_60",
+                slot_name="fallback_60",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_60",
+                state="ready",
+                remaining_credits=1049,
+            )
+        ],
+    )
+
+    lease = manager.reserve_for_candidates(
+        candidates=[
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "slot_name": "fallback_60",
+                "credential_id": "fallback_60",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "state": "ready",
+                "estimated_remaining_credits": 5000000,
+                "api_key": "low-key",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_62",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_62",
+                "slot_name": "fallback_62",
+                "credential_id": "fallback_62",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_62",
+                "state": "ready",
+                "estimated_remaining_credits": None,
+                "api_key": "unknown-key",
+            },
+        ],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-unknown-budget",
+        estimated_credits=25662,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_62"
+    assert lease["api_key"] == "unknown-key"
+
+
+def test_onemin_manager_budget_limited_quarantine_only_blocks_requests_above_observed_remaining() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    candidate = {
+        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "slot_name": "fallback_60",
+        "credential_id": "fallback_60",
+        "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "state": "quarantine",
+        "remaining_credits": 1650,
+        "estimated_remaining_credits": 1650,
+        "billing_remaining_credits": 4_200_000,
+        "last_error": "INSUFFICIENT_CREDITS:The feature requires 57451 credits, but the Finland Office team only has 1650 credits",
+        "api_key": "budget-key",
+    }
+
+    lease = manager.reserve_for_candidates(
+        candidates=[candidate],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-budget-recovery",
+        estimated_credits=1200,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] == "budget-key"
+    manager.release_lease(lease_id=str(lease["lease_id"]))
+
+    oversized = manager.reserve_for_candidates(
+        candidates=[candidate],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-budget-too-large",
+        estimated_credits=50000,
+        allow_reserve=False,
+    )
+
+    assert oversized is None
+
+
+def test_onemin_manager_probe_ok_allows_billing_backed_budget_override() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    candidate = {
+        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "slot_name": "fallback_60",
+        "credential_id": "fallback_60",
+        "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "state": "quarantine",
+        "remaining_credits": 1650,
+        "estimated_remaining_credits": 1650,
+        "billing_remaining_credits": 4_200_000,
+        "billing_max_credits": 4_450_000,
+        "billing_basis": "actual_provider_api",
+        "last_probe_result": "ok",
+        "last_error": "INSUFFICIENT_CREDITS:The feature requires 73111 credits, but the Finland Office team only has 1650 credits",
+        "api_key": "probe-ok-key",
+    }
+
+    lease = manager.reserve_for_candidates(
+        candidates=[candidate],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-probe-ok-budget-override",
+        estimated_credits=73111,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] == "probe-ok-key"
+
+
+def test_onemin_manager_probe_ok_does_not_trust_mismatched_billing_override() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    candidate = {
+        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "slot_name": "fallback_60",
+        "credential_id": "fallback_60",
+        "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+        "state": "quarantine",
+        "remaining_credits": 1650,
+        "estimated_remaining_credits": 1650,
+        "billing_remaining_credits": 4_200_000,
+        "billing_max_credits": 4_450_000,
+        "billing_basis": "actual_provider_api",
+        "billing_team_mismatch": True,
+        "last_probe_result": "ok",
+        "last_error": "INSUFFICIENT_CREDITS:The feature requires 73111 credits, but the Finland Office team only has 1650 credits",
+        "api_key": "probe-ok-key",
+    }
+
+    lease = manager.reserve_for_candidates(
+        candidates=[candidate],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-probe-ok-mismatch",
+        estimated_credits=73111,
+        allow_reserve=False,
+    )
+
+    assert lease is None
+
+
+def test_onemin_manager_probe_ok_billing_override_does_not_mask_zero_live_balance() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    candidates = [
+        {
+            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+            "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+            "slot_name": "fallback_60",
+            "credential_id": "fallback_60",
+            "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+            "state": "degraded",
+            "remaining_credits": 0,
+            "estimated_remaining_credits": 0,
+            "billing_remaining_credits": 4_200_000,
+            "billing_max_credits": 4_450_000,
+            "billing_basis": "actual_provider_api",
+            "last_probe_result": "ok",
+            "last_error": "INSUFFICIENT_CREDITS:The feature requires 1877 credits, but the team only has 0 credits",
+            "api_key": "zero-live-key",
+        },
+        {
+            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+            "account_id": "ONEMIN_AI_API_KEY_FALLBACK_61",
+            "slot_name": "fallback_61",
+            "credential_id": "fallback_61",
+            "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+            "state": "quarantine",
+            "remaining_credits": 1650,
+            "estimated_remaining_credits": 1650,
+            "billing_remaining_credits": 4_200_000,
+            "billing_max_credits": 4_450_000,
+            "billing_basis": "actual_provider_api",
+            "last_error": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 1650 credits",
+            "api_key": "positive-live-key",
+        },
+    ]
+
+    lease = manager.reserve_for_candidates(
+        candidates=candidates,
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-zero-live-mask",
+        estimated_credits=699,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] == "positive-live-key"
+
+
+def test_onemin_manager_prefers_exact_live_budget_before_billing_backed_recovery() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    candidates = [
+        {
+            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+            "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+            "slot_name": "fallback_60",
+            "credential_id": "fallback_60",
+            "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+            "state": "quarantine",
+            "remaining_credits": 1650,
+            "estimated_remaining_credits": 1650,
+            "billing_remaining_credits": 4_200_000,
+            "billing_max_credits": 4_450_000,
+            "billing_basis": "actual_provider_api",
+            "last_error": "INSUFFICIENT_CREDITS:The feature requires 57451 credits, but the team only has 1650 credits",
+            "last_probe_result": "ok",
+            "api_key": "billing-recovery-key",
+        },
+        {
+            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+            "account_id": "ONEMIN_AI_API_KEY_FALLBACK_61",
+            "slot_name": "fallback_61",
+            "credential_id": "fallback_61",
+            "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+            "state": "ready",
+            "remaining_credits": 2400,
+            "estimated_remaining_credits": 2400,
+            "api_key": "exact-live-key",
+        },
+    ]
+
+    lease = manager.reserve_for_candidates(
+        candidates=candidates,
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-exact-live-preferred",
+        estimated_credits=699,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] == "exact-live-key"
+
+
+def test_onemin_manager_uses_billing_backed_recovery_after_new_success_or_billing_snapshot() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    now = time.time()
+    lease = manager.reserve_for_candidates(
+        candidates=[
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "slot_name": "fallback_60",
+                "credential_id": "fallback_60",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "state": "quarantine",
+                "remaining_credits": 1650,
+                "estimated_remaining_credits": 1650,
+                "billing_remaining_credits": 4_200_000,
+                "billing_max_credits": 4_450_000,
+                "billing_basis": "actual_provider_api",
+                "last_error": "INSUFFICIENT_CREDITS:The feature requires 57451 credits, but the team only has 1650 credits",
+                "last_failure_at": now - 600,
+                "last_success_at": now - 60,
+                "api_key": "recent-success-key",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "slot_name": "fallback_61",
+                "credential_id": "fallback_61",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "state": "quarantine",
+                "remaining_credits": 1650,
+                "estimated_remaining_credits": 1650,
+                "billing_remaining_credits": 4_200_000,
+                "billing_max_credits": 4_450_000,
+                "billing_basis": "actual_provider_api",
+                "last_error": "INSUFFICIENT_CREDITS:The feature requires 57451 credits, but the team only has 1650 credits",
+                "last_failure_at": now - 600,
+                "last_billing_snapshot_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 30)),
+                "api_key": "fresh-billing-key",
+            },
+        ],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-billing-recovery",
+        estimated_credits=50000,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] in {"recent-success-key", "fresh-billing-key"}
+
+
+def test_onemin_manager_candidate_repo_state_preserves_zero_live_estimate_over_persisted_billing() -> None:
+    from app.domain.models import OneminAccount, OneminCredential
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    repo = InMemoryOneminManagerRepository()
+    manager = OneminManagerService(repo=repo)
+    repo.replace_state(
+        accounts=[
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_48",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_48",
+                status="ready",
+                remaining_credits=16169,
+                max_credits=16169,
+                details_json={
+                    "credit_basis": "actual_provider_api",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 16169.0,
+                    "actual_max_credits": 16169.0,
+                    "estimated_remaining_credits": 0.0,
+                },
+            )
+        ],
+        credentials=[
+            OneminCredential(
+                credential_id="fallback_48",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_48",
+                slot_name="fallback_48",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_48",
+                state="ready",
+                remaining_credits=16169,
+            )
+        ],
+    )
+
+    candidate = {
+        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_48",
+        "account_id": "ONEMIN_AI_API_KEY_FALLBACK_48",
+        "slot_name": "fallback_48",
+        "credential_id": "fallback_48",
+        "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_48",
+        "state": "ready",
+        "remaining_credits": None,
+        "estimated_remaining_credits": 0,
+        "billing_remaining_credits": 16169,
+        "billing_max_credits": 16169,
+        "billing_basis": "actual_provider_api",
+        "last_probe_result": "depleted",
+        "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 1049 credits",
+        "api_key": "zero-estimate-key",
+    }
+
+    lease = manager.reserve_for_candidates(
+        candidates=[candidate],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-preserve-zero-estimate",
+        estimated_credits=699,
+        allow_reserve=False,
+    )
+
+    assert lease is None
+
+
+def test_onemin_manager_actual_snapshot_ignores_mismatched_actual_billing() -> None:
+    from types import SimpleNamespace
+
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                        "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                        "slot": "fallback_60",
+                        "slot_name": "fallback_60",
+                        "credential_id": "fallback_60",
+                        "state": "degraded",
+                        "remaining_credits": 1650,
+                        "estimated_remaining_credits": 1650,
+                        "estimated_credit_basis": "observed_error",
+                        "billing_remaining_credits": 4_200_000,
+                        "billing_max_credits": 4_450_000,
+                        "billing_basis": "actual_provider_api",
+                        "billing_team_name": "Aziliz Tanguy",
+                        "billing_team_mismatch": True,
+                        "billing_team_match_subject": "Finland Office team",
+                    }
+                ]
+            }
+        }
+    }
+    binding = SimpleNamespace(
+        binding_id="binding-1",
+        auth_metadata_json={"slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60"},
+        external_account_ref="",
+    )
+
+    actual = manager.actual_credits_snapshot(provider_health=provider_health, binding_rows=[binding], principal_id="exec-1")
+    accounts = manager.accounts_snapshot(provider_health=provider_health, binding_rows=[binding], principal_id="exec-1")
+
+    assert actual["actual_billing_account_count"] == 0
+    assert actual["actual_free_credits_total"] == 0
+    assert actual["accounts_without_actual_billing_count"] == 1
+    assert accounts[0]["has_actual_billing"] is False
+    assert accounts[0]["actual_remaining_credits"] is None
+    assert accounts[0]["estimated_remaining_credits"] == 1650
+    assert accounts[0]["credit_basis"] == "observed_error"
+
+
+def test_refresh_onemin_api_account_uses_credit_subject_hint_to_select_matching_team(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import providers as providers_route
+
+    requested_urls: list[str] = []
+
+    monkeypatch.setattr(
+        providers_route,
+        "_onemin_api_login",
+        lambda **_: {
+            "token": "session-token",
+            "teams": [
+                {"teamId": "team-wrong", "team": {"uuid": "team-wrong", "name": "Aziliz Tanguy"}},
+                {"teamId": "team-right", "team": {"uuid": "team-right", "name": "Finland Office"}},
+            ],
+        },
+    )
+
+    def fake_get_json(*, url: str, headers: dict[str, str], timeout_seconds: int) -> dict[str, object]:
+        requested_urls.append(url)
+        assert headers["X-Auth-Token"] == "Bearer session-token"
+        if url.endswith("/topups"):
+            return {"topupList": []}
+        if url.endswith("/usages"):
+            return {"usageList": []}
+        if url.endswith("/invoices"):
+            return {"invoiceList": []}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(providers_route, "_onemin_api_get_json", fake_get_json)
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_credit_subject_hint_for_account",
+        lambda *, account_name: {"credit_subject": "Finland Office team"} if account_name == "ONEMIN_AI_API_KEY_FALLBACK_60" else {},
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_latest_provider_billing_snapshot",
+        lambda **_: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "record_onemin_billing_snapshot",
+        lambda **kwargs: dict(kwargs["snapshot_json"]),
+    )
+
+    billing_result, member_result = providers_route._refresh_onemin_api_account(
+        account_name="ONEMIN_AI_API_KEY_FALLBACK_60",
+        owner_email="owner@example.com",
+        include_members=False,
+        timeout_seconds=120,
+    )
+
+    assert member_result is None
+    assert billing_result["team_id"] == "team-right"
+    assert billing_result["structured_output_json"]["team_name"] == "Finland Office"
+    assert billing_result["structured_output_json"]["team_selection"]["reason"] == "credit_subject_hint"
+    assert all("/team-right/" in url for url in requested_urls)
+
+
+def test_refresh_onemin_api_account_prefers_configured_team_id_over_credit_subject_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import providers as providers_route
+
+    requested_urls: list[str] = []
+
+    monkeypatch.setattr(
+        providers_route,
+        "_onemin_api_login",
+        lambda **_: {
+            "token": "session-token",
+            "teams": [
+                {"teamId": "team-wrong", "team": {"uuid": "team-wrong", "name": "Finland Office"}},
+                {"teamId": "team-right", "team": {"uuid": "team-right", "name": "Saga Silfverberg"}},
+            ],
+        },
+    )
+
+    def fake_get_json(*, url: str, headers: dict[str, str], timeout_seconds: int) -> dict[str, object]:
+        requested_urls.append(url)
+        assert headers["X-Auth-Token"] == "Bearer session-token"
+        if url.endswith("/topups"):
+            return {"topupList": []}
+        if url.endswith("/usages"):
+            return {"usageList": []}
+        if url.endswith("/invoices"):
+            return {"invoiceList": []}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(providers_route, "_onemin_api_get_json", fake_get_json)
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_credit_subject_hint_for_account",
+        lambda *, account_name: {"credit_subject": "Finland Office team"} if account_name == "ONEMIN_AI_API_KEY_FALLBACK_60" else {},
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_latest_provider_billing_snapshot",
+        lambda **_: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "record_onemin_billing_snapshot",
+        lambda **kwargs: dict(kwargs["snapshot_json"]),
+    )
+
+    billing_result, member_result = providers_route._refresh_onemin_api_account(
+        account_name="ONEMIN_AI_API_KEY_FALLBACK_60",
+        owner_email="owner@example.com",
+        include_members=False,
+        timeout_seconds=120,
+        preferred_team_id="team-right",
+    )
+
+    assert member_result is None
+    assert billing_result["team_id"] == "team-right"
+    assert billing_result["structured_output_json"]["team_name"] == "Saga Silfverberg"
+    assert billing_result["structured_output_json"]["team_selection"]["reason"] == "configured_team_id"
+    assert all("/team-right/" in url for url in requested_urls)
 
 
 def test_operator_can_record_onemin_billing_snapshot_into_live_manager_state(

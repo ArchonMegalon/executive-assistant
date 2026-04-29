@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import threading
 import time
 import uuid
@@ -186,6 +187,23 @@ class OneminManagerService:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
+    def _parse_credit_error(self, value: object) -> dict[str, object] | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        match = re.search(
+            r"requires\s+(?P<required>\d+)\s+credits,\s+but the\s+(?P<subject>.+?)\s+only has\s+(?P<remaining>\d+)\s+credits",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            return None
+        return {
+            "required_credits": int(match.group("required")),
+            "remaining_credits": int(match.group("remaining")),
+            "credit_subject": str(match.group("subject") or "").strip(),
+        }
+
     def _binding_account_labels(self, binding: object) -> tuple[str, ...]:
         metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})
         labels: list[str] = []
@@ -241,13 +259,219 @@ class OneminManagerService:
         return "mixed"
 
     def _candidate_remaining_credits(self, candidate: dict[str, object]) -> float:
-        for key in ("estimated_remaining_credits", "billing_remaining_credits", "remaining_credits"):
+        keys = self._candidate_remaining_credit_keys(candidate)
+        for key in keys:
             parsed = self._parse_float(candidate.get(key))
             if parsed is not None:
                 return max(0.0, parsed)
         return 0.0
 
+    def _candidate_known_remaining_credits(self, candidate: dict[str, object]) -> float | None:
+        keys = self._candidate_remaining_credit_keys(candidate)
+        for key in keys:
+            parsed = self._parse_float(candidate.get(key))
+            if parsed is not None:
+                return max(0.0, parsed)
+        return None
+
+    def _candidate_live_remaining_credits(self, candidate: dict[str, object]) -> float | None:
+        for key in ("remaining_credits", "estimated_remaining_credits"):
+            parsed = self._parse_float(candidate.get(key))
+            if parsed is not None:
+                return max(0.0, parsed)
+        return None
+
+    def _candidate_positive_actual_billing(self, candidate: dict[str, object]) -> bool:
+        if bool(candidate.get("billing_team_mismatch")):
+            return False
+        billing_remaining = self._parse_float(candidate.get("billing_remaining_credits"))
+        return billing_remaining is not None and billing_remaining > 0.0
+
+    def _candidate_probe_ok(self, candidate: dict[str, object]) -> bool:
+        return str(candidate.get("last_probe_result") or "").strip().lower() == "ok"
+
+    def _candidate_recovery_evidence(self, candidate: dict[str, object]) -> bool:
+        if self._candidate_probe_ok(candidate):
+            return True
+        last_success_at = self._parse_float(candidate.get("last_success_at")) or 0.0
+        last_failure_at = self._parse_float(candidate.get("last_failure_at")) or 0.0
+        if last_success_at > 0.0 and last_failure_at > 0.0 and last_success_at >= last_failure_at:
+            return True
+        last_billing_snapshot_at = self._freshness_epoch(candidate.get("last_billing_snapshot_at"))
+        if last_billing_snapshot_at > 0.0 and last_failure_at > 0.0 and last_billing_snapshot_at >= last_failure_at:
+            return True
+        return False
+
+    def _candidate_selection_remaining_credits(self, candidate: dict[str, object]) -> float:
+        live_remaining = self._candidate_live_remaining_credits(candidate)
+        billing_remaining = self._parse_float(candidate.get("billing_remaining_credits"))
+        if billing_remaining is not None and self._candidate_positive_actual_billing(candidate):
+            if live_remaining is None:
+                return max(0.0, billing_remaining)
+            if live_remaining > 0.0 and self._candidate_recovery_evidence(candidate):
+                return max(max(0.0, live_remaining), max(0.0, billing_remaining))
+        known_remaining = self._candidate_known_remaining_credits(candidate)
+        if known_remaining is not None:
+            return known_remaining
+        return 0.0
+
+    def _candidate_remaining_credit_keys(self, candidate: dict[str, object]) -> tuple[str, ...]:
+        observed_remaining = self._parse_float(
+            candidate.get("remaining_credits")
+            if candidate.get("remaining_credits") not in (None, "")
+            else candidate.get("estimated_remaining_credits")
+        )
+        if (
+            self._candidate_budget_signal(candidate) is not None
+            and self._candidate_recovery_evidence(candidate)
+            and not bool(candidate.get("billing_team_mismatch"))
+            and observed_remaining is not None
+            and observed_remaining > 0.0
+            and self._parse_float(candidate.get("billing_remaining_credits")) not in (None, 0.0)
+        ):
+            return (
+                "billing_remaining_credits",
+                "remaining_credits",
+                "estimated_remaining_credits",
+            )
+        if self._candidate_budget_signal(candidate) is not None:
+            return (
+                "remaining_credits",
+                "estimated_remaining_credits",
+                "billing_remaining_credits",
+            )
+        if bool(candidate.get("billing_team_mismatch")):
+            return ("remaining_credits", "estimated_remaining_credits")
+        return (
+            "billing_remaining_credits",
+            "remaining_credits",
+            "estimated_remaining_credits",
+        )
+
+    def _candidate_budget_signal(self, candidate: dict[str, object]) -> dict[str, object] | None:
+        for key in ("last_probe_detail", "last_error"):
+            parsed = self._parse_credit_error(candidate.get(key))
+            if parsed is not None:
+                return parsed
+        return None
+
+    def _persisted_candidate_lookups(
+        self,
+    ) -> tuple[dict[str, OneminAccount], dict[str, OneminCredential]]:
+        accounts_by_label: dict[str, OneminAccount] = {}
+        for account in self._repo.list_accounts():
+            for key in (str(account.account_id or "").strip(), str(account.account_label or "").strip()):
+                if key and key not in accounts_by_label:
+                    accounts_by_label[key] = account
+        credentials_by_label: dict[str, OneminCredential] = {}
+        for credential in self._repo.list_credentials():
+            for key in (
+                str(credential.credential_id or "").strip(),
+                str(credential.slot_name or "").strip(),
+                str(credential.secret_env_name or "").strip(),
+                str(credential.account_id or "").strip(),
+            ):
+                if key and key not in credentials_by_label:
+                    credentials_by_label[key] = credential
+        return accounts_by_label, credentials_by_label
+
+    def _candidate_repo_state(
+        self,
+        *,
+        candidate: dict[str, object],
+        accounts_by_label: dict[str, OneminAccount],
+        credentials_by_label: dict[str, OneminCredential],
+    ) -> dict[str, object]:
+        result = dict(candidate)
+        has_live_remaining_signal = (
+            result.get("remaining_credits") not in (None, "")
+            or result.get("estimated_remaining_credits") not in (None, "")
+        )
+
+        def _adopt_state(value: object) -> None:
+            normalized = str(value or "").strip().lower()
+            if not normalized:
+                return
+            current = str(result.get("state") or "").strip().lower()
+            if current in {"", "unknown"} or normalized not in {"ready", "unknown"}:
+                result["state"] = normalized
+
+        credential = None
+        for key in (
+            str(result.get("credential_id") or "").strip(),
+            str(result.get("slot_name") or "").strip(),
+            str(result.get("secret_env_name") or "").strip(),
+            str(result.get("account_name") or "").strip(),
+            str(result.get("account_id") or "").strip(),
+        ):
+            if key and key in credentials_by_label:
+                credential = credentials_by_label[key]
+                break
+
+        account = None
+        for key in (
+            str(result.get("account_name") or "").strip(),
+            str(result.get("account_id") or "").strip(),
+            str(result.get("secret_env_name") or "").strip(),
+        ):
+            if key and key in accounts_by_label:
+                account = accounts_by_label[key]
+                break
+        if account is None and credential is not None:
+            account = accounts_by_label.get(str(credential.account_id or "").strip())
+
+        if credential is not None:
+            _adopt_state(credential.state)
+            if credential.active_role and not str(result.get("slot_role") or "").strip():
+                result["slot_role"] = credential.active_role
+            if credential.remaining_credits is not None and not has_live_remaining_signal and result.get("remaining_credits") in (None, ""):
+                result["remaining_credits"] = credential.remaining_credits
+            if credential.max_credits is not None and result.get("max_credits") in (None, ""):
+                result["max_credits"] = credential.max_credits
+            if credential.last_error and not str(result.get("last_error") or "").strip():
+                result["last_error"] = credential.last_error
+            if credential.last_success_at and result.get("last_success_at") in (None, ""):
+                result["last_success_at"] = self._freshness_epoch(credential.last_success_at)
+            if credential.quarantine_until and result.get("quarantine_until") in (None, ""):
+                result["quarantine_until"] = self._freshness_epoch(credential.quarantine_until)
+
+        if account is not None:
+            _adopt_state(account.status)
+            details_json = dict(account.details_json or {})
+            actual_remaining = self._parse_float(details_json.get("actual_remaining_credits"))
+            actual_max = self._parse_float(details_json.get("actual_max_credits"))
+            estimated_remaining = self._parse_float(details_json.get("estimated_remaining_credits"))
+            credit_basis = str(details_json.get("credit_basis") or "").strip()
+            billing_team_mismatch = bool(details_json.get("billing_team_mismatch"))
+            if billing_team_mismatch and result.get("billing_team_mismatch") in (None, ""):
+                result["billing_team_mismatch"] = True
+            for key in ("billing_team_name", "billing_team_id", "billing_team_match_subject"):
+                value = str(details_json.get(key) or "").strip()
+                if value and result.get(key) in (None, ""):
+                    result[key] = value
+            if actual_remaining is not None and not billing_team_mismatch:
+                result["billing_remaining_credits"] = actual_remaining
+            if actual_max is not None and not billing_team_mismatch and result.get("billing_max_credits") in (None, ""):
+                result["billing_max_credits"] = actual_max
+            if credit_basis and actual_remaining is not None and not billing_team_mismatch and not str(result.get("billing_basis") or "").strip():
+                result["billing_basis"] = credit_basis
+            if account.remaining_credits is not None and not has_live_remaining_signal and result.get("remaining_credits") in (None, ""):
+                result["remaining_credits"] = account.remaining_credits
+            if account.max_credits is not None and result.get("max_credits") in (None, ""):
+                result["max_credits"] = account.max_credits
+            if estimated_remaining is not None and result.get("estimated_remaining_credits") in (None, ""):
+                result["estimated_remaining_credits"] = estimated_remaining
+            next_topup = details_json.get("billing_next_topup_at") or details_json.get("next_topup_at")
+            if next_topup and result.get("billing_next_topup_at") in (None, ""):
+                result["billing_next_topup_at"] = next_topup
+            if account.last_billing_snapshot_at and result.get("last_billing_snapshot_at") in (None, ""):
+                result["last_billing_snapshot_at"] = account.last_billing_snapshot_at
+
+        return result
+
     def _slot_has_actual_billing(self, slot: dict[str, object]) -> bool:
+        if bool(slot.get("billing_team_mismatch")):
+            return False
         if slot.get("billing_remaining_credits") not in (None, ""):
             return True
         if slot.get("billing_max_credits") not in (None, ""):
@@ -449,7 +673,9 @@ class OneminManagerService:
         allow_reserve: bool,
     ) -> tuple[bool, str]:
         state = str(candidate.get("state") or "").strip().lower()
-        if state not in {"ready", "unknown", "degraded"}:
+        budget_signal = self._candidate_budget_signal(candidate)
+        budget_limited_state = state in {"quarantine", "cooldown"} and budget_signal is not None
+        if state not in {"ready", "unknown", "degraded"} and not budget_limited_state:
             return False, "state_blocked"
         role = self._slot_role(candidate)
         if role == "reserve" and not allow_reserve:
@@ -472,16 +698,72 @@ class OneminManagerService:
                 return False, "image_concurrency_cap"
             if core_inflight:
                 return False, "core_account_in_use"
-        remaining_credits = self._candidate_remaining_credits(candidate)
+        budget_bucket = self._candidate_budget_bucket(
+            candidate=candidate,
+            task_class=task_class,
+            estimated_credits=estimated_credits,
+        )
+        if budget_bucket >= 4:
+            return False, "insufficient_budget"
+        known_remaining_credits = self._candidate_known_remaining_credits(candidate)
+        remaining_credits = float(known_remaining_credits or 0.0)
         core_floor, image_spendable, reserve_credits = self._floor_credits(remaining_credits)
         required = max(0, int(estimated_credits or 0))
         if task_class in {"image_generation", "media_transform"}:
             available = max(0.0, min(image_spendable, remaining_credits - core_floor - reserve_credits))
         else:
             available = max(0.0, remaining_credits - reserve_credits)
-        if required > 0 and available < required:
+        if budget_limited_state and (known_remaining_credits is None or required <= 0):
+            return False, "budget_limited_state_without_estimate"
+        if known_remaining_credits is not None and available <= 0.0:
+            return False, "depleted_budget"
+        if required > 0 and known_remaining_credits is not None and available < required:
+            if budget_bucket >= 2:
+                return True, "billing_recovery_candidate"
             return False, "insufficient_budget"
         return True, "eligible"
+
+    def _candidate_budget_bucket(
+        self,
+        *,
+        candidate: dict[str, object],
+        task_class: str,
+        estimated_credits: int | None,
+    ) -> int:
+        required = max(0, int(estimated_credits or 0))
+        _ = task_class
+        state = str(candidate.get("state") or "").strip().lower()
+        live_remaining = self._candidate_live_remaining_credits(candidate)
+        known_remaining = self._candidate_known_remaining_credits(candidate)
+        billing_remaining = self._parse_float(candidate.get("billing_remaining_credits"))
+        budget_signal = self._candidate_budget_signal(candidate)
+        has_positive_actual_billing = self._candidate_positive_actual_billing(candidate)
+        recovery_evidence = self._candidate_recovery_evidence(candidate)
+        budget_limited_state = state in {"quarantine", "cooldown"} and budget_signal is not None
+        exact_live_sufficient = required <= 0 or (live_remaining is not None and live_remaining >= required)
+        hard_live_zero = live_remaining is not None and live_remaining <= 0.0 and budget_signal is not None and not recovery_evidence
+
+        if exact_live_sufficient and live_remaining is not None:
+            return 1 if budget_limited_state else 0
+        if (
+            has_positive_actual_billing
+            and billing_remaining is not None
+            and billing_remaining > 0.0
+            and not hard_live_zero
+        ):
+            if required > 0 and billing_remaining >= required and recovery_evidence:
+                return 1
+            if required <= 0 and recovery_evidence:
+                return 1
+            if live_remaining is None and known_remaining is not None and known_remaining >= max(required, 1):
+                return 1
+        if live_remaining is None and known_remaining is None:
+            return 2
+        if known_remaining is not None and required <= 0 and known_remaining > 0.0:
+            return 2
+        if known_remaining is None and has_positive_actual_billing:
+            return 2
+        return 4
 
     def _candidate_score(
         self,
@@ -490,7 +772,7 @@ class OneminManagerService:
         task_class: str,
         estimated_credits: int | None,
     ) -> float:
-        remaining_credits = self._candidate_remaining_credits(candidate)
+        remaining_credits = self._candidate_selection_remaining_credits(candidate)
         core_floor, image_spendable, reserve_credits = self._floor_credits(remaining_credits)
         account_id = str(candidate.get("account_name") or candidate.get("account_id") or "").strip()
         leases = self._active_leases_for_account(account_id)
@@ -591,6 +873,13 @@ class OneminManagerService:
                     "actual_remaining_credits": billing_remaining,
                     "actual_max_credits": self._parse_float(credit_rollup.get("actual_max_credits")),
                     "estimated_remaining_credits": estimated_remaining if estimated_remaining > 0 else 0.0,
+                    "billing_team_name": next((str(slot.get("billing_team_name") or "").strip() for slot in slots if str(slot.get("billing_team_name") or "").strip()), ""),
+                    "billing_team_id": next((str(slot.get("billing_team_id") or "").strip() for slot in slots if str(slot.get("billing_team_id") or "").strip()), ""),
+                    "billing_team_mismatch": any(bool(slot.get("billing_team_mismatch")) for slot in slots),
+                    "billing_team_match_subject": next(
+                        (str(slot.get("billing_team_match_subject") or "").strip() for slot in slots if str(slot.get("billing_team_match_subject") or "").strip()),
+                        "",
+                    ),
                     "observed_usage_burn_credits_per_hour": self._parse_float(burn_rollup.get("observed_usage_burn_credits_per_hour")),
                     "slot_count_with_observed_usage_burn": int(burn_rollup.get("slot_count_with_observed_usage_burn") or 0),
                     "estimated_pool_burn_credits_per_hour": self._parse_float(burn_rollup.get("estimated_pool_burn_credits_per_hour")),
@@ -650,10 +939,19 @@ class OneminManagerService:
                     "billing_remaining_credits": slot.get("billing_remaining_credits"),
                     "estimated_remaining_credits": slot.get("estimated_remaining_credits"),
                     "remaining_credits": slot.get("remaining_credits"),
+                    "required_credits": slot.get("required_credits"),
+                    "last_failure_at": slot.get("last_failure_at"),
+                    "last_billing_snapshot_at": slot.get("last_billing_snapshot_at"),
                     "billing_next_topup_at": slot.get("billing_next_topup_at"),
+                    "billing_basis": slot.get("billing_basis"),
+                    "billing_team_mismatch": slot.get("billing_team_mismatch"),
+                    "estimated_credit_basis": slot.get("estimated_credit_basis"),
                     "failure_count": slot.get("failure_count"),
                     "last_success_at": slot.get("last_success_at"),
                     "last_used_at": slot.get("last_used_at"),
+                    "last_error": slot.get("last_error"),
+                    "last_probe_result": slot.get("last_probe_result"),
+                    "last_probe_detail": slot.get("last_probe_detail"),
                 }
             )
         return rows
@@ -674,19 +972,47 @@ class OneminManagerService:
         request_id: str,
         estimated_credits: int | None,
         allow_reserve: bool,
+        provider_health: dict[str, object] | None = None,
     ) -> dict[str, object] | None:
         task_class = self._task_class(lane=lane, capability=capability)
         with self._lock:
+            if provider_health is not None:
+                self._sync_state(provider_health=provider_health)
+            accounts_by_label, credentials_by_label = self._persisted_candidate_lookups()
             eligible: list[tuple[float, dict[str, object]]] = []
             for candidate in candidates:
-                allowed, _ = self._candidate_allowed(candidate=candidate, task_class=task_class, estimated_credits=estimated_credits, allow_reserve=allow_reserve)
+                effective_candidate = self._candidate_repo_state(
+                    candidate=candidate,
+                    accounts_by_label=accounts_by_label,
+                    credentials_by_label=credentials_by_label,
+                )
+                allowed, _ = self._candidate_allowed(
+                    candidate=effective_candidate,
+                    task_class=task_class,
+                    estimated_credits=estimated_credits,
+                    allow_reserve=allow_reserve,
+                )
                 if not allowed:
                     continue
-                eligible.append((self._candidate_score(candidate=candidate, task_class=task_class, estimated_credits=estimated_credits), dict(candidate)))
+                eligible.append(
+                    (
+                        self._candidate_budget_bucket(
+                            candidate=effective_candidate,
+                            task_class=task_class,
+                            estimated_credits=estimated_credits,
+                        ),
+                        -self._candidate_score(
+                            candidate=effective_candidate,
+                            task_class=task_class,
+                            estimated_credits=estimated_credits,
+                        ),
+                        dict(effective_candidate),
+                    )
+                )
             if not eligible:
                 return None
-            eligible.sort(key=lambda item: (-item[0], str(item[1].get("account_name") or ""), str(item[1].get("slot_name") or "")))
-            chosen = eligible[0][1]
+            eligible.sort(key=lambda item: (item[0], item[1], str(item[2].get("account_name") or ""), str(item[2].get("slot_name") or "")))
+            chosen = eligible[0][2]
             account_id = str(chosen.get("account_name") or chosen.get("account_id") or "").strip()
             credential_id = str(chosen.get("credential_id") or chosen.get("slot_name") or account_id).strip()
             now = self._now()
@@ -753,6 +1079,7 @@ class OneminManagerService:
             request_id=request_id,
             estimated_credits=estimated_credits,
             allow_reserve=allow_reserve,
+            provider_health=provider_health,
         )
 
     def record_usage(self, *, lease_id: str, actual_credits_delta: int | None, status: str = "success") -> None:

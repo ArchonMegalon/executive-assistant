@@ -197,14 +197,19 @@ class OneminToolAdapter:
                         reserve_keys=upstream._onemin_reserve_keys(),
                     ),
                     "state": slot_row.get("state") or upstream._onemin_key_state_label(state, now=upstream._now_epoch()),
+                    "remaining_credits": slot_row.get("remaining_credits"),
                     "estimated_remaining_credits": slot_row.get("estimated_remaining_credits"),
+                    "required_credits": slot_row.get("required_credits"),
                     "billing_remaining_credits": slot_row.get("billing_remaining_credits"),
                     "billing_max_credits": slot_row.get("billing_max_credits"),
                     "billing_next_topup_at": slot_row.get("billing_next_topup_at"),
+                    "billing_team_mismatch": slot_row.get("billing_team_mismatch"),
                     "failure_count": state.failure_count,
                     "last_success_at": state.last_success_at,
                     "last_used_at": state.last_used_at,
                     "last_error": state.last_error,
+                    "last_probe_result": slot_row.get("last_probe_result"),
+                    "last_probe_detail": slot_row.get("last_probe_detail"),
                 }
             )
         return manager_candidates

@@ -96,7 +96,7 @@ _LANE_REVIEW_LIGHT = "review_light"
 
 _AUDIT_OUTPUT_TEXT_HEADER = "BrowserAct ChatPlayground audit"
 
-_HARD_MAX_ACTIVE_REQUESTS = 8
+_HARD_MAX_ACTIVE_REQUESTS = 13
 _HARD_QUEUE_TIMEOUT_SECONDS = 120.0
 _HARD_DOWNSCALE_MAX_OUTPUT_TOKENS = 256
 _ONEMIN_AUTH_QUARANTINE_SECONDS = 1800.0
@@ -104,7 +104,7 @@ _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_DEPLETED_KEY_COOLDOWN_SECONDS = 1800.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 45
+_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 180
 _ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS = 120.0
 _ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS = 1800.0
 _ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS = 12
@@ -1411,6 +1411,84 @@ def onemin_owner_rows() -> tuple[dict[str, str], ...]:
     return tuple(dict(row) for row in _onemin_owner_entries())
 
 
+def _normalize_onemin_credit_subject(value: object) -> str:
+    raw = re.sub(r"[\s_-]+", " ", str(value or "").strip().casefold()).strip()
+    for suffix in (" team", " workspace", " organization", " account"):
+        if raw.endswith(suffix):
+            raw = raw[: -len(suffix)].strip()
+            break
+    return "".join(char for char in raw if char.isalnum())
+
+
+def onemin_normalize_team_name(value: object) -> str:
+    return _normalize_onemin_credit_subject(value)
+
+
+def onemin_credit_subject_hint_for_account(*, account_name: str) -> dict[str, object]:
+    normalized_account = str(account_name or "").strip()
+    if not normalized_account:
+        return {}
+    _load_provider_ledgers_once()
+    candidates: list[tuple[float, dict[str, object]]] = []
+    api_key = _provider_secret_from_account_name(normalized_account)
+    latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=normalized_account)
+    if (
+        latest_balance is not None
+        and str(latest_balance.basis or "").strip().lower() == "observed_error"
+        and str(latest_balance.detail or "").strip()
+    ):
+        candidates.append(
+            (
+                float(latest_balance.happened_at or 0.0),
+                {
+                    "credit_subject": str(latest_balance.detail or "").strip(),
+                    "required_credits": None,
+                    "remaining_credits": latest_balance.remaining_credits,
+                    "happened_at": float(latest_balance.happened_at or 0.0),
+                    "source": "provider_balance_snapshot",
+                },
+            )
+        )
+    if api_key:
+        with _ONEMIN_USAGE_LOCK:
+            for event in _ONEMIN_REQUIRED_CREDIT_EVENTS:
+                if event.api_key != api_key or not str(event.credit_subject or "").strip():
+                    continue
+                candidates.append(
+                    (
+                        float(event.happened_at or 0.0),
+                        {
+                            "credit_subject": str(event.credit_subject or "").strip(),
+                            "required_credits": int(event.required_credits),
+                            "remaining_credits": int(event.remaining_credits),
+                            "happened_at": float(event.happened_at or 0.0),
+                            "source": "required_credit_event",
+                        },
+                    )
+                )
+        state = _onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key))
+        credit_state = _parse_credit_state(state.last_error)
+        if credit_state is not None and state.last_failure_at > 0.0:
+            subject = str(credit_state.get("credit_subject") or "").strip()
+            if subject:
+                candidates.append(
+                    (
+                        float(state.last_failure_at or 0.0),
+                        {
+                            "credit_subject": subject,
+                            "required_credits": int(credit_state.get("required_credits") or 0),
+                            "remaining_credits": int(credit_state.get("remaining_credits") or 0),
+                            "happened_at": float(state.last_failure_at or 0.0),
+                            "source": "state_last_error",
+                        },
+                    )
+                )
+    if not candidates:
+        return {}
+    candidates.sort(key=lambda item: (item[0], str(item[1].get("source") or "")), reverse=True)
+    return dict(candidates[0][1])
+
+
 def _load_onemin_account_credentials_payload(value: object) -> object:
     if isinstance(value, str):
         text = str(value or "").strip()
@@ -1438,6 +1516,10 @@ def _onemin_account_credentials_rows(payload: object) -> tuple[dict[str, str], .
                 "login_password",
                 "browseract_password",
                 "password",
+                "team_id",
+                "onemin_team_id",
+                "team_name",
+                "onemin_team_name",
             )
         ):
             items = [payload]
@@ -1468,15 +1550,20 @@ def _onemin_account_credentials_rows(payload: object) -> tuple[dict[str, str], .
             or item.get("password")
             or ""
         ).strip()
-        if not account_name or (not login_email and not login_password):
+        team_id = str(item.get("team_id") or item.get("onemin_team_id") or "").strip()
+        team_name = str(item.get("team_name") or item.get("onemin_team_name") or "").strip()
+        if not account_name or (not login_email and not login_password and not team_id and not team_name):
             continue
-        rows.append(
-            {
-                "account_name": account_name,
-                "login_email": login_email,
-                "login_password": login_password,
-            }
-        )
+        row = {
+            "account_name": account_name,
+            "login_email": login_email,
+            "login_password": login_password,
+        }
+        if team_id:
+            row["team_id"] = team_id
+        if team_name:
+            row["team_name"] = team_name
+        rows.append(row)
     return tuple(rows)
 
 
@@ -1514,14 +1601,23 @@ def onemin_account_login_credentials(
                 continue
             login_email = str(row.get("login_email") or "").strip()
             login_password = str(row.get("login_password") or "").strip()
-            if login_email or login_password:
-                return {
+            team_id = str(row.get("team_id") or "").strip()
+            team_name = str(row.get("team_name") or "").strip()
+            if login_email or login_password or team_id or team_name:
+                result = {
                     "login_email": login_email,
                     "login_password": login_password,
                 }
+                if team_id:
+                    result["team_id"] = team_id
+                if team_name:
+                    result["team_name"] = team_name
+                return result
 
     login_email = ""
     login_password = ""
+    team_id = ""
+    team_name = ""
     for prefix in _onemin_account_env_prefixes(normalized_account_name):
         if not login_email:
             for key in (f"{prefix}_LOGIN_EMAIL", f"{prefix}_BROWSERACT_USERNAME"):
@@ -1535,11 +1631,28 @@ def onemin_account_login_credentials(
                 if value:
                     login_password = value
                     break
-    if login_email or login_password:
-        return {
+        if not team_id:
+            for key in (f"{prefix}_TEAM_ID", f"{prefix}_ONEMIN_TEAM_ID"):
+                value = _env(key)
+                if value:
+                    team_id = value
+                    break
+        if not team_name:
+            for key in (f"{prefix}_TEAM_NAME", f"{prefix}_ONEMIN_TEAM_NAME"):
+                value = _env(key)
+                if value:
+                    team_name = value
+                    break
+    if login_email or login_password or team_id or team_name:
+        result = {
             "login_email": login_email,
             "login_password": login_password,
         }
+        if team_id:
+            result["team_id"] = team_id
+        if team_name:
+            result["team_name"] = team_name
+        return result
     return {}
 
 
@@ -1834,6 +1947,7 @@ def _preferred_onemin_key_names(
 def _recent_onemin_dispatch_credit_estimate(*, lane: str, model: str, now: float) -> int | None:
     _load_provider_ledgers_once()
     wanted_model = str(model or "").strip().lower()
+    wanted_family = _onemin_model_credit_family(model)
     with _ONEMIN_USAGE_LOCK:
         rows = [
             item
@@ -1859,9 +1973,26 @@ def _recent_onemin_dispatch_credit_estimate(*, lane: str, model: str, now: float
         [
             int(item.estimated_onemin_credits or 0)
             for item in rows
-            if str(item.lane or _LANE_DEFAULT) == lane
+            if wanted_family != "default"
+            and _onemin_model_credit_family(item.model) == wanted_family
+            and str(item.lane or _LANE_DEFAULT) == lane
         ],
-        [int(item.estimated_onemin_credits or 0) for item in rows],
+        [
+            int(item.estimated_onemin_credits or 0)
+            for item in rows
+            if wanted_family != "default"
+            and _onemin_model_credit_family(item.model) == wanted_family
+        ],
+        [
+            int(item.estimated_onemin_credits or 0)
+            for item in rows
+            if wanted_family in {"hard", "default"} and str(item.lane or _LANE_DEFAULT) == lane
+        ],
+        [
+            int(item.estimated_onemin_credits or 0)
+            for item in rows
+            if wanted_family in {"hard", "default"}
+        ],
     )
     for values in candidate_groups:
         median = _median_int([value for value in values if value > 0])
@@ -1873,8 +2004,24 @@ def _recent_onemin_dispatch_credit_estimate(*, lane: str, model: str, now: float
 def _onemin_required_credits_for_selection(*, lane: str, model: str) -> tuple[int | None, str]:
     now = _now_epoch()
     dispatch_estimate = _recent_onemin_dispatch_credit_estimate(lane=lane, model=model, now=now)
+    default_estimate = _onemin_default_required_credits(model)
     if dispatch_estimate is not None and dispatch_estimate > 0:
+        family = _onemin_model_credit_family(model)
+        cap_multiplier = {
+            "light": 8,
+            "medium": 10,
+            "default": 10,
+        }.get(family, 0)
+        if (
+            default_estimate is not None
+            and default_estimate > 0
+            and cap_multiplier > 0
+            and dispatch_estimate > int(default_estimate) * int(cap_multiplier)
+        ):
+            return int(default_estimate), "model_family_default_capped_recent_dispatch"
         return int(dispatch_estimate), "recent_dispatch_median"
+    if default_estimate is not None and default_estimate > 0:
+        return int(default_estimate), "model_family_default"
     estimated, basis = _estimate_onemin_request_credits(now=now, tokens_in=0, tokens_out=0)
     if estimated > 0:
         return int(estimated), basis
@@ -2034,14 +2181,24 @@ def _onemin_key_selection_priority(
         max_same_lane_credits,
         max_any_credits,
     ) = _onemin_recent_success_evidence(api_key=api_key, lane=lane, model=model, now=now)
+    account_name = _provider_account_name("onemin", key_names=_onemin_key_names(), key=api_key)
+    latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
+    actual_billing_positive = _actual_onemin_billing_snapshot_is_positive(latest_billing)
+    if actual_billing_positive and _onemin_billing_snapshot_matches_credit_subject(account_name=account_name, latest_billing=latest_billing) is False:
+        actual_billing_positive = False
     known_insufficient = False
     if balance_basis in {"inactive_key", "depleted_error"}:
         known_insufficient = True
     elif balance_basis == "observed_error" and remaining_credits is not None:
         observed_remaining = int(remaining_credits)
-        if observed_remaining <= 0:
+        if observed_remaining <= 0 and not actual_billing_positive:
             known_insufficient = True
-        elif required_credits is not None and required_credits > 0 and observed_remaining < int(required_credits):
+        elif (
+            required_credits is not None
+            and required_credits > 0
+            and observed_remaining < int(required_credits)
+            and not actual_billing_positive
+        ):
             known_insufficient = True
     elif (
         required_credits is not None
@@ -2353,8 +2510,22 @@ def _pick_onemin_key(
     _clean_onemin_states(configured_keys or key_names)
     states = _onemin_states_snapshot(key_names)
     now = _now_epoch()
-    candidates: list[tuple[str, int, int, int, float, float, float]] = []
+    provider_health = _provider_health_report(lightweight=True)
+    onemin_slots = list((((provider_health.get("providers") or {}).get("onemin") or {}).get("slots") or []))
+    slot_by_account = {
+        str(slot.get("account_name") or "").strip(): dict(slot)
+        for slot in onemin_slots
+        if isinstance(slot, dict) and str(slot.get("account_name") or "").strip()
+    }
+    slot_by_name = {
+        str(slot.get("slot") or "").strip(): dict(slot)
+        for slot in onemin_slots
+        if isinstance(slot, dict) and str(slot.get("slot") or "").strip()
+    }
+    candidates: list[tuple[str, int, int, int, int, int, float, float, int]] = []
     blocked: list[tuple[str, float, float]] = []
+    available_candidate_count = 0
+    known_insufficient_candidate_count = 0
     for index, api_key in enumerate(key_names):
         state = states.get(api_key) or OneminKeyState(key=api_key)
         if now < state.quarantine_until:
@@ -2372,10 +2543,22 @@ def _pick_onemin_key(
             index=index,
             now=now,
         )
-        candidates.append((api_key, *selection_priority))
+        account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+        slot_name = _onemin_key_slot(api_key, key_names=key_names)
+        slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
+        probe_ok_priority = 1
+        if str(slot_row.get("last_probe_result") or "").strip().lower() == "ok":
+            probe_ok_priority = 0
+        available_candidate_count += 1
+        if required_credits is not None and required_credits > 0 and selection_priority[0] == 4 and probe_ok_priority != 0:
+            known_insufficient_candidate_count += 1
+            continue
+        candidates.append((api_key, probe_ok_priority, *selection_priority))
     if candidates:
-        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6], item[7]))
-        return candidates[0][0], 0.0, float(candidates[0][7])
+        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6], item[7], item[8]))
+        return candidates[0][0], 0.0, float(candidates[0][8])
+    if required_credits is not None and required_credits > 0 and available_candidate_count > 0 and known_insufficient_candidate_count >= available_candidate_count:
+        return None
     if not blocked:
         return key_names[0], 0.0, 0.0
     blocked.sort(key=lambda item: (item[1], item[2]))
@@ -2498,6 +2681,7 @@ def _onemin_code_models() -> tuple[str, ...]:
         "gpt-5.4",
         "gpt-5",
         "gpt-4o",
+        "deepseek-chat",
     )
     return _merge_unique(configured, defaults)
 
@@ -2567,6 +2751,14 @@ def _onemin_hard_models() -> tuple[str, ...]:
     return defaults
 
 
+def _onemin_hard_fallback_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS"))
+    defaults = ("deepseek-chat", "gpt-4.1-nano")
+    if configured:
+        return _merge_unique(configured, defaults)
+    return defaults
+
+
 def _onemin_rescue_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_RESCUE_MODELS"))
     defaults = ("gpt-4o", "gpt-4.1", "deepseek-chat")
@@ -2581,6 +2773,191 @@ def _onemin_review_models() -> tuple[str, ...]:
     if configured:
         return _merge_unique(configured, defaults)
     return defaults
+
+
+def _onemin_model_credit_family(model: str) -> str:
+    normalized = str(model or "").strip().lower()
+    if not normalized:
+        return "default"
+    if normalized in {item.lower() for item in _onemin_hard_models()}:
+        return "hard"
+    if normalized in {item.lower() for item in _onemin_review_models()}:
+        return "light"
+    if normalized in {"gpt-4.1-nano"}:
+        return "light"
+    if normalized in {"gpt-4.1", "deepseek-chat", "deepseek-reasoner"} or "nano" in normalized:
+        return "medium" if normalized == "gpt-4.1" else "light"
+    if normalized in {item.lower() for item in _onemin_rescue_models()}:
+        return "medium"
+    return "default"
+
+
+def _onemin_default_required_credits(model: str) -> int | None:
+    family = _onemin_model_credit_family(model)
+    env_defaults = {
+        "hard": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_HARD", 50000),
+        "medium": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_MEDIUM", 4000),
+        "light": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_LIGHT", 1200),
+        "default": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_DEFAULT", 4000),
+    }
+    env_name, default = env_defaults.get(family, env_defaults["default"])
+    value = _to_int(_env(env_name, str(default)), default, minimum=0, maximum=1000000000)
+    return value if value > 0 else None
+
+
+def _onemin_slot_budget_signal(slot: dict[str, object]) -> dict[str, object] | None:
+    for field_name in ("last_probe_detail", "last_error", "detail"):
+        parsed = _parse_credit_state(slot.get(field_name))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
+    state = str(slot.get("state") or "").strip().lower()
+    if state in {"missing", "blocked", "unavailable"}:
+        return None
+    budget_signal = _onemin_slot_budget_signal(slot)
+    if state == "quarantine":
+        if budget_signal is None:
+            return None
+        try:
+            recovered_remaining = int(budget_signal.get("remaining_credits") or 0)
+        except Exception:
+            recovered_remaining = 0
+        if recovered_remaining > 0:
+            return recovered_remaining
+        return None
+    for field_name in ("billing_remaining_credits", "estimated_remaining_credits", "remaining_credits"):
+        value = slot.get(field_name)
+        if value in (None, ""):
+            continue
+        try:
+            credits = int(round(float(value)))
+        except Exception:
+            continue
+        if credits > 0:
+            return credits
+    return None
+
+
+def _onemin_provider_health_pick(
+    *,
+    key_names: tuple[str, ...],
+    provider_health: dict[str, object],
+    required_credits: int | None = None,
+    preferred_onemin_labels: tuple[str, ...] = (),
+) -> tuple[str, float, str] | None:
+    slots = list((((provider_health.get("providers") or {}).get("onemin") or {}).get("slots") or []))
+    if not key_names or not slots:
+        return None
+    slot_by_account = {
+        str(slot.get("account_name") or "").strip(): dict(slot)
+        for slot in slots
+        if isinstance(slot, dict) and str(slot.get("account_name") or "").strip()
+    }
+    slot_by_name = {
+        str(slot.get("slot") or slot.get("slot_name") or "").strip(): dict(slot)
+        for slot in slots
+        if isinstance(slot, dict) and str(slot.get("slot") or slot.get("slot_name") or "").strip()
+    }
+    normalized_required = int(required_credits or 0)
+    normalized_preferred = _normalize_preferred_onemin_labels(preferred_onemin_labels)
+    scored: list[tuple[tuple[object, ...], str]] = []
+    for api_key in key_names:
+        account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+        slot_name = _onemin_key_slot(api_key, key_names=key_names)
+        slot = slot_by_account.get(account_name) or slot_by_name.get(slot_name)
+        if not slot:
+            continue
+        state = str(slot.get("state") or "").strip().lower()
+        if state in {"blocked", "missing", "unavailable"}:
+            continue
+        probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+        probe_ok = probe_result == "ok"
+        budget_signal = _onemin_slot_budget_signal(slot)
+        live_hint = _onemin_slot_live_credit_hint(slot)
+        billing_hint = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+        recoverable_quarantine = (
+            state == "quarantine"
+            and live_hint is not None
+            and (normalized_required <= 0 or live_hint >= normalized_required)
+        )
+        if state == "quarantine" and not recoverable_quarantine and not probe_ok:
+            continue
+        if state == "quarantine" and budget_signal is not None:
+            billing_hint = 0
+        effective_state = "degraded" if recoverable_quarantine else state
+        preferred_match = _candidate_matches_preferred_onemin_label(
+            {
+                "account_name": account_name,
+                "account_id": account_name,
+                "slot_name": slot_name,
+                "credential_id": slot_name,
+                "secret_env_name": str(slot.get("slot_env_name") or account_name or ""),
+            },
+            normalized_preferred,
+        )
+        state_rank = {"ready": 0, "unknown": 1, "degraded": 2, "quarantine": 3}.get(effective_state, 4)
+        if normalized_required > 0:
+            has_budget_hint = live_hint is not None and live_hint >= normalized_required
+            has_billing_hint = billing_hint >= normalized_required
+            if has_budget_hint:
+                budget_rank = 0
+            elif has_billing_hint:
+                budget_rank = 1
+            elif probe_ok:
+                budget_rank = 2
+            else:
+                budget_rank = 3
+        else:
+            budget_rank = 0 if live_hint is not None or billing_hint > 0 or probe_ok else 1
+        best_hint = max(int(live_hint or 0), int(billing_hint or 0))
+        scored.append(
+            (
+                (
+                    0 if preferred_match else 1,
+                    state_rank,
+                    budget_rank,
+                    0 if probe_ok else 1,
+                    -best_hint,
+                    str(slot_name or account_name or ""),
+                ),
+                api_key,
+            )
+        )
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0])
+    return scored[0][1], 0.0, "provider_health_viable_slot"
+
+
+def _onemin_hard_candidate_models() -> tuple[str, ...]:
+    candidates = _merge_unique(_onemin_hard_models(), _onemin_hard_fallback_models())
+    provider_health = _provider_health_report(lightweight=True)
+    onemin = dict((provider_health.get("providers") or {}).get("onemin") or {})
+    slots = list(onemin.get("slots") or [])
+    live_credit_hints = [
+        hint
+        for hint in (_onemin_slot_live_credit_hint(dict(slot or {})) for slot in slots)
+        if hint is not None and hint > 0
+    ]
+    if not live_credit_hints:
+        return candidates
+    max_live_credits = max(live_credit_hints)
+    affordable: list[str] = []
+    constrained: list[tuple[int, int, str]] = []
+    for index, model_name in enumerate(candidates):
+        required_credits, _basis = _onemin_required_credits_for_selection(
+            lane=_LANE_HARD,
+            model=model_name,
+        )
+        if required_credits is None or required_credits <= max_live_credits:
+            affordable.append(model_name)
+            continue
+        constrained.append((int(required_credits), index, model_name))
+    constrained.sort(key=lambda item: (item[0], item[1]))
+    return tuple(affordable + [model_name for _required_credits, _index, model_name in constrained])
 
 
 def _gemini_vortex_models() -> tuple[str, ...]:
@@ -2617,7 +2994,7 @@ def _lane_max_output_tokens(lane: str) -> int | None:
 
 
 def _resolve_hard_defaults() -> tuple[float, float, int]:
-    max_active = _to_int(_env("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS", str(_HARD_MAX_ACTIVE_REQUESTS)), 1, minimum=1, maximum=8)
+    max_active = _to_int(_env("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS", str(_HARD_MAX_ACTIVE_REQUESTS)), 1, minimum=1, maximum=64)
     queue_timeout = _to_float(
         _env("EA_RESPONSES_HARD_QUEUE_TIMEOUT_SECONDS", str(_HARD_QUEUE_TIMEOUT_SECONDS)),
         0.0,
@@ -2704,7 +3081,52 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
     _load_provider_ledgers_once()
     account_name = _provider_account_name("onemin", key_names=_onemin_key_names(), key=state.key)
     latest_snapshot = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
-    if latest_snapshot is not None and latest_snapshot.remaining_credits is not None:
+    latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
+    billing_subject_match = _onemin_billing_snapshot_matches_credit_subject(account_name=account_name, latest_billing=latest_billing)
+    latest_snapshot_epoch = float(latest_snapshot.happened_at or 0.0) if latest_snapshot is not None else 0.0
+    latest_billing_epoch = _iso_to_epoch(latest_billing.observed_at) if latest_billing is not None else 0.0
+    latest_snapshot_is_mismatched_actual = (
+        latest_snapshot is not None
+        and str(latest_snapshot.basis or "").strip().lower().startswith("actual")
+        and billing_subject_match is False
+    )
+    if (
+        latest_snapshot is not None
+        and latest_snapshot.remaining_credits is not None
+        and latest_snapshot_epoch >= latest_billing_epoch
+        and not latest_snapshot_is_mismatched_actual
+    ):
+        observed_since_snapshot = _observed_spend_since(
+            api_key=state.key,
+            since=float(latest_snapshot.happened_at or 0.0),
+        )
+        remaining_after_observed_usage = max(
+            0,
+            int(latest_snapshot.remaining_credits) - int(observed_since_snapshot),
+        )
+        basis = str(latest_snapshot.basis or "unknown")
+        if observed_since_snapshot > 0:
+            basis = f"{basis}_plus_observed_usage"
+        return remaining_after_observed_usage, basis
+    if (
+        latest_billing is not None
+        and latest_billing.remaining_credits is not None
+        and str(latest_billing.basis or "").strip().lower().startswith("actual")
+        and billing_subject_match is not False
+    ):
+        observed_since_snapshot = _observed_spend_since(
+            api_key=state.key,
+            since=latest_billing_epoch,
+        )
+        remaining_after_observed_usage = max(
+            0,
+            int(latest_billing.remaining_credits) - int(observed_since_snapshot),
+        )
+        basis = str(latest_billing.basis or "actual_billing").strip() or "actual_billing"
+        if observed_since_snapshot > 0:
+            basis = f"{basis}_plus_observed_usage"
+        return remaining_after_observed_usage, basis
+    if latest_snapshot is not None and latest_snapshot.remaining_credits is not None and not latest_snapshot_is_mismatched_actual:
         observed_since_snapshot = _observed_spend_since(
             api_key=state.key,
             since=float(latest_snapshot.happened_at or 0.0),
@@ -2728,6 +3150,76 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
     if observed_spend > 0:
         return max(0, _onemin_max_credits_per_key() - observed_spend), "max_minus_observed_usage"
     return None, "unknown_unprobed"
+
+
+def _actual_onemin_billing_snapshot_is_positive(latest_billing: ProviderBillingSnapshot | None) -> bool:
+    if latest_billing is None or latest_billing.remaining_credits is None:
+        return False
+    if float(latest_billing.remaining_credits or 0.0) <= 0.0:
+        return False
+    return str(latest_billing.basis or "").strip().lower().startswith("actual")
+
+
+def _onemin_billing_team_identity(latest_billing: ProviderBillingSnapshot | None) -> tuple[str, str]:
+    if latest_billing is None:
+        return "", ""
+    structured = dict(latest_billing.structured_output_json or {})
+    return (
+        str(structured.get("team_id") or "").strip(),
+        str(structured.get("team_name") or "").strip(),
+    )
+
+
+def _onemin_billing_snapshot_matches_credit_subject(
+    *,
+    account_name: str,
+    latest_billing: ProviderBillingSnapshot | None,
+) -> bool | None:
+    if latest_billing is None:
+        return None
+    _, team_name = _onemin_billing_team_identity(latest_billing)
+    if not team_name:
+        return None
+    hint = onemin_credit_subject_hint_for_account(account_name=account_name)
+    subject = str(hint.get("credit_subject") or "").strip()
+    if not subject:
+        return None
+    return _normalize_onemin_credit_subject(team_name) == _normalize_onemin_credit_subject(subject)
+
+
+def _recover_onemin_depletion_state_from_actual_billing(
+    *,
+    account_name: str,
+    api_key: str,
+    state: OneminKeyState,
+    latest_billing: ProviderBillingSnapshot | None,
+) -> OneminKeyState:
+    if not _actual_onemin_billing_snapshot_is_positive(latest_billing):
+        return state
+    if _onemin_billing_snapshot_matches_credit_subject(account_name=account_name, latest_billing=latest_billing) is False:
+        return state
+    billing_epoch = _iso_to_epoch(latest_billing.observed_at) if latest_billing is not None else 0.0
+    failure_epoch = float(state.last_failure_at or 0.0)
+    if failure_epoch > 0.0 and billing_epoch > 0.0 and billing_epoch < failure_epoch:
+        return state
+    last_error = str(state.last_error or "")
+    if not last_error:
+        return state
+    if _is_auth_error(last_error) or _is_deleted_onemin_key_error(last_error):
+        return state
+    if not _is_onemin_key_depleted(last_error):
+        return state
+    _set_onemin_state(
+        api_key,
+        {
+            "last_failure_at": 0.0,
+            "failure_count": 0,
+            "cooldown_until": 0.0,
+            "quarantine_until": 0.0,
+            "last_error": "",
+        },
+    )
+    return _onemin_states_snapshot((api_key,)).get(api_key, OneminKeyState(key=api_key))
 
 
 def _onemin_known_exhaustion_message(*, key_names: tuple[str, ...], required_credits: int | None = None) -> str | None:
@@ -3296,11 +3788,11 @@ def _provider_model_order_for_lane(
     if normalized in {"ea-review", "ea-critic"}:
         return _onemin_review_models()
     if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
-        return _onemin_hard_models()
+        return _onemin_hard_candidate_models()
     if normalized == HARD_RESCUE_PUBLIC_MODEL:
         return _onemin_rescue_models()
     if lane == _LANE_HARD:
-        return _onemin_hard_models()
+        return _onemin_hard_candidate_models()
     if lane == _LANE_REVIEW:
         return _onemin_review_models()
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
@@ -5061,6 +5553,9 @@ def _call_onemin(
             ]
     else:
         urls = [(_onemin_chat_stream_url(), "chat_stream")]
+        if _onemin_model_supports_code(model):
+            urls.append((_onemin_code_url(), "code"))
+        urls.append((_onemin_chat_url(), "chat"))
 
     errors: list[str] = []
     failures: list[str] = []
@@ -5068,14 +5563,25 @@ def _call_onemin(
     selection_request_id = f"onemin-{uuid.uuid4().hex[:16]}"
     preferred_onemin_labels = _normalize_preferred_onemin_labels(preferred_onemin_labels)
     manager = active_onemin_manager()
+    provider_health = _provider_health_report()
     active_key_names = _ordered_onemin_keys_allow_reserve(False)
     all_key_names = _ordered_onemin_keys_allow_reserve(True)
     allow_reserve = False
     if not all_key_names:
         raise ResponsesUpstreamError("onemin_missing_api_key")
-    known_exhaustion = _onemin_known_exhaustion_message(key_names=all_key_names, required_credits=required_credits)
-    if known_exhaustion:
-        raise ResponsesUpstreamError(known_exhaustion)
+    if manager is None:
+        provider_health_pick = _onemin_provider_health_pick(
+            key_names=all_key_names,
+            provider_health=provider_health,
+            required_credits=required_credits,
+            preferred_onemin_labels=preferred_onemin_labels,
+        )
+        known_exhaustion = None if provider_health_pick is not None else _onemin_known_exhaustion_message(
+            key_names=all_key_names,
+            required_credits=required_credits,
+        )
+        if known_exhaustion:
+            raise ResponsesUpstreamError(known_exhaustion)
     while len(tested) < len(all_key_names):
         candidate_key_names = active_key_names if not allow_reserve else all_key_names
         filtered_key_names = tuple(key for key in candidate_key_names if key not in tested)
@@ -5086,8 +5592,13 @@ def _call_onemin(
             break
         manager_lease_id = ""
         manager_selection: dict[str, object] | None = None
+        provider_health_pick = _onemin_provider_health_pick(
+            key_names=filtered_key_names,
+            provider_health=provider_health,
+            required_credits=required_credits,
+            preferred_onemin_labels=preferred_onemin_labels,
+        )
         if manager is not None and filtered_key_names:
-            provider_health = _provider_health_report()
             onemin_slots = list((((provider_health.get("providers") or {}).get("onemin") or {}).get("slots") or []))
             slot_by_account = {
                 str(slot.get("account_name") or "").strip(): dict(slot)
@@ -5120,14 +5631,23 @@ def _call_onemin(
                             reserve_keys=_onemin_reserve_keys(),
                         ),
                         "state": slot_row.get("state") or _onemin_key_state_label(state, now=_now_epoch()),
+                        "remaining_credits": slot_row.get("remaining_credits"),
                         "estimated_remaining_credits": slot_row.get("estimated_remaining_credits"),
+                        "required_credits": slot_row.get("required_credits"),
                         "billing_remaining_credits": slot_row.get("billing_remaining_credits"),
                         "billing_max_credits": slot_row.get("billing_max_credits"),
+                        "billing_basis": slot_row.get("billing_basis"),
+                        "estimated_credit_basis": slot_row.get("estimated_credit_basis"),
                         "billing_next_topup_at": slot_row.get("billing_next_topup_at"),
+                        "billing_team_mismatch": slot_row.get("billing_team_mismatch"),
                         "failure_count": state.failure_count,
                         "last_success_at": state.last_success_at,
+                        "last_failure_at": slot_row.get("last_failure_at") or state.last_failure_at,
                         "last_used_at": state.last_used_at,
+                        "last_billing_snapshot_at": slot_row.get("last_billing_snapshot_at"),
                         "last_error": state.last_error,
+                        "last_probe_result": slot_row.get("last_probe_result"),
+                        "last_probe_detail": slot_row.get("last_probe_detail"),
                     }
                 )
             candidate_groups: list[list[dict[str, object]]] = []
@@ -5153,6 +5673,7 @@ def _call_onemin(
                     request_id=selection_request_id,
                     estimated_credits=required_credits,
                     allow_reserve=allow_reserve,
+                    provider_health=provider_health,
                 )
                 if manager_selection is not None:
                     break
@@ -5160,27 +5681,39 @@ def _call_onemin(
             api_key = str(manager_selection.get("api_key") or "")
             wait_until = 0.0
             manager_lease_id = str(manager_selection.get("lease_id") or "")
+        elif manager is not None and provider_health_pick is None:
+            if not allow_reserve and len(all_key_names) > len(active_key_names):
+                allow_reserve = True
+                continue
+            raise ResponsesUpstreamError(
+                _onemin_known_exhaustion_message(key_names=filtered_key_names, required_credits=required_credits)
+                or "onemin_no_eligible_account"
+            )
         else:
             key_pick = None
+            if provider_health_pick is not None:
+                key_pick = provider_health_pick
             key_name_groups: list[tuple[str, ...]] = []
-            preferred_key_names = _preferred_onemin_key_names(filtered_key_names, preferred_labels=preferred_onemin_labels)
-            if preferred_key_names:
-                key_name_groups.append(preferred_key_names)
-            key_name_groups.append(filtered_key_names)
+            if key_pick is None:
+                preferred_key_names = _preferred_onemin_key_names(filtered_key_names, preferred_labels=preferred_onemin_labels)
+                if preferred_key_names:
+                    key_name_groups.append(preferred_key_names)
+                key_name_groups.append(filtered_key_names)
             seen_key_groups: set[tuple[str, ...]] = set()
-            for key_name_group in key_name_groups:
-                if not key_name_group or key_name_group in seen_key_groups:
-                    continue
-                seen_key_groups.add(key_name_group)
-                key_pick = _pick_onemin_key(
-                    allow_reserve=allow_reserve,
-                    key_names=key_name_group,
-                    lane=lane,
-                    model=model,
-                    required_credits=required_credits,
-                )
-                if key_pick is not None:
-                    break
+            if key_pick is None:
+                for key_name_group in key_name_groups:
+                    if not key_name_group or key_name_group in seen_key_groups:
+                        continue
+                    seen_key_groups.add(key_name_group)
+                    key_pick = _pick_onemin_key(
+                        allow_reserve=allow_reserve,
+                        key_names=key_name_group,
+                        lane=lane,
+                        model=model,
+                        required_credits=required_credits,
+                    )
+                    if key_pick is not None:
+                        break
             if key_pick is None:
                 if not allow_reserve and len(all_key_names) > len(active_key_names):
                     allow_reserve = True
@@ -5281,6 +5814,8 @@ def _call_onemin(
                         if manager is not None and manager_lease_id:
                             manager.release_lease(lease_id=manager_lease_id, status="failed", error=timeout_error)
                         raise ResponsesUpstreamError(timeout_error)
+                    if mode == "chat_stream":
+                        continue
                     break
                 latency_ms = _now_ms() - started_at
                 if status < 200 or status >= 300:
@@ -5306,8 +5841,12 @@ def _call_onemin(
                         _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
                         if _is_onemin_key_depleted(error_detail):
                             key_depleted = True
+                        if mode == "chat_stream":
+                            continue
                         break
                     _mark_onemin_failure(api_key, error_detail, temporary_quarantine=False)
+                    if mode == "chat_stream":
+                        continue
                     break
 
                 if stream_error:
@@ -5332,8 +5871,12 @@ def _call_onemin(
                         _mark_onemin_failure(api_key, stream_error, temporary_quarantine=False)
                         if _is_onemin_key_depleted(stream_error):
                             key_depleted = True
+                        if mode == "chat_stream":
+                            continue
                         break
                     _mark_onemin_failure(api_key, stream_error)
+                    if mode == "chat_stream":
+                        continue
                     break
 
                 payload = stream_payload or {}
@@ -5342,6 +5885,8 @@ def _call_onemin(
                     errors.append(reason)
                     key_fallback_reason.append(reason)
                     _mark_onemin_failure(api_key, reason)
+                    if mode == "chat_stream":
+                        continue
                     break
 
                 onemin_error = _extract_onemin_error(payload) if isinstance(payload, dict) else ""
@@ -5367,8 +5912,12 @@ def _call_onemin(
                         _mark_onemin_failure(api_key, onemin_error, temporary_quarantine=False)
                         if _is_onemin_key_depleted(onemin_error):
                             key_depleted = True
+                        if mode == "chat_stream":
+                            continue
                         break
                     _mark_onemin_failure(api_key, onemin_error)
+                    if mode == "chat_stream":
+                        continue
                     break
 
                 text = "".join(stream_chunks)
@@ -5379,6 +5928,8 @@ def _call_onemin(
                     errors.append(reason)
                     key_fallback_reason.append(reason)
                     _mark_onemin_failure(api_key, reason)
+                    if mode == "chat_stream":
+                        continue
                     break
 
                 resolved_model = _extract_onemin_model(payload) or model
@@ -5521,6 +6072,8 @@ def _call_onemin(
                 key_fallback_reason.append(reason)
                 _mark_onemin_failure(api_key, reason)
                 break
+            if on_delta is not None and mode != "chat_stream":
+                on_delta(text)
 
             resolved_model = _extract_onemin_model(payload) or model
             tokens_in, tokens_out = (0, 0)
@@ -7330,21 +7883,31 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
 
     for key in onemin_key_names:
         key_state = onemin_key_states.get(key, OneminKeyState(key=key))
-        slot_state = _onemin_key_state_label(key_state, now=now)
-        credit_state = _parse_credit_state(key_state.last_error)
         account_name = _provider_account_name("onemin", key_names=onemin_key_names, key=key)
         slot_name = _onemin_key_slot_from_snapshot(key, key_names=onemin_key_names)
         slot_role = _onemin_slot_role_for_key(key, active_keys=onemin_active_keys, reserve_keys=onemin_reserve_keys)
         owner = _onemin_owner_record_for_slot(api_key=key, account_name=account_name, slot=slot_name)
         latest_probe = _latest_onemin_probe_event(account_name=account_name)
+        latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
+        key_state = _recover_onemin_depletion_state_from_actual_billing(
+            account_name=account_name,
+            api_key=key,
+            state=key_state,
+            latest_billing=latest_billing,
+        )
+        slot_state = _onemin_key_state_label(key_state, now=now)
+        credit_state = _parse_credit_state(key_state.last_error)
         estimated_remaining_credits, estimated_credit_basis = _estimated_onemin_remaining_credits(
             state_label=slot_state,
             state=key_state,
         )
         latest_balance = _latest_provider_balance_snapshot(provider_key="onemin", account_name=account_name)
-        latest_billing = _latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)
         latest_members = _latest_provider_member_reconciliation_snapshot(provider_key="onemin", account_name=account_name)
         latest_billing_structured = dict(latest_billing.structured_output_json or {}) if latest_billing is not None else {}
+        billing_team_id, billing_team_name = _onemin_billing_team_identity(latest_billing)
+        billing_team_match = _onemin_billing_snapshot_matches_credit_subject(account_name=account_name, latest_billing=latest_billing)
+        billing_team_mismatch = billing_team_match is False
+        billing_team_subject = str(onemin_credit_subject_hint_for_account(account_name=account_name).get("credit_subject") or "").strip()
         latest_billing_overview = (
             dict(latest_billing_structured.get("billing_overview_json") or {})
             if isinstance(latest_billing_structured.get("billing_overview_json"), dict)
@@ -7447,6 +8010,10 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
                 "billing_topup_amount": latest_billing.topup_amount if latest_billing is not None else None,
                 "billing_rollover_enabled": latest_billing.rollover_enabled if latest_billing is not None else None,
                 "billing_basis": latest_billing.basis if latest_billing is not None else None,
+                "billing_team_id": billing_team_id or None,
+                "billing_team_name": billing_team_name or None,
+                "billing_team_mismatch": billing_team_mismatch,
+                "billing_team_match_subject": billing_team_subject or None,
                 "billing_plan_name": billing_plan_name,
                 "billing_cycle": billing_cycle,
                 "billing_subscription_status": billing_subscription_status,

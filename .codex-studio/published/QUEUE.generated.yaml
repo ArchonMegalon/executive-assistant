@@ -1,18 +1,15 @@
 mode: prepend
 items:
-- title: Auto-detect and repair recurring `ea` mirror drift after 6368 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
-  task: Auto-detect and repair recurring `ea` mirror drift after 6368 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
+- title: Auto-detect and repair recurring `ea` mirror drift after 15871 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
+  task: Auto-detect and repair recurring `ea` mirror drift after 15871 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
   package_id: audit-task-4257456
   source_ref: audit_task_candidates[4257456]
   audit_finding_key: project.design_mirror_missing_or_stale
   audit_scope_id: ea
   source_items:
-  - /docker/EA/.codex-design/product/README.md
-  - /docker/EA/.codex-design/product/START_HERE.md
-  - /docker/EA/.codex-design/product/VISION.md
-  - /docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
-  - /docker/EA/.codex-design/product/PUBLIC_FEATURE_REGISTRY.yaml
-  - /docker/EA/.codex-design/repo/IMPLEMENTATION_SCOPE.md
+  - /docker/EA/.codex-design/product/GOLDEN_JOURNEY_RELEASE_GATES.yaml
+  - /docker/EA/.codex-design/product/horizons/black-ledger.md
+  - /docker/EA/.codex-design/product/horizons/karma-forge.md
   allowed_paths:
   - .codex-design
   owned_surfaces:

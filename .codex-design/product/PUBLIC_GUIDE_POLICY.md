@@ -54,7 +54,7 @@ It does not create canon.
 2. **Public explainer depth**
    Part pages, horizon pages, FAQ, and help/support pages.
    These should use public-safe summaries explicitly authored for public readers, not raw implementation scope bullets.
-3. **Deep evidence path**
+3. **Clear proof links**
    Pages that intentionally point curious readers toward deeper design or repo truth.
    This is where technical readers can discover ownership maps and implementation detail without polluting the first-contact pages.
 

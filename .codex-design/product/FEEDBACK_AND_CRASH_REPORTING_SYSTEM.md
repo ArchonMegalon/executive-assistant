@@ -38,6 +38,11 @@ Crash reports are private by default because logs, traces, and dumps may contain
 
 A structured report for reproducible behavior with expected-versus-actual detail, repro steps, optional screenshot evidence, and optional diagnostics attachments.
 
+### Calculation report
+
+A special bug-report lane launched from an explain drawer or validation warning.
+It focuses on "this number looks wrong" and carries the exact rules, receipts, and recent changes behind the current calculation.
+
 ### Feedback
 
 A low-friction "something feels off", "this is confusing", or "please build this" signal with minimal mandatory fields.
@@ -105,6 +110,18 @@ Phase-1 expectations:
 * clean split between public-safe issue filing and private Hub intake
 * every user-facing bug/help/contact route must resolve to a public, externally routable host rather than an internal Docker, cluster-local, or service-discovery hostname
 
+### Lane 2A - Calculation report
+
+The calculation-report lane is for mechanical trust disputes.
+
+Phase-1 expectations:
+
+* launch directly from the explain drawer
+* prefill calculated value, ruleset fingerprint, rule environment, and explain trace
+* allow the user to add expected value and short notes
+* default to a redacted support packet rather than raw diagnostics
+* keep local file paths, local rulebook bindings, and unrelated private notes out of the packet by default
+
 ### Lane 3 - Feedback
 
 The feedback lane is for low-friction product signals.
@@ -155,6 +172,16 @@ Automatic forwarding for triage is allowed, but the boundary stays clean:
 
 That does not make Fleet the support database, and it does not allow direct client-to-Fleet raw crash transport as the primary seam.
 Any user-visible repair still ships through the standard review, release, registry, and updater path.
+
+## Product-facing trust rule
+
+Support packet UX is part of the product promise, not only a maintainer convenience.
+
+Users should be able to say:
+
+* I knew what information Chummer was sending
+* I did not need to reconstruct the math by hand
+* the packet included the value, the ruleset, the explain trace, and what changed
 
 ## Crash-triggered debug uplift rule
 

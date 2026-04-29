@@ -4,11 +4,14 @@ Horizons are the canonical registry for future-capability lanes in Project Chumm
 
 They exist so future product intent lives in `chummer6-design`, not only in downstream public storytelling.
 
+For the writing, public-guide, and media standard, use `HORIZON_DESIGN_INSTRUCTIONS.md` before changing any horizon doc or generator.
+
 ## Rules
 
 * Horizon docs are canon for future-capability posture, not promises of shipment.
 * Horizon docs must stay consistent with `VISION.md`, `ARCHITECTURE.md`, `EXTERNAL_TOOLS_PLANE.md`, and `PROGRAM_MILESTONES.yaml`.
 * The public `Chummer6` guide may explain Horizons in human language, but it may not outrun this directory.
+* Public horizon output must satisfy `HORIZON_DESIGN_INSTRUCTIONS.md`: human value first, no repo-speak, no foundation-code checklists, no unsupported shipment claims, and no decorative AR that does not fit the scene.
 * When a horizon already has first-party preview artifacts or detail routes in the public registry, downstream public surfaces should point at that proof instead of presenting the horizon as an empty teaser.
 * Public votes, surveys, Discord chatter, and guide feedback are advisory inputs only.
 * A horizon becomes implementation work only when the owning repos, bounded tool posture, milestone ties, and build path are explicit.
@@ -59,6 +62,7 @@ There are two canonical layers for Horizons:
 
 1. `HORIZON_REGISTRY.yaml` — the machine-readable source of truth for horizon existence, order, public-guide eligibility, and eventual build path.
 2. `horizons/*.md` — the human-readable long-form canon for each horizon lane.
+3. `HORIZON_DESIGN_INSTRUCTIONS.md` — the design standard for horizon writing, public guide generation, and horizon media.
 
 Downstream generators must consume the registry.
 They must not carry a private hardcoded horizon catalog.

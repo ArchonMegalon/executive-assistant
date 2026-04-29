@@ -62,6 +62,19 @@ That does not mean:
 * Provider adapters and runtime telemetry may live here, but they must not redefine product semantics or repo boundaries.
 * Default provider or model changes must follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`; EA may generate challenger briefs, but it must not self-promote a new default.
 
+## Proof mode
+
+EA should default toward accountable office posture, not chatbot posture.
+
+Important memo or decision items should answer:
+
+* why this is here
+* what evidence supports it
+* what changed since the last brief
+* what action is recommended
+* who must approve it
+* what happens if it is ignored
+
 ## Non-goals
 
 * a first-line support inbox

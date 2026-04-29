@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -171,3 +172,43 @@ def test_media_factory_state_uses_resolved_onemin_slots(monkeypatch: pytest.Monk
     assert state["available"] is True
     assert state["status"] == "ready"
     assert state["resolved_slot_count"] == 1
+
+
+def test_provider_summary_writes_overlay_vision_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    readiness = _load_module()
+    monkeypatch.setattr(readiness, "STATE_OUT", tmp_path / "provider-readiness.json")
+    monkeypatch.setattr(readiness, "provider_order", lambda: ["media_factory"])
+    monkeypatch.setattr(
+        readiness,
+        "provider_state",
+        lambda name: {"provider": name, "status": "ready", "available": True},
+    )
+    monkeypatch.setattr(readiness, "text_provider_order", lambda: ["ea"])
+    monkeypatch.setattr(
+        readiness,
+        "text_provider_state",
+        lambda name: {"provider": name, "status": "ready", "available": True},
+    )
+    monkeypatch.setattr(
+        readiness,
+        "overlay_vision_state",
+        lambda: {
+            "provider": "overlay_vision",
+            "status": "endpoint_unreachable",
+            "available": False,
+            "detail": "The overlay vision endpoint is not reachable from this host.",
+            "enabled": False,
+            "base_url": "",
+            "model": "llama3.2-vision:11b",
+            "candidate_base_urls": ["https://images.example/ollama"],
+            "pull_attempted": False,
+            "pull_succeeded": False,
+        },
+    )
+
+    assert readiness.main() == 0
+    payload = json.loads((tmp_path / "provider-readiness.json").read_text(encoding="utf-8"))
+
+    assert payload["overlay_vision"]["provider"] == "overlay_vision"
+    assert payload["overlay_vision"]["status"] == "endpoint_unreachable"
+    assert payload["overlay_vision"]["model"] == "llama3.2-vision:11b"

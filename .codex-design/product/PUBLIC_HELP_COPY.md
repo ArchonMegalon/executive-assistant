@@ -9,8 +9,13 @@ If you want to help without touching premium participation at all, use the publi
 * flag confusing public copy
 * suggest a future lane
 * point at a horizon that sounds more useful than the current list
+* suggest or vote on a public ProductLift idea when it is not support, account, install, crash, private campaign, or copyrighted rules text
 
 That keeps feedback public and legible instead of making normal humans spelunk through design canon.
+
+ProductLift feedback is public. Do not post private logs, account data, campaign spoilers, copyrighted source text, crash dumps, or support requests there. Use Chummer Help for support.
+
+ProductLift roadmap and changelog pages are projections from Chummer-owned truth. They are not implementation priority, release authority, or support-case state.
 
 ## Private crash lane
 
@@ -30,6 +35,22 @@ Public help copy may offer both:
 * link this copy to your account so we can keep your reports, suggest the right updates, and tell you when your issue is fixed
 
 That is a relationship choice, not a special per-user build.
+
+## Public concierge bounds
+
+When a public concierge widget appears on `/downloads`, `/now`, `/help`, or another public low-risk page:
+
+* the first-party help or release article remains the fixed truth
+* the widget is a preview overlay that helps the user choose a safe next step
+* fallback routes stay visible and must still work when the widget is disabled
+* recovery language must point at the real help, relinking, or escalation path instead of claiming the widget fixed anything itself
+* no claim codes, auth secrets, or private case identifiers belong in the widget
+
+## Public content optimization bounds
+
+Katteb-assisted articles and guide improvements must be reviewed against approved Chummer source packets.
+
+Accepted content changes flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes. Katteb must not invent rules, support answers, unshipped availability, or campaign/world truth.
 
 ## Closure rule
 

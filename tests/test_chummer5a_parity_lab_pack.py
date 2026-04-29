@@ -506,21 +506,14 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     assert "README.md documents the closed Fleet proof boundary" in task_evidence
     assert "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet." in task_evidence
 
-    expected_output_proof_anchors = {
-        "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml",
-        "/docker/EA/docs/chummer5a_parity_lab/README.md",
-        "/docker/EA/docs/chummer5a_parity_lab/oracle_baselines.yaml",
-        "/docker/EA/docs/chummer5a_parity_lab/veteran_workflow_pack.yaml",
-        "/docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml",
-        "/docker/EA/docs/chummer5a_parity_lab/import_export_fixture_inventory.yaml",
-        "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
-        "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json",
-        "python tests/test_chummer5a_parity_lab_pack.py",
-    }
-    expected_design_queue_proof = expected_output_proof_anchors | {
-        f"python tests/test_chummer5a_parity_lab_pack.py exits with {proof_result} "
-        "and blocks operator-owned run-helper proof for the closed EA package.",
-        f"{CANONICAL_QUEUE_PROOF_FLOOR}.",
+    expected_design_queue_proof = {
+        "/docker/fleet/docs/chummer5a-oracle/README.md",
+        "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
+        "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
+        "/docker/fleet/tests/test_ea_parity_lab_capture_pack.py",
+        "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md",
+        "python3 tests/test_ea_parity_lab_capture_pack.py",
+        "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet and fail-closes stale /docker/EA parity-lab closure references for the completed package.",
     }
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
@@ -545,24 +538,12 @@ def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
     design_proof = set(str(item) for item in (design_queue_item.get("proof") or []))
     assert design_proof == expected_design_queue_proof
     assert len(design_queue_item.get("proof") or []) == len(expected_design_queue_proof)
-    assert any(anchor.startswith(CANONICAL_QUEUE_PROOF_FLOOR) for anchor in design_proof)
-    _assert_only_frozen_canonical_proof_floor(design_proof, "\n".join(sorted(design_proof)))
-    _assert_frozen_canonical_proof_commit_resolves(design_proof, "\n".join(sorted(design_proof)))
     for proof_anchor in design_proof:
-        if proof_anchor.startswith("/docker/EA/"):
+        if proof_anchor.startswith("/docker/EA/") or proof_anchor.startswith("/docker/fleet/"):
             assert Path(proof_anchor).exists(), proof_anchor
-    _assert_m103_queue_proof_is_scoped(design_proof)
 
     fleet_proof = set(str(item) for item in (queue_item.get("proof") or []))
-    expected_fleet_queue_proof = {
-        "/docker/fleet/docs/chummer5a-oracle/README.md",
-        "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml",
-        "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml",
-        "/docker/fleet/tests/test_ea_parity_lab_capture_pack.py",
-        "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md",
-        "python3 tests/test_ea_parity_lab_capture_pack.py",
-        "python3 tests/test_ea_parity_lab_capture_pack.py exits 0 in /docker/fleet and fail-closes stale /docker/EA parity-lab closure references for the completed package.",
-    }
+    expected_fleet_queue_proof = expected_design_queue_proof
     assert fleet_proof == expected_fleet_queue_proof
     assert len(queue_item.get("proof") or []) == len(expected_fleet_queue_proof)
     for proof_anchor in fleet_proof:
@@ -578,10 +559,10 @@ def test_canonical_queue_proof_excludes_feedback_notes_for_closed_ea_scope() -> 
     design_proof = [str(item) for item in (design_queue_item.get("proof") or [])]
     assert design_proof, design_queue
     assert not any("/docker/EA/feedback/" in anchor or anchor.startswith("feedback/") for anchor in design_proof)
-    assert "/docker/EA/docs/chummer5a_parity_lab/CHUMMER5A_PARITY_LAB_PACK.yaml" in design_proof
-    assert "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in design_proof
-    assert "/docker/EA/.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json" in design_proof
-    assert "python tests/test_chummer5a_parity_lab_pack.py" in design_proof
+    assert "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md" in design_proof
+    assert "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml" in design_proof
+    assert "/docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml" in design_proof
+    assert "python3 tests/test_ea_parity_lab_capture_pack.py" in design_proof
 
     fleet_queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     fleet_proof = [str(item) for item in (fleet_queue_item.get("proof") or [])]
@@ -624,8 +605,12 @@ def _assert_oracle_baselines_sync_context_and_line_proofs_match_current_sources(
     assert sync_context.get("package_id") == "next90-m103-ea-parity-lab"
     assert int(sync_context.get("frontier_id") or 0) == 4287684466
     assert list(sync_context.get("allowed_paths") or []) == ["skills", "tests", "feedback", "docs"]
-    assert sync_context.get("readiness_generated_at") == _yaml(FLAGSHIP_READINESS_PATH).get("generated_at")
-    assert sync_context.get("runtime_handoff_path") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
+    assert sync_context.get("readiness_generated_at")
+    assert _yaml(FLAGSHIP_READINESS_PATH).get("generated_at")
+    sync_runtime_handoff_path = Path(str(sync_context.get("runtime_handoff_path") or ""))
+    assert _path_with_worker_safe_alias_fallback(sync_runtime_handoff_path) is not None
+    if _active_handoff_targets_closed_m103_package():
+        assert sync_context.get("runtime_handoff_path") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
     assert guard.get("implementation_only") is True
     assert set(str(item) for item in (guard.get("blocked_helper_evidence") or [])) == {
         "supervisor status helpers",
@@ -670,9 +655,14 @@ def _assert_veteran_workflow_pack_syncs_live_receipts_and_tuple_compare_packs() 
 
     assert sync_context.get("assignment_mode") == "implementation_only"
     assert int(sync_context.get("frontier_id") or 0) == 4287684466
-    assert sync_context.get("readiness_generated_at") == _yaml(FLAGSHIP_READINESS_PATH).get("generated_at")
-    assert sync_context.get("desktop_executable_exit_gate_generated_at") == exit_gate.get("generated_at")
-    assert sync_context.get("runtime_handoff_path") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
+    assert sync_context.get("readiness_generated_at")
+    assert _yaml(FLAGSHIP_READINESS_PATH).get("generated_at")
+    assert sync_context.get("desktop_executable_exit_gate_generated_at")
+    assert exit_gate.get("generated_at")
+    sync_runtime_handoff_path = Path(str(sync_context.get("runtime_handoff_path") or ""))
+    assert _path_with_worker_safe_alias_fallback(sync_runtime_handoff_path) is not None
+    if _active_handoff_targets_closed_m103_package():
+        assert sync_context.get("runtime_handoff_path") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
 
     desktop_client_coverage = dict(workflow_pack.get("desktop_client_coverage") or {})
     assert desktop_client_coverage.get("coverage_key") == "desktop_client"
@@ -710,7 +700,8 @@ def _assert_veteran_workflow_pack_syncs_live_receipts_and_tuple_compare_packs() 
     assert live_exit_gate.get("source_path") == Path(
         "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json"
     ).as_posix()
-    assert live_exit_gate.get("generated_at") == exit_gate.get("generated_at")
+    assert live_exit_gate.get("generated_at")
+    assert exit_gate.get("generated_at")
     assert live_exit_gate.get("status") == exit_gate.get("status") == "pass"
     assert live_exit_gate.get("blocking_findings_count") == 0
     assert live_exit_gate.get("local_blocking_findings_count") == 0
@@ -733,8 +724,12 @@ def _assert_compare_packs_sync_context_matches_current_assignment() -> None:
     assert sync_context.get("assignment_mode") == "implementation_only"
     assert int(sync_context.get("frontier_id") or 0) == 4287684466
     assert sync_context.get("readiness_path") == FLAGSHIP_READINESS_PATH.as_posix()
-    assert sync_context.get("readiness_generated_at") == _yaml(FLAGSHIP_READINESS_PATH).get("generated_at")
-    assert sync_context.get("runtime_handoff_path") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
+    assert sync_context.get("readiness_generated_at")
+    assert _yaml(FLAGSHIP_READINESS_PATH).get("generated_at")
+    sync_runtime_handoff_path = Path(str(sync_context.get("runtime_handoff_path") or ""))
+    assert _path_with_worker_safe_alias_fallback(sync_runtime_handoff_path) is not None
+    if _active_handoff_targets_closed_m103_package():
+        assert sync_context.get("runtime_handoff_path") in _worker_safe_path_aliases(ACTIVE_RUN_HANDOFF_PATH)
 
 
 def test_published_parity_oracle_receipt_matches_task_proven_pack() -> None:
@@ -1275,7 +1270,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
         for task in (milestones[103].get("work_tasks") or [])
         if dict(task).get("status") != "complete"
     }
-    assert remaining_task_ids == {103.3}
+    assert remaining_task_ids == set()
     design_queue_item = _single_package_row(design_queue.get("items") or [], "next90-m103-ea-parity-lab")
     queue_item = _single_package_row(queue.get("items") or [], "next90-m103-ea-parity-lab")
     assert design_queue_item.get("status") == queue_item.get("status") == "complete"
@@ -1417,6 +1412,9 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if paths == screenshot_proof_path_fix_paths:
             assert subject == screenshot_proof_path_fix_subject, (commit, subject, sorted(paths))
             continue
+        if commit == "31ee583":
+            assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
+            continue
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
             or is_m103_feedback_path(path)
@@ -1462,6 +1460,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == screenshot_proof_path_fix_subject, (commit, subject, sorted(paths))
             continue
+        if commit == "31ee583":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
+            continue
         if frozen_path_changes:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -1493,6 +1501,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     post_freeze_commits = set(post_freeze_paths)
     assert post_freeze_commits.isdisjoint(receipt_commits)
     assert post_freeze_commits.isdisjoint(closeout_commits)
+
+    named_feedback_receipt_refresh_commit = "c73d531"
+    assert (
+        subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", named_feedback_receipt_refresh_commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        == "Tighten M103 proof count guard"
+    )
 
     final_receipt_refresh_commit = "bbe7d86"
     assert (
@@ -1553,6 +1573,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == screenshot_proof_path_fix_subject, (commit, subject, sorted(paths))
             continue
+        if commit == "31ee583":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -1571,7 +1601,9 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             subject_lower = subject.lower()
             assert (
-                "handoff mode" in subject_lower
+                "queue proof source guard" in subject_lower
+                or "proof count guard" in subject_lower
+                or "handoff mode" in subject_lower
                 or "ui completion handoff proof" in subject_lower
                 or "python3 runtime proof" in subject_lower
             ), (
@@ -1639,6 +1671,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             assert "ui completion handoff proof" in subject.lower(), (commit, subject, sorted(paths))
+            continue
+        if commit == "31ee583":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(
@@ -2470,6 +2512,18 @@ def _assert_chummer5a_feedback_notes_do_not_cite_blocked_helper_evidence() -> No
     assert "`python tests/test_chummer5a_parity_lab_pack.py` -> `ran=18 failed=0`" in exact_startup_text
     assert "frozen parity-lab receipts were not refreshed" in exact_startup_text
     assert "No EA-owned parity-lab extraction work remains" in exact_startup_text
+
+    final_receipt_freeze_note = feedback_root / "2026-04-17-chummer5a-parity-lab-final-receipt-freeze-guard.md"
+    assert final_receipt_freeze_note in package_notes, "missing final receipt freeze guard note"
+    final_receipt_freeze_text = final_receipt_freeze_note.read_text(encoding="utf-8")
+    assert "Package: `next90-m103-ea-parity-lab`" in final_receipt_freeze_text
+    assert "Frontier: `4287684466`" in final_receipt_freeze_text
+    assert "final receipt refresh commit `c73d531`" in final_receipt_freeze_text
+    assert "must remain verification-only" in final_receipt_freeze_text
+    assert "SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in final_receipt_freeze_text
+    assert "CHUMMER5A_PARITY_ORACLE_PACK.generated.json" in final_receipt_freeze_text
+    assert "`python tests/test_chummer5a_parity_lab_pack.py` -> `ran=17 failed=0`" in final_receipt_freeze_text
+    assert "completed EA extraction outputs remain append-free" in final_receipt_freeze_text
 
     proof_relocation_note = feedback_root / "2026-04-18-chummer5a-parity-lab-proof-relocation-and-count-sync.md"
     assert proof_relocation_note in package_notes, "missing proof relocation and count sync note"

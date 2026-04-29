@@ -6,7 +6,12 @@ import pytest
 
 from app.domain.models import ToolInvocationResult
 from app.services import survival_lane
-from app.services.survival_lane import SurvivalLaneService, _survival_route_order, _test_reset_survival_state
+from app.services.survival_lane import (
+    SurvivalLaneService,
+    _survival_route_order,
+    _test_reset_survival_state,
+    survival_route_health_snapshot,
+)
 from app.services.tool_execution_common import ToolExecutionError
 
 
@@ -91,10 +96,10 @@ def test_survival_falls_back_from_gemini_vortex_to_gemini_web(monkeypatch: pytes
     assert result.attempts[1].status == "completed"
 
 
-def test_survival_route_order_defaults_to_onemin_first(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_survival_route_order_defaults_to_ui_rescue_before_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_SURVIVAL_ROUTE_ORDER", raising=False)
 
-    assert _survival_route_order() == ("onemin", "gemini_vortex", "gemini_web", "chatplayground")
+    assert _survival_route_order() == ("chatplayground", "gemini_web", "gemini_vortex", "onemin")
 
 
 def test_survival_uses_onemin_before_ui_backends(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -257,3 +262,57 @@ def test_survival_queue_timeout_raises_runtime_error(monkeypatch: pytest.MonkeyP
             current_input="queue me",
             desired_format="plain_text",
         )
+
+
+def test_survival_route_health_snapshot_blocks_lane_after_backend_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_SURVIVAL_ROUTE_ORDER", "chatplayground,gemini_web")
+
+    def _chatplayground(_invocation) -> ToolInvocationResult:
+        raise ToolExecutionError("ui_lane_failure:chatplayground:lane_unavailable")
+
+    def _gemini_web(_invocation) -> ToolInvocationResult:
+        raise ToolExecutionError("ui_lane_failure:gemini_web:lane_unavailable")
+
+    service = SurvivalLaneService(
+        tool_execution=_FakeToolExecution(
+            {
+                "browseract.chatplayground_audit": _chatplayground,
+                "browseract.gemini_web_generate": _gemini_web,
+            }
+        ),
+        tool_runtime=_FakeToolRuntime(),
+        principal_id="survival-test",
+    )
+
+    with pytest.raises(RuntimeError, match="survival_no_backend_available"):
+        service.execute(
+            instructions=None,
+            history_items=[],
+            current_input="keep going",
+            desired_format="plain_text",
+        )
+
+    snapshot = survival_route_health_snapshot(
+        provider_health={
+            "providers": {
+                "chatplayground": {
+                    "provider_key": "chatplayground",
+                    "backend": "browseract",
+                    "state": "ready",
+                    "configured_slots": 1,
+                    "slots": [{"slot": "primary", "state": "ready"}],
+                }
+            }
+        }
+    )
+
+    assert snapshot["provider_hint_order"] == ()
+    assert snapshot["route_provider_hint_order"] == ("browseract",)
+    assert snapshot["backend"] == ""
+    assert snapshot["health_provider_key"] == ""
+    assert snapshot["state"] == "unavailable"
+    assert "no routable survival backends" in str(snapshot["reason"])
+    assert "chatplayground:cooldown" in str(snapshot["reason"])
+    assert "gemini_web:cooldown" in str(snapshot["reason"])

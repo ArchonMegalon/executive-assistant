@@ -3,6 +3,7 @@
 ## North star
 
 Chummer becomes the explainable Shadowrun campaign OS.
+Chummer6 keeps Shadowrun understandable when the game gets complicated.
 
 The product wedge is still character building, but the finished product is not merely a next character builder.
 The finished product is the system players and GMs trust when Shadowrun gets complicated:
@@ -29,6 +30,23 @@ For groups:
 
 * When something goes wrong, we recover calmly with receipts.
 
+## Confidence, readiness, continuity
+
+The daily product promises should be legible in plain language:
+
+* confidence: my numbers are right, and I can see why
+* readiness: I know what to do next at the table
+* continuity: the campaign remembers what happened
+
+These are not marketing garnish.
+They are the user-facing interpretation of deterministic truth, explainability, and campaign memory.
+
+At campaign scale, the same promise becomes:
+
+* the world remembers what the runners did
+* the table can see why the consequence changed
+* the city talks back through receipts instead of hidden simulation
+
 ## Three rings
 
 ### Ring 1 — Must be excellent first
@@ -48,13 +66,18 @@ This is the product users judge immediately:
 This is the durable differentiation:
 
 * campaign ledger
+* live action economy and turn assist
 * GM session console
+* GM Runboard
 * player mobile and session shell
+* source anchors and local rulebook binding
 * roster and advancement continuity
+* runner resume and goal pins
 * downtime, travel, and state history
 * replay and recovery
 * cross-device continuation
 * conflict resolution with receipts
+* GM-approved world consequence through BLACK LEDGER
 
 ### Ring 3 — Horizons and extensions
 
@@ -83,6 +106,15 @@ Every important derived value, legality outcome, or state transition can be expl
 The character builder is the acquisition wedge.
 The campaign ledger is the retention engine.
 Roster, runs, scenes, objectives, debts, downtime, advancement, rules environment, session receipts, and recovery state are product surfaces, not side notes.
+
+### 3A. The product has four named surfaces
+
+Chummer should be legible as four surfaces, not one blurry everything-suite:
+
+* Chummer Build
+* Chummer Play
+* Chummer Campaign
+* Chummer Exchange
 
 ### 4. Workbench and play are different products
 
@@ -129,6 +161,17 @@ A GM can run live sessions and long campaigns from a reliable campaign ledger an
 
 A group can survive disconnects, imports, updates, house-rule drift, and disputed modifiers without panic because the recovery path is receipt-backed, inspectable, and calm.
 
+## Repeat-use rule
+
+The good loop is continuity, not compulsion.
+
+Users should return because:
+
+* the campaign lives here
+* the product remembers what the table would otherwise forget
+* prep and play feel lighter
+* recovery is calmer than ad hoc notes
+
 ### Creator / publisher
 
 A creator can prepare artifacts, publish content, manage installs, review compatibility, and work through governed publication flows.
@@ -153,6 +196,11 @@ Every canonical number, legality outcome, and reducer transition is deterministi
 
 Reconnect, replay, resume, campaign continuity, and the campaign ledger are first-class.
 The shell should let the table recover state without panic, settle disputes with receipts instead of memory, and carry campaign context forward across sessions and devices.
+
+### Living consequence
+
+BLACK LEDGER and adjacent campaign-world loops should begin as GM-approved, receipt-backed consequence.
+The world may react, but only through approved deltas, visible receipts, and player-safe feedback.
 
 ### Knowledge Fabric
 

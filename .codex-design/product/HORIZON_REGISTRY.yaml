@@ -8,12 +8,15 @@ rules:
 - A horizon must define an eventual build path before it is treated as more than public storytelling.
 - A horizon does not count as flagship or near-term release scope until its build path advances beyond `horizon`, its owner handoff gate is materially satisfied, and owning repos can cite executable proof instead of public-guide ambition.
 - Open flagship blockers and lived-system release blockers outrank horizon storytelling; horizons must not dilute or outrun current release truth.
+- Public horizon copy and media must follow `products/chummer/HORIZON_DESIGN_INSTRUCTIONS.md`: human value first, no repo-speak, no foundation-code checklists, and scene-fit AR only.
 optional_fields:
 - family
 - wow_promise
 - table_scene
 - success_signals
 - artifact_types
+- public_reader_contract
+- media_scene_contract
 - public_signal_eligible
 - owner_handoff_gate
 - access_posture

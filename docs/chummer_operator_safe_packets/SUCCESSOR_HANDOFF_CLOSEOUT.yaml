@@ -1,0 +1,87 @@
+contract_name: ea.chummer_operator_safe_packets_successor_handoff_closeout
+package_id: next90-m113-executive-assistant-operator-safe-packets
+milestone_id: 113
+frontier_id: 4554903920
+status: ea_scope_complete
+closed_surfaces:
+  - gm_prep_packets
+  - roster_movement_followthrough
+scope_boundary:
+  closed_package_only: next90-m113-executive-assistant-operator-safe-packets
+  allowed_paths:
+    - scripts
+    - feedback
+    - docs
+  remaining_milestone_work_belongs_to:
+    - chummer6-core
+    - chummer6-ui
+    - chummer6-media-factory
+completed_outputs:
+  - docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+  - docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml
+  - docs/chummer_operator_safe_packets/README.md
+  - docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - scripts/materialize_next90_m113_operator_safe_packets.py
+  - scripts/verify_next90_m113_operator_safe_packets.py
+  - .codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
+  - feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md
+proof_command:
+  command: python3 tests/test_next90_m113_operator_safe_packets.py
+  expected_result: ran=6 failed=0
+proof_artifacts:
+  - docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+  - docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml
+  - docs/chummer_operator_safe_packets/README.md
+  - docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - scripts/materialize_next90_m113_operator_safe_packets.py
+  - scripts/verify_next90_m113_operator_safe_packets.py
+  - tests/test_next90_m113_operator_safe_packets.py
+  - .codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
+  - feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md
+shared_truth_runtime_sources:
+  - source_anchor_id: hub_roster_ops_receipt
+    path: /docker/chummercomplete/chummer.run-services/.codex-studio/published/NEXT90_M113_HUB_ROSTER_OPS.generated.json
+    use_rule: Roster followthrough remains blocked unless Hub's governed roster and dossier movement proof still passes.
+  - source_anchor_id: ui_gm_prep_roster_surface_receipt
+    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M113_UI_GM_PREP_ROSTER_SURFACE.generated.json
+    use_rule: Both EA packet families remain blocked unless the desktop GM prep and roster route still passes.
+canonical_authority:
+  successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  design_successor_queue_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue_package: next90-m113-executive-assistant-operator-safe-packets status=complete
+  registry_work_task: 113.5 status=complete owner=executive-assistant
+  landed_commit: 38fdba5
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M113 executive-assistant operator-safe packets is complete; future shards must verify the EA packet pack, generated proof, focused verifier and test, canonical registry row, and queue rows instead of reopening the GM prep and roster followthrough slice.
+  queue_proof_required_entries:
+    - /docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+    - /docker/EA/docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml
+    - /docker/EA/docs/chummer_operator_safe_packets/README.md
+    - /docker/EA/docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+    - /docker/EA/scripts/materialize_next90_m113_operator_safe_packets.py
+    - /docker/EA/scripts/verify_next90_m113_operator_safe_packets.py
+    - /docker/EA/tests/test_next90_m113_operator_safe_packets.py
+    - /docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
+    - /docker/EA/feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md
+    - python3 scripts/materialize_next90_m113_operator_safe_packets.py exits 0
+    - python3 scripts/verify_next90_m113_operator_safe_packets.py exits 0
+    - python3 tests/test_next90_m113_operator_safe_packets.py exits 0 with ran=6 failed=0
+repeat_prevention:
+  worker_rule: Treat this EA-owned package as closed when the packet pack, generated proof, handoff closeout, focused verifier/test, registry row, and queue rows still agree.
+  do_not_reopen_for:
+    - Hub-owned campaign workspace, roster transfer, or dossier movement implementation work.
+    - Core-owned opposition packet contract and bounded-loss implementation work.
+    - UI-owned desktop GM prep and roster route implementation work.
+    - Media-factory-owned rendering or briefing artifact work.
+runtime_safety_posture:
+  forbidden_proof_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  generated_receipt_refresh_rule: Top-level generated_at refreshes inside .codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json are informational only; they do not reopen the closed EA package unless the underlying packet contract, upstream governed receipts, or queue and registry authority drift.

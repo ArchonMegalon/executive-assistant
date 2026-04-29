@@ -13,6 +13,8 @@ They are not canonical product meaning by themselves.
 * Exact text in guide images must be post-composited or otherwise verified, not trusted to raw model lettering.
 * Visual style may vary, but product meaning must stay subordinate to canonical design truth.
 * Media receipts, provenance, and manifest ownership stay in Chummer-owned records, not vendor dashboards.
+* Horizon art must follow `HORIZON_DESIGN_INSTRUCTIONS.md`: vivid product scenes, readable action, and AR text only when it fits what a runner, GM, fixer, streetdoc, rigger, decker, or organizer would actually see.
+* Horizon art relevance is reviewed against `HORIZON_IMAGE_RELEVANCE_AUDIT.md`; a pretty image is not enough if it does not explain the horizon's product moment.
 
 ## Owner posture
 

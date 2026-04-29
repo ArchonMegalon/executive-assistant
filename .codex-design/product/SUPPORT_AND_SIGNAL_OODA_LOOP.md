@@ -21,6 +21,9 @@ Raw inputs include:
 * lightweight feedback
 * surveys
 * public issues
+* ProductLift ideas, votes, comments, and closeout candidates
+* Katteb public guide/content audit findings
+* ClickRank crawl, metadata, schema, broken-link, internal-link, and AI-search visibility findings
 * release regressions
 * public-promise drift findings
 
@@ -35,6 +38,7 @@ Signals become one bounded packet with:
 * what release or channel is affected
 * whether the failure is code, docs, policy, queue, or canon
 * whether trust, release safety, or roadmap honesty is at risk
+* whether the item is support, public signal, content optimization, discovery, or canon work
 
 Detailed packet routing lives in `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`.
 
@@ -48,6 +52,8 @@ The legal outcomes are:
 * policy change
 * canon change
 * release action
+* public roadmap/changelog projection update
+* public guide/source-registry update
 * defer or reject with explicit rationale
 
 ## Act
@@ -65,6 +71,12 @@ The control plane is only healthy when the accepted packet became a real owned a
 ## Close
 
 The loop is not closed until reporter-facing or public-facing truth changed where appropriate.
+
+ProductLift-linked closure requires Chummer-owned release, guide, Hub route, artifact, or explicit no-change evidence before a public shipped claim or voter notification.
+
+Katteb-linked closure requires an upstream source change or explicit rejection before generated guide or article copy changes.
+
+ClickRank-linked closure requires a Hub/design source, metadata config, registry, or article-source change plus regeneration or explicit no-change rationale before public output changes.
 
 Detailed closure semantics live in `FEEDBACK_AND_CRASH_STATUS_MODEL.md`.
 

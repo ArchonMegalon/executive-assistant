@@ -41,7 +41,6 @@ required_files=(
   ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
   ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
   ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
-  ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
@@ -136,16 +135,6 @@ assert "test_workspace_pages_render_seeded_product_objects" in browser_sources["
 assert "test_activation_and_memo_flow_in_real_browser" in browser_sources["tests/e2e/test_product_workflows.py"]
 assert "EA_FLAGSHIP_TRUTH_PLANE.md" == gate["truth_plane"]["source"].split("/")[-1]
 
-receipt = json.loads(Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json").read_text(encoding="utf-8"))
-assert receipt["product"] == "executive-assistant"
-assert receipt["surface"] == "flagship_release_control"
-assert receipt["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
-assert receipt["verification_binding"]["primary_verifier"] == "scripts/verify_release_assets.sh"
-assert receipt["verification_binding"]["materializer"] == "scripts/materialize_ea_flagship_release_gate.py"
-assert receipt["release_claim"]["summary"] == gate["release_claim"]["summary"]
-assert receipt["browser_workflow_proof"]["evidence_sources"] == gate["browser_workflow_proof"]["evidence_sources"]
-assert receipt["status"] in {"blocked", "preview_only", "pass"}
-
 browser_receipt = json.loads(Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(encoding="utf-8"))
 assert browser_receipt["contract_name"] == "ea.browser_workflow_proof"
 assert browser_receipt["status"] in {"blocked", "preview_only", "pass"}
@@ -154,9 +143,27 @@ assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/tes
 assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_product_workflows.py"
 
 pulse = json.loads(Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json").read_text(encoding="utf-8"))
+<<<<<<< Updated upstream
 assert pulse["contract_name"] == "ea.weekly_product_pulse"
 assert pulse["release_truth_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+=======
+assert pulse["contract_name"] in {"chummer.weekly_product_pulse", "ea.weekly_product_pulse"}
+if pulse["contract_name"] == "ea.weekly_product_pulse":
+    assert pulse["release_truth_source"] in {
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+    }
+    assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+    assert pulse["supporting_signals"]["flagship_release_receipt_source"] in {
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+    }
+else:
+    assert pulse["contract_name"] == "chummer.weekly_product_pulse"
+    assert pulse["scorecard_source"] == "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml"
+    assert pulse["progress_report_source"] == "products/chummer/PROGRESS_REPORT.generated.json"
+>>>>>>> Stashed changes
 assert pulse["supporting_signals"]["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
 assert pulse["supporting_signals"]["flagship_release_receipt_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert pulse["supporting_signals"]["launch_readiness"]

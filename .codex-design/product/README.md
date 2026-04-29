@@ -237,7 +237,7 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `FLAGSHIP_PRODUCT_BAR.md` defines the cross-repo craftsmanship bar for what counts as a premium, public-release-ready Chummer product rather than only a closed wave or green test run.
 `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md` defines the cross-surface design contract, platform overlays, AI generation instructions, and screenshot-review loop that every promoted UI head must follow.
 `CHUMMER5A_FAMILIARITY_BRIDGE.md` is the veteran-orientation bridge for install, first-run, and workbench familiarity so modernization keeps Chummer5a muscle memory intact.
-`DESKTOP_EXECUTABLE_EXIT_GATES.md` defines machine-checked desktop flagship gates for installer coherence, startup proof, live shell command surfaces, and public-route truth.
+`DESKTOP_EXECUTABLE_EXIT_GATES.md` defines machine-checked desktop flagship gates for installer coherence, startup proof, live shell command surfaces, public-route truth, and the dedicated user-journey tester audit that proves focus-stable Master Index search plus visible new-character creation from the promoted Linux binary.
 `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` turns that craftsmanship bar into a machine-readable acceptance matrix so release control, ETA, and completion logic can prove flagship readiness instead of merely describing it.
 `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` records the just-closed install, update, support, and operator-control wave so roadmap and milestone language does not lag the public-main implementation.
 `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` records the now-closed post-audit wave boundary and keeps `ROADMAP.md`, public proof evidence, and registry status aligned.

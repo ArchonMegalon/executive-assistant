@@ -15,6 +15,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
+from chummer6_overlay_vision_readiness import overlay_vision_readiness
 
 EA_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = EA_ROOT / ".env"
@@ -493,11 +494,37 @@ def text_provider_state(name: str) -> dict[str, object]:
     }
 
 
+def overlay_vision_state() -> dict[str, object]:
+    report = overlay_vision_readiness(pull=False)
+    status = str(report.get("status") or "unknown").strip() or "unknown"
+    detail = str(report.get("detail") or "").strip()
+    if not detail:
+        if status == "ready":
+            detail = "Second-pass smart-glasses overlay planning is reachable and the configured vision model is ready."
+        elif status == "model_missing":
+            detail = "The overlay vision endpoint is reachable, but the configured vision model is missing."
+        elif status == "endpoint_unreachable":
+            detail = "The overlay vision endpoint is not reachable from this host."
+    return {
+        "provider": "overlay_vision",
+        "status": status,
+        "available": status == "ready",
+        "detail": detail,
+        "enabled": bool(report.get("enabled")),
+        "base_url": str(report.get("base_url") or "").strip(),
+        "model": str(report.get("model") or "").strip(),
+        "candidate_base_urls": [str(value).strip() for value in (report.get("candidate_base_urls") or []) if str(value).strip()],
+        "pull_attempted": bool(report.get("pull_attempted")),
+        "pull_succeeded": bool(report.get("pull_succeeded")),
+    }
+
+
 def main() -> int:
     providers = provider_order()
     states = [provider_state(name) for name in providers]
     text_providers = text_provider_order()
     text_states = [text_provider_state(name) for name in text_providers]
+    overlay_state = overlay_vision_state()
     result = {
         "provider_order": providers,
         "providers": states,
@@ -508,6 +535,7 @@ def main() -> int:
         "text_provider_order": text_providers,
         "text_providers": text_states,
         "recommended_text_provider": next((row["provider"] for row in text_states if row["available"]), ""),
+        "overlay_vision": overlay_state,
     }
     STATE_OUT.parent.mkdir(parents=True, exist_ok=True)
     STATE_OUT.write_text(json.dumps(result, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")

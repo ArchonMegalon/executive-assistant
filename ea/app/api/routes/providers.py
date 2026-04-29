@@ -11,7 +11,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -184,6 +184,27 @@ def _state_out_redacted(row: ProviderBindingState) -> ProviderStateOut:
         health_details_json={},
         updated_at=row.updated_at,
     )
+
+
+def _browseract_binding_available(container: AppContainer, principal_id: str) -> bool | None:
+    if not principal_id:
+        return None
+    tool_runtime = getattr(container, "tool_runtime", None)
+    if tool_runtime is None:
+        return None
+    try:
+        bindings = tool_runtime.list_connector_bindings(principal_id, limit=100)
+    except Exception:
+        return None
+    for binding in bindings:
+        connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
+        status = str(getattr(binding, "status", "") or "").strip().lower()
+        if connector_name != "browseract":
+            continue
+        if status and status != "enabled":
+            continue
+        return True
+    return False
 
 
 def _redact_registry_for_principal(view: dict[str, object]) -> dict[str, object]:
@@ -437,6 +458,7 @@ def get_provider_registry(
         principal_id=resolved_principal,
         provider_health=provider_health,
         profile_decisions=profile_decisions,
+        browseract_binding_available=_browseract_binding_available(container, resolved_principal),
     )
     if not _is_operator_context(context):
         view = _redact_registry_for_principal(view)
@@ -1509,10 +1531,59 @@ def _onemin_predict_next_topup(
     return start_iso, next_iso, next_iso, amount
 
 
+def _proxy_url_with_optional_auth(*, server: str, username: str = "", password: str = "") -> str:
+    proxy_server = str(server or "").strip()
+    if not proxy_server or proxy_server.lower() in {"direct", "direct://", "none", "off", "disabled"}:
+        return ""
+    if "://" not in proxy_server:
+        proxy_server = f"http://{proxy_server}"
+    proxy_username = str(username or "").strip()
+    proxy_password = str(password or "").strip()
+    if not proxy_username and not proxy_password:
+        return proxy_server
+    parsed = urlsplit(proxy_server)
+    if "@" in parsed.netloc:
+        return proxy_server
+    auth = quote(proxy_username, safe="")
+    if proxy_password:
+        auth = f"{auth}:{quote(proxy_password, safe='')}"
+    netloc = f"{auth}@{parsed.netloc}" if auth else parsed.netloc
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+
+
+def _onemin_direct_api_proxy_url() -> str:
+    server = str(
+        upstream._env("ONEMIN_DIRECT_API_PROXY_SERVER")  # type: ignore[attr-defined]
+        or upstream._env("EA_ONEMIN_DIRECT_API_PROXY_SERVER")  # type: ignore[attr-defined]
+        or upstream._env("EA_UI_BROWSER_PROXY_SERVER")  # type: ignore[attr-defined]
+        or ""
+    ).strip()
+    username = str(
+        upstream._env("ONEMIN_DIRECT_API_PROXY_USERNAME")  # type: ignore[attr-defined]
+        or upstream._env("EA_ONEMIN_DIRECT_API_PROXY_USERNAME")  # type: ignore[attr-defined]
+        or upstream._env("EA_UI_BROWSER_PROXY_USERNAME")  # type: ignore[attr-defined]
+        or ""
+    ).strip()
+    password = str(
+        upstream._env("ONEMIN_DIRECT_API_PROXY_PASSWORD")  # type: ignore[attr-defined]
+        or upstream._env("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD")  # type: ignore[attr-defined]
+        or upstream._env("EA_UI_BROWSER_PROXY_PASSWORD")  # type: ignore[attr-defined]
+        or ""
+    ).strip()
+    return _proxy_url_with_optional_auth(server=server, username=username, password=password)
+
+
+def _onemin_direct_api_opener() -> urllib.request.OpenerDirector:
+    proxy_url = _onemin_direct_api_proxy_url()
+    if not proxy_url:
+        return urllib.request.build_opener()
+    return urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+
+
 def _onemin_api_get_json(*, url: str, headers: dict[str, str], timeout_seconds: int) -> dict[str, object]:
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with _onemin_direct_api_opener().open(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -1538,7 +1609,7 @@ def _onemin_api_login(*, login_email: str, login_password: str, timeout_seconds:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with _onemin_direct_api_opener().open(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -1558,6 +1629,66 @@ def _onemin_members_url(*, team_id: str) -> str:
     return f"{_onemin_rest_host()}/teams/{team_id}/members?filters={quote(filters, safe='')}"
 
 
+def _onemin_team_identity(team_row: dict[str, object]) -> tuple[str, str, dict[str, object]]:
+    team = team_row.get("team") if isinstance(team_row.get("team"), dict) else {}
+    return (
+        str(team_row.get("teamId") or team.get("uuid") or "").strip(),
+        str(team_row.get("teamName") or team.get("name") or "").strip(),
+        team,
+    )
+
+
+def _select_onemin_api_team(
+    *,
+    account_name: str,
+    teams: list[object],
+    preferred_team_id: str = "",
+    preferred_team_name: str = "",
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    team_rows = [dict(item) for item in teams if isinstance(item, dict)]
+    if not team_rows:
+        return {}, {}, {"reason": "team_missing"}
+    normalized_preferred_team_id = str(preferred_team_id or "").strip()
+    normalized_preferred_team_name = str(preferred_team_name or "").strip()
+    if normalized_preferred_team_id:
+        for team_row in team_rows:
+            team_id, _, team = _onemin_team_identity(team_row)
+            if team_id == normalized_preferred_team_id:
+                return team_row, team, {"reason": "configured_team_id", "configured_team_id": normalized_preferred_team_id}
+    normalized_preferred_team_name_key = upstream.onemin_normalize_team_name(normalized_preferred_team_name)
+    if normalized_preferred_team_name_key:
+        for team_row in team_rows:
+            _, team_name, team = _onemin_team_identity(team_row)
+            if upstream.onemin_normalize_team_name(team_name) == normalized_preferred_team_name_key:
+                return team_row, team, {"reason": "configured_team_name", "configured_team_name": normalized_preferred_team_name}
+    team_hint = upstream.onemin_credit_subject_hint_for_account(account_name=account_name)
+    normalized_hint = upstream.onemin_normalize_team_name(team_hint.get("credit_subject"))
+    if normalized_hint:
+        for team_row in team_rows:
+            _, team_name, team = _onemin_team_identity(team_row)
+            if upstream.onemin_normalize_team_name(team_name) == normalized_hint:
+                return team_row, team, {"reason": "credit_subject_hint", "credit_subject_hint": team_hint.get("credit_subject")}
+    latest_billing = upstream._latest_provider_billing_snapshot(provider_key="onemin", account_name=account_name)  # type: ignore[attr-defined]
+    if latest_billing is not None:
+        structured = dict(latest_billing.structured_output_json or {})
+        preferred_team_id = str(structured.get("team_id") or "").strip()
+        preferred_team_name = str(structured.get("team_name") or "").strip()
+        if preferred_team_id:
+            for team_row in team_rows:
+                team_id, _, team = _onemin_team_identity(team_row)
+                if team_id == preferred_team_id:
+                    return team_row, team, {"reason": "latest_billing_team_id", "billing_team_id": preferred_team_id}
+        normalized_billing_team_name = upstream.onemin_normalize_team_name(preferred_team_name)
+        if normalized_billing_team_name:
+            for team_row in team_rows:
+                _, team_name, team = _onemin_team_identity(team_row)
+                if upstream.onemin_normalize_team_name(team_name) == normalized_billing_team_name:
+                    return team_row, team, {"reason": "latest_billing_team_name", "billing_team_name": preferred_team_name}
+    first_team_row = team_rows[0]
+    _, _, first_team = _onemin_team_identity(first_team_row)
+    return first_team_row, first_team, {"reason": "default_first_team"}
+
+
 def _refresh_onemin_api_account(
     *,
     account_name: str,
@@ -1566,6 +1697,8 @@ def _refresh_onemin_api_account(
     timeout_seconds: int,
     login_email: str = "",
     login_password: str = "",
+    preferred_team_id: str = "",
+    preferred_team_name: str = "",
 ) -> tuple[dict[str, object], dict[str, object] | None]:
     observed_at = upstream.now_utc_iso()
     user = _onemin_api_login(
@@ -1576,9 +1709,13 @@ def _refresh_onemin_api_account(
     teams = user.get("teams") if isinstance(user.get("teams"), list) else []
     if not teams:
         raise RuntimeError("onemin_team_missing")
-    team_row = teams[0] if isinstance(teams[0], dict) else {}
-    team = team_row.get("team") if isinstance(team_row.get("team"), dict) else {}
-    team_id = str(team_row.get("teamId") or team.get("uuid") or "").strip()
+    team_row, team, team_selection = _select_onemin_api_team(
+        account_name=account_name,
+        teams=teams,
+        preferred_team_id=str(preferred_team_id or "").strip(),
+        preferred_team_name=str(preferred_team_name or "").strip(),
+    )
+    team_id, team_name, team = _onemin_team_identity(team_row)
     token = str(user.get("token") or "").strip()
     if not team_id or not token:
         raise RuntimeError("onemin_login_incomplete")
@@ -1624,7 +1761,13 @@ def _refresh_onemin_api_account(
             "structured_output_json": {
                 "owner_email": owner_email,
                 "team_id": team_id,
-                "team_name": str(team.get("name") or ""),
+                "team_name": team_name,
+                "team_selection": dict(team_selection),
+                "available_teams": [
+                    {"team_id": current_team_id, "team_name": current_team_name}
+                    for current_team_id, current_team_name, _current_team in (_onemin_team_identity(dict(item)) for item in teams if isinstance(item, dict))
+                    if current_team_id or current_team_name
+                ],
                 "subscription": dict(subscription),
                 "topup_list": topups,
                 "usage_list": usages,
@@ -1674,6 +1817,8 @@ def _refresh_onemin_api_account(
             "structured_output_json": {
                 "owner_email": owner_email,
                 "team_id": team_id,
+                "team_name": team_name,
+                "team_selection": dict(team_selection),
             },
         },
     )
@@ -1775,14 +1920,21 @@ def _refresh_onemin_via_provider_api(
             attempted_count += 1
             try:
                 credentials = dict(login_credentials.get(account_name) or {})
-                billing_result, member_result = _refresh_onemin_api_account(
-                    account_name=account_name,
-                    owner_email=owner_email,
-                    include_members=include_members,
-                    timeout_seconds=timeout_seconds,
-                    login_email=str(credentials.get("login_email") or owner_email).strip(),
-                    login_password=str(credentials.get("login_password") or "").strip(),
-                )
+                refresh_kwargs = {
+                    "account_name": account_name,
+                    "owner_email": owner_email,
+                    "include_members": include_members,
+                    "timeout_seconds": timeout_seconds,
+                    "login_email": str(credentials.get("login_email") or owner_email).strip(),
+                    "login_password": str(credentials.get("login_password") or "").strip(),
+                }
+                preferred_team_id = str(credentials.get("team_id") or "").strip()
+                preferred_team_name = str(credentials.get("team_name") or "").strip()
+                if preferred_team_id:
+                    refresh_kwargs["preferred_team_id"] = preferred_team_id
+                if preferred_team_name:
+                    refresh_kwargs["preferred_team_name"] = preferred_team_name
+                billing_result, member_result = _refresh_onemin_api_account(**refresh_kwargs)
                 billing_results.append(billing_result)
                 if member_result is not None:
                     member_results.append(member_result)

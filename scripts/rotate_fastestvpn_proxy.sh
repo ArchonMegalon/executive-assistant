@@ -16,17 +16,32 @@ wait_for_proxy_healthy() {
   start_ts="$(date +%s)"
   while true; do
     local health
-    health="$("${compose_cmd[@]}" ps --format json ea-fastestvpn-proxy 2>/dev/null | python3 - <<'PY'
+    health="$("${compose_cmd[@]}" ps --format json ea-fastestvpn-proxy 2>/dev/null | python3 -c '
 import json, sys
-rows = json.load(sys.stdin)
-if isinstance(rows, dict):
-    rows = [rows]
+raw = sys.stdin.read().strip()
+if not raw:
+    raise SystemExit(0)
+rows = []
+try:
+    loaded = json.loads(raw)
+    rows = loaded if isinstance(loaded, list) else [loaded]
+except Exception:
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except Exception:
+            pass
 for row in rows:
+    if not isinstance(row, dict):
+        continue
     service = str(row.get("Service") or row.get("Name") or "")
-    if service == "ea-fastestvpn-proxy":
+    if service == "ea-fastestvpn-proxy" or service.endswith("ea-fastestvpn-proxy"):
         print(str(row.get("Health") or row.get("State") or ""))
         break
-PY
+'
 )" || health=""
     if [[ "${health,,}" == "healthy" ]]; then
       return 0
@@ -39,6 +54,16 @@ PY
     sleep 2
   done
 }
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  cat <<'EOF'
+Usage: rotate_fastestvpn_proxy.sh [--list|OVPN_CONFIG_PATH]
+
+Without an argument, recreate the FastestVPN proxy with the configured random
+selection policy. With OVPN_CONFIG_PATH, pin that OpenVPN config for this run.
+EOF
+  exit 0
+fi
 
 if [[ "${1:-}" == "--list" ]]; then
   find "${ROOT_DIR}/vpn/fastestvpn" -maxdepth 1 -type f -name "${FASTESTVPN_CONFIG_GLOB:-*.ovpn}" | sort

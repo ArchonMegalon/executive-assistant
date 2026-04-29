@@ -15,6 +15,7 @@ from app.domain.models import ProviderBindingState, SkillContract, now_utc_iso
 from app.repositories.provider_bindings import ProviderBindingRecord, ProviderBindingRepository
 from app.services.brain_catalog import get_brain_profile
 from app.services.browseract_ui_service_catalog import browseract_ui_service_definitions
+from app.services.survival_lane import survival_route_health_snapshot
 from app.services.tool_execution_common import ToolExecutionError
 
 
@@ -397,6 +398,7 @@ class ProviderRegistryLaneView:
     primary_state: str
     providers: tuple[ProviderRegistryProviderView, ...]
     capacity_summary: dict[str, object] = field(default_factory=dict)
+    detail: str = ""
     last_used_principal_id: str = ""
     last_used_principal_label: str = ""
     last_used_owner_category: str = ""
@@ -422,6 +424,7 @@ class ProviderRegistryLaneView:
             "primary_state": self.primary_state,
             "providers": [item.as_dict() for item in self.providers],
             "capacity_summary": dict(self.capacity_summary or {}),
+            "detail": self.detail,
             "last_used_principal_id": self.last_used_principal_id,
             "last_used_principal_label": self.last_used_principal_label,
             "last_used_owner_category": self.last_used_owner_category,
@@ -1280,6 +1283,7 @@ class ProviderRegistryService:
             provider_key=state.provider_key,
             provider_health=provider_health,
         )
+        slot_pool_summary = self._slot_pool_summary(health_payload)
         capabilities: list[ProviderRegistryCapabilityView] = []
         binding = next((item for item in self._bindings if item.provider_key == state.provider_key), None)
         for capability in ((binding.capabilities if binding is not None else ()) or ()):
@@ -1290,7 +1294,19 @@ class ProviderRegistryService:
                     executable=bool(state.executable and capability.executable),
                 )
             )
-        effective_state = str(health_payload.get("state") or state.state or "unknown").strip() or "unknown"
+        effective_state = str(health_payload.get("state") or state.state or "unknown").strip().lower() or "unknown"
+        ready_slots = int(slot_pool_summary.get("ready_slots") or 0)
+        degraded_slots = int(slot_pool_summary.get("degraded_slots") or 0)
+        configured_slots = int(slot_pool_summary.get("configured_slots") or 0)
+        if effective_state == "unknown":
+            if ready_slots > 0:
+                effective_state = "ready"
+            elif degraded_slots > 0:
+                effective_state = "degraded"
+            elif configured_slots > 0:
+                effective_state = "unavailable"
+        elif effective_state == "ready" and configured_slots > 0 and ready_slots <= 0:
+            effective_state = "degraded" if degraded_slots > 0 else "unavailable"
         detail = str(health_payload.get("detail") or "").strip() or str((state.health_details_json or {}).get("detail") or "").strip()
         capacity = {
             "state": effective_state,
@@ -1302,7 +1318,6 @@ class ProviderRegistryService:
             "max_credits_per_day": health_payload.get("max_credits_per_day"),
             "detail": detail,
         }
-        slot_pool_summary = self._slot_pool_summary(health_payload)
         last_used_principal_id = str(
             health_payload.get("last_used_principal_id") or slot_pool_summary.get("last_used_principal_id") or ""
         ).strip()
@@ -1520,6 +1535,7 @@ class ProviderRegistryService:
         principal_id: str | None = None,
         provider_health: dict[str, object] | None = None,
         profile_decisions: Sequence[object] = (),
+        browseract_binding_available: bool | None = None,
     ) -> dict[str, object]:
         provider_views = {
             state.provider_key: self._provider_view(state=state, provider_health=provider_health)
@@ -1550,43 +1566,92 @@ class ProviderRegistryService:
 
         lane_views: list[ProviderRegistryLaneView] = []
         for decision in profile_decisions:
-            provider_hint_order = tuple(
+            profile_name = str(self._decision_field(decision, "profile", "") or "")
+            configured_hint_order = tuple(
                 str(value or "").strip()
                 for value in (self._decision_field(decision, "provider_hint_order", ()) or ())
                 if str(value or "").strip()
             )
+            provider_hint_order = configured_hint_order
+            lane_provider_keys = configured_hint_order
+            backend_key = str(self._decision_field(decision, "backend_key", "") or "")
+            health_provider_key = str(self._decision_field(decision, "health_provider_key", "") or "")
+            route_primary_provider_key = ""
+            primary_state_override = ""
+            lane_detail = ""
+            if profile_name == "survival":
+                survival_route = survival_route_health_snapshot(
+                    provider_health=provider_health,
+                    browseract_binding_available=browseract_binding_available,
+                )
+                provider_hint_order = tuple(
+                    str(value or "").strip()
+                    for value in (survival_route.get("provider_hint_order") or ())
+                    if str(value or "").strip()
+                )
+                lane_provider_keys = tuple(
+                    str(value or "").strip()
+                    for value in (survival_route.get("route_provider_hint_order") or configured_hint_order)
+                    if str(value or "").strip()
+                )
+                backend_key = str(survival_route.get("backend") or "").strip()
+                health_provider_key = str(survival_route.get("health_provider_key") or "").strip()
+                route_primary_provider_key = str(survival_route.get("primary_provider_key") or "").strip()
+                primary_state_override = str(survival_route.get("state") or "").strip() or "unavailable"
+                lane_detail = str(survival_route.get("reason") or "").strip()
             lane_providers = tuple(
                 provider_views[provider_key]
-                for provider_key in provider_hint_order
+                for provider_key in lane_provider_keys
                 if provider_key in provider_views
             )
             primary = self._preferred_lane_primary(lane_providers)
+            if route_primary_provider_key and route_primary_provider_key in provider_views:
+                primary = provider_views[route_primary_provider_key]
             effective_hint_order = self._effective_lane_provider_hint_order(provider_hint_order, primary)
             capacity_summary = self._lane_capacity_summary(primary)
+            if primary_state_override:
+                capacity_summary["state"] = primary_state_override
             lane_views.append(
                 ProviderRegistryLaneView(
-                    profile=str(self._decision_field(decision, "profile", "") or ""),
+                    profile=profile_name,
                     lane=str(self._decision_field(decision, "lane", "") or ""),
                     public_model=str(self._decision_field(decision, "public_model", "") or ""),
                     brain=str(self._decision_field(decision, "public_model", "") or ""),
-                    backend=self._effective_lane_backend_key(
-                        self._decision_field(decision, "backend_key", ""),
-                        primary=primary,
-                        providers=lane_providers,
+                    backend=(
+                        backend_key
+                        if profile_name == "survival"
+                        else self._effective_lane_backend_key(
+                            backend_key,
+                            primary=primary,
+                            providers=lane_providers,
+                        )
                     ),
-                    health_provider_key=self._effective_lane_health_provider_key(
-                        self._decision_field(decision, "health_provider_key", ""),
-                        primary=primary,
-                        providers=lane_providers,
+                    health_provider_key=(
+                        health_provider_key
+                        if profile_name == "survival"
+                        else self._effective_lane_health_provider_key(
+                            health_provider_key,
+                            primary=primary,
+                            providers=lane_providers,
+                        )
                     ),
                     provider_hint_order=effective_hint_order,
                     review_required=bool(self._decision_field(decision, "review_required", False)),
                     needs_review=bool(self._decision_field(decision, "needs_review", False)),
                     merge_policy=str(self._decision_field(decision, "merge_policy", "auto") or "auto"),
-                    primary_provider_key=primary.provider_key if primary is not None else "",
-                    primary_state=primary.state if primary is not None else "unknown",
+                    primary_provider_key=(
+                        route_primary_provider_key
+                        if profile_name == "survival"
+                        else (primary.provider_key if primary is not None else "")
+                    ),
+                    primary_state=(
+                        primary_state_override
+                        if primary_state_override
+                        else (primary.state if primary is not None else "unknown")
+                    ),
                     providers=lane_providers,
                     capacity_summary=capacity_summary,
+                    detail=lane_detail,
                     last_used_principal_id=str(capacity_summary.get("last_used_principal_id") or ""),
                     last_used_principal_label=str(capacity_summary.get("last_used_principal_label") or ""),
                     last_used_owner_category=str(capacity_summary.get("last_used_owner_category") or ""),

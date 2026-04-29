@@ -32,6 +32,8 @@ Canonical detail:
 
 * `journeys/build-and-inspect-a-character.md`
 * `BUILD_LAB_PRODUCT_MODEL.md`
+* `CAMPAIGN_ADOPTION_WIZARD.md`
+* `RUNNER_RESUME_AND_GOAL_PINS.md`
 
 ## Explain
 
@@ -49,6 +51,7 @@ Canonical detail:
 * `journeys/build-and-inspect-a-character.md`
 * `BUILD_LAB_PRODUCT_MODEL.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
+* `SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md`
 
 ## Run
 
@@ -62,6 +65,8 @@ Flagship bar:
 * player, GM, and observer flows feel authored for live play rather than recycled workbench layouts
 * finding a table, passing community-rule preflight, and getting into the right session space are part of the same trustworthy run journey
 * the campaign ledger is a named first-class surface rather than hidden continuity glue
+* combat turns, between-turn affordances, and GM action state are understandable without table folklore
+* one approved run closeout can visibly change the campaign and world memory without hidden AI authority
 
 Canonical detail:
 
@@ -75,6 +80,11 @@ Canonical detail:
 * `WORLD_STATE_AND_MISSION_MARKET_MODEL.md`
 * `OPEN_RUNS_AND_COMMUNITY_HUB.md`
 * `SEATTLE_OPEN_RUN_001_VERTICAL_SLICE.md`
+* `LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md`
+* `GM_RUNBOARD_LIVE_OPERATIONS.md`
+* `PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md`
+* `CREW_AND_MISSION_FIT_MODEL.md`
+* `BLACK_LEDGER_MVP_001.md`
 
 ## Publish
 
@@ -113,6 +123,7 @@ Canonical detail:
 * `QUICKSTART_RUNNER_AND_PREGEN_FLOW.md`
 * `SESSION_ZERO_AND_TABLE_CONTRACT_MODEL.md`
 * `SEATTLE_OPEN_RUN_001_VERTICAL_SLICE.md`
+* `CREW_AND_MISSION_FIT_MODEL.md`
 
 ## Improve
 
@@ -129,6 +140,7 @@ Canonical detail:
 * `journeys/install-and-update.md`
 * `journeys/claim-install-and-close-a-support-case.md`
 * `journeys/organize-a-community-and-close-the-loop.md`
+* `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md`
 * `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
 * `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
 

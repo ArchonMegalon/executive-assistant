@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import abc
+import asyncio
+import hashlib
 import json
 import os
 import queue
@@ -10,6 +12,7 @@ import shutil
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -50,7 +53,7 @@ from app.services.responses_upstream import (
     principal_identity_summary,
     stream_text,
 )
-from app.services.survival_lane import SurvivalLaneService
+from app.services.survival_lane import SurvivalLaneService, survival_route_health_snapshot
 
 
 router = APIRouter(tags=["responses"])
@@ -58,6 +61,17 @@ models_router = APIRouter(prefix="/v1/models", tags=["responses"])
 responses_item_router = APIRouter(prefix="/v1/responses", tags=["responses"])
 codex_router = APIRouter(prefix="/v1/codex", tags=["responses"])
 STREAM_HEARTBEAT_SECONDS = 10.0
+_PROVIDER_HEALTH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, min(4, int(os.environ.get("EA_PROVIDER_HEALTH_EXECUTOR_WORKERS", "2") or "2"))),
+    thread_name_prefix="provider-health",
+)
+_PROVIDER_REGISTRY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, min(4, int(os.environ.get("EA_PROVIDER_REGISTRY_EXECUTOR_WORKERS", "2") or "2"))),
+    thread_name_prefix="provider-registry",
+)
+_PROVIDER_HEALTH_CACHE_LOCK = threading.Lock()
+_PROVIDER_HEALTH_CACHE: dict[bool, dict[str, object]] = {}
+_PROVIDER_HEALTH_REFRESH_IN_FLIGHT: dict[bool, bool] = {True: False, False: False}
 _SSE_KEEPALIVE_TEXT = "Trace: waiting on upstream reasoning.\n"
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
 _ENV_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
@@ -307,20 +321,20 @@ _PROMPT_ROUTE_CODE_MARKERS = (
 
 
 def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: str = "") -> float:
-    raw = str(os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS") or "300").strip()
+    raw = str(os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS") or "2700").strip()
     try:
         parsed = float(raw)
     except Exception:
-        parsed = 300.0
+        parsed = 2700.0
     normalized_model = str(model or "").strip().lower()
     normalized_profile = str(codex_profile or "").strip().lower()
     hard_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or max(parsed, 300.0)
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or max(parsed, 2700.0)
     ).strip()
     try:
         hard_parsed = float(hard_timeout_raw)
     except Exception:
-        hard_parsed = max(parsed, 300.0)
+        hard_parsed = max(parsed, 2700.0)
     hard_profiles = {
         "core",
         "core_authority",
@@ -841,12 +855,544 @@ def _repair_ready_provider(
     return ""
 
 
+def _stabilize_survival_codex_profile(
+    profile: dict[str, object],
+    *,
+    provider_health: dict[str, object] | None = None,
+    container: object | None = None,
+    principal_id: str = "",
+) -> dict[str, object]:
+    if str(profile.get("profile") or "").strip().lower() != "survival":
+        return dict(profile or {})
+    normalized = dict(profile or {})
+    browseract_binding_available = None
+    if container is not None and principal_id:
+        browseract_binding_available = bool(_browseract_binding_id(container=container, principal_id=principal_id))
+    route = survival_route_health_snapshot(
+        provider_health=provider_health,
+        browseract_binding_available=browseract_binding_available,
+    )
+    normalized["provider_route_order"] = tuple(route.get("route_order") or ())
+    normalized["provider_route_state"] = str(route.get("state") or "unavailable").strip() or "unavailable"
+    normalized["provider_route_detail"] = str(route.get("reason") or "").strip()
+    normalized["provider_hint_order"] = tuple(
+        str(item or "").strip()
+        for item in (route.get("provider_hint_order") or ())
+        if str(item or "").strip()
+    )
+    normalized["backend"] = str(route.get("backend") or "").strip()
+    normalized["health_provider_key"] = str(route.get("health_provider_key") or "").strip()
+    return normalized
+
+
 def _provider_health_snapshot(*, lightweight: bool) -> dict[str, object]:
     try:
         payload = _provider_health_report(lightweight=lightweight)
     except TypeError:
         payload = _provider_health_report()
     return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _float_env(name: str, default: float, *, minimum: float = 0.1, maximum: float = 3600.0) -> float:
+    try:
+        value = float(str(os.environ.get(name) or "").strip() or default)
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _provider_health_route_timeout_seconds(*, lightweight: bool) -> float:
+    env_name = "EA_PROVIDER_HEALTH_LIGHTWEIGHT_TIMEOUT_SECONDS" if lightweight else "EA_PROVIDER_HEALTH_ROUTE_TIMEOUT_SECONDS"
+    return _float_env(env_name, 5.0 if lightweight else 10.0, minimum=0.25, maximum=60.0)
+
+
+def _provider_health_registry_timeout_seconds() -> float:
+    return _float_env("EA_PROVIDER_HEALTH_REGISTRY_TIMEOUT_SECONDS", 5.0, minimum=0.1, maximum=30.0)
+
+
+def _provider_health_cache_max_age_seconds() -> float:
+    return _float_env("EA_PROVIDER_HEALTH_CACHE_MAX_AGE_SECONDS", 900.0, minimum=1.0, maximum=86400.0)
+
+
+def _provider_health_cache_refresh_interval_seconds() -> float:
+    return _float_env("EA_PROVIDER_HEALTH_CACHE_REFRESH_INTERVAL_SECONDS", 60.0, minimum=1.0, maximum=3600.0)
+
+
+def _provider_health_env_signature() -> str:
+    prefixes = (
+        "AI_MAGICX_",
+        "BROWSERACT_",
+        "EA_GEMINI_VORTEX_",
+        "EA_PROVIDER_",
+        "EA_RESPONSES_",
+        "GOOGLE_API_KEY",
+        "ONEMIN_AI_API_KEY",
+    )
+    digest = hashlib.sha256(str(id(_provider_health_report)).encode("ascii", errors="ignore"))
+    for name, value in sorted(os.environ.items()):
+        if not any(str(name or "").startswith(prefix) for prefix in prefixes):
+            continue
+        digest.update(str(name or "").encode("utf-8", errors="ignore"))
+        digest.update(b"=")
+        digest.update(hashlib.sha256(str(value or "").encode("utf-8", errors="ignore")).hexdigest().encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _cached_provider_health_snapshot(*, lightweight: bool, allow_stale: bool = False) -> tuple[dict[str, object], float] | tuple[None, None]:
+    env_signature = _provider_health_env_signature()
+    with _PROVIDER_HEALTH_CACHE_LOCK:
+        cached = dict(_PROVIDER_HEALTH_CACHE.get(bool(lightweight)) or {})
+    if str(cached.get("env_signature") or "") != env_signature:
+        return None, None
+    payload = cached.get("payload")
+    cached_at = float(cached.get("cached_at") or 0.0)
+    if not isinstance(payload, dict) or not payload:
+        return None, None
+    age_seconds = max(0.0, time.time() - cached_at) if cached_at else 0.0
+    if not allow_stale and age_seconds > _provider_health_cache_max_age_seconds():
+        return None, None
+    return dict(payload), age_seconds
+
+
+def _remember_provider_health_snapshot(*, lightweight: bool, payload: dict[str, object]) -> None:
+    if not isinstance(payload, dict) or not payload:
+        return
+    with _PROVIDER_HEALTH_CACHE_LOCK:
+        _PROVIDER_HEALTH_CACHE[bool(lightweight)] = {
+            "cached_at": time.time(),
+            "env_signature": _provider_health_env_signature(),
+            "payload": dict(payload),
+        }
+
+
+def _provider_env_slot_names(primary: str, fallback_prefix: str, *, max_slots: int = 128) -> list[str]:
+    names: list[str] = []
+    if str(os.environ.get(primary) or "").strip():
+        names.append(primary)
+    fallback_pattern = re.compile(rf"^{re.escape(fallback_prefix)}_(\d+)$")
+    numbered: list[tuple[int, str]] = []
+    for env_name, value in os.environ.items():
+        if not str(value or "").strip():
+            continue
+        match = fallback_pattern.match(str(env_name or "").strip())
+        if match is None:
+            continue
+        try:
+            numbered.append((int(match.group(1)), env_name))
+        except Exception:
+            continue
+    for _, env_name in sorted(numbered)[:max_slots]:
+        if env_name not in names:
+            names.append(env_name)
+    return names
+
+
+def _provider_slot_name(index: int) -> str:
+    return "primary" if index == 0 else f"fallback_{index}"
+
+
+def _minimal_provider_slots(names: list[str], *, configured_state: str = "unknown") -> list[dict[str, object]]:
+    return [
+        {
+            "slot": _provider_slot_name(index),
+            "configured": True,
+            "account_name": env_name,
+            "state": configured_state,
+        }
+        for index, env_name in enumerate(names)
+    ]
+
+
+def _minimal_provider_health_snapshot(*, lightweight: bool, reason: str) -> dict[str, object]:
+    onemin_names = _provider_env_slot_names("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK")
+    if str(os.environ.get("EA_RESPONSES_ONEMIN_API_KEY") or "").strip() and "EA_RESPONSES_ONEMIN_API_KEY" not in onemin_names:
+        onemin_names.insert(0, "EA_RESPONSES_ONEMIN_API_KEY")
+    chatplayground_names = [
+        name
+        for name in (
+            "BROWSERACT_API_KEY",
+            "BROWSERACT_API_KEY_FALLBACK_1",
+            "BROWSERACT_API_KEY_FALLBACK_2",
+            "BROWSERACT_API_KEY_FALLBACK_3",
+        )
+        if str(os.environ.get(name) or "").strip()
+    ]
+    magix_names = [
+        name
+        for name in ("EA_RESPONSES_MAGICX_API_KEY", "AI_MAGICX_API_KEY")
+        if str(os.environ.get(name) or "").strip()
+    ]
+    gemini_names = [
+        name
+        for name in ("EA_GEMINI_VORTEX_DEFAULT_AUTH",)
+        if str(os.environ.get(name) or "").strip()
+    ]
+    onemin_slots = _minimal_provider_slots(onemin_names)
+    chatplayground_slots = _minimal_provider_slots(chatplayground_names)
+    magix_slots = _minimal_provider_slots(magix_names)
+    gemini_slots = _minimal_provider_slots(gemini_names)
+    provider_order = list(_provider_order())
+    return {
+        "providers": {
+            "onemin": {
+                "provider_key": "onemin",
+                "backend": "1min",
+                "configured_slots": len(onemin_slots),
+                "slots": onemin_slots,
+                "state": "unknown",
+                "unknown_balance_slots": len(onemin_slots),
+            },
+            "magixai": {
+                "provider_key": "magixai",
+                "backend": "aimagicx",
+                "configured_slots": len(magix_slots),
+                "slots": magix_slots,
+                "state": "unknown",
+            },
+            "chatplayground": {
+                "provider_key": "chatplayground",
+                "backend": "browseract",
+                "configured_slots": len(chatplayground_slots),
+                "slots": chatplayground_slots,
+                "state": "unknown",
+            },
+            "gemini_vortex": {
+                "provider_key": "gemini_vortex",
+                "backend": "gemini_vortex_cli",
+                "configured_slots": len(gemini_slots),
+                "slots": gemini_slots,
+                "state": "unknown",
+            },
+        },
+        "provider_config": {
+            "default_profile": str(os.environ.get("EA_RESPONSES_DEFAULT_PROFILE") or _DEFAULT_LANE_PROFILE),
+            "provider_order": provider_order,
+            "onemin_accounts": list(onemin_names),
+            "chatplayground_accounts": list(chatplayground_names),
+            "gemini_vortex_accounts": list(gemini_names),
+            "hard_max_active_requests": os.environ.get("EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS"),
+            "hard_queue_timeout_seconds": os.environ.get("EA_RESPONSES_HARD_QUEUE_TIMEOUT_SECONDS"),
+        },
+        "provider_health_snapshot": {
+            "status": "fallback",
+            "source": "env_minimal",
+            "reason": reason,
+            "lightweight": bool(lightweight),
+        },
+    }
+
+
+def _mark_provider_health_snapshot(
+    payload: dict[str, object],
+    *,
+    status: str,
+    reason: str = "",
+    age_seconds: float | None = None,
+    lightweight: bool,
+) -> dict[str, object]:
+    marked = dict(payload or {})
+    metadata = dict(marked.get("provider_health_snapshot") or {})
+    metadata.update(
+        {
+            "status": status,
+            "lightweight": bool(lightweight),
+        }
+    )
+    if reason:
+        metadata["reason"] = reason
+    if age_seconds is not None:
+        metadata["age_seconds"] = round(float(age_seconds), 3)
+    marked["provider_health_snapshot"] = metadata
+    return marked
+
+
+def _finish_provider_health_refresh(lightweight: bool, future: asyncio.Future[dict[str, object]]) -> None:
+    try:
+        payload = future.result()
+        if isinstance(payload, dict) and payload:
+            _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
+    except BaseException:
+        pass
+    finally:
+        with _PROVIDER_HEALTH_CACHE_LOCK:
+            _PROVIDER_HEALTH_REFRESH_IN_FLIGHT[bool(lightweight)] = False
+
+
+def _start_provider_health_refresh(loop: asyncio.AbstractEventLoop, *, lightweight: bool) -> asyncio.Future[dict[str, object]] | None:
+    with _PROVIDER_HEALTH_CACHE_LOCK:
+        if bool(_PROVIDER_HEALTH_REFRESH_IN_FLIGHT.get(bool(lightweight))):
+            return None
+        _PROVIDER_HEALTH_REFRESH_IN_FLIGHT[bool(lightweight)] = True
+    future = loop.run_in_executor(
+        _PROVIDER_HEALTH_EXECUTOR,
+        lambda: _provider_health_snapshot(lightweight=lightweight),
+    )
+    future.add_done_callback(lambda done: _finish_provider_health_refresh(lightweight, done))
+    return future
+
+
+async def _provider_health_snapshot_async(*, lightweight: bool) -> dict[str, object]:
+    loop = asyncio.get_running_loop()
+    cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight)
+    if cached is not None:
+        if age_seconds is not None and age_seconds >= _provider_health_cache_refresh_interval_seconds():
+            _start_provider_health_refresh(loop, lightweight=lightweight)
+        return _mark_provider_health_snapshot(
+            cached,
+            status="cached",
+            reason="fresh provider-health cache",
+            age_seconds=age_seconds,
+            lightweight=lightweight,
+        )
+
+    future = _start_provider_health_refresh(loop, lightweight=lightweight)
+    if future is None:
+        cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight, allow_stale=True)
+        if cached is not None:
+            return _mark_provider_health_snapshot(
+                cached,
+                status="cached",
+                reason="live refresh already in flight",
+                age_seconds=age_seconds,
+                lightweight=lightweight,
+            )
+        return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live refresh already in flight")
+    try:
+        payload = await asyncio.wait_for(asyncio.shield(future), timeout=_provider_health_route_timeout_seconds(lightweight=lightweight))
+        if isinstance(payload, dict) and payload:
+            _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
+            return _mark_provider_health_snapshot(payload, status="live", lightweight=lightweight)
+    except asyncio.TimeoutError:
+        cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight, allow_stale=True)
+        if cached is not None:
+            return _mark_provider_health_snapshot(
+                cached,
+                status="cached",
+                reason="live provider-health refresh timed out",
+                age_seconds=age_seconds,
+                lightweight=lightweight,
+            )
+        return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live provider-health refresh timed out")
+    except Exception as exc:
+        cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight, allow_stale=True)
+        if cached is not None:
+            return _mark_provider_health_snapshot(
+                cached,
+                status="cached",
+                reason=f"live provider-health refresh failed: {type(exc).__name__}",
+                age_seconds=age_seconds,
+                lightweight=lightweight,
+            )
+        return _minimal_provider_health_snapshot(
+            lightweight=lightweight,
+            reason=f"live provider-health refresh failed: {type(exc).__name__}",
+        )
+    return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live provider-health returned empty payload")
+
+
+def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]:
+    slots = [dict(item) for item in (provider.get("slots") or []) if isinstance(item, dict)]
+    configured_slots = int(provider.get("configured_slots") or len(slots) or 0)
+    slot_states = [str(slot.get("state") or "").strip().lower() or "unknown" for slot in slots if bool(slot.get("configured", True))]
+    ready_slots = sum(1 for state in slot_states if state == "ready")
+    degraded_slots = sum(1 for state in slot_states if state in {"degraded", "cooldown", "unknown"})
+    unavailable_slots = max(0, configured_slots - ready_slots - degraded_slots)
+    state = str(provider.get("state") or "").strip().lower()
+    if not state:
+        if ready_slots:
+            state = "ready"
+        elif degraded_slots:
+            state = "degraded"
+        elif configured_slots:
+            state = "unknown"
+        else:
+            state = "missing"
+    return {
+        "state": state,
+        "configured_slots": configured_slots,
+        "ready_slots": ready_slots,
+        "degraded_slots": degraded_slots,
+        "unavailable_slots": unavailable_slots,
+        "leased_slots": int(provider.get("active_lease_count") or 0),
+        "remaining_percent_of_max": provider.get("remaining_percent_of_max"),
+        "estimated_remaining_credits_total": provider.get("estimated_remaining_credits_total"),
+        "slot_owners": [],
+        "lease_holders": [],
+        "last_used_principal_id": "",
+        "last_used_principal_label": "",
+        "last_used_owner_category": "",
+        "last_used_lane_role": "",
+        "last_used_hub_user_id": "",
+        "last_used_hub_group_id": "",
+        "last_used_sponsor_session_id": "",
+        "last_used_at": None,
+    }
+
+
+def _fallback_provider_registry_payload(
+    provider_health: dict[str, object],
+    *,
+    browseract_binding_available: bool | None = None,
+) -> dict[str, object]:
+    providers_by_key = {
+        str(key or "").strip(): dict(value)
+        for key, value in dict((provider_health or {}).get("providers") or {}).items()
+        if isinstance(value, dict)
+    }
+
+    def _health_provider_key_candidates(provider_key: str) -> tuple[str, ...]:
+        normalized = str(provider_key or "").strip()
+        aliases = {
+            "browseract": ("chatplayground", "gemini_web", "browseract"),
+            "chatplayground": ("chatplayground", "browseract"),
+            "gemini_web": ("gemini_web", "browseract"),
+        }
+        ordered: list[str] = []
+        for candidate in (normalized, *aliases.get(normalized, ())):
+            if candidate and candidate not in ordered:
+                ordered.append(candidate)
+        return tuple(ordered)
+
+    provider_rows = []
+    for provider_key, provider in providers_by_key.items():
+        capacity = _provider_capacity_summary(provider)
+        provider_rows.append(
+            {
+                "provider_key": provider_key,
+                "backend": str(provider.get("backend") or provider_key),
+                "state": capacity["state"],
+                "enabled": bool(capacity["configured_slots"]),
+                "executable": bool(capacity["configured_slots"]),
+                "slot_pool": capacity,
+            }
+        )
+    lanes = []
+    for profile in _CODEx_PROFILES:
+        row = dict(profile)
+        hints = [str(item or "").strip() for item in (row.get("provider_hint_order") or []) if str(item or "").strip()]
+        survival_route = (
+            survival_route_health_snapshot(
+                provider_health=provider_health,
+                browseract_binding_available=browseract_binding_available,
+            )
+            if str(row.get("profile") or "").strip().lower() == "survival"
+            else {}
+        )
+        effective_hints = (
+            [
+                str(item or "").strip()
+                for item in (survival_route.get("provider_hint_order") or ())
+                if str(item or "").strip()
+            ]
+            if survival_route
+            else hints
+        )
+        lane_provider_hints = (
+            [
+                str(item or "").strip()
+                for item in (survival_route.get("route_provider_hint_order") or ())
+                if str(item or "").strip()
+            ]
+            if survival_route
+            else hints
+        )
+        resolved_hint_keys: list[str] = []
+        for hint in lane_provider_hints:
+            for candidate in _health_provider_key_candidates(hint):
+                if candidate in providers_by_key and candidate not in resolved_hint_keys:
+                    resolved_hint_keys.append(candidate)
+        primary_key = ""
+        requested_primary_key = str(survival_route.get("primary_provider_key") or "").strip() if survival_route else ""
+        if requested_primary_key:
+            for candidate in _health_provider_key_candidates(requested_primary_key):
+                if candidate in providers_by_key:
+                    primary_key = candidate
+                    break
+        if not primary_key:
+            primary_key = resolved_hint_keys[0] if resolved_hint_keys else ""
+        if not primary_key and providers_by_key:
+            primary_key = next(iter(providers_by_key))
+        primary = providers_by_key.get(primary_key, {})
+        capacity = _provider_capacity_summary(primary) if primary else _provider_capacity_summary({})
+        if survival_route:
+            capacity["state"] = str(survival_route.get("state") or capacity.get("state") or "unavailable")
+        provider_keys_for_lane = set(resolved_hint_keys or ([primary_key] if primary_key else []))
+        lanes.append(
+            {
+                "profile": str(row.get("profile") or ""),
+                "lane": str(row.get("lane") or ""),
+                "public_model": str(row.get("model") or ""),
+                "brain": str(row.get("model") or ""),
+                "backend": (
+                    str(survival_route.get("backend") or "").strip()
+                    if survival_route
+                    else (primary_key or str(row.get("backend") or ""))
+                ),
+                "health_provider_key": (
+                    str(survival_route.get("health_provider_key") or "").strip()
+                    if survival_route
+                    else (primary_key or str(row.get("health_provider_key") or ""))
+                ),
+                "provider_hint_order": effective_hints,
+                "review_required": bool(row.get("review_required")),
+                "needs_review": bool(row.get("needs_review")),
+                "merge_policy": str(row.get("merge_policy") or "auto"),
+                "primary_provider_key": primary_key if not survival_route or effective_hints else "",
+                "primary_state": (
+                    str(survival_route.get("state") or "unavailable")
+                    if survival_route
+                    else str(capacity.get("state") or "unknown")
+                ),
+                "providers": [provider for provider in provider_rows if provider.get("provider_key") in provider_keys_for_lane],
+                "capacity_summary": capacity,
+                "detail": str(survival_route.get("reason") or "").strip() if survival_route else "",
+            }
+        )
+    return {
+        "contract_name": "ea.provider_registry",
+        "source": "provider_health_fallback",
+        "providers": provider_rows,
+        "lanes": lanes,
+    }
+
+
+async def _provider_registry_payload_async(
+    *,
+    container: object | None = None,
+    principal_id: str = "",
+    provider_health: dict[str, object] | None = None,
+    include_sensitive: bool = False,
+) -> dict[str, object]:
+    browseract_binding_available = None
+    if container is not None and principal_id:
+        browseract_binding_available = bool(_browseract_binding_id(container=container, principal_id=principal_id))
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(
+        _PROVIDER_REGISTRY_EXECUTOR,
+        lambda: _provider_registry_payload(
+            container=container,
+            principal_id=principal_id,
+            provider_health=provider_health or {},
+            include_sensitive=include_sensitive,
+            browseract_binding_available=browseract_binding_available,
+        ),
+    )
+    try:
+        payload = await asyncio.wait_for(future, timeout=_provider_health_registry_timeout_seconds())
+    except Exception:
+        return _fallback_provider_registry_payload(
+            provider_health or {},
+            browseract_binding_available=browseract_binding_available,
+        )
+    return (
+        payload
+        if isinstance(payload, dict) and payload
+        else _fallback_provider_registry_payload(
+            provider_health or {},
+            browseract_binding_available=browseract_binding_available,
+        )
+    )
 
 
 def _effective_codex_profile_model(
@@ -875,6 +1421,8 @@ def _stabilize_codex_profile(
     profile: dict[str, object],
     *,
     provider_health: dict[str, object] | None = None,
+    container: object | None = None,
+    principal_id: str = "",
 ) -> dict[str, object]:
     normalized = dict(profile or {})
     preferred_ready_provider = _repair_ready_provider(normalized, provider_health=provider_health)
@@ -890,6 +1438,12 @@ def _stabilize_codex_profile(
             [preferred_ready_provider]
             + [item for item in existing_hints if item != preferred_ready_provider]
         )
+    normalized = _stabilize_survival_codex_profile(
+        normalized,
+        provider_health=provider_health,
+        container=container,
+        principal_id=principal_id,
+    )
     normalized["model"] = _effective_codex_profile_model(normalized, provider_health=provider_health)
     return normalized
 
@@ -1059,7 +1613,7 @@ _RESPONSES_DEBUG_CAPTURE_LAST_PRUNE = 0.0
 def _responses_debug_capture_dir() -> Path | None:
     raw = str(os.environ.get("EA_RESPONSES_DEBUG_CAPTURE_DIR") or "").strip()
     if not raw:
-        return None
+        raw = "/tmp/ea-responses-debug"
     try:
         path = Path(raw)
         path.mkdir(parents=True, exist_ok=True)
@@ -1149,6 +1703,18 @@ def _capture_responses_debug(*, name: str, payload: object) -> None:
         latest = target_dir / f"latest_{name}.json"
         latest.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
         _prune_responses_debug_capture(target_dir)
+    except Exception:
+        return
+
+
+def _write_responses_live_summary(*, name: str, payload: object) -> None:
+    try:
+        target_dir = Path("/tmp/ea-inline-debug")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stamp = int(time.time() * 1000)
+        encoded = json.dumps(payload, ensure_ascii=True, indent=2)
+        (target_dir / f"{stamp}_{name}.json").write_text(encoded, encoding="utf-8")
+        (target_dir / f"latest_{name}.json").write_text(encoded, encoding="utf-8")
     except Exception:
         return
 
@@ -1595,6 +2161,15 @@ def _resolve_prompt_route(
                 effective_model = str(ONEMIN_PUBLIC_MODEL or "").strip() or original_model
             applied = effective_profile != original_profile or effective_model != original_model
             reason = lightweight_reason
+        elif _tool_shim_is_operator_readiness_remedy_prompt(prompt) and normalized_original_profile in {
+            "",
+            "default",
+            "easy",
+        }:
+            effective_profile = "easy"
+            effective_model = str(FAST_PUBLIC_MODEL or "").strip() or original_model
+            applied = effective_profile != original_profile or effective_model != original_model
+            reason = "operator_readiness_fast_lane"
         else:
             coding_task, coding_reason = _looks_like_coding_task(prompt)
             if coding_task and (
@@ -1978,16 +2553,23 @@ def _provider_registry_payload(
     principal_id: str = "",
     provider_health: dict[str, object] | None = None,
     include_sensitive: bool = False,
+    browseract_binding_available: bool | None = None,
 ) -> dict[str, object]:
+    if browseract_binding_available is None and container is not None and principal_id:
+        browseract_binding_available = bool(_browseract_binding_id(container=container, principal_id=principal_id))
     registry = getattr(container, "provider_registry", None)
     if registry is None or not hasattr(registry, "registry_read_model"):
-        return {}
+        return _fallback_provider_registry_payload(
+            provider_health or {},
+            browseract_binding_available=browseract_binding_available,
+        )
     router = _brain_router(container)
     profile_decisions = router.list_profile_decisions(principal_id=principal_id or None) if router is not None else ()
     payload = registry.registry_read_model(
         principal_id=principal_id or None,
         provider_health=provider_health or {},
         profile_decisions=profile_decisions,
+        browseract_binding_available=browseract_binding_available,
     )
     if include_sensitive:
         return payload
@@ -2055,7 +2637,12 @@ def _codex_profiles(
     router = _brain_router(container)
     if router is None:
         return tuple(
-            _stabilize_codex_profile(_enrich_codex_profile(dict(item)), provider_health=provider_health)
+            _stabilize_codex_profile(
+                _enrich_codex_profile(dict(item)),
+                provider_health=provider_health,
+                container=container,
+                principal_id=principal_id,
+            )
             for item in _CODEx_PROFILES
         )
     rows = []
@@ -2077,12 +2664,19 @@ def _codex_profiles(
                 }
                 ),
                 provider_health=provider_health,
+                container=container,
+                principal_id=principal_id,
             )
         )
     if rows:
         return tuple(rows)
     return tuple(
-        _stabilize_codex_profile(_enrich_codex_profile(dict(item)), provider_health=provider_health)
+        _stabilize_codex_profile(
+            _enrich_codex_profile(dict(item)),
+            provider_health=provider_health,
+            container=container,
+            principal_id=principal_id,
+        )
         for item in _CODEx_PROFILES
     )
 
@@ -2108,7 +2702,7 @@ def _codex_profile(
         "review_required": False,
         "needs_review": False,
         }
-    ), provider_health=provider_health)
+    ), provider_health=provider_health, container=container, principal_id=principal_id)
 
 
 def _attach_provider_slot_state(
@@ -3345,11 +3939,42 @@ def _tool_shim_transcript_part_max_chars() -> int:
 
 
 def _tool_shim_planner_model(model: str, *, prompt: str | None = None) -> str:
+    configured = str(os.environ.get("EA_TOOL_SHIM_PLANNER_MODEL") or "").strip()
+    if configured:
+        return configured
+    normalized_prompt = str(prompt or "").strip()
+    if (
+        _tool_shim_is_staged_local_orientation_prompt(normalized_prompt)
+        or _tool_shim_is_operator_fleet_unblock_prompt(normalized_prompt)
+        or _tool_shim_is_operator_readiness_remedy_prompt(normalized_prompt)
+    ):
+        fast_planner = str(FAST_PUBLIC_MODEL or "").strip() or "ea-coder-fast"
+        if fast_planner:
+            return fast_planner
     normalized = str(model or "").strip().lower()
     if not normalized:
-        return "onemin:gpt-4.1"
+        return "onemin:gpt-4.1-nano"
+    managed_lane_models = {
+        str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(): str(HARD_BATCH_PUBLIC_MODEL or "").strip(),
+        str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(): str(HARD_RESCUE_PUBLIC_MODEL or "").strip(),
+        str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip().lower(): str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip(),
+        str(GROUNDWORK_PUBLIC_MODEL or "").strip().lower(): str(GROUNDWORK_PUBLIC_MODEL or "").strip(),
+        str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(): str(SURVIVAL_PUBLIC_MODEL or "").strip(),
+        "ea-coder-hard": "ea-coder-hard",
+        "ea-coder-hard-batch": str(HARD_BATCH_PUBLIC_MODEL or "").strip() or "ea-coder-hard-batch",
+        "ea-coder-hard-rescue": str(HARD_RESCUE_PUBLIC_MODEL or "").strip() or "ea-coder-hard-rescue",
+        "ea-audit-jury": "ea-audit-jury",
+        "ea-review-light": str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip() or "ea-review-light",
+        "ea-groundwork-gemini": str(GROUNDWORK_PUBLIC_MODEL or "").strip() or "ea-groundwork-gemini",
+        "ea-coder-survival": str(SURVIVAL_PUBLIC_MODEL or "").strip() or "ea-coder-survival",
+    }
+    managed_match = str(managed_lane_models.get(normalized) or "").strip()
+    if managed_match:
+        return managed_match
     if normalized == str(ONEMIN_PUBLIC_MODEL or "").strip().lower() or normalized.startswith("onemin:"):
-        return "onemin:gpt-4.1"
+        return "onemin:gpt-4.1-nano"
+    if normalized.startswith("ea-"):
+        return "onemin:gpt-4.1-nano"
     return model
 
 
@@ -3376,6 +4001,26 @@ def _tool_shim_truncate_text(text: str, *, limit: int) -> str:
     head = remaining // 2
     tail = remaining - head
     return f"{value[:head]}{spacer}{value[-tail:]}".strip()
+
+
+def _tool_shim_tool_parameters_summary(parameters: object) -> dict[str, object]:
+    if not isinstance(parameters, dict):
+        return {}
+    summary: dict[str, object] = {}
+    parameter_type = str(parameters.get("type") or "").strip()
+    if parameter_type:
+        summary["type"] = parameter_type
+    properties = parameters.get("properties")
+    if isinstance(properties, dict):
+        parameter_keys = [str(key or "").strip() for key in properties.keys() if str(key or "").strip()]
+        if parameter_keys:
+            summary["parameter_keys"] = parameter_keys[:24]
+    required = parameters.get("required")
+    if isinstance(required, list):
+        required_keys = [str(key or "").strip() for key in required if str(key or "").strip()]
+        if required_keys:
+            summary["required"] = required_keys[:24]
+    return summary
 
 
 def _history_item_to_transcript(item: dict[str, object], *, include_system: bool = True, compact: bool = False) -> str:
@@ -3453,6 +4098,307 @@ def _tool_shim_latest_user_text(history_items: list[dict[str, object]]) -> str:
         if text:
             return text
     return ""
+
+
+def _tool_shim_is_staged_local_orientation_prompt(text: str) -> bool:
+    prompt = str(text or "")
+    if not prompt:
+        return False
+    return any(
+        marker in prompt
+        for marker in (
+            "Run these exact commands first:",
+            "Safe first commands if you need orientation",
+            "Read these files directly first:",
+        )
+    )
+
+
+def _tool_shim_is_operator_fleet_unblock_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return (
+        "operator-prepared fleet unblock context:" in normalized
+        or (
+            "scope: patch only the codexea shim, ea endpoints, and the 1min manager." in normalized
+            and "do not work shard backlog content" in normalized
+        )
+    )
+
+
+def _tool_shim_is_operator_readiness_remedy_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return (
+        "operator-prepared readiness remedy context:" in normalized
+        or (
+            "scope: patch only the targeted product proof surface implied by the prompt." in normalized
+            and "stay on product proof generation, verification" in normalized
+        )
+    )
+
+
+def _tool_shim_is_operator_fleet_unblock_context(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> bool:
+    if _tool_shim_is_operator_fleet_unblock_prompt(latest_user_text):
+        return True
+    commands = _tool_shim_exec_command_history(history_items)
+    saw_shim_hotspot = any(
+        "/docker/fleet/scripts/codex-shims/codexea" in command
+        or "/docker/fleet/scripts/codex-shims/python3" in command
+        for command in commands
+    )
+    saw_ea_hotspot = any(
+        "/docker/EA/ea/app/api/routes/responses.py" in command
+        or "/docker/EA/ea/app/services/onemin_manager.py" in command
+        or "/docker/EA/ea/app/services/responses_upstream.py" in command
+        for command in commands
+    )
+    if saw_shim_hotspot and saw_ea_hotspot:
+        return True
+    return False
+
+
+def _tool_shim_transcript_limit_for_prompt(text: str) -> int:
+    default_limit = _tool_shim_transcript_max_chars()
+    if _tool_shim_is_operator_fleet_unblock_prompt(text):
+        return max(1200, min(default_limit, 1800))
+    if _tool_shim_is_operator_readiness_remedy_prompt(text):
+        return max(1400, min(default_limit, 2200))
+    if _tool_shim_is_staged_local_orientation_prompt(text):
+        return max(1400, min(default_limit, 2600))
+    return default_limit
+
+
+def _tool_shim_compact_operator_prompt_for_planner(text: str) -> str:
+    prompt = str(text or "")
+    if not _tool_shim_is_operator_fleet_unblock_prompt(prompt):
+        return prompt
+    marker = "\n\nPrepared repo context:\n"
+    marker_index = prompt.find(marker)
+    if marker_index < 0:
+        return prompt
+    before = prompt[:marker_index].rstrip()
+    after = prompt[marker_index + len(marker):]
+    snapshot_marker = "\n\nLive fleet snapshot:\n"
+    snapshot_index = after.find(snapshot_marker)
+    prepared_block = after[:snapshot_index] if snapshot_index >= 0 else after
+    tail = after[snapshot_index:] if snapshot_index >= 0 else ""
+    prepared_lines = [line.strip() for line in prepared_block.splitlines() if line.strip()]
+    command_lines = [line for line in prepared_lines if line.startswith("$ ")]
+    interesting_lines: list[str] = []
+    for line in prepared_lines:
+        if line.startswith("$ git -C "):
+            interesting_lines.append(line)
+        elif "file changed" in line or "insertions(" in line or "deletions(" in line:
+            interesting_lines.append(line)
+        elif line.startswith("$ rg -n "):
+            interesting_lines.append(line)
+        if len(interesting_lines) >= 8:
+            break
+    summary_lines = [
+        "Prepared repo context summary:",
+        f"- Bootstrap context was already captured from {len(command_lines)} local commands.",
+        "- Avoid rerunning broad orientation reads unless a narrower line window is missing.",
+    ]
+    if interesting_lines:
+        summary_lines.extend(interesting_lines)
+    return "\n\n".join(
+        part
+        for part in (
+            before,
+            "\n".join(summary_lines).strip(),
+            tail.strip(),
+        )
+        if str(part or "").strip()
+    ).strip()
+
+
+def _tool_shim_compact_readiness_prompt_for_planner(text: str) -> str:
+    prompt = str(text or "")
+    if not _tool_shim_is_operator_readiness_remedy_prompt(prompt):
+        return prompt
+    marker = "\n\nPrepared repo context:\n"
+    marker_index = prompt.find(marker)
+    if marker_index < 0:
+        return prompt
+    before = prompt[:marker_index].rstrip()
+    after = prompt[marker_index + len(marker):]
+    objective_marker = "\n\nObjective:\n"
+    objective_index = after.find(objective_marker)
+    prepared_block = after[:objective_index] if objective_index >= 0 else after
+    tail = after[objective_index:] if objective_index >= 0 else ""
+    prepared_lines = [line.strip() for line in prepared_block.splitlines() if line.strip()]
+    command_lines = [line for line in prepared_lines if line.startswith("$ ")]
+    interesting_lines: list[str] = []
+    for line in prepared_lines:
+        if (
+            "fail:" in line.lower()
+            or "trace is missing" in line.lower()
+            or "used_internal_apis=false" in line.lower()
+            or "tester_shard_id" in line
+            or line.startswith("$ git -C ")
+            or "file changed" in line
+            or "insertions(" in line
+            or "deletions(" in line
+        ):
+            interesting_lines.append(line)
+        if len(interesting_lines) >= 10:
+            break
+    summary_lines = [
+        "Prepared repo context summary:",
+        f"- Bootstrap context was already captured from {len(command_lines)} local commands.",
+        "- Avoid rerunning the broad readiness bootstrap unless a narrower line window is missing.",
+    ]
+    if interesting_lines:
+        summary_lines.extend(interesting_lines)
+    return "\n\n".join(
+        part
+        for part in (
+            before,
+            "\n".join(summary_lines).strip(),
+            tail.strip(),
+        )
+        if str(part or "").strip()
+    ).strip()
+
+
+def _tool_shim_operator_unblock_scope_rejection_reason(
+    *,
+    latest_user_text: str,
+    cmd: str,
+    history_items: list[dict[str, object]] | None = None,
+) -> str | None:
+    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items or []):
+        return None
+    allowed_exact_paths = {
+        "/docker/fleet/WORKLIST.md",
+        "/docker/fleet/README.md",
+    }
+    allowed_prefixes = (
+        "/docker/fleet/scripts/codex-shims/",
+        "/docker/fleet/tests/",
+        "/docker/EA/ea/app/",
+        "/docker/EA/tests/",
+    )
+    allowed_shard_artifact_suffixes = (
+        "/WORKER_EXEC_TRACE_PROMPT.md",
+        "/worker.stderr.log",
+        "/TASK_LOCAL_TELEMETRY.generated.json",
+        "/TASK_RUNTIME_HANDOFF.generated.json",
+    )
+    shard_state_paths = re.findall(
+        r"((?:/docker/fleet/state|/var/lib/codex-fleet)/chummer_design_supervisor/shard-[^ \t\n'\"`]+)",
+        cmd,
+    )
+    for shard_state_path in shard_state_paths:
+        normalized_path = str(shard_state_path or "").strip()
+        if not normalized_path:
+            continue
+        if any(normalized_path.endswith(suffix) for suffix in allowed_shard_artifact_suffixes):
+            continue
+        return (
+            "This operator fleet-unblock run may inspect only shard-run prompt/log artifacts needed to "
+            "reproduce the live worker path. Do not inspect broader shard state or backlog content under "
+            "`/docker/fleet/state/chummer_design_supervisor/shard-*`."
+        )
+    allowed_git_roots: set[str] = set()
+    for raw_git_command in [part.strip() for part in cmd.split(";") if str(part).strip()]:
+        git_path_command = raw_git_command.split("|", 1)[0].strip()
+        git_root_match = re.search(r"^git\s+-C\s+(/[^ \t]+)", git_path_command)
+        if not git_root_match:
+            continue
+        git_root = str(git_root_match.group(1) or "").strip()
+        if not git_root:
+            continue
+        allowed_git_roots.add(git_root)
+        git_path_args = re.findall(r"(?:^|\s)--\s+(.+)$", git_path_command)
+        rel_paths = []
+        if git_path_args:
+            rel_paths = [
+                token
+                for token in shlex.split(git_path_args[-1])
+                if token and not token.startswith("-")
+            ]
+        if git_root == "/docker/EA":
+            if any(not (path.startswith("ea/app/") or path.startswith("tests/")) for path in rel_paths):
+                return (
+                    "This operator fleet-unblock run is scoped to EA endpoint and 1min-manager code only. "
+                    "Do not inspect or diff top-level EA task docs such as `TASKS_WORK_LOG.md` or `MILESTONE.json`."
+                )
+        if git_root == "/docker/fleet":
+            if any(
+                path not in {"WORKLIST.md", "README.md"}
+                and not path.startswith("scripts/codex-shims/")
+                and not path.startswith("tests/")
+                for path in rel_paths
+            ):
+                return (
+                    "This operator fleet-unblock run is scoped to the codexea shim and Fleet unblock helpers only. "
+                    "Do not inspect or diff repo worklists, published artifacts, or other non-shim Fleet content."
+                )
+    command_paths = [
+        str(match or "").strip()
+        for match in re.findall(r"(/[A-Za-z0-9._/\-]+)", cmd)
+        if str(match or "").strip()
+    ]
+    for path_text in command_paths:
+        if path_text in allowed_git_roots:
+            continue
+        if path_text in allowed_exact_paths or any(path_text.startswith(prefix) for prefix in allowed_prefixes):
+            continue
+        if path_text.startswith("/docker/fleet/state/chummer_design_supervisor/shard-") and any(
+            path_text.endswith(suffix) for suffix in allowed_shard_artifact_suffixes
+        ):
+            continue
+        if path_text.startswith("/var/lib/codex-fleet/chummer_design_supervisor/shard-") and any(
+            path_text.endswith(suffix) for suffix in allowed_shard_artifact_suffixes
+        ):
+            continue
+        if path_text.startswith("/docker/EA/") or path_text.startswith("/docker/fleet/"):
+            return (
+                "This operator fleet-unblock run may read only the codexea shim, Fleet unblock tests, "
+                "EA endpoint/1min-manager code, exact Fleet orientation files, and matching shard-run artifacts."
+            )
+    blocked_roots = (
+        "/docker/chummercomplete/",
+        "/docker/fleet/.codex-studio/",
+        "/docker/fleet/state/chummer_design_supervisor/shard-",
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-",
+    )
+    for root in blocked_roots:
+        if root in {
+            "/docker/fleet/state/chummer_design_supervisor/shard-",
+            "/var/lib/codex-fleet/chummer_design_supervisor/shard-",
+        } and shard_state_paths:
+            disallowed = [
+                path
+                for path in shard_state_paths
+                if not any(str(path or "").strip().endswith(suffix) for suffix in allowed_shard_artifact_suffixes)
+            ]
+            if not disallowed:
+                continue
+        if root in cmd:
+            return (
+                "This operator fleet-unblock run is scoped to the codexea shim, EA endpoints, "
+                "and the 1min manager. Do not inspect shard content, backlog artifacts, or "
+                f"product repos under `{root}`. Stay within `/docker/fleet/scripts/codex-shims/`, "
+                "`/docker/fleet/tests/`, `/docker/EA/ea/app/`, `/docker/EA/tests/`, or direct "
+                "`ea-api` verification commands."
+            )
+    git_cwd_match = re.search(r"(?:^|\\s)-C\\s+(/[^ \\t]+)", cmd)
+    if git_cwd_match:
+        git_cwd = str(git_cwd_match.group(1) or "").strip()
+        if git_cwd.startswith("/docker/chummercomplete/"):
+            return (
+                "This operator fleet-unblock run must not pivot into `/docker/chummercomplete/*` repos. "
+                "Use `/docker/fleet` or `/docker/EA` targets only for unblock-path diagnosis and verification."
+            )
+    return None
 
 
 def _tool_shim_unwrap_tool_output_envelope(output_text: str) -> str:
@@ -3553,6 +4499,48 @@ def _tool_shim_scalar_text(value: object) -> str | None:
 
 def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str | None:
     latest_user_text = _tool_shim_latest_user_text(history_items)
+    if _tool_shim_is_operator_readiness_remedy_prompt(latest_user_text):
+        readiness_summary = _tool_shim_latest_exec_json_output(history_items)
+        if isinstance(readiness_summary, dict):
+            published_trace_exists = readiness_summary.get("published_trace_exists")
+            published_audit_status = str(readiness_summary.get("published_audit_status") or "").strip().lower()
+            published_audit_reasons = readiness_summary.get("published_audit_reasons")
+            if (
+                published_trace_exists is True
+                and published_audit_status in {"pass", "passed", "ready"}
+                and not published_audit_reasons
+            ):
+                trace_path = str(readiness_summary.get("published_trace_path") or "").strip()
+                detail_parts = [
+                    "Published readiness proof is already materialized.",
+                    "status=pass",
+                ]
+                if trace_path:
+                    detail_parts.append(f"trace_path={trace_path}")
+                return " ".join(detail_parts)
+            status = str(readiness_summary.get("status") or "").strip().lower()
+            reasons = readiness_summary.get("reasons")
+            if status in {"pass", "passed", "ready"} and not reasons:
+                trace_path = str(readiness_summary.get("trace_path") or "").strip()
+                tester_shard_id = str(readiness_summary.get("tester_shard_id") or "").strip()
+                fix_shard_id = str(readiness_summary.get("fix_shard_id") or "").strip()
+                detail_parts = [
+                    "Published the user-journey tester trace and reran the readiness audit.",
+                    "status=pass",
+                ]
+                if trace_path:
+                    detail_parts.append(f"trace_path={trace_path}")
+                if tester_shard_id:
+                    detail_parts.append(f"tester_shard_id={tester_shard_id}")
+                if fix_shard_id:
+                    detail_parts.append(f"fix_shard_id={fix_shard_id}")
+                return " ".join(detail_parts)
+    staged_git_final_text = _tool_shim_direct_staged_git_commit_push_final_text(
+        latest_user_text,
+        history_items,
+    )
+    if staged_git_final_text is not None:
+        return staged_git_final_text
     lightweight_ops, _ = _looks_like_lightweight_ops_query(latest_user_text)
     if not lightweight_ops:
         return None
@@ -3580,9 +4568,16 @@ def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str 
     return None
 
 
-def _tool_shim_direct_local_fleet_command(latest_user_text: str) -> str | None:
+def _tool_shim_direct_local_fleet_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]] | None = None,
+) -> str | None:
     normalized = " ".join(str(latest_user_text or "").strip().lower().split())
     if "fleet" not in normalized:
+        return None
+    if _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items or []):
+        return None
+    if _tool_shim_prompt_forbids_local_fleet_telemetry(normalized):
         return None
     state_root = Path("/docker/fleet/state/chummer_design_supervisor")
     supervisor_script = Path("/docker/fleet/scripts/chummer_design_supervisor.py")
@@ -3634,6 +4629,1373 @@ def _tool_shim_direct_local_fleet_command(latest_user_text: str) -> str | None:
     return None
 
 
+def _tool_shim_has_tool_history(history_items: list[dict[str, object]]) -> bool:
+    for item in history_items:
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type in {"function_call", "function_call_output"}:
+            return True
+    return False
+
+
+def _tool_shim_staged_commands(latest_user_text: str) -> list[str]:
+    text = str(latest_user_text or "")
+    if not text:
+        return []
+    command_markers = (
+        "Run these exact commands first:",
+        "Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:",
+    )
+    for marker in command_markers:
+        marker_index = text.find(marker)
+        if marker_index < 0:
+            continue
+        commands: list[str] = []
+        trailing_lines = text[marker_index + len(marker):].splitlines()
+        for raw_line in trailing_lines:
+            line = str(raw_line or "").strip()
+            if not line:
+                continue
+            if line.startswith("- "):
+                candidate = line[2:].strip()
+            elif line.startswith("$ "):
+                candidate = line[2:].strip()
+            elif re.match(r"^\d+\.\s+", line):
+                candidate = re.sub(r"^\d+\.\s+", "", line, count=1).strip()
+            else:
+                break
+            if not candidate:
+                continue
+            if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
+                candidate = candidate[1:-1].strip()
+            if not _tool_shim_looks_like_shell_command(candidate):
+                break
+            commands.append(candidate)
+        if commands:
+            return commands
+
+    file_marker = "Read these files directly first:"
+    file_marker_index = text.find(file_marker)
+    if file_marker_index < 0:
+        return []
+    shell_commands: list[str] = []
+    paths: list[str] = []
+    trailing_lines = text[file_marker_index + len(file_marker):].splitlines()
+    for raw_line in trailing_lines:
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        candidate = ""
+        if line.startswith("$ "):
+            candidate = line[2:].strip()
+        elif line.startswith("- "):
+            candidate = line[2:].strip()
+        elif line.startswith("/"):
+            candidate = line
+        else:
+            break
+        if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
+            candidate = candidate[1:-1].strip()
+        if _tool_shim_looks_like_shell_command(candidate):
+            if candidate not in shell_commands:
+                shell_commands.append(candidate)
+            continue
+        path_token = candidate.split()[0] if candidate else ""
+        if not path_token.startswith("/"):
+            break
+        if "..." in path_token:
+            continue
+        if path_token in paths:
+            continue
+        paths.append(path_token)
+        if len(paths) >= 6:
+            break
+    if shell_commands:
+        return shell_commands
+    if not paths:
+        return []
+    commands = []
+    for index, path_text in enumerate(paths):
+        commands.append(
+            _tool_shim_direct_file_read_command(
+                path_text,
+                prefer_cat=index == 0 or path_text.lower().endswith(".json"),
+            )
+        )
+    return commands
+
+
+def _tool_shim_is_git_command(command: str, verb: str | None = None) -> bool:
+    normalized = " ".join(str(command or "").strip().lower().split())
+    if not normalized.startswith("git "):
+        return False
+    if verb is None:
+        return True
+    return normalized.startswith(f"git {verb} ") or normalized == f"git {verb}"
+
+
+def _tool_shim_is_staged_git_commit_push_workflow(commands: list[str]) -> bool:
+    if not commands:
+        return False
+    if not all(_tool_shim_is_git_command(command) for command in commands):
+        return False
+    has_add = any(_tool_shim_is_git_command(command, "add") for command in commands)
+    has_commit = any(_tool_shim_is_git_command(command, "commit") for command in commands)
+    has_push = any(_tool_shim_is_git_command(command, "push") for command in commands)
+    return has_add and has_commit and has_push
+
+
+def _tool_shim_build_staged_git_commit_push_command(commands: list[str]) -> str | None:
+    if not _tool_shim_is_staged_git_commit_push_workflow(commands):
+        return None
+    pre_commands: list[str] = []
+    add_command = ""
+    commit_command = ""
+    push_command = ""
+    post_commands: list[str] = []
+    seen_commit = False
+    seen_push = False
+    for command in commands:
+        if _tool_shim_is_git_command(command, "add") and not add_command:
+            add_command = command
+            continue
+        if _tool_shim_is_git_command(command, "commit") and not commit_command:
+            commit_command = command
+            seen_commit = True
+            continue
+        if _tool_shim_is_git_command(command, "push") and not push_command:
+            push_command = command
+            seen_push = True
+            continue
+        if seen_push:
+            post_commands.append(command)
+        elif seen_commit:
+            post_commands.append(command)
+        else:
+            pre_commands.append(command)
+    if not add_command or not commit_command or not push_command:
+        return None
+    script_parts = ["set -euo pipefail"]
+    script_parts.extend(pre_commands)
+    script_parts.append(add_command)
+    script_parts.append(
+        f"if git diff --cached --quiet; then echo '[codexea] nothing new to commit'; else {commit_command}; fi"
+    )
+    script_parts.append(push_command)
+    script_parts.extend(post_commands)
+    script_parts.append("git rev-parse HEAD")
+    return f"bash -lc {shlex.quote('; '.join(script_parts))}"
+
+
+def _tool_shim_extract_git_head_hash(output_text: str) -> str:
+    lines = [line.strip() for line in str(output_text or "").splitlines() if line.strip()]
+    for line in reversed(lines):
+        if re.fullmatch(r"[0-9a-f]{40}", line):
+            return line
+    return ""
+
+
+def _tool_shim_direct_staged_git_commit_push_final_text(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_staged_commands(latest_user_text)
+    git_workflow_command = _tool_shim_build_staged_git_commit_push_command(commands)
+    if not git_workflow_command:
+        return None
+    executed_commands = set(_tool_shim_exec_command_history(history_items))
+    if git_workflow_command not in executed_commands:
+        return None
+    head_hash = _tool_shim_extract_git_head_hash(_tool_shim_latest_function_output(history_items))
+    if not head_hash:
+        return None
+    return f"Pushed commit {head_hash}"
+
+
+def _tool_shim_direct_file_read_command(path_text: str, *, prefer_cat: bool = False) -> str:
+    quoted_path = shlex.quote(path_text)
+    if prefer_cat or path_text.lower().endswith(".json"):
+        return f"cat {quoted_path}"
+    return f"sed -n '1,220p' {quoted_path}"
+
+
+def _tool_shim_resolve_equivalent_shard_runtime_path(path_text: str) -> str:
+    normalized = str(path_text or "").strip()
+    if not normalized:
+        return normalized
+    candidates = [normalized]
+    replacements = (
+        (
+            "/docker/fleet/state/chummer_design_supervisor/",
+            "/var/lib/codex-fleet/chummer_design_supervisor/",
+        ),
+        (
+            "/var/lib/codex-fleet/chummer_design_supervisor/",
+            "/docker/fleet/state/chummer_design_supervisor/",
+        ),
+    )
+    for source_prefix, target_prefix in replacements:
+        if normalized.startswith(source_prefix):
+            candidates.append(normalized.replace(source_prefix, target_prefix, 1))
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return normalized
+
+
+def _tool_shim_normalize_equivalent_command_paths(command: str) -> str:
+    normalized = str(command or "")
+    replacements = (
+        (
+            "/docker/fleet/state/chummer_design_supervisor/",
+            "/__fleet_shard_runtime__/chummer_design_supervisor/",
+        ),
+        (
+            "/var/lib/codex-fleet/chummer_design_supervisor/",
+            "/__fleet_shard_runtime__/chummer_design_supervisor/",
+        ),
+    )
+    for source_prefix, target_prefix in replacements:
+        normalized = normalized.replace(source_prefix, target_prefix)
+    return normalized
+
+
+def _tool_shim_looks_like_shell_command(candidate: str) -> bool:
+    stripped = str(candidate or "").strip()
+    if not stripped:
+        return False
+    command_word = stripped.split(None, 1)[0]
+    normalized = command_word.strip().lower()
+    if not normalized:
+        return False
+    if normalized.startswith(("/", "./", "../")):
+        return True
+    return normalized in {
+        "sed",
+        "rg",
+        "cat",
+        "python",
+        "python3",
+        "bash",
+        "sh",
+        "jq",
+        "find",
+        "ls",
+        "git",
+        "docker",
+        "pytest",
+        "grep",
+        "head",
+        "tail",
+        "wc",
+        "perl",
+    }
+
+
+def _tool_shim_exec_command_history(history_items: list[dict[str, object]]) -> list[str]:
+    executed_commands: list[str] = []
+    for item in history_items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("type") or "").strip().lower() != "function_call":
+            continue
+        if str(item.get("name") or "").strip() != "exec_command":
+            continue
+        arguments = item.get("arguments")
+        parsed_arguments = arguments
+        if isinstance(arguments, str):
+            try:
+                parsed_arguments = json.loads(arguments)
+            except Exception:
+                parsed_arguments = None
+        if not isinstance(parsed_arguments, dict):
+            continue
+        command = str(parsed_arguments.get("cmd") or "").strip()
+        if command:
+            executed_commands.append(command)
+    return executed_commands
+
+
+def _tool_shim_exec_command_identity_history(history_items: list[dict[str, object]]) -> list[str]:
+    identities: list[str] = []
+    for command in _tool_shim_exec_command_history(history_items):
+        raw_command = str(command or "").strip()
+        if not raw_command:
+            continue
+        parts = [raw_command]
+        if " ; " in raw_command:
+            parts.extend(part.strip() for part in raw_command.split(" ; ") if part.strip())
+        for part in parts:
+            identity = _tool_shim_command_identity(part)
+            if identity:
+                identities.append(identity)
+    return identities
+
+
+def _tool_shim_command_identity_sequence(command: str) -> list[str]:
+    raw_command = str(command or "").strip()
+    if not raw_command:
+        return []
+    parts = [raw_command]
+    if " ; " in raw_command:
+        split_parts = [part.strip() for part in raw_command.split(" ; ") if part.strip()]
+        if len(split_parts) > 1:
+            parts = split_parts
+    identities: list[str] = []
+    for part in parts:
+        identity = _tool_shim_command_identity(part)
+        if identity:
+            identities.append(identity)
+    return identities
+
+
+def _tool_shim_exec_command_expanded_sequence(history_items: list[dict[str, object]]) -> list[str]:
+    sequence: list[str] = []
+    for command in _tool_shim_exec_command_history(history_items):
+        sequence.extend(_tool_shim_command_identity_sequence(command))
+    return sequence
+
+
+def _tool_shim_exec_command_output_history(history_items: list[dict[str, object]]) -> list[dict[str, str]]:
+    call_commands: dict[str, str] = {}
+    output_history: list[dict[str, str]] = []
+    for item in history_items:
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type == "function_call":
+            if str(item.get("name") or "").strip() != "exec_command":
+                continue
+            call_id = str(item.get("call_id") or "").strip()
+            if not call_id:
+                continue
+            arguments = item.get("arguments")
+            parsed_arguments = arguments
+            if isinstance(arguments, str):
+                try:
+                    parsed_arguments = json.loads(arguments)
+                except Exception:
+                    parsed_arguments = None
+            if not isinstance(parsed_arguments, dict):
+                continue
+            command = str(parsed_arguments.get("cmd") or "").strip()
+            if command:
+                call_commands[call_id] = command
+            continue
+        if item_type != "function_call_output":
+            continue
+        call_id = str(item.get("call_id") or "").strip()
+        output_text = _tool_shim_unwrap_tool_output_envelope(_extract_textish(item.get("output")))
+        if not output_text:
+            continue
+        output_history.append(
+            {
+                "call_id": call_id,
+                "cmd": str(call_commands.get(call_id) or "").strip(),
+                "output": output_text,
+            }
+        )
+    return output_history
+
+
+def _tool_shim_latest_exec_json_output(history_items: list[dict[str, object]]) -> dict[str, object] | None:
+    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
+        payload = _extract_json_object(str(record.get("output") or "").strip())
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _tool_shim_build_readiness_materialize_command(summary: dict[str, object]) -> str | None:
+    materialize_ready = summary.get("materialize_ready")
+    if materialize_ready is not True:
+        return None
+    tmp_bundle_dir = str(summary.get("tmp_bundle_dir") or "").strip()
+    published_trace_path = str(summary.get("published_trace_path") or "").strip()
+    published_screenshot_dir = str(summary.get("published_screenshot_dir") or "").strip()
+    published_audit_path = str(summary.get("published_audit_path") or "").strip()
+    if not tmp_bundle_dir or not published_trace_path or not published_screenshot_dir or not published_audit_path:
+        return None
+    try:
+        repo_root = str(Path(published_trace_path).resolve().parents[2])
+    except Exception:
+        return None
+    audit_summary_script = (
+        "import json; from pathlib import Path; "
+        f"path=Path({published_audit_path!r}); "
+        "data=json.loads(path.read_text(encoding='utf-8', errors='replace')) if path.is_file() else {}; "
+        "payload={'status':data.get('status'),'reasons':data.get('reasons'),"
+        "'trace_path':(data.get('evidence') or {}).get('trace_path'),"
+        "'tester_shard_id':(data.get('evidence') or {}).get('tester_shard_id'),"
+        "'fix_shard_id':(data.get('evidence') or {}).get('fix_shard_id'),"
+        "'used_internal_apis':data.get('used_internal_apis'),"
+        "'linux_binary_under_test':data.get('linux_binary_under_test')}; "
+        "print(json.dumps(payload, ensure_ascii=True, separators=(',',':')))"
+    )
+    shell_script = (
+        "set -euo pipefail; "
+        f"repo={shlex.quote(repo_root)}; "
+        f"bundle={shlex.quote(tmp_bundle_dir)}; "
+        f"trace={shlex.quote(published_trace_path)}; "
+        f"screens={shlex.quote(published_screenshot_dir)}; "
+        "mkdir -p \"$screens\"; "
+        "cp \"$bundle/trace.json\" \"$trace\"; "
+        "cp \"$bundle\"/screens/*.png \"$screens\"/; "
+        "cd \"$repo\"; "
+        "bash scripts/ai/milestones/user-journey-tester-audit.sh; "
+        f"python3 -c {shlex.quote(audit_summary_script)}"
+    )
+    return f"bash -lc {shlex.quote(shell_script)}"
+
+
+def _tool_shim_direct_staged_first_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_staged_commands(latest_user_text)
+    if not commands:
+        return None
+    operator_unblock_context = _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    )
+    readiness_remedy_context = _tool_shim_is_operator_readiness_remedy_prompt(latest_user_text)
+    executed_commands = set(_tool_shim_exec_command_identity_history(history_items))
+    git_workflow_command = _tool_shim_build_staged_git_commit_push_command(commands)
+    if git_workflow_command and _tool_shim_command_identity(git_workflow_command) not in executed_commands:
+        return git_workflow_command
+    if (
+        readiness_remedy_context
+        and len(commands) >= 2
+        and not executed_commands
+    ):
+        return " ; ".join(
+            _tool_shim_rewrite_operator_unblock_command(command)
+            for command in commands
+        )
+    if (
+        not operator_unblock_context
+        and len(commands) >= 2
+        and "TASK_LOCAL_TELEMETRY.generated.json" in commands[0]
+    ):
+        first_command = _tool_shim_rewrite_operator_unblock_command(commands[0])
+        second_command = _tool_shim_rewrite_operator_unblock_command(commands[1])
+        if (
+            _tool_shim_command_identity(first_command) not in executed_commands
+            and _tool_shim_is_safe_worker_followup_command(second_command)
+        ):
+            return f"{first_command} ; {second_command}"
+    for command in commands:
+        rewritten_command = _tool_shim_rewrite_operator_unblock_command(command)
+        if _tool_shim_command_identity(rewritten_command) not in executed_commands:
+            return rewritten_command
+    return None
+
+
+def _tool_shim_direct_post_staged_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_staged_commands(latest_user_text)
+    if not commands:
+        return None
+    rewritten_commands = [_tool_shim_rewrite_operator_unblock_command(command) for command in commands]
+    executed_commands = _tool_shim_exec_command_expanded_sequence(history_items)
+    expected_commands: list[str] = []
+    for command in rewritten_commands:
+        expected_commands.extend(_tool_shim_command_identity_sequence(command))
+    if len(executed_commands) != len(expected_commands):
+        return None
+    if any(
+        executed != _tool_shim_command_identity(expected)
+        for executed, expected in zip(executed_commands, expected_commands)
+    ):
+        return None
+    return _tool_shim_build_staged_repo_diff_command(commands)
+
+
+def _tool_shim_direct_post_staged_repo_hunks_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_staged_commands(latest_user_text)
+    if not commands:
+        return None
+    repo_diff_command = _tool_shim_build_staged_repo_diff_command(commands)
+    repo_hunks_command = _tool_shim_build_staged_repo_hunks_command(commands)
+    if not repo_diff_command or not repo_hunks_command:
+        return None
+    executed_commands = set(_tool_shim_exec_command_identity_history(history_items))
+    if _tool_shim_command_identity(repo_diff_command) not in executed_commands:
+        return None
+    if _tool_shim_command_identity(repo_hunks_command) in executed_commands:
+        return None
+    return repo_hunks_command
+
+
+def _tool_shim_direct_post_readiness_materialize_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_operator_readiness_remedy_prompt(latest_user_text):
+        return None
+    summary = _tool_shim_latest_exec_json_output(history_items)
+    if not isinstance(summary, dict):
+        return None
+    command = _tool_shim_build_readiness_materialize_command(summary)
+    if not command:
+        return None
+    executed_commands = set(_tool_shim_exec_command_history(history_items))
+    if command in executed_commands:
+        return None
+    return command
+
+
+def _tool_shim_collect_staged_commands(text: str) -> list[str]:
+    prompt = str(text or "")
+    if not prompt:
+        return []
+    staged_commands: list[str] = []
+    stage_markers = (
+        "Run these exact commands first:",
+        "Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:",
+        "Read these files directly first:",
+    )
+    for marker in stage_markers:
+        marker_index = prompt.find(marker)
+        if marker_index < 0:
+            continue
+        commands = _tool_shim_staged_commands(prompt[marker_index:])
+        for command in commands:
+            if command and command not in staged_commands:
+                staged_commands.append(command)
+    return staged_commands
+
+
+def _tool_shim_build_repo_diff_command_for_paths(raw_paths: list[str]) -> str | None:
+    if not raw_paths:
+        return None
+
+    def _repo_root_for_path(path: Path) -> Path | None:
+        current = path.parent if path.is_file() else path
+        for candidate in (current, *current.parents):
+            git_marker = candidate / ".git"
+            if git_marker.exists():
+                return candidate
+        return None
+
+    path_groups: dict[str, list[str]] = {}
+    seen_paths: set[str] = set()
+    for raw_path in raw_paths:
+        normalized_path = _tool_shim_resolve_equivalent_shard_runtime_path(str(raw_path or "").strip())
+        if not normalized_path or normalized_path in seen_paths:
+            continue
+        path = Path(normalized_path)
+        if not path.exists() or not path.is_file():
+            continue
+        repo_root_path = _repo_root_for_path(path)
+        if repo_root_path is None:
+            continue
+        repo_root = str(repo_root_path)
+        if not repo_root:
+            continue
+        try:
+            rel_path = str(path.relative_to(repo_root_path))
+        except Exception:
+            continue
+        path_groups.setdefault(repo_root, []).append(rel_path)
+        seen_paths.add(normalized_path)
+    parts: list[str] = []
+    for repo_root, rel_paths in path_groups.items():
+        deduped_rel_paths = list(dict.fromkeys(rel_paths))
+        if not deduped_rel_paths:
+            continue
+        quoted_root = shlex.quote(repo_root)
+        quoted_paths = " ".join(shlex.quote(item) for item in deduped_rel_paths)
+        parts.append(f"git -C {quoted_root} status --short -- {quoted_paths}")
+        parts.append(f"git -C {quoted_root} diff --stat -- {quoted_paths}")
+    if not parts:
+        return None
+    return " ; ".join(parts)
+
+
+def _tool_shim_build_staged_repo_diff_command(commands: list[str]) -> str | None:
+    if not commands:
+        return None
+    extracted_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for command in commands:
+        for match in re.findall(r"(/[A-Za-z0-9._/\-]+)", str(command or "")):
+            raw_path = str(match or "").strip()
+            if not raw_path or raw_path in seen_paths:
+                continue
+            extracted_paths.append(raw_path)
+            seen_paths.add(raw_path)
+    return _tool_shim_build_repo_diff_command_for_paths(extracted_paths)
+
+
+def _tool_shim_build_staged_repo_hunks_command(commands: list[str]) -> str | None:
+    if not commands:
+        return None
+    extracted_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for command in commands:
+        for match in re.findall(r"(/[A-Za-z0-9._/\-]+)", str(command or "")):
+            raw_path = str(match or "").strip()
+            if not raw_path or raw_path in seen_paths:
+                continue
+            extracted_paths.append(raw_path)
+            seen_paths.add(raw_path)
+    return _tool_shim_build_repo_hunks_command_for_paths(extracted_paths)
+
+
+def _tool_shim_build_repo_hunks_command_for_paths(raw_paths: list[str]) -> str | None:
+    if not raw_paths:
+        return None
+
+    def _repo_root_for_path(path: Path) -> Path | None:
+        current = path.parent if path.is_file() else path
+        for candidate in (current, *current.parents):
+            git_marker = candidate / ".git"
+            if git_marker.exists():
+                return candidate
+        return None
+
+    path_groups: dict[str, list[str]] = {}
+    seen_paths: set[str] = set()
+    for raw_path in raw_paths:
+        normalized_path = _tool_shim_resolve_equivalent_shard_runtime_path(str(raw_path or "").strip())
+        if not normalized_path or normalized_path in seen_paths:
+            continue
+        path = Path(normalized_path)
+        if not path.exists() or not path.is_file():
+            continue
+        repo_root_path = _repo_root_for_path(path)
+        if repo_root_path is None:
+            continue
+        try:
+            rel_path = str(path.relative_to(repo_root_path))
+        except Exception:
+            continue
+        path_groups.setdefault(str(repo_root_path), []).append(rel_path)
+        seen_paths.add(normalized_path)
+    parts: list[str] = []
+    for repo_root, rel_paths in path_groups.items():
+        deduped_rel_paths = list(dict.fromkeys(rel_paths))
+        if not deduped_rel_paths:
+            continue
+        quoted_root = shlex.quote(repo_root)
+        quoted_paths = " ".join(shlex.quote(item) for item in deduped_rel_paths)
+        parts.append(f"git -C {quoted_root} diff --unified=0 -- {quoted_paths} | sed -n '1,200p'")
+    if not parts:
+        return None
+    return " ; ".join(parts)
+
+
+def _tool_shim_operator_unblock_repo_diff_command() -> str | None:
+    return _tool_shim_build_repo_diff_command_for_paths(
+        [
+            "/docker/fleet/scripts/codex-shims/codexea",
+            "/docker/fleet/scripts/codex-shims/python3",
+            "/docker/EA/ea/app/api/routes/responses.py",
+            "/docker/EA/ea/app/services/onemin_manager.py",
+            "/docker/EA/ea/app/services/responses_upstream.py",
+        ]
+    )
+
+
+def _tool_shim_operator_unblock_repo_hunks_command() -> str | None:
+    return _tool_shim_build_repo_hunks_command_for_paths(
+        [
+            "/docker/fleet/scripts/codex-shims/codexea",
+            "/docker/fleet/scripts/codex-shims/python3",
+            "/docker/EA/ea/app/api/routes/responses.py",
+            "/docker/EA/ea/app/services/onemin_manager.py",
+            "/docker/EA/ea/app/services/responses_upstream.py",
+        ]
+    )
+
+
+def _tool_shim_operator_unblock_verify_command() -> str:
+    return (
+        "PYTHONPATH=/docker/EA/ea pytest -q /docker/EA/tests/test_responses_api_contracts.py "
+        "-k "
+        + shlex.quote(
+            "direct_operator_unblock_hotspot or "
+            "direct_nested_staged or "
+            "direct_nested_telemetry or "
+            "operator_unblock_scope or "
+            "tool_shim_messages_compact_operator_unblock_prompt_omits_system_history or "
+            "blocks_operator_unblock_ea_task_docs or "
+            "blocks_operator_unblock_git_diff_on_ea_task_docs or "
+            "prefers_nested_shard_telemetry or "
+            "refreshes_live_shard_artifacts_over_prompt_snapshot or "
+            "prefers_operator_repo_diff_followup_over_prompt_hotspot_after_shard_telemetry or "
+            "prefers_operator_repo_hunks_after_repo_diff_followup or "
+            "compact_worker_telemetry_command_keeps_fleet_paths_even_if_they_appear_late"
+        )
+    )
+
+
+def _tool_shim_direct_compact_provider_health_command(path_text: str) -> str:
+    script = "\n".join(
+        [
+            "from pathlib import Path",
+            "import json",
+            "import sys",
+            "",
+            "def _to_float(value):",
+            "    try:",
+            "        return float(value)",
+            "    except Exception:",
+            "        return None",
+            "",
+            "payload = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace'))",
+            "root = (payload.get('payload') or payload) if isinstance(payload, dict) else {}",
+            "providers = (root.get('providers') or {}) if isinstance(root, dict) else {}",
+            "onemin = (providers.get('onemin') or {}) if isinstance(providers, dict) else {}",
+            "slots = [slot for slot in (onemin.get('slots') or []) if isinstance(slot, dict)]",
+            "counts = {}",
+            "for slot in slots:",
+            "    state = str(slot.get('state') or 'unknown').strip() or 'unknown'",
+            "    counts[state] = counts.get(state, 0) + 1",
+            "blocked = []",
+            "for slot in slots:",
+            "    state = str(slot.get('state') or 'unknown').strip() or 'unknown'",
+            "    if state not in {'quarantine', 'degraded', 'unavailable'}:",
+            "        continue",
+            "    blocked.append({",
+            "        'account_name': str(slot.get('account_name') or ''),",
+            "        'slot_env_name': str(slot.get('slot_env_name') or ''),",
+            "        'state': state,",
+            "        'remaining_credits': slot.get('remaining_credits'),",
+            "        'required_credits': slot.get('required_credits'),",
+            "        'last_probe_result': str(slot.get('last_probe_result') or ''),",
+            "        'last_probe_detail': str(slot.get('last_probe_detail') or ''),",
+            "    })",
+            "blocked = blocked[:8]",
+            "billing_live_mismatch_slots = []",
+            "for slot in slots:",
+            "    billing = slot.get('billing_remaining_credits')",
+            "    live = slot.get('remaining_credits')",
+            "    required = slot.get('required_credits')",
+            "    if billing is None or live is None or required is None:",
+            "        continue",
+            "    billing_value = _to_float(billing)",
+            "    live_value = _to_float(live)",
+            "    required_value = _to_float(required)",
+            "    if billing_value is None or live_value is None or required_value is None:",
+            "        continue",
+            "    if billing_value < 10000 or required_value <= live_value:",
+            "        continue",
+            "    billing_live_mismatch_slots.append({",
+            "        'account_name': str(slot.get('account_name') or ''),",
+            "        'slot_env_name': str(slot.get('slot_env_name') or ''),",
+            "        'state': str(slot.get('state') or ''),",
+            "        'billing_remaining_credits': billing,",
+            "        'remaining_credits': live,",
+            "        'required_credits': required,",
+            "        'estimated_credit_basis': str(slot.get('estimated_credit_basis') or ''),",
+            "        'last_probe_result': str(slot.get('last_probe_result') or ''),",
+            "        'last_billing_snapshot_at': str(slot.get('last_billing_snapshot_at') or ''),",
+            "        'last_success_at': slot.get('last_success_at'),",
+            "        'upstream_reset_unknown': bool(slot.get('upstream_reset_unknown')),",
+            "    })",
+            "billing_live_mismatch_slots = sorted(",
+            "    billing_live_mismatch_slots,",
+            "    key=lambda item: (-(_to_float(item.get('billing_remaining_credits')) or 0.0), str(item.get('slot_env_name') or '')),",
+            ")[:8]",
+            "out = {",
+            "    'fetched_at': root.get('fetched_at') or payload.get('cached_at') or '',",
+            "    'source_url': payload.get('source_url') or '',",
+            "    'configured_slots': onemin.get('configured_slots'),",
+            "    'ready_slots': counts.get('ready', 0),",
+            "    'degraded_slots': counts.get('degraded', 0),",
+            "    'quarantine_slots': counts.get('quarantine', 0),",
+            "    'unavailable_slots': counts.get('unavailable', 0),",
+            "    'unknown_slots': counts.get('unknown', 0),",
+            "    'balance_basis_summary': onemin.get('balance_basis_summary'),",
+            "    'last_actual_balance_at': onemin.get('last_actual_balance_at'),",
+            "    'max_credits_total': onemin.get('max_credits_total'),",
+            "    'remaining_percent_of_max': onemin.get('remaining_percent_of_max'),",
+            "    'estimated_remaining_credits_total': onemin.get('estimated_remaining_credits_total'),",
+            "    'reason': str(onemin.get('reason') or ''),",
+            "    'blocked_slots': blocked,",
+            "    'billing_live_mismatch_slots': billing_live_mismatch_slots,",
+            "}",
+            "print(json.dumps(out, ensure_ascii=True, separators=(',', ':')))",
+        ]
+    )
+    return f"python3 -c {shlex.quote(script)} {shlex.quote(path_text)}"
+
+
+def _tool_shim_operator_unblock_provider_health_command() -> str:
+    return _tool_shim_direct_compact_provider_health_command(
+        "/docker/fleet/state/chummer_design_supervisor/ea_provider_health_cache.json"
+    )
+
+
+def _tool_shim_operator_unblock_live_routing_hotspots_command() -> str:
+    return (
+        "sed -n '293,355p;680,780p' /docker/EA/ea/app/services/onemin_manager.py"
+        " ; "
+        "sed -n '2004,2048p;2816,2898p;2935,2978p;5541,5658p' /docker/EA/ea/app/services/responses_upstream.py"
+    )
+
+
+def _tool_shim_telemetry_followup_commands(
+    *,
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+    payload: dict[str, object],
+) -> list[str]:
+    commands: list[str] = []
+    operator_unblock_context = _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    )
+    allowed_operator_followup_paths = {
+        "/docker/fleet/WORKLIST.md",
+        "/docker/fleet/README.md",
+    }
+
+    def _append_command(candidate: str) -> None:
+        normalized = str(candidate or "").strip()
+        if not normalized or normalized in commands:
+            return
+        if not _tool_shim_looks_like_shell_command(normalized):
+            return
+        if (
+            _tool_shim_operator_unblock_scope_rejection_reason(
+                latest_user_text=latest_user_text,
+                cmd=normalized,
+                history_items=history_items,
+            )
+            is not None
+        ):
+            return
+        commands.append(normalized)
+
+    operator_repo_diff_command = None
+    if operator_unblock_context:
+        operator_repo_diff_command = _tool_shim_operator_unblock_repo_diff_command()
+    if operator_repo_diff_command:
+        _append_command(operator_repo_diff_command)
+        return commands
+
+    raw_first_commands = payload.get("first_commands")
+    if isinstance(raw_first_commands, list):
+        for raw_command in raw_first_commands:
+            rewritten_command = _tool_shim_rewrite_operator_unblock_command(str(raw_command or "").strip())
+            if not _tool_shim_is_safe_worker_followup_command(rewritten_command):
+                continue
+            if rewritten_command not in commands:
+                commands.append(rewritten_command)
+    if commands:
+        return commands
+
+    raw_source_paths = payload.get("source_paths")
+    if isinstance(raw_source_paths, list):
+        for raw_path in raw_source_paths:
+            path_text = _tool_shim_resolve_equivalent_shard_runtime_path(str(raw_path or "").strip())
+            if not path_text.startswith("/") or "..." in path_text:
+                continue
+            if operator_unblock_context and path_text not in allowed_operator_followup_paths:
+                continue
+            if not os.path.exists(path_text) or not os.path.isfile(path_text):
+                continue
+            candidate_command = _tool_shim_direct_file_read_command(
+                path_text,
+                prefer_cat=path_text.lower().endswith(".json"),
+            )
+            if operator_unblock_context:
+                _append_command(candidate_command)
+                continue
+            if _tool_shim_is_safe_worker_followup_command(candidate_command) and candidate_command not in commands:
+                commands.append(candidate_command)
+
+    return commands
+
+
+def _tool_shim_recent_nested_telemetry_commands(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> list[str]:
+    if not _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    ) and not _tool_shim_history_has_fleet_shard_runtime_context(history_items):
+        return []
+    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
+        command = str(record.get("cmd") or "").strip()
+        output_text = str(record.get("output") or "").strip()
+        if (
+            "TASK_LOCAL_TELEMETRY.generated.json" not in command
+            and "\"first_commands\"" not in output_text
+            and "\"source_paths\"" not in output_text
+        ):
+            continue
+        payload = _extract_json_object(output_text)
+        if not isinstance(payload, dict):
+            continue
+        commands = _tool_shim_telemetry_followup_commands(
+            latest_user_text=latest_user_text,
+            history_items=history_items,
+            payload=payload,
+        )
+        if commands:
+            return commands
+    return []
+
+
+def _tool_shim_direct_nested_telemetry_first_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_recent_nested_telemetry_commands(latest_user_text, history_items)
+    if not commands:
+        return None
+    executed_commands = {_tool_shim_command_identity(command) for command in _tool_shim_exec_command_history(history_items)}
+    for command in commands:
+        if _tool_shim_command_identity(command) not in executed_commands:
+            return command
+    return None
+
+
+def _tool_shim_direct_operator_unblock_post_repo_diff_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items):
+        return None
+    repo_diff_command = _tool_shim_operator_unblock_repo_diff_command()
+    repo_hunks_command = _tool_shim_operator_unblock_repo_hunks_command()
+    if not repo_diff_command or not repo_hunks_command:
+        return None
+    executed_commands = set(_tool_shim_exec_command_history(history_items))
+    if repo_diff_command not in executed_commands:
+        return None
+    if repo_hunks_command in executed_commands:
+        return None
+    return repo_hunks_command
+
+
+def _tool_shim_direct_operator_unblock_post_repo_hunks_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items):
+        return None
+    repo_hunks_command = _tool_shim_operator_unblock_repo_hunks_command()
+    if not repo_hunks_command:
+        return None
+    executed_commands = set(_tool_shim_exec_command_history(history_items))
+    if repo_hunks_command not in executed_commands:
+        return None
+    verify_command = _tool_shim_operator_unblock_verify_command()
+    if verify_command in executed_commands:
+        return None
+    return verify_command
+
+
+def _tool_shim_direct_operator_unblock_post_verify_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items):
+        return None
+    verify_command = _tool_shim_operator_unblock_verify_command()
+    provider_health_command = _tool_shim_operator_unblock_provider_health_command()
+    executed_commands = set(_tool_shim_exec_command_history(history_items))
+    if verify_command not in executed_commands:
+        return None
+    if provider_health_command in executed_commands:
+        return None
+    return provider_health_command
+
+
+def _tool_shim_direct_operator_unblock_post_provider_health_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items):
+        return None
+    provider_health_command = _tool_shim_operator_unblock_provider_health_command()
+    hotspots_command = _tool_shim_operator_unblock_live_routing_hotspots_command()
+    executed_commands = set(_tool_shim_exec_command_history(history_items))
+    if provider_health_command not in executed_commands:
+        return None
+    if hotspots_command in executed_commands:
+        return None
+    return hotspots_command
+
+
+def _tool_shim_direct_compact_worker_stderr_command(path_text: str) -> str:
+    script = (
+        "from pathlib import Path; import sys; "
+        "lines=Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace').splitlines(); "
+        "out=[]; "
+        "blocker='provider-health preflight left no routable direct lanes'; "
+        "stage='Safe first commands if you need orientation'; "
+        "idx=next((i for i,l in enumerate(lines) if blocker in l), None); "
+        "out.extend(lines[max(0, idx-2):min(len(lines), idx+3)] if idx is not None else []); "
+        "idx=next((i for i,l in enumerate(lines) if stage in l), None); "
+        "out.extend(([''] if out and idx is not None else []) + lines[idx:min(len(lines), idx+20)] if idx is not None else []); "
+        "print('\\n'.join(out).strip())"
+    )
+    return f"python3 -c {shlex.quote(script)} {shlex.quote(path_text)}"
+
+
+def _tool_shim_direct_compact_worker_telemetry_command(path_text: str) -> str:
+    script = (
+        "from pathlib import Path; import json, sys; "
+        "payload=json.loads(Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace')); "
+        "preferred={'/docker/fleet/WORKLIST.md','/docker/fleet/README.md'}; "
+        "all_source_paths=[str(item).strip() for item in (payload.get('source_paths') or []) if str(item).strip()]; "
+        "ordered_source_paths=([item for item in all_source_paths if item in preferred] + "
+        "[item for item in all_source_paths if item not in preferred]); "
+        "source_paths=list(dict.fromkeys(ordered_source_paths))[:12]; "
+        "first_commands=[str(item).strip() for item in (payload.get('first_commands') or []) if str(item).strip()][:6]; "
+        "eta=payload.get('eta') or {}; "
+        "out={"
+        "'summary': payload.get('summary') or payload.get('guidance') or '',"
+        "'eta_human': payload.get('eta_human') or eta.get('eta_human') or '',"
+        "'mode': payload.get('mode') or '',"
+        "'first_commands': first_commands,"
+        "'source_paths': source_paths,"
+        "'runtime_handoff_path': payload.get('runtime_handoff_path') or '',"
+        "'frontier_artifact_path': payload.get('frontier_artifact_path') or '',"
+        "}; "
+        "print(json.dumps(out, ensure_ascii=True, separators=(',',':')))"
+    )
+    return f"python3 -c {shlex.quote(script)} {shlex.quote(path_text)}"
+
+
+def _tool_shim_rewrite_operator_unblock_command(command: str) -> str:
+    raw_command = str(command or "").strip()
+    if not raw_command or "TASK_LOCAL_TELEMETRY.generated.json" not in raw_command:
+        return raw_command
+    match = re.search(
+        r"((?:/docker/fleet/state|/var/lib/codex-fleet)/chummer_design_supervisor/shard-[^ \t\n'\"`]+/TASK_LOCAL_TELEMETRY\.generated\.json)",
+        raw_command,
+    )
+    if not match:
+        return raw_command
+    resolved_path = _tool_shim_resolve_equivalent_shard_runtime_path(str(match.group(1) or "").strip())
+    rewritten = _tool_shim_direct_compact_worker_telemetry_command(resolved_path)
+    suffix = raw_command[match.end() :]
+    if suffix:
+        return f"{rewritten}{suffix}"
+    return rewritten
+
+
+def _tool_shim_command_targets_fleet_shard_runtime(command_text: str) -> bool:
+    normalized_command = _tool_shim_normalize_equivalent_command_paths(command_text)
+    if "/__fleet_shard_runtime__/chummer_design_supervisor/" not in normalized_command:
+        return False
+    return any(
+        marker in normalized_command
+        for marker in (
+            "TASK_LOCAL_TELEMETRY.generated.json",
+            "WORKER_EXEC_TRACE_PROMPT.md",
+            "worker.stderr.log",
+            "ACTIVE_RUN_HANDOFF.generated.md",
+        )
+    )
+
+
+def _tool_shim_history_has_fleet_shard_runtime_context(history_items: list[dict[str, object]]) -> bool:
+    return any(
+        _tool_shim_command_targets_fleet_shard_runtime(command)
+        for command in _tool_shim_exec_command_history(history_items)
+    )
+
+
+def _tool_shim_is_safe_worker_followup_command(command: str) -> bool:
+    normalized = str(command or "").strip()
+    if not _tool_shim_looks_like_shell_command(normalized):
+        return False
+    command_word = normalized.split(None, 1)[0].strip().lower()
+    if command_word not in {"cat", "sed", "rg", "grep", "find", "ls", "head", "tail", "wc"}:
+        return False
+    abs_paths = re.findall(r"(/(?:docker|var)/[^ \t\n'\"`|;]+)", normalized)
+    if not abs_paths:
+        return False
+    return all(path.startswith(("/docker/", "/var/")) for path in abs_paths)
+
+
+def _tool_shim_command_identity(command: str) -> str:
+    normalized = _tool_shim_normalize_equivalent_command_paths(str(command or "").strip())
+    if "TASK_LOCAL_TELEMETRY.generated.json" not in normalized:
+        return normalized
+    match = re.search(
+        r"((?:/__fleet_shard_runtime__|/docker/fleet/state|/var/lib/codex-fleet)/chummer_design_supervisor/shard-[^ \t\n'\"`]+/TASK_LOCAL_TELEMETRY\.generated\.json)",
+        normalized,
+    )
+    if match:
+        return f"task_local_telemetry:{match.group(1)}"
+    return normalized
+
+
+def _tool_shim_recent_nested_staged_commands(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> list[str]:
+    operator_unblock_context = _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    )
+    if not operator_unblock_context and not _tool_shim_history_has_fleet_shard_runtime_context(
+        history_items
+    ):
+        return []
+
+    stage_markers = (
+        "Run these exact commands first:",
+        "Safe first commands if you need orientation",
+        "Read these files directly first:",
+    )
+    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
+        command = str(record.get("cmd") or "").strip()
+        if not _tool_shim_command_targets_fleet_shard_runtime(command):
+            continue
+        output_text = str(record.get("output") or "")
+        if not output_text or not any(marker in output_text for marker in stage_markers):
+            continue
+        commands = _tool_shim_collect_staged_commands(output_text)
+        if not commands:
+            continue
+        allowed_commands: list[str] = []
+        for command in commands:
+            rewritten_command = _tool_shim_rewrite_operator_unblock_command(command)
+            if operator_unblock_context and _tool_shim_operator_unblock_scope_rejection_reason(
+                latest_user_text=latest_user_text,
+                cmd=rewritten_command,
+                history_items=history_items,
+            ) is not None:
+                continue
+            if not operator_unblock_context and not _tool_shim_is_safe_worker_followup_command(
+                rewritten_command
+            ) and "TASK_LOCAL_TELEMETRY.generated.json" not in command:
+                continue
+            allowed_commands.append(rewritten_command)
+        if allowed_commands:
+            return allowed_commands
+    return []
+
+
+def _tool_shim_direct_nested_staged_first_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_recent_nested_staged_commands(latest_user_text, history_items)
+    if not commands:
+        return None
+    operator_unblock_context = _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    )
+    executed_commands = {_tool_shim_command_identity(command) for command in _tool_shim_exec_command_history(history_items)}
+    if (
+        not operator_unblock_context
+        and len(commands) >= 2
+        and "TASK_LOCAL_TELEMETRY.generated.json" in commands[0]
+    ):
+        first_command = _tool_shim_rewrite_operator_unblock_command(commands[0])
+        second_command = _tool_shim_rewrite_operator_unblock_command(commands[1])
+        if (
+            _tool_shim_command_identity(first_command) not in executed_commands
+            and _tool_shim_is_safe_worker_followup_command(second_command)
+        ):
+            return f"{first_command} ; {second_command}"
+    for command in commands:
+        if _tool_shim_command_identity(command) not in executed_commands:
+            return _tool_shim_rewrite_operator_unblock_command(command)
+    return None
+
+
+def _tool_shim_direct_nested_post_staged_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    commands = _tool_shim_recent_nested_staged_commands(latest_user_text, history_items)
+    if not commands:
+        return None
+    executed_commands = [_tool_shim_command_identity(command) for command in _tool_shim_exec_command_history(history_items)]
+    command_positions = {command: index for index, command in enumerate(executed_commands)}
+    ordered_positions: list[int] = []
+    for command in commands:
+        position = command_positions.get(_tool_shim_command_identity(command))
+        if position is None:
+            return None
+        ordered_positions.append(position)
+    if any(current >= following for current, following in zip(ordered_positions, ordered_positions[1:])):
+        return None
+    return _tool_shim_build_staged_repo_diff_command(commands)
+
+
+def _tool_shim_latest_operator_unblock_live_shard_artifacts() -> list[tuple[str, str]]:
+    state_root = Path("/docker/fleet/state/chummer_design_supervisor")
+    if not state_root.exists():
+        return []
+    latest_run_dir: Path | None = None
+    latest_mtime = -1.0
+    try:
+        for candidate in state_root.glob("shard-*/runs/*/worker.stderr.log"):
+            if not candidate.is_file():
+                continue
+            try:
+                mtime = float(candidate.stat().st_mtime)
+            except Exception:
+                continue
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_run_dir = candidate.parent
+    except Exception:
+        return []
+    if latest_run_dir is None:
+        return []
+    artifacts: list[tuple[str, str]] = []
+    for label, filename in (
+        ("latest_worker_stderr", "worker.stderr.log"),
+        ("latest_worker_telemetry", "TASK_LOCAL_TELEMETRY.generated.json"),
+        ("latest_worker_prompt", "WORKER_EXEC_TRACE_PROMPT.md"),
+    ):
+        candidate = latest_run_dir / filename
+        if candidate.is_file():
+            artifacts.append((label, str(candidate)))
+    return artifacts
+
+
+def _tool_shim_direct_operator_unblock_hotspot_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items):
+        return None
+    executed_commands = {
+        _tool_shim_normalize_equivalent_command_paths(command)
+        for command in _tool_shim_exec_command_history(history_items)
+    }
+    operator_repo_diff_command = _tool_shim_operator_unblock_repo_diff_command()
+    operator_repo_hunks_command = _tool_shim_operator_unblock_repo_hunks_command()
+    operator_verify_command = _tool_shim_operator_unblock_verify_command()
+    allow_live_shard_refresh = not any(
+        command
+        and _tool_shim_normalize_equivalent_command_paths(command) in executed_commands
+        for command in (
+            operator_repo_diff_command,
+            operator_repo_hunks_command,
+            operator_verify_command,
+        )
+    )
+    has_matching_shard_telemetry_read = any(
+        "/__fleet_shard_runtime__/chummer_design_supervisor/" in command
+        and "TASK_LOCAL_TELEMETRY.generated.json" in command
+        for command in executed_commands
+    )
+    legacy_hotspot_commands = (
+        "sed -n '261,351p;676,782p;837,942p' /docker/EA/ea/app/services/onemin_manager.py",
+        "sed -n '1947,2007p;2795,2960p;5541,5713p' /docker/EA/ea/app/services/responses_upstream.py",
+    )
+    hotspot_commands: list[str] = [
+        "sed -n '3920,3955p;4609,4688p;5369,5385p;6455,6465p' /docker/EA/ea/app/api/routes/responses.py",
+        _tool_shim_operator_unblock_live_routing_hotspots_command(),
+    ]
+    normalized_executed_commands = set(executed_commands)
+    if all(
+        _tool_shim_normalize_equivalent_command_paths(command) in normalized_executed_commands
+        for command in legacy_hotspot_commands
+    ):
+        normalized_executed_commands.add(
+            _tool_shim_normalize_equivalent_command_paths(
+                _tool_shim_operator_unblock_live_routing_hotspots_command()
+            )
+        )
+    live_shard_artifact_patterns = (
+        ("latest_worker_stderr", _tool_shim_direct_compact_worker_stderr_command),
+        ("latest_worker_telemetry", _tool_shim_direct_compact_worker_telemetry_command),
+        ("latest_worker_prompt", lambda path_text: f"sed -n '1,220p' {shlex.quote(path_text)}"),
+    )
+    candidate_artifacts: list[tuple[str, str]] = []
+    seen_artifact_paths: set[str] = set()
+    if allow_live_shard_refresh:
+        for label, raw_path in _tool_shim_latest_operator_unblock_live_shard_artifacts():
+            normalized_raw_path = _tool_shim_normalize_equivalent_command_paths(raw_path)
+            if not raw_path or normalized_raw_path in seen_artifact_paths:
+                continue
+            candidate_artifacts.append((label, raw_path))
+            seen_artifact_paths.add(normalized_raw_path)
+        for label, _ in live_shard_artifact_patterns:
+            match = re.search(
+                rf"^[ \t-]*{re.escape(label)}:\s+(/docker/fleet/state/chummer_design_supervisor/shard-[^\s]+)$",
+                latest_user_text,
+                flags=re.MULTILINE,
+            )
+            if not match:
+                continue
+            raw_path = str(match.group(1) or "").strip()
+            normalized_raw_path = _tool_shim_normalize_equivalent_command_paths(raw_path)
+            if (
+                not raw_path
+                or not os.path.exists(raw_path)
+                or normalized_raw_path in seen_artifact_paths
+            ):
+                continue
+            candidate_artifacts.append((label, raw_path))
+            seen_artifact_paths.add(normalized_raw_path)
+    for label, raw_path in candidate_artifacts:
+        command_builder = dict(live_shard_artifact_patterns).get(label)
+        if command_builder is None:
+            continue
+        normalized_raw_path = _tool_shim_normalize_equivalent_command_paths(raw_path)
+        if (
+            label == "latest_worker_prompt"
+            and has_matching_shard_telemetry_read
+        ):
+            continue
+        if (
+            label == "latest_worker_telemetry"
+            and "TASK_LOCAL_TELEMETRY.generated.json" in normalized_raw_path
+            and any(normalized_raw_path in command for command in executed_commands)
+        ):
+            continue
+        hotspot_commands.append(command_builder(raw_path))
+    for command in hotspot_commands:
+        if _tool_shim_normalize_equivalent_command_paths(command) not in normalized_executed_commands:
+            return command
+    return None
+
+
+def _tool_shim_prompt_forbids_local_fleet_telemetry(normalized_text: str) -> bool:
+    normalized = " ".join(str(normalized_text or "").strip().lower().split())
+    if not normalized:
+        return False
+    explicit_status_ban = any(
+        marker in normalized
+        for marker in (
+            "do not query supervisor status",
+            "do not run supervisor status",
+            "never run supervisor status",
+            "do not invoke supervisor status",
+            "do not replace it with supervisor status",
+        )
+    )
+    task_local_context = any(
+        marker in normalized
+        for marker in (
+            "task_local_telemetry.generated.json",
+            "task-local telemetry",
+            "task local telemetry",
+            "active worker run",
+            "inside the worker run",
+            "run these exact commands first",
+        )
+    )
+    return explicit_status_ban and task_local_context
+
+
 def _tool_shim_text_rejection_reason(*, text: str, requires_tool: bool) -> str | None:
     if not requires_tool:
         return None
@@ -3682,14 +6044,16 @@ def _tool_shim_messages(
     has_apply_patch = "apply_patch" in tool_names
     has_exec_command = "exec_command" in tool_names
     latest_user_text = _tool_shim_latest_user_text(history_items)
+    operator_unblock_prompt = _tool_shim_is_operator_fleet_unblock_prompt(latest_user_text)
+    readiness_remedy_prompt = _tool_shim_is_operator_readiness_remedy_prompt(latest_user_text)
+    compact_for_operator = operator_unblock_prompt or readiness_remedy_prompt
     lightweight_ops, _ = _looks_like_lightweight_ops_query(latest_user_text)
     tool_catalog = []
     for tool in tools:
         tool_catalog.append(
             {
                 "name": tool["name"],
-                "description": tool["description"],
-                "parameters": tool["parameters"],
+                "parameters": _tool_shim_tool_parameters_summary(tool["parameters"]),
             }
         )
     transcript_parts = [
@@ -3697,41 +6061,59 @@ def _tool_shim_messages(
         for part in (
             _history_item_to_transcript(
                 item,
-                include_system=not compact_for_audit,
-                compact=compact_for_audit,
+                include_system=not (compact_for_audit or compact_for_operator),
+                compact=True,
             )
             for item in history_items
         )
         if part
     ]
     transcript = "\n\n".join(transcript_parts).strip()
-    if compact_for_audit:
-        transcript = _tool_shim_truncate_text(transcript, limit=_tool_shim_transcript_max_chars())
+    if compact_for_operator and latest_user_text:
+        if operator_unblock_prompt:
+            compacted_prompt = _tool_shim_compact_operator_prompt_for_planner(latest_user_text)
+        else:
+            compacted_prompt = _tool_shim_compact_readiness_prompt_for_planner(latest_user_text)
+        if compacted_prompt and compacted_prompt != latest_user_text and latest_user_text in transcript:
+            transcript = transcript.replace(latest_user_text, compacted_prompt, 1)
+    transcript = _tool_shim_truncate_text(
+        transcript,
+        limit=_tool_shim_transcript_limit_for_prompt(latest_user_text),
+    )
     system_parts = [
-        "You are the planning/model layer behind an OpenAI Responses tool-calling shim used by Codex CLI.",
-        "Decide the single next assistant action and return JSON only.",
-        "Valid JSON responses:",
+        "You are the planning layer behind a Responses tool-calling shim used by Codex CLI.",
+        "Return JSON only and choose the single next assistant action.",
         '{"decision":"final","text":"..."}',
         '{"decision":"function_call","name":"TOOL_NAME","arguments":{...}}',
-        "Rules:",
         "- Use at most one tool call.",
-        "- Prefer a real tool call over describing future intent when inspection or execution is needed.",
-        "- For coding or backlog tasks, inspect files and run commands before claiming conclusions.",
+        "- Prefer one focused tool call when inspection or execution is needed.",
         "- Prefer the smallest single-purpose command that advances the work.",
-        "- For shell-like tools, do not prepend exploratory boilerplate such as pwd or ls unless it is required to answer the request.",
-        "- Keep search/read commands tightly scoped and bound noisy output with a limiter such as | head -n 200 when matches could be large.",
-        "- Do not emit multiline shell scripts, here-docs, or long quoted bash programs when a simple command sequence would do.",
-        "- Prefer commands like pwd, ls, rg, sed -n, cat, git status, pytest <target>, or a small focused shell command.",
-        "- If a command session is already running, prefer write_stdin with the existing session_id.",
-        "- Do not repeat a tool call whose output is already present in the conversation; build on that output instead.",
-        "- If a prior tool output already answers the question, return a final answer instead of rereading the same context.",
-        "- Keep trace-style progress concise and textual; do not dump raw scripts into user-facing text.",
-        "- Do not invent tool names or arguments outside the provided schemas.",
+        "- Do not narrate future work.",
+        "- Do not repeat a completed tool call.",
+        "- Only use provided tool names and return no markdown.",
         "- Do not wrap the JSON in markdown fences.",
-        "- If the work is complete, return a final answer.",
-        "Available function tools:",
+        "Tools:",
         _json_compact(tool_catalog),
     ]
+    if operator_unblock_prompt:
+        system_parts.extend(
+            [
+                "Operator fleet-unblock scope rules:",
+                "- Stay inside /docker/fleet/scripts/codex-shims/, /docker/fleet/tests/, /docker/EA/ea/app/, /docker/EA/tests/, or direct ea-api verification commands.",
+                "- Do not inspect /docker/chummercomplete/* repos, shard run directories, or Fleet backlog/publication artifacts for this run.",
+                "- After staged bootstrap and repo-diff shortcuts, prefer a targeted edit or verification command in the allowed scope over broader exploration.",
+            ]
+        )
+    if readiness_remedy_prompt:
+        system_parts.extend(
+            [
+                "Readiness remedy scope rules:",
+                "- Stay inside the targeted product repo and its proof/verify surface for this run.",
+                "- Prefer the deterministic direct file reads already staged in the prompt before broader exploration.",
+                "- After those direct reads, prefer a focused producer/verify edit over repeated orientation commands.",
+                "- If the available tools do not include apply_patch, prefer a single focused exec_command that performs the in-place edit over more inspection turns.",
+            ]
+        )
     if lightweight_ops:
         system_parts.extend(
             [
@@ -3744,6 +6126,7 @@ def _tool_shim_messages(
         normalized_user_text = " ".join(latest_user_text.lower().split())
         if (
             "fleet" in normalized_user_text
+            and not _tool_shim_prompt_forbids_local_fleet_telemetry(normalized_user_text)
             and any(token in normalized_user_text for token in ("milestone", "shard", "eta", "status", "running"))
             and (
                 Path("/docker/fleet/state/chummer_design_supervisor/state.json").exists()
@@ -3991,6 +6374,13 @@ def _tool_call_rejection_reason(
                     )
                 return None
             lowered_cmd = cmd.lower()
+            operator_scope_rejection = _tool_shim_operator_unblock_scope_rejection_reason(
+                latest_user_text=latest_user_text,
+                cmd=cmd,
+                history_items=history_items,
+            )
+            if operator_scope_rejection:
+                return operator_scope_rejection
             if (
                 ("pwd" in lowered_cmd or "ls -la" in lowered_cmd)
                 and any(marker in lowered_cmd for marker in ("rg ", "grep ", "find ", "sed -n", "cat "))
@@ -4107,9 +6497,169 @@ def _tool_shim_decision(
             ),
         )
     tool_names = {str(tool.get("name") or "").strip() for tool in tools}
+    if "exec_command" in tool_names:
+        staged_first_cmd = _tool_shim_direct_staged_first_command(latest_user_text, history_items)
+        if staged_first_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": staged_first_cmd, "max_output_tokens": 1500},
+                upstream_result=_tool_shim_local_upstream_result(
+                    staged_first_cmd,
+                    reason="task_local_staged_first_command",
+                ),
+            )
+        staged_followup_cmd = _tool_shim_direct_post_staged_command(latest_user_text, history_items)
+        if staged_followup_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": staged_followup_cmd, "max_output_tokens": 1200},
+                upstream_result=_tool_shim_local_upstream_result(
+                    staged_followup_cmd,
+                    reason="task_local_staged_followup_diff",
+                ),
+            )
+        staged_repo_hunks_cmd = _tool_shim_direct_post_staged_repo_hunks_command(
+            latest_user_text,
+            history_items,
+        )
+        if staged_repo_hunks_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": staged_repo_hunks_cmd, "max_output_tokens": 1800},
+                upstream_result=_tool_shim_local_upstream_result(
+                    staged_repo_hunks_cmd,
+                    reason="task_local_staged_followup_hunks",
+                ),
+            )
+        readiness_materialize_cmd = _tool_shim_direct_post_readiness_materialize_command(
+            latest_user_text,
+            history_items,
+        )
+        if readiness_materialize_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": readiness_materialize_cmd, "max_output_tokens": 1800},
+                upstream_result=_tool_shim_local_upstream_result(
+                    readiness_materialize_cmd,
+                    reason="readiness_materialize_trace_bundle",
+                ),
+            )
+        nested_staged_first_cmd = _tool_shim_direct_nested_staged_first_command(
+            latest_user_text,
+            history_items,
+        )
+        if nested_staged_first_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": nested_staged_first_cmd, "max_output_tokens": 1500},
+                upstream_result=_tool_shim_local_upstream_result(
+                    nested_staged_first_cmd,
+                    reason="operator_unblock_nested_staged_first_command",
+                ),
+            )
+        nested_staged_followup_cmd = _tool_shim_direct_nested_post_staged_command(
+            latest_user_text,
+            history_items,
+        )
+        if nested_staged_followup_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": nested_staged_followup_cmd, "max_output_tokens": 1200},
+                upstream_result=_tool_shim_local_upstream_result(
+                    nested_staged_followup_cmd,
+                    reason="operator_unblock_nested_staged_followup_diff",
+                ),
+            )
+        nested_telemetry_first_cmd = _tool_shim_direct_nested_telemetry_first_command(
+            latest_user_text,
+            history_items,
+        )
+        if nested_telemetry_first_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": nested_telemetry_first_cmd, "max_output_tokens": 1500},
+                upstream_result=_tool_shim_local_upstream_result(
+                    nested_telemetry_first_cmd,
+                    reason="operator_unblock_nested_telemetry_first_command",
+                ),
+            )
+        post_repo_diff_cmd = _tool_shim_direct_operator_unblock_post_repo_diff_command(
+            latest_user_text,
+            history_items,
+        )
+        if post_repo_diff_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": post_repo_diff_cmd, "max_output_tokens": 1800},
+                upstream_result=_tool_shim_local_upstream_result(
+                    post_repo_diff_cmd,
+                    reason="operator_unblock_post_repo_diff_command",
+                ),
+            )
+        post_repo_hunks_cmd = _tool_shim_direct_operator_unblock_post_repo_hunks_command(
+            latest_user_text,
+            history_items,
+        )
+        if post_repo_hunks_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": post_repo_hunks_cmd, "max_output_tokens": 1800},
+                upstream_result=_tool_shim_local_upstream_result(
+                    post_repo_hunks_cmd,
+                    reason="operator_unblock_post_repo_hunks_command",
+                ),
+            )
+        post_verify_cmd = _tool_shim_direct_operator_unblock_post_verify_command(
+            latest_user_text,
+            history_items,
+        )
+        if post_verify_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": post_verify_cmd, "max_output_tokens": 1800},
+                upstream_result=_tool_shim_local_upstream_result(
+                    post_verify_cmd,
+                    reason="operator_unblock_post_verify_command",
+                ),
+            )
+        post_provider_health_cmd = _tool_shim_direct_operator_unblock_post_provider_health_command(
+            latest_user_text,
+            history_items,
+        )
+        if post_provider_health_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": post_provider_health_cmd, "max_output_tokens": 2200},
+                upstream_result=_tool_shim_local_upstream_result(
+                    post_provider_health_cmd,
+                    reason="operator_unblock_post_provider_health_command",
+                ),
+            )
+        operator_hotspot_cmd = _tool_shim_direct_operator_unblock_hotspot_command(latest_user_text, history_items)
+        if operator_hotspot_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": operator_hotspot_cmd, "max_output_tokens": 1400},
+                upstream_result=_tool_shim_local_upstream_result(
+                    operator_hotspot_cmd,
+                    reason="operator_unblock_hotspot_read",
+                ),
+            )
     local_fleet_cmd = None
     if "exec_command" in tool_names:
-        local_fleet_cmd = _tool_shim_direct_local_fleet_command(latest_user_text)
+        local_fleet_cmd = _tool_shim_direct_local_fleet_command(latest_user_text, history_items)
     if local_fleet_cmd:
         return _ToolShimDecision(
             kind="function_call",
@@ -4398,6 +6948,17 @@ def _is_background_codex_profile(*, model: str = "", codex_profile: str | None =
         str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
         str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(),
     }
+
+
+def _should_use_background_codex_response(
+    *,
+    model: str = "",
+    codex_profile: str | None = None,
+    supported_tools: list[dict[str, object]] | None = None,
+) -> bool:
+    if not _is_background_codex_profile(model=model, codex_profile=codex_profile):
+        return False
+    return not bool(supported_tools)
 
 
 def _responses_background_timeout_seconds(*, model: str = "", codex_profile: str | None = None) -> float:
@@ -4919,7 +7480,7 @@ def _run_survival_response(
         "principal_id": context.principal_id,
         "survival_lane": True,
         "survival_background": True,
-        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "onemin,gemini_vortex,gemini_web,chatplayground"),
+        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "chatplayground,gemini_web,gemini_vortex,onemin"),
     }
     if codex_profile:
         response_metadata.update(
@@ -5393,6 +7954,32 @@ def _run_response(
         principal_id=context.principal_id,
         container=container,
     )
+    _write_responses_live_summary(
+        name="request_summary",
+        payload={
+            "principal_id": context.principal_id,
+            "requested_model": requested_model,
+            "effective_model": model,
+            "codex_profile": codex_profile,
+            "effective_codex_profile": effective_codex_profile,
+            "previous_response_id": previous_response_id,
+            "stream": stream,
+            "input_item_types": [str(item.get("type") or "") for item in parsed_input.input_items if isinstance(item, dict)],
+            "supported_tools": [str(tool.get("name") or "") for tool in supported_tools],
+            "latest_prompt_excerpt": _tool_shim_truncate_text(latest_prompt, limit=800),
+            "latest_user_text_excerpt": _tool_shim_truncate_text(_tool_shim_latest_user_text(history_items), limit=800),
+            "history_item_types_tail": [
+                str(item.get("type") or "")
+                for item in history_items[-10:]
+                if isinstance(item, dict)
+            ],
+            "history_exec_commands_tail": _tool_shim_exec_command_history(history_items)[-6:],
+            "history_staged_commands_latest": _tool_shim_staged_commands(_tool_shim_latest_user_text(history_items)),
+            "history_readiness_prompt_detected": _tool_shim_is_operator_readiness_remedy_prompt(
+                _tool_shim_latest_user_text(history_items)
+            ),
+        },
+    )
 
     messages: list[dict[str, str]] = []
     if instructions:
@@ -5475,7 +8062,11 @@ def _run_response(
             history_items=history_items,
         )
 
-    if _is_background_codex_profile(model=model, codex_profile=effective_codex_profile):
+    if _should_use_background_codex_response(
+        model=model,
+        codex_profile=effective_codex_profile,
+        supported_tools=supported_tools,
+    ):
         return _run_background_codex_response(
             request,
             parsed_input=parsed_input,
@@ -6211,25 +8802,26 @@ def list_models(request: Request) -> Response:
 
 
 @responses_item_router.get("/_provider_health", response_model=None)
-def get_provider_health(
+async def get_provider_health(
     *,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     lightweight: bool = Query(default=False),
 ) -> Response:
     include_sensitive = is_operator_context(context)
-    provider_health = _provider_health_snapshot(lightweight=lightweight)
+    provider_health = await _provider_health_snapshot_async(lightweight=lightweight)
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
+    provider_registry = await _provider_registry_payload_async(
+        container=container,
+        principal_id=context.principal_id,
+        provider_health=safe_provider_health,
+        include_sensitive=include_sensitive,
+    )
     return JSONResponse(
         {
             **safe_provider_health,
             "principal": principal_identity_summary(context.principal_id),
-            "provider_registry": _provider_registry_payload(
-                container=container,
-                principal_id=context.principal_id,
-                provider_health=safe_provider_health,
-                include_sensitive=include_sensitive,
-            ),
+            "provider_registry": provider_registry,
         }
     )
 

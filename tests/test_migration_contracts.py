@@ -121,12 +121,15 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "make ci-gates-postgres" in text
     assert "make verify-release-assets" in text
     assert "make release-preflight" in text
+    assert "make overlay-vision-check" in text
+    assert "make overlay-vision-pull" in text
     assert "make support-bundle" in text
     assert "make tasks-archive" in text
     assert "make tasks-archive-dry-run" in text
     assert "make tasks-archive-prune" in text
     assert "scripts/operator_summary.sh" in smoke_help
     assert "scripts/operator_summary.sh" in makefile
+    assert "scripts/chummer6_overlay_vision_readiness.py" in makefile
 
 
 def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:

@@ -7,6 +7,7 @@ Project Chummer accepts future-capability ideas and public signal, but public si
 ## Collection lanes
 
 * `Chummer6`
+* ProductLift public feedback and voting
 * Discord
 * approved public issue trackers
 * `FacePop` for bounded public recruitment prompts
@@ -28,10 +29,12 @@ Sponsoring temporary premium work does not create canonical product truth by its
 ## Tool posture
 
 * `MetaSurvey` is the primary broad structured collection lane.
+* `ProductLift` is the primary public idea, vote, and roadmap-projection lane.
 * `Icanpreneur` is the primary adaptive interview lane for governed discovery.
 * `FacePop`, `Deftform`, and `Lunacal` may recruit, pre-screen, and schedule, but they may not become horizon truth or backlog ownership.
 * `ApproveThis` is the editorial approval bridge for curated intake decisions.
 * `Teable` may project or curate signal state, but it is never the system of record.
+* ProductLift public roadmap cards may project horizon posture, but they do not become horizon truth or backlog ownership.
 
 ## Publication rule
 

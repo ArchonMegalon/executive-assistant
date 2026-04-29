@@ -39,4 +39,4 @@ Route overlays, pack inspection, and explorable tours remain the first-party tru
 
 ## Why it is not ready yet
 
-The new vendor path makes this more plausible, but Chummer still needs a reliable permission model and a clear evidence path before it should present RUNSITE as a real feature.
+The new vendor path makes this more plausible, but Chummer still needs a reliable permission model and clear evidence links before it should present RUNSITE as a real feature.

@@ -55,6 +55,7 @@ That remains workable only if bounded contexts stay explicit, independently test
 
 The campaign spine, living dossier, roaming workspace, device roles, and home cockpit are now central design truth.
 The remaining risk is uneven embodiment across desktop, mobile, and hosted surfaces.
+The specific lived-system bar is now explicit: downtime, aftermath, heat, faction posture, contact truth, reputation, and next-session return must read like one governed campaign-memory lane instead of recap prose plus local reminders.
 
 ### 5. Build and Explain still need flagship compression
 
@@ -118,6 +119,8 @@ Turn the design repo from canonical map into canonical map plus journey-based op
 4. Define campaign-OS maturity explicitly.
    The maturity bar is not just repo completion; it is that a campaign can live here,
    survive here, and close the loop here.
+   That includes first-class campaign-memory truth for downtime, aftermath, heat,
+   faction posture, contact truth, reputation, and return-loop actions.
 5. Keep no-step-back parity machine-readable.
    The legacy and adjacent client parity registry must stay aligned with the active flagship wave and blocker register so modernization cannot silently strand real user jobs.
 

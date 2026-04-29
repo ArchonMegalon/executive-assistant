@@ -4,6 +4,35 @@ version: 1
 last_reviewed: 2026-04-16
 purpose: Canonical six-journey release gate layer for proving the campaign OS as a lived system instead of only a coherent repo graph.
 
+queued_follow_on_gates:
+  - id: player_completes_sr6_combat_round_with_action_budget
+    docs:
+      - LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md
+      - GM_RUNBOARD_LIVE_OPERATIONS.md
+  - id: user_opens_local_rulebook_from_explain_drawer
+    docs:
+      - SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md
+  - id: existing_campaign_adopted_without_rebuilding_full_history
+    docs:
+      - CAMPAIGN_ADOPTION_WIZARD.md
+  - id: player_pins_upgrade_and_tracks_progress_after_reward
+    docs:
+      - RUNNER_RESUME_AND_GOAL_PINS.md
+  - id: gm_creates_a_playable_prep_packet
+    docs:
+      - PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md
+      - CREW_AND_MISSION_FIT_MODEL.md
+  - id: gm_closes_run_and_generates_resolution_report
+    docs:
+      - BLACK_LEDGER_MVP_001.md
+  - id: resolution_report_creates_world_tick_and_player_safe_news_item
+    docs:
+      - BLACK_LEDGER_MVP_001.md
+  - id: approved_run_resolution_updates_safe_seasonal_honors
+    docs:
+      - NETWORK_REPUTATION_AND_LEADERBOARDS_MODEL.md
+      - SEASONAL_HONORS_AND_REPUTATION_MODEL.md
+
 journey_gates:
   - id: install_claim_restore_continue
     title: Install, claim, restore, continue
@@ -409,6 +438,26 @@ journey_gates:
             - DesktopDialogFieldValueParser.GetValue(dialog, "masterIndexSr6DesignerCoverage")
             - DesktopDialogFieldValueParser.GetValue(dialog, "masterIndexHouseRuleLane")
             - DesktopDialogFieldValueParser.GetValue(dialog, "masterIndexSr6SuccessorReceipt")
+        - repo: chummer6-ui
+          path: .codex-studio/published/USER_JOURNEY_TESTER_AUDIT.generated.json
+          json_must_equal:
+            contract_name: chummer6-ui.user_journey_tester_audit
+            status: pass
+            evidence.linux_binary_under_test: true
+            evidence.used_internal_apis: false
+            evidence.fix_shard_separate: true
+            evidence.open_blocking_findings_count: 0
+          must_contain:
+            - '"master_index_search_focus_stability"'
+            - '"file_new_character_visible_workspace"'
+            - '"minimal_character_build_save_reload"'
+            - '"major_navigation_sanity"'
+            - '"validation_or_export_smoke"'
+            - '"screenshots"'
+            - '"screenshotReview"'
+            - '"focus_preserved_after_typing"'
+            - '"new_character_action_opened_visible_workspace"'
+            - '"validation_or_export_action_completed"'
       required_project_posture:
         - project_id: core
           minimum_stage: pre_repo_local_complete

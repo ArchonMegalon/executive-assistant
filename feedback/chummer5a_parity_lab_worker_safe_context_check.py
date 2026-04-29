@@ -162,8 +162,9 @@ def test_m103_completed_package_rows_remain_closed_without_receipt_refresh() -> 
         )
 
     design_proof = {str(item) for item in design_row.get("proof") or []}
-    assert "python tests/test_chummer5a_parity_lab_pack.py" in design_proof
-    assert "/docker/EA/docs/chummer5a_parity_lab/SUCCESSOR_HANDOFF_CLOSEOUT.yaml" in design_proof
+    assert "python3 tests/test_ea_parity_lab_capture_pack.py" in design_proof
+    assert "/docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml" in design_proof
+    assert "/docker/fleet/feedback/2026-04-18-next90-m103-ea-parity-lab-closeout.md" in design_proof
 
     fleet_proof = {str(item) for item in fleet_row.get("proof") or []}
     assert "python3 tests/test_ea_parity_lab_capture_pack.py" in fleet_proof

@@ -64,6 +64,8 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
     ]
 
 
@@ -88,7 +90,28 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
     ]
+
+
+def test_onemin_nano_model_is_not_treated_as_code_capable() -> None:
+    assert upstream._onemin_model_supports_code("gpt-4.1-nano") is False
+    assert upstream._onemin_model_supports_code("deepseek-chat") is True
+
+
+def test_onemin_account_login_credentials_reads_team_hints_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_60_TEAM_ID", "team-60")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_60_TEAM_NAME", "Finland Office")
+
+    credentials = upstream.onemin_account_login_credentials(account_name="ONEMIN_AI_API_KEY_FALLBACK_60")
+
+    assert credentials == {
+        "login_email": "",
+        "login_password": "",
+        "team_id": "team-60",
+        "team_name": "Finland Office",
+    }
 
 
 def test_default_core_profile_auto_demotes_to_fast_when_onemin_health_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,6 +195,120 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+    ]
+
+
+def test_onemin_required_credits_for_selection_uses_model_family_defaults_before_global_median(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        upstream,
+        "_estimate_onemin_request_credits",
+        lambda **_kwargs: (57500, "recent_required_credit_median"),
+    )
+
+    light_required, light_basis = upstream._onemin_required_credits_for_selection(
+        lane=upstream._LANE_FAST,
+        model="deepseek-chat",
+    )
+    hard_required, hard_basis = upstream._onemin_required_credits_for_selection(
+        lane=upstream._LANE_FAST,
+        model="gpt-5.4",
+    )
+
+    assert (light_required, light_basis) == (1200, "model_family_default")
+    assert (hard_required, hard_basis) == (50000, "model_family_default")
+
+
+def test_onemin_required_credits_for_selection_caps_poisoned_light_dispatch_median(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: 58306)
+
+    required, basis = upstream._onemin_required_credits_for_selection(
+        lane="core",
+        model="gpt-4.1-nano",
+    )
+
+    assert (required, basis) == (1200, "model_family_default_capped_recent_dispatch")
+
+
+def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cover_hard_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS", raising=False)
+    monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "state": "ready",
+                            "estimated_remaining_credits": 1500,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("ea-coder-hard")
+    ]
+
+    assert candidates == [
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-5.4"),
+        ("onemin", "gpt-5"),
+        ("onemin", "gpt-4o"),
+    ]
+
+
+def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_supports_hard_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS", raising=False)
+    monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "state": "ready",
+                            "estimated_remaining_credits": 75000,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates("ea-coder-hard")
+    ]
+
+    assert candidates == [
+        ("onemin", "gpt-5.4"),
+        ("onemin", "gpt-5"),
+        ("onemin", "gpt-4o"),
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
     ]
 
 
@@ -313,6 +450,154 @@ def test_pick_onemin_key_skips_observed_error_below_required_credits(
 
     assert pick is not None
     assert pick[0] == "good"
+
+
+def test_pick_onemin_key_returns_none_when_all_known_balances_are_below_required_credits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("low_a", "low_b")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "low_a":
+            return (4099, "observed_error", False, 995.0, 995.0)
+        return (840, "observed_error", False, 995.0, 995.0)
+
+    def fake_recent_success(*, api_key: str, **_: object) -> tuple[float, float, float, int, int]:
+        if api_key == "low_a":
+            return (900.0, 900.0, 900.0, 4099, 4099)
+        return (900.0, 900.0, 900.0, 840, 840)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", fake_recent_success)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5.4",
+        required_credits=73111,
+    )
+
+    assert pick is None
+
+
+def test_pick_onemin_key_keeps_actual_billing_positive_account_routable_despite_observed_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("low_actual", "low_other")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_provider_account_name",
+        lambda _provider, key_names, key: f"account-{key}",
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "low_actual":
+            return (4099, "observed_error", False, 995.0, 995.0)
+        return (840, "observed_error", False, 995.0, 995.0)
+
+    def fake_recent_success(*, api_key: str, **_: object) -> tuple[float, float, float, int, int]:
+        return (0.0, 0.0, 0.0, 0, 0)
+
+    def fake_latest_billing(*, provider_key: str, account_name: str):
+        if provider_key == "onemin" and account_name == "account-low_actual":
+            return upstream.ProviderBillingSnapshot(
+                provider_key="onemin",
+                account_name=account_name,
+                observed_at="2026-04-28T20:00:00Z",
+                remaining_credits=4255550.0,
+                max_credits=4450000.0,
+                next_topup_at=None,
+                topup_amount=None,
+                basis="actual_billing_usage_page",
+                structured_output_json={"team_name": "Example Team"},
+            )
+        return None
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", fake_recent_success)
+    monkeypatch.setattr(upstream, "_latest_provider_billing_snapshot", fake_latest_billing)
+    monkeypatch.setattr(upstream, "_onemin_billing_snapshot_matches_credit_subject", lambda **_kwargs: True)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5.4",
+        required_credits=73111,
+    )
+
+    assert pick is not None
+    assert pick[0] == "low_actual"
+
+
+def test_pick_onemin_key_prefers_recent_probe_ok_candidate_despite_stale_observed_depletion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("probe_ok", "probe_bad")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: f"account-{key}")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: f"slot-{key}")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {"account_name": "account-probe_ok", "slot": "slot-probe_ok", "last_probe_result": "ok"},
+                        {"account_name": "account-probe_bad", "slot": "slot-probe_bad", "last_probe_result": "depleted"},
+                    ]
+                }
+            }
+        },
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "probe_ok":
+            return (4099, "observed_error", False, 995.0, 995.0)
+        return (840, "observed_error", False, 995.0, 995.0)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (0.0, 0.0, 0.0, 0, 0))
+    monkeypatch.setattr(upstream, "_latest_provider_billing_snapshot", lambda **_kwargs: None)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5.4",
+        required_credits=73111,
+    )
+
+    assert pick is not None
+    assert pick[0] == "probe_ok"
 
 
 def test_pick_onemin_key_prefers_observed_balance_over_synthetic_balance(
@@ -765,6 +1050,510 @@ def test_call_onemin_records_manager_usage_and_updates_effective_remaining(
         assert slot["billing_remaining_credits"] == 1000
         assert slot["estimated_remaining_credits"] == 850
         assert slot["estimated_credit_basis"] == "actual_provider_api_plus_observed_usage"
+    finally:
+        register_onemin_manager(None)
+
+
+def test_call_onemin_prefers_manager_persisted_actual_credits_when_runtime_state_is_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain.models import OneminAccount, OneminCredential
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "low-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "high-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setattr(upstream, "_estimate_onemin_request_credits", lambda **_kwargs: (25662, "test_estimate"))
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 0,
+                            "last_probe_result": "depleted",
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot": "fallback_1",
+                            "slot_name": "fallback_1",
+                            "credential_id": "fallback_1",
+                            "state": "quarantine",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 0,
+                            "last_probe_result": "depleted",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    manager._repo.replace_state(
+        accounts=[
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY",
+                account_label="ONEMIN_AI_API_KEY",
+                status="ready",
+                remaining_credits=1049,
+                max_credits=15000,
+                last_billing_snapshot_at="2026-04-28T08:30:00Z",
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 1049.0,
+                    "actual_max_credits": 15000.0,
+                },
+            ),
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_1",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_1",
+                status="ready",
+                remaining_credits=40000,
+                max_credits=15000,
+                last_billing_snapshot_at="2026-04-28T08:30:00Z",
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 40000.0,
+                    "actual_max_credits": 15000.0,
+                },
+            ),
+        ],
+        credentials=[
+            OneminCredential(
+                credential_id="primary",
+                account_id="ONEMIN_AI_API_KEY",
+                slot_name="primary",
+                secret_env_name="ONEMIN_AI_API_KEY",
+                state="ready",
+                remaining_credits=1049,
+            ),
+            OneminCredential(
+                credential_id="fallback_1",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_1",
+                slot_name="fallback_1",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_1",
+                state="ready",
+                remaining_credits=40000,
+            ),
+        ],
+    )
+    register_onemin_manager(manager)
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        assert headers["API-KEY"] == "high-key"
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    try:
+        result = upstream.generate_text(prompt="big request", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
+        assert result.text == "ok"
+        assert result.provider_account_name == "ONEMIN_AI_API_KEY_FALLBACK_1"
+    finally:
+        register_onemin_manager(None)
+
+
+def test_call_onemin_stops_when_manager_reports_no_eligible_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain.models import OneminAccount, OneminCredential
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "low-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "also-low-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setattr(upstream, "_estimate_onemin_request_credits", lambda **_kwargs: (25662, "test_estimate"))
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 0,
+                            "last_probe_result": "depleted",
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot": "fallback_1",
+                            "slot_name": "fallback_1",
+                            "credential_id": "fallback_1",
+                            "state": "quarantine",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 0,
+                            "last_probe_result": "depleted",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    manager._repo.replace_state(
+        accounts=[
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY",
+                account_label="ONEMIN_AI_API_KEY",
+                status="ready",
+                remaining_credits=1049,
+                max_credits=15000,
+                last_billing_snapshot_at="2026-04-28T08:30:00Z",
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 1049.0,
+                    "actual_max_credits": 15000.0,
+                },
+            ),
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_1",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_1",
+                status="ready",
+                remaining_credits=894,
+                max_credits=15000,
+                last_billing_snapshot_at="2026-04-28T08:30:00Z",
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 894.0,
+                    "actual_max_credits": 15000.0,
+                },
+            ),
+        ],
+        credentials=[
+            OneminCredential(
+                credential_id="primary",
+                account_id="ONEMIN_AI_API_KEY",
+                slot_name="primary",
+                secret_env_name="ONEMIN_AI_API_KEY",
+                state="ready",
+                remaining_credits=1049,
+            ),
+            OneminCredential(
+                credential_id="fallback_1",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_1",
+                slot_name="fallback_1",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_1",
+                state="ready",
+                remaining_credits=894,
+            ),
+        ],
+    )
+    register_onemin_manager(manager)
+
+    def fail_post_json(**_: object) -> tuple[int, dict[str, object]]:
+        raise AssertionError("manager should have blocked blind upstream fallback")
+
+    monkeypatch.setattr(upstream, "_post_json", fail_post_json)
+
+    try:
+        with pytest.raises(upstream.ResponsesUpstreamError) as excinfo:
+            upstream.generate_text(prompt="big request", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
+        assert "onemin_no_eligible_account" in str(excinfo.value)
+    finally:
+        register_onemin_manager(None)
+
+
+def test_call_onemin_provider_health_bypasses_stale_known_exhaustion_precheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1-nano")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 4200,
+                            "billing_remaining_credits": 4200,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "OK",
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_known_exhaustion_message",
+        lambda **_kwargs: "onemin_exhausted_for_request:453:ONEMIN_AI_API_KEY",
+    )
+
+    def fake_post_json(**_: object) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1-nano",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+    result = upstream.generate_text(prompt="Reply with exactly ok.", requested_model="onemin:gpt-4.1-nano")
+    assert result.text == "ok"
+    assert result.provider_account_name == "ONEMIN_AI_API_KEY"
+
+
+def test_onemin_provider_health_pick_recovers_quarantined_budget_limited_slot_for_smaller_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "low-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "recoverable-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "estimated_remaining_credits": 219,
+                            "billing_remaining_credits": 15025,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Tibor Girschele team only has 219 credits",
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot": "fallback_1",
+                            "slot_name": "fallback_1",
+                            "credential_id": "fallback_1",
+                            "state": "quarantine",
+                            "estimated_remaining_credits": 59,
+                            "billing_remaining_credits": 15000,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the franz@chummer.run team only has 1530 credits",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=453,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is not None
+    assert pick[0] == "recoverable-key"
+
+
+def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "low-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "recoverable-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1-nano")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "estimated_remaining_credits": 219,
+                            "billing_remaining_credits": 15025,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Tibor Girschele team only has 219 credits",
+                        },
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+                            "slot": "fallback_1",
+                            "slot_name": "fallback_1",
+                            "credential_id": "fallback_1",
+                            "state": "quarantine",
+                            "estimated_remaining_credits": 59,
+                            "billing_remaining_credits": 15000,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the franz@chummer.run team only has 1530 credits",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_onemin_required_credits_for_selection", lambda **_kwargs: (453, "test"))
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_known_exhaustion_message",
+        lambda **_kwargs: "onemin_exhausted_for_request:453:ONEMIN_AI_API_KEY,ONEMIN_AI_API_KEY_FALLBACK_1",
+    )
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
+        assert url == "https://api.1min.ai/api/chat-with-ai"
+        assert headers["API-KEY"] == "recoverable-key"
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1-nano",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 8,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(prompt="Reply with exactly ok.", requested_model="onemin:gpt-4.1-nano")
+    assert result.text == "ok"
+    assert result.provider_account_name == "ONEMIN_AI_API_KEY_FALLBACK_1"
+
+
+def test_call_onemin_manager_falls_back_to_provider_health_ready_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1-nano")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 4200,
+                            "billing_remaining_credits": 4200,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "OK",
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_known_exhaustion_message",
+        lambda **_kwargs: "onemin_exhausted_for_request:453:ONEMIN_AI_API_KEY",
+    )
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    register_onemin_manager(manager)
+
+    def fake_post_json(**_: object) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1-nano",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    try:
+        result = upstream.generate_text(prompt="Reply with exactly ok.", requested_model="onemin:gpt-4.1-nano")
+        assert result.text == "ok"
+        assert result.provider_account_name == "ONEMIN_AI_API_KEY"
     finally:
         register_onemin_manager(None)
 
@@ -1696,3 +2485,84 @@ def test_post_sse_enforces_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) -
 
     assert events == [("content", "hi")]
     assert response.timeouts[:3] == pytest.approx([45.0, 25.0, 5.0])
+
+
+def test_call_onemin_stream_falls_back_to_nonstream_code_and_emits_single_delta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = upstream.ProviderConfig(
+        provider_key="onemin",
+        display_name="1min",
+        api_keys=("key-1",),
+        default_models=("gpt-5.4",),
+        timeout_seconds=60,
+    )
+    chunks: list[str] = []
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_ordered_onemin_keys_allow_reserve", lambda _allow_reserve: ("key-1",))
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: ("key-1",))
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {"key-1": upstream.OneminKeyState(key="key-1")},
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: "account-1")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: "slot-1")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {"account_name": "account-1", "slot": "slot-1", "last_probe_result": "ok"},
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_onemin_required_credits_for_selection", lambda **_kwargs: (50000, "test"))
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", lambda **_kwargs: (50000, "actual_provider_api", True, 0.0, 0.0))
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (0.0, 0.0, 0.0, 0, 0))
+    monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda _api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_success", lambda _api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda *args, **kwargs: None)
+    monkeypatch.setattr(upstream, "_rotate_onemin_cursor_after_key_usage", lambda _api_key: None)
+    monkeypatch.setattr(upstream, "_record_onemin_usage_and_measure_delta", lambda **_kwargs: (None, "test"))
+    monkeypatch.setattr(
+        upstream,
+        "_post_sse",
+        lambda **_kwargs: (_ for _ in ()).throw(upstream.ResponsesUpstreamError("http_503:stream_down")),
+    )
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int):
+        assert headers == {"API-KEY": "key-1"}
+        assert timeout_seconds == 60
+        assert url == upstream._onemin_code_url()
+        assert payload["type"] == "CODE_GENERATOR"
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-5.4",
+                    "aiRecordDetail": {
+                        "resultObject": "ok",
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream._call_onemin(
+        config,
+        prompt="Reply with exactly ok.",
+        model="gpt-5.4",
+        on_delta=chunks.append,
+    )
+
+    assert result.text == "ok"
+    assert result.model == "gpt-5.4"
+    assert chunks == ["ok"]
