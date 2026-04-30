@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -749,6 +750,184 @@ def test_onemin_billing_refresh_executes_browseract_tools_and_maps_owner_email(
     assert body["member_results"][0]["matched_owner_slots"] == 1
 
 
+def test_onemin_billing_refresh_forwards_default_browser_proxy_settings_to_browseract_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_USERNAME", "vpn-user")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_PASSWORD", "vpn-pass")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_BYPASS", "localhost,127.0.0.1,ea-api")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": ["ONEMIN_AI_API_KEY"],
+                "onemin_billing_usage_run_url": "https://browseract.example/run/billing",
+                "onemin_members_run_url": "https://browseract.example/run/members",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+
+    observed: list[tuple[str, dict[str, object]]] = []
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        observed.append((tool_name, payload_json))
+        if tool_name == "browseract.onemin_billing_usage":
+            return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+        return {"refresh_backend": "browseract", "matched_owner_slots": 1}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": True, "include_provider_api": False},
+    )
+    assert response.status_code == 200
+    assert [tool_name for tool_name, _payload in observed] == [
+        "browseract.onemin_billing_usage",
+        "browseract.onemin_member_reconciliation",
+    ]
+    for _tool_name, payload_json in observed:
+        assert payload_json["browser_proxy_server"] == "http://ea-fastestvpn-proxy:3128"
+        assert payload_json["browser_proxy_username"] == "vpn-user"
+        assert payload_json["browser_proxy_password"] == "vpn-pass"
+        assert payload_json["browser_proxy_bypass"] == "localhost,127.0.0.1,ea-api"
+
+
+def test_onemin_billing_refresh_prefers_binding_browser_proxy_settings_over_env_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_USERNAME", "vpn-user")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_PASSWORD", "vpn-pass")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_BYPASS", "localhost,127.0.0.1,ea-api")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": ["ONEMIN_AI_API_KEY"],
+                "onemin_billing_usage_run_url": "https://browseract.example/run/billing",
+                "proxy_server": "http://binding-proxy:8080",
+                "browser_proxy_username": "binding-user",
+                "browser_proxy_password": "binding-pass",
+                "proxy_bypass": "localhost,internal.service",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+
+    observed: dict[str, object] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        payload_json = dict(kwargs.get("payload_json") or {})
+        observed.update(payload_json)
+        return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": False, "include_provider_api": False},
+    )
+    assert response.status_code == 200
+    assert observed["browser_proxy_server"] == "http://binding-proxy:8080"
+    assert observed["browser_proxy_username"] == "binding-user"
+    assert observed["browser_proxy_password"] == "binding-pass"
+    assert observed["browser_proxy_bypass"] == "localhost,internal.service"
+
+
+def test_onemin_billing_refresh_rotates_fastestvpn_proxy_and_retries_browseract_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": ["ONEMIN_AI_API_KEY"],
+                "onemin_billing_usage_run_url": "https://browseract.example/run/billing",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+
+    calls = 0
+    rotations: list[str] = []
+
+    def fake_invoke_browseract_tool(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise providers_route.ToolExecutionError("ui_service_worker_failed:onemin_billing_usage:auth_request_failed")
+        return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+
+    def fake_rotate_fastestvpn_proxy(*, reason: str):
+        rotations.append(reason)
+        return {
+            "reason": reason,
+            "returncode": 0,
+            "duration_seconds": 0.25,
+            "stdout": "rotated",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_rotate_fastestvpn_proxy", fake_rotate_fastestvpn_proxy)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": False, "include_provider_api": False},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert calls == 2
+    assert len(rotations) == 1
+    assert body["billing_refresh_count"] == 1
+    assert body["errors"] == []
+    assert body["browseract_proxy_rotation_count"] == 1
+    assert body["browseract_proxy_recovered_labels"] == ["ONEMIN_AI_API_KEY"]
+    assert "FastestVPN proxy rotated 1 time" in body["note"]
+
+
 def test_onemin_billing_refresh_uses_direct_api_when_no_browseract_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1383,6 +1562,92 @@ def test_onemin_billing_refresh_can_target_specific_account_labels(
     )
 
 
+def test_onemin_billing_refresh_skips_targeted_fresh_actual_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_2", "owner_email": "owner-2@example.com"},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY_FALLBACK_2",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        owner.app.state.container.onemin_manager,
+        "accounts_snapshot",
+        lambda **_: [
+            {
+                "account_label": "ONEMIN_AI_API_KEY_FALLBACK_2",
+                "has_actual_billing": True,
+                "last_billing_snapshot_at": now.isoformat(),
+                "details_json": {
+                    "billing_next_topup_at": (now + timedelta(hours=12)).isoformat(),
+                },
+            },
+        ],
+    )
+
+    invoked: list[tuple[str, str]] = []
+    provider_api_called = False
+
+    def fake_invoke_browseract_tool(**kwargs):
+        tool_name = str(kwargs.get("tool_name") or "")
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        invoked.append((tool_name, account_label))
+        return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+
+    def fake_refresh(**kwargs):
+        nonlocal provider_api_called
+        provider_api_called = True
+        return ([], [], [], 0, 0, False)
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={
+            "include_members": False,
+            "account_labels": ["ONEMIN_AI_API_KEY_FALLBACK_2"],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert invoked == []
+    assert provider_api_called is False
+    assert body["provider_api_target_labels"] == []
+    assert body["billing_refresh_count"] == 0
+    assert "fresh actual billing snapshots" in body["note"]
+
+
 def test_onemin_billing_refresh_rotates_browseract_login_pass_across_cycles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1832,8 +2097,6 @@ def test_onemin_billing_refresh_prioritizes_missing_and_stale_actual_billing_acc
         [
             "ONEMIN_AI_API_KEY_FALLBACK_1",
             "ONEMIN_AI_API_KEY_FALLBACK_3",
-        ],
-        [
             "ONEMIN_AI_API_KEY_FALLBACK_2",
             "ONEMIN_AI_API_KEY",
         ],
@@ -3044,6 +3307,62 @@ def test_onemin_manager_uses_billing_backed_recovery_after_new_success_or_billin
 
     assert lease is not None
     assert lease["api_key"] in {"recent-success-key", "fresh-billing-key"}
+
+
+def test_onemin_manager_uses_fresh_billing_snapshot_to_override_older_depleted_probe() -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    lease = manager.reserve_for_candidates(
+        candidates=[
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "slot_name": "fallback_60",
+                "credential_id": "fallback_60",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_60",
+                "state": "ready",
+                "remaining_credits": 0,
+                "estimated_remaining_credits": 0,
+                "billing_remaining_credits": 4_255_550,
+                "billing_max_credits": 4_450_000,
+                "billing_basis": "actual_provider_api",
+                "last_probe_result": "depleted",
+                "last_error": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 0 credits",
+                "last_probe_at": 1000.0,
+                "last_billing_snapshot_at": "2026-04-30T14:23:21Z",
+                "api_key": "fresh-billing-key",
+            },
+            {
+                "account_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "account_id": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "slot_name": "fallback_61",
+                "credential_id": "fallback_61",
+                "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_61",
+                "state": "ready",
+                "remaining_credits": 0,
+                "estimated_remaining_credits": 0,
+                "billing_remaining_credits": 4_255_550,
+                "billing_max_credits": 4_450_000,
+                "billing_basis": "actual_provider_api",
+                "last_probe_result": "depleted",
+                "last_error": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 0 credits",
+                "last_probe_at": 2000.0,
+                "last_billing_snapshot_at": "1970-01-01T00:00:01Z",
+                "api_key": "stale-billing-key",
+            },
+        ],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-fresh-billing-overrides-stale-probe",
+        estimated_credits=1726,
+        allow_reserve=False,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] == "fresh-billing-key"
 
 
 def test_onemin_manager_candidate_repo_state_preserves_zero_live_estimate_over_persisted_billing() -> None:

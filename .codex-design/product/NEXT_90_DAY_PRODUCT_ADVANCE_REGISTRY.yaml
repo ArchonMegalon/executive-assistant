@@ -2853,3 +2853,113 @@ milestones:
       owner: executive-assistant
       title: Close EA compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage
         without canon authority.
+  - id: 136
+    title: Calm-under-pressure payoff, veteran-depth parity, and campaign continuity closure
+    wave: W23
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-ui
+    - chummer6-mobile
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 113
+    - 114
+    - 123
+    - 124
+    - 133
+    - 134
+    - 135
+    exit_criteria:
+    - One player and one GM can move through action help, local source anchor, campaign adoption, runner goal update, run closeout,
+      and one approved consequence loop without leaving governed Chummer truth.
+    - Veteran-replacement families now have direct screenshot-backed and runtime-backed proof for translator or XML, dense builder
+      and career flows, dice and initiative, import oracles or Hero Lab, contacts or lifestyles or history, and print or export
+      utilities.
+    - Mobile and companion continuity make recap, return moment, player-safe consequence feed, and degraded-network posture feel
+      dependable instead of desk-only.
+    work_tasks:
+    - id: '136.1'
+      owner: chummer6-hub
+      title: Close campaign adoption, ResolutionReport, WorldTick, player-safe news, and next-session continuity so the calm-under-pressure
+        loop runs on one governed campaign spine.
+    - id: '136.2'
+      owner: chummer6-ui
+      title: Close veteran-depth desktop parity for translator/XML, dense builder, career, dice/initiative, contacts/lifestyles/history,
+        and print/export families with direct screenshot and runtime proof.
+    - id: '136.3'
+      owner: chummer6-mobile
+      title: Close recap, return-moment, consequence-feed, travel, and degraded-network companion continuity from governed campaign truth.
+    - id: '136.4'
+      owner: chummer6-core
+      title: Keep action-budget, explain-anchor, and local-source flows deterministic and source-backed across live-play and between-session
+        surfaces.
+    - id: '136.5'
+      owner: executive-assistant
+      title: Compile operator-safe calm-under-pressure packets, continuity summaries, migration-confidence evidence, and veteran-proof followthrough
+        without inventing shadow truth.
+    - id: '136.6'
+      owner: fleet
+      title: Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs, or continuity journey receipts
+        are stale or missing.
+    - id: '136.7'
+      owner: chummer6-design
+      title: Close calm-under-pressure, veteran-depth, continuity, and human-feeling parity canon plus acceptance language from the vision
+        recovery overlay.
+  - id: 137
+    title: Ecosystem leverage, community formation, and acquisition-fit integration seams
+    wave: W24
+    owners:
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-media-factory
+    - chummer6-ui
+    - chummer6-mobile
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 133
+    - 135
+    - 136
+    exit_criteria:
+    - Open Runs, Community Hub, artifact studio, creator publication, route packs, recap, and table-pulse moments connect back to
+      canonical campaign, release, consent, and publication truth instead of behaving like detached horizons.
+    - The product exposes explicit seams for community scheduling, creator editorial or publication, route or travel intelligence,
+      privacy-safe post-session coaching, and migration-confidence acceleration without giving any seam silent authority over rules,
+      campaign, support, release, or trust truth.
+    - Canon, proof, and public posture make clear which ecosystem lanes are first-party, integration-ready, or acquisition-fit only.
+    work_tasks:
+    - id: '137.1'
+      owner: chummer6-hub
+      title: Bind Open Runs, Community Hub, recap, route, campaign-group movement, and creator-publication handoffs to one governed
+        orchestration and consent lane.
+    - id: '137.2'
+      owner: chummer6-hub-registry
+      title: Publish capability seams, consent posture, provenance, compatibility, and revocation truth for ecosystem and acquisition-fit
+        integrations.
+    - id: '137.3'
+      owner: chummer6-media-factory
+      title: Render recap, route, creator-press, artifact-studio, and bounded table-pulse packets that stay inspectable and source-backed.
+    - id: '137.4'
+      owner: chummer6-ui
+      title: Surface community formation, artifact studio, creator press, route packs, and migration-confidence entry points on desktop
+        without weakening campaign or rules truth.
+    - id: '137.5'
+      owner: chummer6-mobile
+      title: Surface travel, route, return-moment, observer, and bounded table-pulse lanes on mobile with explicit offline and consent posture.
+    - id: '137.6'
+      owner: executive-assistant
+      title: Compile ecosystem-opportunity packets, partner-fit summaries, creator followthrough, and migration-confidence support packets
+        from governed truth only.
+    - id: '137.7'
+      owner: fleet
+      title: Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture mismatch across first-party and
+        integration-ready lanes.
+    - id: '137.8'
+      owner: chummer6-design
+      title: Close ecosystem leverage, integration seams, acquisition-fit posture, and non-shadow-truth boundaries in canonical design.

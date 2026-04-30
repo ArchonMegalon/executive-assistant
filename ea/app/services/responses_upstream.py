@@ -2522,6 +2522,21 @@ def _pick_onemin_key(
         for slot in onemin_slots
         if isinstance(slot, dict) and str(slot.get("slot") or "").strip()
     }
+    provider_health_covers_keys = bool(key_names) and all(
+        (
+            slot_by_account.get(_provider_account_name("onemin", key_names=key_names, key=api_key))
+            or slot_by_name.get(_onemin_key_slot(api_key, key_names=key_names))
+        )
+        for api_key in key_names
+    )
+    if provider_health_covers_keys and required_credits is not None and required_credits > 0:
+        provider_health_pick = _onemin_provider_health_pick(
+            key_names=key_names,
+            provider_health=provider_health,
+            required_credits=required_credits,
+        )
+        if provider_health_pick is None:
+            return None
     candidates: list[tuple[str, int, int, int, int, int, float, float, int]] = []
     blocked: list[tuple[str, float, float]] = []
     available_candidate_count = 0
@@ -2547,6 +2562,11 @@ def _pick_onemin_key(
         slot_name = _onemin_key_slot(api_key, key_names=key_names)
         slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
         probe_result = str(slot_row.get("last_probe_result") or "").strip().lower()
+        billing_recovery = _onemin_slot_recent_billing_recovery(
+            slot_row,
+            required_credits=required_credits,
+        )
+        billing_hint = _to_int(slot_row.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
         observed_remaining: int | None = None
         raw_remaining = slot_row.get("remaining_credits")
         if raw_remaining not in (None, ""):
@@ -2568,13 +2588,20 @@ def _pick_onemin_key(
             and observed_remaining is not None
             and observed_remaining < int(required_credits)
         ):
-            known_insufficient_candidate_count += 1
-            continue
+            if not (billing_recovery and billing_hint >= int(required_credits)):
+                known_insufficient_candidate_count += 1
+                continue
         probe_ok_priority = 1
         if probe_result == "ok":
             probe_ok_priority = 0
         available_candidate_count += 1
-        if required_credits is not None and required_credits > 0 and selection_priority[0] == 4 and probe_ok_priority != 0:
+        if (
+            required_credits is not None
+            and required_credits > 0
+            and selection_priority[0] == 4
+            and probe_ok_priority != 0
+            and not (billing_recovery and billing_hint >= int(required_credits))
+        ):
             known_insufficient_candidate_count += 1
             continue
         candidates.append((api_key, probe_ok_priority, *selection_priority))
@@ -2858,6 +2885,10 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
             return None
     budget_signal = _onemin_slot_budget_signal(slot)
     if probe_result in {"depleted", "insufficient_credits"} and budget_signal is not None:
+        if _onemin_slot_recent_billing_recovery(slot):
+            billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+            if billing_remaining > 0:
+                return billing_remaining
         try:
             observed_remaining = int(budget_signal.get("remaining_credits") or 0)
         except Exception:
@@ -2895,9 +2926,37 @@ def _onemin_slot_positive_actual_billing(slot: dict[str, object]) -> bool:
     return billing_remaining > 0
 
 
+def _onemin_slot_recent_billing_recovery(
+    slot: dict[str, object],
+    *,
+    required_credits: int | None = None,
+) -> bool:
+    if not _onemin_slot_positive_actual_billing(slot):
+        return False
+    probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+    if probe_result not in {"depleted", "insufficient_credits"}:
+        return False
+    last_billing_snapshot_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
+    if last_billing_snapshot_at <= 0.0:
+        return False
+    last_probe_at = _to_float(slot.get("last_probe_at"), 0.0, minimum=0.0)
+    last_failure_at = _to_float(slot.get("last_failure_at"), 0.0, minimum=0.0)
+    freshest_negative_at = max(last_probe_at, last_failure_at)
+    if freshest_negative_at > 0.0 and last_billing_snapshot_at < freshest_negative_at:
+        return False
+    normalized_required = int(required_credits or 0)
+    if normalized_required > 0:
+        billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+        if billing_remaining < normalized_required:
+            return False
+    return True
+
+
 def _onemin_slot_recovery_evidence(slot: dict[str, object]) -> bool:
     probe_result = str(slot.get("last_probe_result") or "").strip().lower()
     if probe_result == "ok":
+        return True
+    if _onemin_slot_recent_billing_recovery(slot):
         return True
     last_success_at = _to_float(slot.get("last_success_at"), 0.0, minimum=0.0)
     last_failure_at = _to_float(slot.get("last_failure_at"), 0.0, minimum=0.0)
@@ -2984,6 +3043,10 @@ def _onemin_provider_health_pick(
             except Exception:
                 observed_remaining = None
         billing_hint = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+        billing_recovery = _onemin_slot_recent_billing_recovery(
+            slot,
+            required_credits=normalized_required,
+        )
         raw_state = str(slot.get("state") or "").strip().lower()
         recoverable_quarantine = (
             raw_state == "quarantine"
@@ -3004,7 +3067,8 @@ def _onemin_provider_health_pick(
             and observed_remaining is not None
             and observed_remaining < normalized_required
         ):
-            continue
+            if not billing_recovery:
+                continue
         if (
             normalized_required > 0
             and actual_remaining is not None
@@ -5776,6 +5840,7 @@ def _call_onemin(
                         "last_error": state.last_error,
                         "last_probe_result": slot_row.get("last_probe_result"),
                         "last_probe_detail": slot_row.get("last_probe_detail"),
+                        "last_probe_at": slot_row.get("last_probe_at"),
                     }
                 )
             candidate_groups: list[list[dict[str, object]]] = []

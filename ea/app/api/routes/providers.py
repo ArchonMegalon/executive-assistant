@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import re
+import subprocess
 import time
 from typing import Literal
 import urllib.error
@@ -980,6 +981,49 @@ def _invoke_browseract_tool(
     return dict(result.output_json or {})
 
 
+def _browser_proxy_setting(
+    *,
+    binding_metadata: dict[str, object],
+    env_name: str,
+    metadata_keys: tuple[str, ...],
+) -> str:
+    for key in metadata_keys:
+        value = binding_metadata.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return str(upstream._env(env_name) or "").strip()  # type: ignore[attr-defined]
+
+
+def _browseract_proxy_payload(*, binding_metadata: dict[str, object] | None = None) -> dict[str, str]:
+    metadata = dict(binding_metadata or {})
+    settings = {
+        "browser_proxy_server": _browser_proxy_setting(
+            binding_metadata=metadata,
+            env_name="EA_UI_BROWSER_PROXY_SERVER",
+            metadata_keys=("browser_proxy_server", "proxy_server"),
+        ),
+        "browser_proxy_username": _browser_proxy_setting(
+            binding_metadata=metadata,
+            env_name="EA_UI_BROWSER_PROXY_USERNAME",
+            metadata_keys=("browser_proxy_username", "proxy_username"),
+        ),
+        "browser_proxy_password": _browser_proxy_setting(
+            binding_metadata=metadata,
+            env_name="EA_UI_BROWSER_PROXY_PASSWORD",
+            metadata_keys=("browser_proxy_password", "proxy_password"),
+        ),
+        "browser_proxy_bypass": _browser_proxy_setting(
+            binding_metadata=metadata,
+            env_name="EA_UI_BROWSER_PROXY_BYPASS",
+            metadata_keys=("browser_proxy_bypass", "proxy_bypass"),
+        ),
+    }
+    return {key: value for key, value in settings.items() if value}
+
+
 def _onemin_rest_host() -> str:
     return "https://api.1min.ai"
 
@@ -1206,6 +1250,226 @@ def _onemin_browseract_failure_code(error: object) -> str:
     return ""
 
 
+def _onemin_browseract_proxy_rotation_retry_limit() -> int:
+    raw = str(upstream._env("EA_ONEMIN_BROWSERACT_PROXY_ROTATION_RETRY_LIMIT") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = int(raw) if raw else 1
+    except Exception:
+        value = 1
+    return max(0, min(value, 3))
+
+
+def _onemin_browseract_proxy_rotation_retry_parallelism() -> int:
+    raw = str(upstream._env("EA_ONEMIN_BROWSERACT_PROXY_ROTATION_RETRY_PARALLELISM") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = int(raw) if raw else 1
+    except Exception:
+        value = 1
+    return max(1, min(value, 8))
+
+
+def _fastestvpn_rotate_script_path() -> Path:
+    configured = str(upstream._env("EA_FASTESTVPN_ROTATE_SCRIPT") or "/docker/EA/scripts/rotate_fastestvpn_proxy.sh").strip()  # type: ignore[attr-defined]
+    return Path(configured or "/docker/EA/scripts/rotate_fastestvpn_proxy.sh")
+
+
+def _job_uses_fastestvpn_proxy(job: dict[str, object]) -> bool:
+    proxy_server = str(
+        _browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})).get("browser_proxy_server") or ""
+    ).strip().lower()
+    return bool(proxy_server and "fastestvpn" in proxy_server)
+
+
+def _rotate_fastestvpn_proxy(*, reason: str) -> dict[str, object]:
+    script_path = _fastestvpn_rotate_script_path()
+    event: dict[str, object] = {
+        "reason": str(reason or "").strip(),
+        "script_path": str(script_path),
+    }
+    if not script_path.is_file():
+        event.update(
+            {
+                "returncode": 127,
+                "duration_seconds": 0.0,
+                "stdout": "",
+                "stderr": "rotate_script_missing",
+            }
+        )
+        return event
+
+    start = time.time()
+    timeout_raw = str(upstream._env("EA_FASTESTVPN_ROTATE_TIMEOUT_SECONDS") or "").strip()  # type: ignore[attr-defined]
+    try:
+        timeout_seconds = int(timeout_raw) if timeout_raw else 300
+    except Exception:
+        timeout_seconds = 300
+    timeout_seconds = max(30, min(timeout_seconds, 900))
+    try:
+        completed = subprocess.run(
+            [str(script_path)],
+            cwd=str(script_path.parent.parent),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+        event.update(
+            {
+                "returncode": int(completed.returncode),
+                "duration_seconds": round(time.time() - start, 3),
+                "stdout": str(completed.stdout or "")[-4000:],
+                "stderr": str(completed.stderr or "")[-4000:],
+            }
+        )
+    except Exception as exc:
+        event.update(
+            {
+                "returncode": 1,
+                "duration_seconds": round(time.time() - start, 3),
+                "stdout": "",
+                "stderr": str(exc),
+            }
+        )
+    return event
+
+
+def _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
+    *,
+    jobs: list[dict[str, object]],
+    results: list[dict[str, object]],
+    errors: list[dict[str, object]],
+    max_workers: int,
+    invoke_job,
+    tool_name: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]], list[str]]:
+    if not jobs or not errors:
+        return results, errors, [], []
+
+    retry_limit = _onemin_browseract_proxy_rotation_retry_limit()
+    if retry_limit <= 0:
+        return results, errors, [], []
+
+    retry_failure_codes = {
+        "auth_request_failed",
+        "challenge_required",
+        "session_expired",
+        "timeout",
+    }
+    job_index_by_key: dict[tuple[str, str], int] = {}
+    job_by_key: dict[tuple[str, str], dict[str, object]] = {}
+    for index, job in enumerate(jobs):
+        key = (
+            str(job.get("binding_id") or "").strip(),
+            str(job.get("account_label") or "").strip(),
+        )
+        if key not in job_by_key:
+            job_by_key[key] = job
+            job_index_by_key[key] = index
+
+    result_by_key: dict[tuple[str, str], dict[str, object]] = {}
+    for row in results:
+        key = (
+            str(row.get("binding_id") or "").strip(),
+            str(row.get("account_label") or "").strip(),
+        )
+        result_by_key[key] = row
+
+    error_by_key: dict[tuple[str, str], dict[str, object]] = {}
+    for row in errors:
+        key = (
+            str(row.get("binding_id") or "").strip(),
+            str(row.get("account_label") or "").strip(),
+        )
+        error_by_key[key] = row
+
+    initial_retry_keys = {
+        key
+        for key, row in error_by_key.items()
+        if str(row.get("failure_code") or "").strip() in retry_failure_codes
+        and key in job_by_key
+        and _job_uses_fastestvpn_proxy(job_by_key[key])
+    }
+    if not initial_retry_keys:
+        return results, errors, [], []
+
+    rotation_events: list[dict[str, object]] = []
+    for attempt in range(1, retry_limit + 1):
+        retry_keys = sorted(
+            [
+                key
+                for key, row in error_by_key.items()
+                if str(row.get("failure_code") or "").strip() in retry_failure_codes
+                and key in job_by_key
+                and _job_uses_fastestvpn_proxy(job_by_key[key])
+            ],
+            key=lambda item: job_index_by_key.get(item, 10**9),
+        )
+        if not retry_keys:
+            break
+        rotation_event = _rotate_fastestvpn_proxy(
+            reason=f"{tool_name}:attempt_{attempt}:{','.join(key[1] for key in retry_keys[:3])}"
+        )
+        rotation_event["attempt"] = attempt
+        rotation_event["tool_name"] = tool_name
+        rotation_event["account_labels"] = [key[1] for key in retry_keys]
+        rotation_events.append(rotation_event)
+        if int(rotation_event.get("returncode") or 0) != 0:
+            break
+
+        retry_jobs = [job_by_key[key] for key in retry_keys]
+        retry_results, retry_errors = _run_onemin_browseract_jobs(
+            jobs=retry_jobs,
+            max_workers=min(_onemin_browseract_proxy_rotation_retry_parallelism(), max_workers, len(retry_jobs)),
+            invoke_job=invoke_job,
+            tool_name=tool_name,
+        )
+        for key in retry_keys:
+            error_by_key.pop(key, None)
+            result_by_key.pop(key, None)
+        for row in retry_results:
+            key = (
+                str(row.get("binding_id") or "").strip(),
+                str(row.get("account_label") or "").strip(),
+            )
+            result_by_key[key] = row
+        for row in retry_errors:
+            key = (
+                str(row.get("binding_id") or "").strip(),
+                str(row.get("account_label") or "").strip(),
+            )
+            error_by_key[key] = row
+
+    recovered_labels = sorted(
+        {
+            key[1]
+            for key in initial_retry_keys
+            if key in result_by_key and key not in error_by_key
+        }
+    )
+
+    sorted_results = sorted(
+        result_by_key.values(),
+        key=lambda row: job_index_by_key.get(
+            (
+                str(row.get("binding_id") or "").strip(),
+                str(row.get("account_label") or "").strip(),
+            ),
+            10**9,
+        ),
+    )
+    sorted_errors = sorted(
+        error_by_key.values(),
+        key=lambda row: job_index_by_key.get(
+            (
+                str(row.get("binding_id") or "").strip(),
+                str(row.get("account_label") or "").strip(),
+            ),
+            10**9,
+        ),
+    )
+    return sorted_results, sorted_errors, rotation_events, recovered_labels
+
+
 def _onemin_direct_api_quarantine_remaining() -> tuple[float, str]:
     remaining = max(0.0, _ONEMIN_DIRECT_API_QUARANTINED_UNTIL - time.time())
     return remaining, str(_ONEMIN_DIRECT_API_QUARANTINE_REASON or "").strip()
@@ -1385,6 +1649,33 @@ def _partition_onemin_browseract_account_labels(
     binding_rows: list[object],
     account_labels: list[str],
 ) -> tuple[list[str], list[str]]:
+    def _billing_refresh_fresh_seconds() -> float:
+        raw = str(os.environ.get("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS") or "21600").strip()
+        try:
+            return max(300.0, float(raw))
+        except Exception:
+            return 21600.0
+
+    def _has_fresh_actual_billing(row: dict[str, object]) -> bool:
+        if not bool(row.get("has_actual_billing")):
+            return False
+        last_snapshot = _onemin_parse_iso(row.get("last_billing_snapshot_at"))
+        if last_snapshot is None:
+            return False
+        now = datetime.now(timezone.utc)
+        if (now - last_snapshot).total_seconds() > _billing_refresh_fresh_seconds():
+            return False
+        details_json = dict(row.get("details_json") or {})
+        next_topup = _onemin_parse_iso(
+            details_json.get("billing_next_topup_at")
+            or details_json.get("next_topup_at")
+            or row.get("billing_next_topup_at")
+            or row.get("next_topup_at")
+        )
+        if next_topup is None:
+            return False
+        return next_topup > now
+
     normalized_labels: list[str] = []
     seen: set[str] = set()
     for value in account_labels:
@@ -1393,10 +1684,8 @@ def _partition_onemin_browseract_account_labels(
             continue
         seen.add(normalized)
         normalized_labels.append(normalized)
-    if len(normalized_labels) <= 1:
-        if not normalized_labels:
-            return [], []
-        return normalized_labels, []
+    if not normalized_labels:
+        return [], []
 
     try:
         account_rows = container.onemin_manager.accounts_snapshot(
@@ -1417,22 +1706,29 @@ def _partition_onemin_browseract_account_labels(
 
     def _sort_key(label: str) -> tuple[int, float, int]:
         row = details_by_label.get(label) or {}
-        has_actual = bool(row.get("has_actual_billing"))
         last_snapshot = _onemin_parse_iso(row.get("last_billing_snapshot_at"))
         freshness = last_snapshot.timestamp() if last_snapshot is not None else -1.0
         return (
             freshness,
             original_index.get(label, 0),
         )
-    missing_labels = sorted(
-        [label for label in normalized_labels if not bool((details_by_label.get(label) or {}).get("has_actual_billing"))],
+    refresh_needed_labels = sorted(
+        [
+            label
+            for label in normalized_labels
+            if not _has_fresh_actual_billing(details_by_label.get(label) or {})
+        ],
         key=_sort_key,
     )
-    actual_labels = sorted(
-        [label for label in normalized_labels if bool((details_by_label.get(label) or {}).get("has_actual_billing"))],
+    fresh_actual_labels = sorted(
+        [
+            label
+            for label in normalized_labels
+            if _has_fresh_actual_billing(details_by_label.get(label) or {})
+        ],
         key=_sort_key,
     )
-    return missing_labels, actual_labels
+    return refresh_needed_labels, fresh_actual_labels
 
 
 def _onemin_interval_for_type(*, topup_type: str, subscription_cycle: str) -> timedelta | None:
@@ -2031,8 +2327,12 @@ def refresh_onemin_billing(
     all_account_login_credentials: dict[str, dict[str, str]] = {}
     refresh_allowed, throttle_seconds_remaining, throttle_reason = container.onemin_manager.begin_billing_refresh()
     binding_jobs: list[dict[str, object]] = []
+    stale_labels: list[str] = []
+    actual_labels: list[str] = []
 
     try:
+        browseract_proxy_rotations: list[dict[str, object]] = []
+        browseract_proxy_recovered_labels: set[str] = set()
         for binding in bindings:
             binding_metadata = dict(binding.auth_metadata_json or {})
             billing_run_url = _binding_run_url(
@@ -2140,7 +2440,7 @@ def refresh_onemin_billing(
                     )
                 )
             remaining_browseract_slots = max(browseract_max_accounts - len(selected_browseract_labels), 0)
-            if remaining_browseract_slots > 0 and actual_labels:
+            if remaining_browseract_slots > 0 and actual_labels and not requested_account_labels:
                 selected_browseract_labels.update(
                     container.onemin_manager.select_billing_refresh_account_labels(
                         actual_labels,
@@ -2198,6 +2498,7 @@ def refresh_onemin_billing(
                                 "principal_id": str(job.get("principal_id") or context.principal_id),
                                 "binding_id": binding.binding_id,
                                 "external_account_ref": binding.external_account_ref,
+                                "binding_metadata": binding_metadata,
                                 "account_label": account_label,
                                 "capture_raw_text": bool(payload.capture_raw_text),
                                 "billing_run_url": billing_run_url,
@@ -2243,6 +2544,7 @@ def refresh_onemin_billing(
                             "principal_id": str(selected_binding_job.get("principal_id") or context.principal_id),
                             "binding_id": str(selected_binding_job.get("binding_id") or ""),
                             "external_account_ref": str(selected_binding_job.get("external_account_ref") or ""),
+                            "binding_metadata": binding_metadata,
                             "account_label": account_label,
                             "capture_raw_text": bool(payload.capture_raw_text),
                             "billing_run_url": str(selected_binding_job.get("billing_run_url") or ""),
@@ -2296,10 +2598,40 @@ def refresh_onemin_billing(
                         "capture_raw_text": bool(job.get("capture_raw_text")),
                         **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
                         **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
                         "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
                     },
                 ),
             )
+            (
+                billing_job_results,
+                billing_job_errors,
+                billing_proxy_rotations,
+                recovered_billing_labels,
+            ) = _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
+                jobs=browseract_billing_jobs,
+                results=billing_job_results,
+                errors=billing_job_errors,
+                max_workers=effective_browseract_parallelism,
+                invoke_job=lambda job: _invoke_browseract_tool(
+                    container=container,
+                    principal_id=str(job.get("principal_id") or context.principal_id),
+                    tool_name="browseract.onemin_billing_usage",
+                    action_kind="billing.inspect",
+                    payload_json={
+                        "binding_id": str(job.get("binding_id") or ""),
+                        "account_label": str(job.get("account_label") or ""),
+                        "capture_raw_text": bool(job.get("capture_raw_text")),
+                        **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
+                        **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
+                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                    },
+                ),
+                tool_name="browseract.onemin_billing_usage",
+            )
+            browseract_proxy_rotations.extend(billing_proxy_rotations)
+            browseract_proxy_recovered_labels.update(recovered_billing_labels)
             billing_results.extend(billing_job_results)
             browseract_billing_result_labels.update(
                 str(row.get("account_label") or "").strip()
@@ -2370,10 +2702,40 @@ def refresh_onemin_billing(
                         "capture_raw_text": bool(job.get("capture_raw_text")),
                         **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
                         **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
                         "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
                     },
                 ),
             )
+            (
+                member_job_results,
+                member_job_errors,
+                member_proxy_rotations,
+                recovered_member_labels,
+            ) = _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
+                jobs=browseract_member_jobs,
+                results=member_job_results,
+                errors=member_job_errors,
+                max_workers=effective_member_parallelism,
+                invoke_job=lambda job: _invoke_browseract_tool(
+                    container=container,
+                    principal_id=str(job.get("principal_id") or context.principal_id),
+                    tool_name="browseract.onemin_member_reconciliation",
+                    action_kind="billing.reconcile_members",
+                    payload_json={
+                        "binding_id": str(job.get("binding_id") or ""),
+                        "account_label": str(job.get("account_label") or ""),
+                        "capture_raw_text": bool(job.get("capture_raw_text")),
+                        **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
+                        **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
+                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                    },
+                ),
+                tool_name="browseract.onemin_member_reconciliation",
+            )
+            browseract_proxy_rotations.extend(member_proxy_rotations)
+            browseract_proxy_recovered_labels.update(recovered_member_labels)
             member_results.extend(member_job_results)
 
         selected_binding_ids: list[str] = []
@@ -2392,6 +2754,7 @@ def refresh_onemin_billing(
         api_skipped_count = 0
         api_rate_limited = False
         provider_api_target_labels: set[str] = set()
+        refresh_needed_label_set = set(stale_labels)
         browseract_failed_labels = {
             str(row.get("account_label") or "").strip()
             for row in [*billing_job_errors, *member_job_errors]
@@ -2406,20 +2769,26 @@ def refresh_onemin_billing(
             effective_include_provider_api = False
         if effective_include_provider_api:
             if browseract_failed_labels:
-                provider_api_target_labels = set(browseract_failed_labels | browseract_gap_labels)
-                provider_api_recovery_mode = "browseract_failure_recovery"
+                provider_api_target_labels = set(browseract_failed_labels | browseract_gap_labels) & refresh_needed_label_set
+                if provider_api_target_labels:
+                    provider_api_recovery_mode = "browseract_failure_recovery"
             elif browseract_gap_labels:
-                provider_api_target_labels = set(browseract_gap_labels)
-                provider_api_recovery_mode = "browseract_gap_recovery"
+                provider_api_target_labels = set(browseract_gap_labels) & refresh_needed_label_set
+                if provider_api_target_labels:
+                    provider_api_recovery_mode = "browseract_gap_recovery"
             elif browseract_billing_attempted_labels:
                 effective_include_provider_api = False
                 provider_api_skip_reason = "browseract_login_refresh"
                 api_skipped_count = len(browseract_target_labels) if browseract_target_labels else len(all_api_account_rows)
             elif not allow_global_provider_api:
-                provider_api_target_labels = set(browseract_target_labels)
+                provider_api_target_labels = set(refresh_needed_label_set)
+            if effective_include_provider_api and not allow_global_provider_api and not provider_api_target_labels:
+                effective_include_provider_api = False
+                provider_api_skip_reason = "fresh_actual_billing"
+                api_skipped_count = len(browseract_target_labels) if browseract_target_labels else len(all_api_account_rows)
         if refresh_allowed and effective_include_provider_api:
             effective_api_all_accounts = bool(allow_global_provider_api and not provider_api_target_labels)
-            effective_api_account_labels = None if effective_api_all_accounts else provider_api_target_labels or set(browseract_target_labels)
+            effective_api_account_labels = None if effective_api_all_accounts else provider_api_target_labels
             effective_api_login_credentials = None if effective_api_all_accounts else {
                 account_label: credentials
                 for account_label, credentials in all_account_login_credentials.items()
@@ -2555,6 +2924,11 @@ def refresh_onemin_billing(
                     f"{'Owner-ledger' if browseract_scope != 'bound_accounts_only' else 'Bound'} 1min account telemetry refreshed through BrowserAct login-backed billing pages; "
                     "direct 1min API refresh was skipped to avoid provider rate limiting."
                 )
+        elif provider_api_skip_reason == "fresh_actual_billing":
+            note = (
+                "Selected 1min accounts already have fresh actual billing snapshots with a future top-up on record; "
+                "active BrowserAct/direct API refresh was skipped."
+            )
         elif bool(payload.include_provider_api) and not effective_include_provider_api:
             note = "Direct 1min API refresh is disabled without operator scope or an eligible 1min account selection."
         elif not bindings and api_billing_results:
@@ -2565,6 +2939,14 @@ def refresh_onemin_billing(
             note = "No enabled BrowserAct connector bindings were configured for this principal."
         elif not billing_results and not member_results and not errors:
             note = "No BrowserAct 1min billing or member workflows were configured on the selected bindings."
+        if browseract_proxy_rotations:
+            rotation_summary = (
+                f"FastestVPN proxy rotated {len(browseract_proxy_rotations)} time(s)"
+                f" and recovered {len(browseract_proxy_recovered_labels)} account(s)."
+                if browseract_proxy_recovered_labels
+                else f"FastestVPN proxy rotated {len(browseract_proxy_rotations)} time(s) during BrowserAct recovery."
+            )
+            note = f"{note} {rotation_summary}".strip() if note else rotation_summary
 
         return {
             "provider_key": "onemin",
@@ -2591,6 +2973,9 @@ def refresh_onemin_billing(
             "api_member_reconciliation_count": len(api_member_results),
             "browseract_failed_labels": sorted(browseract_failed_labels),
             "browseract_recovered_labels": sorted(recovered_browseract_labels & browseract_failed_labels),
+            "browseract_proxy_rotation_count": len(browseract_proxy_rotations),
+            "browseract_proxy_recovered_labels": sorted(browseract_proxy_recovered_labels),
+            "browseract_proxy_rotations": browseract_proxy_rotations,
             "billing_results": billing_results,
             "member_results": member_results,
             "errors": errors,

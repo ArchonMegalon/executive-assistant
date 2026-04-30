@@ -677,6 +677,76 @@ def test_pick_onemin_key_prefers_recent_probe_ok_candidate_despite_stale_observe
     assert pick[0] == "probe_ok"
 
 
+def test_pick_onemin_key_accepts_fresh_actual_billing_newer_than_depleted_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("fresh-billing", "stale-depleted")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 2000.0)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: keys)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: f"account-{key}")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: f"slot-{key}")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "account-fresh-billing",
+                            "slot": "slot-fresh-billing",
+                            "state": "ready",
+                            "billing_remaining_credits": 4_255_550,
+                            "estimated_remaining_credits": 4_255_550,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 0 credits",
+                            "last_probe_at": 1000.0,
+                            "last_billing_snapshot_at": "2026-04-30T14:23:21Z",
+                        },
+                        {
+                            "account_name": "account-stale-depleted",
+                            "slot": "slot-stale-depleted",
+                            "state": "ready",
+                            "billing_remaining_credits": 4_255_550,
+                            "estimated_remaining_credits": 4_255_550,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 0 credits",
+                            "last_probe_at": 2000.0,
+                            "last_billing_snapshot_at": "1970-01-01T00:00:01Z",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        return (4_255_550, "actual_provider_api", True, 1500.0, 1500.0)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (0.0, 0.0, 0.0, 0, 0))
+    monkeypatch.setattr(upstream, "_latest_provider_billing_snapshot", lambda **_kwargs: None)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_FAST,
+        model="gpt-5.4",
+        required_credits=1726,
+    )
+
+    assert pick is not None
+    assert pick[0] == "fresh-billing"
+
+
 def test_pick_onemin_key_prefers_observed_balance_over_synthetic_balance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -737,6 +807,72 @@ def test_pick_onemin_key_returns_none_when_only_blocked_keys_remain_for_credit_b
         lane=upstream._LANE_FAST,
         model="gpt-5.4",
         required_credits=1726,
+    )
+
+    assert pick is None
+
+
+def test_pick_onemin_key_respects_complete_provider_health_exhaustion_over_stale_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("stale-a", "stale-b")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: keys)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: f"account-{key}")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: f"slot-{key}")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "account-stale-a",
+                            "slot": "slot-stale-a",
+                            "state": "ready",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 0,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 50 credits, but the Team only has 0 credits",
+                        },
+                        {
+                            "account_name": "account-stale-b",
+                            "slot": "slot-stale-b",
+                            "state": "ready",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 0,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 50 credits, but the Team only has 0 credits",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        _ = api_key
+        return (4_255_550, "actual_provider_api", True, 995.0, 995.0)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (900.0, 900.0, 900.0, 2573, 2573))
+    monkeypatch.setattr(upstream, "_latest_provider_billing_snapshot", lambda **_kwargs: None)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5.4",
+        required_credits=50,
     )
 
     assert pick is None
@@ -1713,6 +1849,43 @@ def test_onemin_provider_health_pick_rejects_probe_ok_slot_with_zero_actual_rema
     )
 
     assert pick is None
+
+
+def test_onemin_provider_health_pick_accepts_fresh_actual_billing_newer_than_depleted_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "fresh-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "estimated_remaining_credits": 4_255_550,
+                            "billing_remaining_credits": 4_255_550,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 0 credits",
+                            "last_probe_at": 1000.0,
+                            "last_billing_snapshot_at": "2026-04-30T14:23:21Z",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=1726,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is not None
+    assert pick[0] == "fresh-key"
 
 
 def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_request(

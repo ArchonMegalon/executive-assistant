@@ -290,8 +290,36 @@ class OneminManagerService:
     def _candidate_probe_ok(self, candidate: dict[str, object]) -> bool:
         return str(candidate.get("last_probe_result") or "").strip().lower() == "ok"
 
+    def _candidate_recent_billing_recovery(
+        self,
+        candidate: dict[str, object],
+        *,
+        required_credits: int | None = None,
+    ) -> bool:
+        if not self._candidate_positive_actual_billing(candidate):
+            return False
+        probe_result = str(candidate.get("last_probe_result") or "").strip().lower()
+        if probe_result not in {"depleted", "insufficient_credits"}:
+            return False
+        last_billing_snapshot_at = self._freshness_epoch(candidate.get("last_billing_snapshot_at"))
+        if last_billing_snapshot_at <= 0.0:
+            return False
+        last_probe_at = self._freshness_epoch(candidate.get("last_probe_at"))
+        last_failure_at = self._freshness_epoch(candidate.get("last_failure_at"))
+        freshest_negative_at = max(last_probe_at, last_failure_at)
+        if freshest_negative_at > 0.0 and last_billing_snapshot_at < freshest_negative_at:
+            return False
+        normalized_required = max(0, int(required_credits or 0))
+        if normalized_required > 0:
+            billing_remaining = self._parse_float(candidate.get("billing_remaining_credits")) or 0.0
+            if billing_remaining < normalized_required:
+                return False
+        return True
+
     def _candidate_recovery_evidence(self, candidate: dict[str, object]) -> bool:
         if self._candidate_probe_ok(candidate):
+            return True
+        if self._candidate_recent_billing_recovery(candidate):
             return True
         last_success_at = self._parse_float(candidate.get("last_success_at")) or 0.0
         last_failure_at = self._parse_float(candidate.get("last_failure_at")) or 0.0
@@ -310,6 +338,8 @@ class OneminManagerService:
                 return max(0.0, billing_remaining)
             if live_remaining > 0.0 and self._candidate_recovery_evidence(candidate):
                 return max(max(0.0, live_remaining), max(0.0, billing_remaining))
+            if live_remaining <= 0.0 and self._candidate_recent_billing_recovery(candidate):
+                return max(0.0, billing_remaining)
         known_remaining = self._candidate_known_remaining_credits(candidate)
         if known_remaining is not None:
             return known_remaining
@@ -321,13 +351,19 @@ class OneminManagerService:
             if candidate.get("remaining_credits") not in (None, "")
             else candidate.get("estimated_remaining_credits")
         )
+        billing_remaining = self._parse_float(candidate.get("billing_remaining_credits"))
         if (
             self._candidate_budget_signal(candidate) is not None
-            and self._candidate_recovery_evidence(candidate)
+            and (
+                self._candidate_recent_billing_recovery(candidate)
+                or (
+                    self._candidate_recovery_evidence(candidate)
+                    and observed_remaining is not None
+                    and observed_remaining > 0.0
+                )
+            )
             and not bool(candidate.get("billing_team_mismatch"))
-            and observed_remaining is not None
-            and observed_remaining > 0.0
-            and self._parse_float(candidate.get("billing_remaining_credits")) not in (None, 0.0)
+            and billing_remaining not in (None, 0.0)
         ):
             return (
                 "billing_remaining_credits",
@@ -952,6 +988,7 @@ class OneminManagerService:
                     "last_error": slot.get("last_error"),
                     "last_probe_result": slot.get("last_probe_result"),
                     "last_probe_detail": slot.get("last_probe_detail"),
+                    "last_probe_at": slot.get("last_probe_at"),
                 }
             )
         return rows
