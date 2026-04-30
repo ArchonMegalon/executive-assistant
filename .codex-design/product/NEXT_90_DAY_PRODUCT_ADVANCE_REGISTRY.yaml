@@ -2878,7 +2878,8 @@ milestones:
       and one approved consequence loop without leaving governed Chummer truth.
     - Veteran-replacement families now have direct screenshot-backed and runtime-backed proof for translator or XML, dense builder
       and career flows, dice and initiative, import oracles or Hero Lab, contacts or lifestyles or history, and print or export
-      utilities.
+      utilities, plus dialog-level element inventories carrying `present_in_chummer5a`, `present_in_chummer6`, `visual_parity`,
+      `behavioral_parity`, `removable_if_not_in_chummer5a`, and `reason`.
     - Mobile and companion continuity make recap, return moment, player-safe consequence feed, and degraded-network posture feel
       dependable instead of desk-only.
     work_tasks:
@@ -2890,6 +2891,30 @@ milestones:
       owner: chummer6-ui
       title: Close veteran-depth desktop parity for translator/XML, dense builder, career, dice/initiative, contacts/lifestyles/history,
         and print/export families with direct screenshot and runtime proof.
+    - id: '136.21'
+      owner: chummer6-ui
+      title: Close translator/XML/custom-data bridge parity with dialog-level element inventories and direct screenshot/runtime proof.
+    - id: '136.22'
+      owner: chummer6-ui
+      title: Close dense builder and career parity with dialog-level element inventories for attributes, skills, qualities, gear/augment,
+        and specialist tabs.
+    - id: '136.23'
+      owner: chummer6-ui
+      title: Close dice, initiative, and quick table-utility parity with dialog-level screenshot/runtime proof and per-element verdicts.
+    - id: '136.24'
+      owner: chummer6-ui
+      title: Close identity, contacts, lifestyles, and history parity with direct dialog evidence and explicit yes/no element verdicts.
+    - id: '136.25'
+      owner: chummer6-ui
+      title: Close Hero Lab, legacy import-oracle, and migration-confidence parity with surfaced routes and bounded-loss review proof.
+    - id: '136.26'
+      owner: chummer6-ui
+      title: Close sheet viewer, print-multiple, export, and exchange parity with explicit first-class target visibility and per-element
+        verdicts.
+    - id: '136.27'
+      owner: chummer6-ui
+      title: Close SR6 supplement, designer-tool, and house-rule parity posture with surfaced routes, screenshot proof, and yes/no
+        element inventories.
     - id: '136.3'
       owner: chummer6-mobile
       title: Close recap, return-moment, consequence-feed, travel, and degraded-network companion continuity from governed campaign truth.
@@ -2903,12 +2928,19 @@ milestones:
         without inventing shadow truth.
     - id: '136.6'
       owner: fleet
-      title: Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs, or continuity journey receipts
-        are stale or missing.
+      title: Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs, dialog-level element
+        inventories, or continuity journey receipts are stale or missing.
     - id: '136.7'
       owner: chummer6-design
       title: Close calm-under-pressure, veteran-depth, continuity, and human-feeling parity canon plus acceptance language from the vision
         recovery overlay.
+    - id: '136.8'
+      owner: chummer6-design
+      title: Publish dialog-level Chummer5A human parity acceptance canon for the remaining hard families, including yes/no visual
+        and behavioral verdict fields and explicit removable-extra reasons.
+    - id: '136.9'
+      owner: fleet
+      title: Bind the machine-readable human parity matrix into audit/gate consumption so hard families cannot close on prose-only proof.
   - id: 137
     title: Ecosystem leverage, community formation, and acquisition-fit integration seams
     wave: W24
