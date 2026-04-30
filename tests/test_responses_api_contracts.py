@@ -916,6 +916,439 @@ def test_tool_shim_direct_post_staged_repo_hunks_short_circuits_after_repo_diff(
     }
 
 
+def test_tool_shim_gap_audit_probe_short_circuits_to_direct_final_text() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared gap audit context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_gap_audit_probe.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_gap_audit_probe.py"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "probe_kind": "gap_audit",
+                        "findings": [
+                            {
+                                "severity": "high",
+                                "category": "workflow_gate_gap",
+                                "summary": "Desktop proof is stale.",
+                                "path": "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+                                "detail": "Executable desktop exit gate receipt is stale.",
+                            },
+                            {
+                                "severity": "medium",
+                                "category": "milestone_gap",
+                                "summary": "No missing frontier IDs were found.",
+                                "path": "/docker/fleet/state/chummer_design_supervisor/state.json",
+                                "detail": "missing_frontier_ids=[]",
+                            },
+                        ],
+                        "notes": ["No missing flagship frontier milestone IDs were found in the live open milestone aggregate."],
+                    }
+                ),
+            },
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert "Gap audit findings:" in decision.text
+    assert "HIGH workflow_gate_gap: Desktop proof is stale." in decision.text
+    assert "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json" in decision.text
+    assert "Notes:" in decision.text
+
+
+def test_tool_shim_ui_parity_audit_probe_short_circuits_to_direct_final_text() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared UI parity audit context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_ui_parity_audit_probe.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_ui_parity_audit_probe.py"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "probe_kind": "ui_parity_audit",
+                        "total_elements": 64,
+                        "visual_yes_count": 52,
+                        "visual_no_count": 12,
+                        "behavioral_yes_count": 49,
+                        "behavioral_no_count": 15,
+                        "chummer6_only_extra_present_count": 0,
+                        "removable_extra_present_count": 0,
+                        "coverage_gap_keys": ["desktop_client"],
+                        "report_json_path": "/tmp/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json",
+                        "report_markdown_path": "/tmp/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.md",
+                        "findings": [
+                            {
+                                "severity": "high",
+                                "category": "ui_parity_gap",
+                                "summary": "Translator route is not directly parity-proven.",
+                                "detail": "Current parity artifacts do not directly prove this route with screenshot-backed runtime coverage.",
+                            }
+                        ],
+                        "notes": [
+                            "This matrix covers every parity-tracked visible surface represented in the current parity artifacts."
+                        ],
+                    }
+                ),
+            },
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert "UI parity audit result:" in decision.text
+    assert "total_elements=64" in decision.text
+    assert "visual_yes_no=52/12" in decision.text
+    assert "report_json=/tmp/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json" in decision.text
+    assert "HIGH ui_parity_gap: Translator route is not directly parity-proven." in decision.text
+
+
+def test_tool_shim_parity_build_probe_short_circuits_to_direct_final_text() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared parity build context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_parity_build_workflow.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_parity_build_workflow.py"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "probe_kind": "parity_build",
+                        "release_version": "run-20260430-120000",
+                        "applied_steps": ["build_avalonia_windows_downloads", "desktop_visual_familiarity_exit_gate"],
+                        "parity_report_path": "/tmp/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json",
+                        "parity_summary": {
+                            "visual_yes_count": 74,
+                            "visual_no_count": 10,
+                            "behavioral_yes_count": 74,
+                            "behavioral_no_count": 10,
+                        },
+                        "remaining_findings": [
+                            {
+                                "severity": "high",
+                                "category": "workflow_gate_gap",
+                                "summary": "Windows desktop exit proof is still blocking honest full parity closure.",
+                                "detail": "startup smoke receipt digest mismatch",
+                            }
+                        ],
+                    }
+                ),
+            },
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert "Parity build result:" in decision.text
+    assert "release_version=run-20260430-120000" in decision.text
+    assert "parity_report=/tmp/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json" in decision.text
+    assert "HIGH workflow_gate_gap: Windows desktop exit proof is still blocking honest full parity closure." in decision.text
+
+
+def test_tool_shim_gap_fix_probe_short_circuits_to_direct_final_text() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared gap fix context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_gap_fix_workflow.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_gap_fix_workflow.py"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "probe_kind": "gap_fix",
+                        "applied_steps": [
+                            "sync_promoted_release_mirrors",
+                            "desktop_workflow_execution_gate",
+                        ],
+                        "step_results": [
+                            {"name": "sync_promoted_release_mirrors", "status": "pass"},
+                            {"name": "desktop_workflow_execution_gate", "status": "pass"},
+                            {"name": "windows_desktop_exit_gate", "status": "fail"},
+                        ],
+                        "status_summary": {
+                            "workflow_gate": {"status": "pass"},
+                            "visual_gate": {"status": "pass"},
+                            "windows_gate": {"status": "failed"},
+                            "desktop_executable_gate": {"status": "fail"},
+                            "flagship_readiness": {"status": "fail"},
+                        },
+                        "remaining_findings": [
+                            {
+                                "severity": "high",
+                                "category": "workflow_gate_gap",
+                                "summary": "Windows gate still points at stale local shelf bytes.",
+                                "detail": "Installer digest mismatch remains after proof refresh.",
+                            }
+                        ],
+                    }
+                ),
+            },
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert "Gap fix result:" in decision.text
+    assert "Applied:" in decision.text
+    assert "workflow_gate=pass" in decision.text
+    assert "Remaining findings:" in decision.text
+    assert "Windows gate still points at stale local shelf bytes." in decision.text
+
+
+def test_tool_shim_gap_fix_first_command_raises_output_budget() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared gap fix context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_gap_fix_workflow.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_gap_fix_workflow.py",
+        "max_output_tokens": 6000,
+    }
+
+
+def test_tool_shim_ui_parity_audit_first_command_raises_output_budget() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared UI parity audit context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_ui_parity_audit_probe.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_ui_parity_audit_probe.py",
+        "max_output_tokens": 5000,
+    }
+
+
+def test_tool_shim_parity_build_first_command_raises_output_budget() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared parity build context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_parity_build_workflow.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[{"type": "input_text", "text": prompt}],
+    )
+
+    assert decision.kind == "function_call"
+    assert decision.tool_name == "exec_command"
+    assert decision.arguments == {
+        "cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_parity_build_workflow.py",
+        "max_output_tokens": 7000,
+    }
+
+
+def test_tool_shim_gap_fix_named_helper_summary_beats_later_non_json_tool_output() -> None:
+    from app.api.routes import responses
+
+    prompt = """
+    Operator-prepared gap fix context:
+    - Run these exact commands first:
+    - python3 /docker/fleet/scripts/codex-shims/codexea_gap_fix_workflow.py
+    """
+
+    decision = responses._tool_shim_decision(
+        model="ea-coder-fast",
+        max_output_tokens=None,
+        instructions=None,
+        tools=[
+            {
+                "name": "exec_command",
+                "description": "Run a shell command.",
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ],
+        history_items=[
+            {"type": "input_text", "text": prompt},
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "python3 /docker/fleet/scripts/codex-shims/codexea_gap_fix_workflow.py"}),
+                "call_id": "call_1",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": json.dumps(
+                    {
+                        "probe_kind": "gap_fix",
+                        "applied_steps": ["sync_promoted_release_mirrors"],
+                        "status_summary": {
+                            "workflow_gate": {"status": "pass"},
+                            "windows_gate": {"status": "failed"},
+                            "desktop_executable_gate": {"status": "fail"},
+                            "flagship_readiness": {"status": "fail"},
+                        },
+                        "remaining_findings": [
+                            {
+                                "severity": "high",
+                                "category": "workflow_gate_gap",
+                                "summary": "Windows gate still points at stale local shelf bytes.",
+                                "detail": "Installer digest mismatch remains after proof refresh.",
+                            }
+                        ],
+                    }
+                ),
+            },
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": "git -C /docker/fleet status --short -- scripts/codex-shims/codexea_gap_fix_workflow.py"}),
+                "call_id": "call_2",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_2",
+                "output": "?? scripts/codex-shims/codexea_gap_fix_workflow.py",
+            },
+        ],
+    )
+
+    assert decision.kind == "final"
+    assert "Gap fix result:" in decision.text
+    assert "Windows gate still points at stale local shelf bytes." in decision.text
+
+
 def test_tool_shim_direct_operator_unblock_hotspot_short_circuits_initial_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

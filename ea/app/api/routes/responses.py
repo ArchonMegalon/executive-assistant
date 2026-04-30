@@ -3946,6 +3946,8 @@ def _tool_shim_planner_model(model: str, *, prompt: str | None = None) -> str:
     if (
         _tool_shim_is_staged_local_orientation_prompt(normalized_prompt)
         or _tool_shim_is_operator_fleet_unblock_prompt(normalized_prompt)
+        or _tool_shim_is_operator_gap_fix_prompt(normalized_prompt)
+        or _tool_shim_is_operator_gap_audit_prompt(normalized_prompt)
         or _tool_shim_is_operator_readiness_remedy_prompt(normalized_prompt)
     ):
         fast_planner = str(FAST_PUBLIC_MODEL or "").strip() or "ea-coder-fast"
@@ -4138,6 +4140,34 @@ def _tool_shim_is_operator_readiness_remedy_prompt(text: str) -> bool:
             and "stay on product proof generation, verification" in normalized
         )
     )
+
+
+def _tool_shim_is_operator_gap_audit_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return "operator-prepared gap audit context:" in normalized
+
+
+def _tool_shim_is_operator_ui_parity_audit_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return "operator-prepared ui parity audit context:" in normalized
+
+
+def _tool_shim_is_operator_parity_build_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return "operator-prepared parity build context:" in normalized
+
+
+def _tool_shim_is_operator_gap_fix_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return "operator-prepared gap fix context:" in normalized
 
 
 def _tool_shim_is_operator_fleet_unblock_context(
@@ -4497,8 +4527,247 @@ def _tool_shim_scalar_text(value: object) -> str | None:
     return None
 
 
+def _tool_shim_gap_audit_final_text(summary: dict[str, object]) -> str | None:
+    if str(summary.get("probe_kind") or "").strip().lower() != "gap_audit":
+        return None
+    findings = summary.get("findings")
+    if not isinstance(findings, list):
+        return None
+    notes = summary.get("notes")
+    note_rows = [str(item).strip() for item in notes if str(item).strip()] if isinstance(notes, list) else []
+    lines: list[str] = []
+    if findings:
+        lines.append("Gap audit findings:")
+        for index, item in enumerate(findings[:6], start=1):
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity") or "info").strip().upper()
+            category = str(item.get("category") or "gap").strip()
+            summary_text = str(item.get("summary") or "").strip()
+            path = str(item.get("path") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            segment = f"{index}. {severity} {category}: {summary_text}"
+            if path:
+                segment += f" [{path}]"
+            if detail:
+                segment += f" {detail}"
+            lines.append(segment)
+    if note_rows:
+        lines.append("Notes:")
+        for note in note_rows[:3]:
+            lines.append(f"- {note}")
+    if not lines:
+        return None
+    return "\n".join(lines)
+
+
+def _tool_shim_ui_parity_audit_final_text(summary: dict[str, object]) -> str | None:
+    if str(summary.get("probe_kind") or "").strip().lower() != "ui_parity_audit":
+        return None
+    total_elements = int(summary.get("total_elements") or 0)
+    visual_yes = int(summary.get("visual_yes_count") or 0)
+    visual_no = int(summary.get("visual_no_count") or 0)
+    behavioral_yes = int(summary.get("behavioral_yes_count") or 0)
+    behavioral_no = int(summary.get("behavioral_no_count") or 0)
+    extras_present = int(summary.get("chummer6_only_extra_present_count") or 0)
+    removable_extras = int(summary.get("removable_extra_present_count") or 0)
+    report_json_path = str(summary.get("report_json_path") or "").strip()
+    report_markdown_path = str(summary.get("report_markdown_path") or "").strip()
+    coverage_gap_keys = [str(item).strip() for item in (summary.get("coverage_gap_keys") or []) if str(item).strip()]
+    findings = summary.get("findings") if isinstance(summary.get("findings"), list) else []
+    notes = [str(item).strip() for item in (summary.get("notes") or []) if str(item).strip()]
+    lines = [
+        "UI parity audit result:",
+        f"- total_elements={total_elements}",
+        f"- visual_yes_no={visual_yes}/{visual_no}",
+        f"- behavioral_yes_no={behavioral_yes}/{behavioral_no}",
+        f"- chummer6_only_extras_present={extras_present}",
+        f"- removable_extras_present={removable_extras}",
+    ]
+    if coverage_gap_keys:
+        lines.append(f"- coverage_gap_keys={coverage_gap_keys}")
+    if report_json_path:
+        lines.append(f"- report_json={report_json_path}")
+    if report_markdown_path:
+        lines.append(f"- report_markdown={report_markdown_path}")
+    if findings:
+        lines.append("Top findings:")
+        for index, item in enumerate(findings[:8], start=1):
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity") or "info").strip().upper()
+            category = str(item.get("category") or "gap").strip()
+            summary_text = str(item.get("summary") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            segment = f"{index}. {severity} {category}: {summary_text}"
+            if detail:
+                segment += f" {detail}"
+            lines.append(segment)
+    if notes:
+        lines.append("Notes:")
+        for note in notes[:3]:
+            lines.append(f"- {note}")
+    return "\n".join(lines)
+
+
+def _tool_shim_parity_build_final_text(summary: dict[str, object]) -> str | None:
+    if str(summary.get("probe_kind") or "").strip().lower() != "parity_build":
+        return None
+    release_version = str(summary.get("release_version") or "").strip()
+    applied_steps = [str(item).strip() for item in (summary.get("applied_steps") or []) if str(item).strip()]
+    parity_report_path = str(summary.get("parity_report_path") or "").strip()
+    parity_summary = summary.get("parity_summary") if isinstance(summary.get("parity_summary"), dict) else {}
+    remaining_findings = summary.get("remaining_findings") if isinstance(summary.get("remaining_findings"), list) else []
+    lines = ["Parity build result:"]
+    if release_version:
+        lines.append(f"- release_version={release_version}")
+    if applied_steps:
+        lines.append("Applied:")
+        for step in applied_steps[:10]:
+            lines.append(f"- {step}")
+    if parity_summary:
+        lines.append(
+            "- parity_counts="
+            f"visual {int(parity_summary.get('visual_yes_count') or 0)}/{int(parity_summary.get('visual_no_count') or 0)}"
+            f", behavioral {int(parity_summary.get('behavioral_yes_count') or 0)}/{int(parity_summary.get('behavioral_no_count') or 0)}"
+        )
+    if parity_report_path:
+        lines.append(f"- parity_report={parity_report_path}")
+    if remaining_findings:
+        lines.append("Remaining findings:")
+        for index, item in enumerate(remaining_findings[:8], start=1):
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity") or "info").strip().upper()
+            category = str(item.get("category") or "gap").strip()
+            summary_text = str(item.get("summary") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            segment = f"{index}. {severity} {category}: {summary_text}"
+            if detail:
+                segment += f" {detail}"
+            lines.append(segment)
+    return "\n".join(lines)
+
+
+def _tool_shim_gap_fix_final_text(summary: dict[str, object]) -> str | None:
+    if str(summary.get("probe_kind") or "").strip().lower() != "gap_fix":
+        return None
+    step_results = summary.get("step_results")
+    applied_steps = [str(item).strip() for item in (summary.get("applied_steps") or []) if str(item).strip()]
+    status_summary = summary.get("status_summary") if isinstance(summary.get("status_summary"), dict) else {}
+    remaining_findings = summary.get("remaining_findings") if isinstance(summary.get("remaining_findings"), list) else []
+    lines: list[str] = ["Gap fix result:"]
+    if applied_steps:
+        lines.append("Applied:")
+        for step in applied_steps[:8]:
+            lines.append(f"- {step}")
+    if isinstance(step_results, list):
+        failing_steps = []
+        for item in step_results:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status") or "").strip().lower()
+            if status in {"fail", "timeout"}:
+                failing_steps.append(
+                    f"{item.get('name')}: {status}"
+                )
+        if failing_steps:
+            lines.append("Incomplete steps:")
+            for row in failing_steps[:5]:
+                lines.append(f"- {row}")
+    current_parts: list[str] = []
+    for key in (
+        "workflow_gate",
+        "visual_gate",
+        "windows_gate",
+        "linux_gate",
+        "macos_gate",
+        "desktop_executable_gate",
+        "flagship_readiness",
+    ):
+        row = status_summary.get(key)
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "").strip()
+        if status:
+            current_parts.append(f"{key}={status}")
+    if current_parts:
+        lines.append("Current status:")
+        lines.append("- " + ", ".join(current_parts))
+    if remaining_findings:
+        lines.append("Remaining findings:")
+        for index, item in enumerate(remaining_findings[:5], start=1):
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("severity") or "info").strip().upper()
+            category = str(item.get("category") or "gap").strip()
+            summary_text = str(item.get("summary") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            segment = f"{index}. {severity} {category}: {summary_text}"
+            if detail:
+                segment += f" {detail}"
+            lines.append(segment)
+    return "\n".join(lines)
+
+
 def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str | None:
     latest_user_text = _tool_shim_latest_user_text(history_items)
+    parity_build_summary = _tool_shim_latest_exec_json_output(history_items)
+    if _tool_shim_is_operator_parity_build_prompt(latest_user_text) and isinstance(parity_build_summary, dict):
+        parity_build_final = _tool_shim_parity_build_final_text(parity_build_summary)
+        if parity_build_final:
+            return parity_build_final
+    parity_build_summary = _tool_shim_latest_exec_json_output_for_command(
+        history_items,
+        command_substring="codexea_parity_build_workflow.py",
+        probe_kind="parity_build",
+    )
+    if isinstance(parity_build_summary, dict):
+        parity_build_final = _tool_shim_parity_build_final_text(parity_build_summary)
+        if parity_build_final:
+            return parity_build_final
+    ui_parity_summary = _tool_shim_latest_exec_json_output(history_items)
+    if _tool_shim_is_operator_ui_parity_audit_prompt(latest_user_text) and isinstance(ui_parity_summary, dict):
+        ui_parity_final = _tool_shim_ui_parity_audit_final_text(ui_parity_summary)
+        if ui_parity_final:
+            return ui_parity_final
+    ui_parity_summary = _tool_shim_latest_exec_json_output_for_command(
+        history_items,
+        command_substring="codexea_ui_parity_audit_probe.py",
+        probe_kind="ui_parity_audit",
+    )
+    if isinstance(ui_parity_summary, dict):
+        ui_parity_final = _tool_shim_ui_parity_audit_final_text(ui_parity_summary)
+        if ui_parity_final:
+            return ui_parity_final
+    gap_fix_summary = _tool_shim_latest_exec_json_output(history_items)
+    if _tool_shim_is_operator_gap_fix_prompt(latest_user_text) and isinstance(gap_fix_summary, dict):
+        gap_fix_final = _tool_shim_gap_fix_final_text(gap_fix_summary)
+        if gap_fix_final:
+            return gap_fix_final
+    gap_fix_summary = _tool_shim_latest_exec_json_output_for_command(
+        history_items,
+        command_substring="codexea_gap_fix_workflow.py",
+        probe_kind="gap_fix",
+    )
+    if isinstance(gap_fix_summary, dict):
+        gap_fix_final = _tool_shim_gap_fix_final_text(gap_fix_summary)
+        if gap_fix_final:
+            return gap_fix_final
+    gap_audit_summary = _tool_shim_latest_exec_json_output(history_items)
+    if _tool_shim_is_operator_gap_audit_prompt(latest_user_text) and isinstance(gap_audit_summary, dict):
+        gap_audit_final = _tool_shim_gap_audit_final_text(gap_audit_summary)
+        if gap_audit_final:
+            return gap_audit_final
+    gap_audit_summary = _tool_shim_latest_exec_json_output_for_command(
+        history_items,
+        command_substring="codexea_gap_audit_probe.py",
+        probe_kind="gap_audit",
+    )
+    if isinstance(gap_audit_summary, dict):
+        gap_audit_final = _tool_shim_gap_audit_final_text(gap_audit_summary)
+        if gap_audit_final:
+            return gap_audit_final
     if _tool_shim_is_operator_readiness_remedy_prompt(latest_user_text):
         readiness_summary = _tool_shim_latest_exec_json_output(history_items)
         if isinstance(readiness_summary, dict):
@@ -4566,6 +4835,18 @@ def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str 
     if len(compact_lines) == 1 and len(compact_lines[0]) <= 120:
         return compact_lines[0]
     return None
+
+
+def _tool_shim_staged_first_command_max_output_tokens(latest_user_text: str) -> int:
+    if _tool_shim_is_operator_parity_build_prompt(latest_user_text):
+        return 7000
+    if _tool_shim_is_operator_ui_parity_audit_prompt(latest_user_text):
+        return 5000
+    if _tool_shim_is_operator_gap_fix_prompt(latest_user_text):
+        return 6000
+    if _tool_shim_is_operator_gap_audit_prompt(latest_user_text):
+        return 3000
+    return 1500
 
 
 def _tool_shim_direct_local_fleet_command(
@@ -5004,6 +5285,29 @@ def _tool_shim_latest_exec_json_output(history_items: list[dict[str, object]]) -
         payload = _extract_json_object(str(record.get("output") or "").strip())
         if isinstance(payload, dict):
             return payload
+    return None
+
+
+def _tool_shim_latest_exec_json_output_for_command(
+    history_items: list[dict[str, object]],
+    *,
+    command_substring: str,
+    probe_kind: str | None = None,
+) -> dict[str, object] | None:
+    needle = str(command_substring or "").strip()
+    expected_probe = str(probe_kind or "").strip().lower()
+    if not needle:
+        return None
+    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
+        cmd = str(record.get("cmd") or "").strip()
+        if needle not in cmd:
+            continue
+        payload = _extract_json_object(str(record.get("output") or "").strip())
+        if not isinstance(payload, dict):
+            continue
+        if expected_probe and str(payload.get("probe_kind") or "").strip().lower() != expected_probe:
+            continue
+        return payload
     return None
 
 
@@ -6503,7 +6807,10 @@ def _tool_shim_decision(
             return _ToolShimDecision(
                 kind="function_call",
                 tool_name="exec_command",
-                arguments={"cmd": staged_first_cmd, "max_output_tokens": 1500},
+                arguments={
+                    "cmd": staged_first_cmd,
+                    "max_output_tokens": _tool_shim_staged_first_command_max_output_tokens(latest_user_text),
+                },
                 upstream_result=_tool_shim_local_upstream_result(
                     staged_first_cmd,
                     reason="task_local_staged_first_command",

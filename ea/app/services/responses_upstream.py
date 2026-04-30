@@ -2546,8 +2546,32 @@ def _pick_onemin_key(
         account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
         slot_name = _onemin_key_slot(api_key, key_names=key_names)
         slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
+        probe_result = str(slot_row.get("last_probe_result") or "").strip().lower()
+        observed_remaining: int | None = None
+        raw_remaining = slot_row.get("remaining_credits")
+        if raw_remaining not in (None, ""):
+            try:
+                observed_remaining = int(round(float(raw_remaining)))
+            except Exception:
+                observed_remaining = None
+        if observed_remaining is None:
+            budget_signal = _onemin_slot_budget_signal(slot_row)
+            if budget_signal is not None:
+                try:
+                    observed_remaining = int(budget_signal.get("remaining_credits") or 0)
+                except Exception:
+                    observed_remaining = None
+        if (
+            required_credits is not None
+            and required_credits > 0
+            and probe_result in {"depleted", "insufficient_credits"}
+            and observed_remaining is not None
+            and observed_remaining < int(required_credits)
+        ):
+            known_insufficient_candidate_count += 1
+            continue
         probe_ok_priority = 1
-        if str(slot_row.get("last_probe_result") or "").strip().lower() == "ok":
+        if probe_result == "ok":
             probe_ok_priority = 0
         available_candidate_count += 1
         if required_credits is not None and required_credits > 0 and selection_priority[0] == 4 and probe_ok_priority != 0:
@@ -2558,6 +2582,8 @@ def _pick_onemin_key(
         candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6], item[7], item[8]))
         return candidates[0][0], 0.0, float(candidates[0][8])
     if required_credits is not None and required_credits > 0 and available_candidate_count > 0 and known_insufficient_candidate_count >= available_candidate_count:
+        return None
+    if required_credits is not None and required_credits > 0:
         return None
     if not blocked:
         return key_names[0], 0.0, 0.0
@@ -2817,7 +2843,28 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
     state = str(slot.get("state") or "").strip().lower()
     if state in {"missing", "blocked", "unavailable"}:
         return None
+    probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+    actual_remaining: int | None = None
+    raw_remaining = slot.get("remaining_credits")
+    if raw_remaining not in (None, ""):
+        try:
+            actual_remaining = int(round(float(raw_remaining)))
+        except Exception:
+            actual_remaining = None
+    if actual_remaining is not None:
+        if actual_remaining > 0:
+            return actual_remaining
+        if probe_result in {"depleted", "insufficient_credits"}:
+            return None
     budget_signal = _onemin_slot_budget_signal(slot)
+    if probe_result in {"depleted", "insufficient_credits"} and budget_signal is not None:
+        try:
+            observed_remaining = int(budget_signal.get("remaining_credits") or 0)
+        except Exception:
+            observed_remaining = 0
+        if observed_remaining > 0:
+            return observed_remaining
+        return None
     if state == "quarantine":
         if budget_signal is None:
             return None
@@ -2839,6 +2886,52 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
         if credits > 0:
             return credits
     return None
+
+
+def _onemin_slot_positive_actual_billing(slot: dict[str, object]) -> bool:
+    if bool(slot.get("billing_team_mismatch")):
+        return False
+    billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+    return billing_remaining > 0
+
+
+def _onemin_slot_recovery_evidence(slot: dict[str, object]) -> bool:
+    probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+    if probe_result == "ok":
+        return True
+    last_success_at = _to_float(slot.get("last_success_at"), 0.0, minimum=0.0)
+    last_failure_at = _to_float(slot.get("last_failure_at"), 0.0, minimum=0.0)
+    if last_success_at > 0.0 and last_failure_at > 0.0 and last_success_at >= last_failure_at:
+        return True
+    last_billing_snapshot_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
+    if last_billing_snapshot_at > 0.0 and last_failure_at > 0.0 and last_billing_snapshot_at >= last_failure_at:
+        return True
+    return False
+
+
+def _onemin_slot_effective_state(slot: dict[str, object], *, required_credits: int | None = None) -> str:
+    state = str(slot.get("state") or "").strip().lower() or "unknown"
+    if state not in {"quarantine", "cooldown"}:
+        return state
+    if not _onemin_slot_positive_actual_billing(slot):
+        return state
+    probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+    if probe_result == "ok":
+        return "ready"
+    if not _onemin_slot_recovery_evidence(slot):
+        return state
+    live_hint = _onemin_slot_live_credit_hint(slot)
+    billing_hint = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+    normalized_required = int(required_credits or 0)
+    if normalized_required > 0:
+        if live_hint is not None and live_hint >= normalized_required:
+            return "degraded"
+        if billing_hint >= normalized_required:
+            return "degraded"
+        return state
+    if live_hint is not None or billing_hint > 0:
+        return "degraded"
+    return state
 
 
 def _onemin_provider_health_pick(
@@ -2870,24 +2963,56 @@ def _onemin_provider_health_pick(
         slot = slot_by_account.get(account_name) or slot_by_name.get(slot_name)
         if not slot:
             continue
-        state = str(slot.get("state") or "").strip().lower()
+        state = _onemin_slot_effective_state(slot, required_credits=normalized_required)
         if state in {"blocked", "missing", "unavailable"}:
             continue
         probe_result = str(slot.get("last_probe_result") or "").strip().lower()
         probe_ok = probe_result == "ok"
         budget_signal = _onemin_slot_budget_signal(slot)
         live_hint = _onemin_slot_live_credit_hint(slot)
+        actual_remaining: int | None = None
+        raw_remaining = slot.get("remaining_credits")
+        if raw_remaining not in (None, ""):
+            try:
+                actual_remaining = int(round(float(raw_remaining)))
+            except Exception:
+                actual_remaining = None
+        observed_remaining = actual_remaining
+        if observed_remaining is None and budget_signal is not None:
+            try:
+                observed_remaining = int(budget_signal.get("remaining_credits") or 0)
+            except Exception:
+                observed_remaining = None
         billing_hint = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+        raw_state = str(slot.get("state") or "").strip().lower()
         recoverable_quarantine = (
-            state == "quarantine"
+            raw_state == "quarantine"
+            and state in {"ready", "degraded"}
+        ) or (
+            raw_state == "quarantine"
             and live_hint is not None
             and (normalized_required <= 0 or live_hint >= normalized_required)
         )
         if state == "quarantine" and not recoverable_quarantine and not probe_ok:
             continue
-        if state == "quarantine" and budget_signal is not None:
+        if raw_state == "quarantine" and budget_signal is not None and state == "quarantine":
             billing_hint = 0
-        effective_state = "degraded" if recoverable_quarantine else state
+        effective_state = "degraded" if recoverable_quarantine and state == "quarantine" else state
+        if (
+            normalized_required > 0
+            and probe_result in {"depleted", "insufficient_credits"}
+            and observed_remaining is not None
+            and observed_remaining < normalized_required
+        ):
+            continue
+        if (
+            normalized_required > 0
+            and actual_remaining is not None
+            and actual_remaining < normalized_required
+            and (live_hint is None or live_hint < normalized_required)
+            and billing_hint < normalized_required
+        ):
+            continue
         preferred_match = _candidate_matches_preferred_onemin_label(
             {
                 "account_name": account_name,
@@ -5563,7 +5688,10 @@ def _call_onemin(
     selection_request_id = f"onemin-{uuid.uuid4().hex[:16]}"
     preferred_onemin_labels = _normalize_preferred_onemin_labels(preferred_onemin_labels)
     manager = active_onemin_manager()
-    provider_health = _provider_health_report()
+    # `onemin` selection only needs the slot snapshot. Avoid the full
+    # provider-health build here because that can trigger unrelated provider
+    # probes (for example MagicX) and stall an otherwise fast exhaustion check.
+    provider_health = _provider_health_report(lightweight=True)
     active_key_names = _ordered_onemin_keys_allow_reserve(False)
     all_key_names = _ordered_onemin_keys_allow_reserve(True)
     allow_reserve = False
@@ -7974,72 +8102,73 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
             next_retry_at = float(key_state.quarantine_until)
         elif key_state.cooldown_until > now:
             next_retry_at = float(key_state.cooldown_until)
-        onemin_slots.append(
-            {
-                "slot": slot_name,
-                "configured": bool(key),
-                "account_name": account_name,
-                "slot_env_name": account_name,
-                "slot_role": slot_role,
-                "owner_label": str(owner.get("owner_label") or ""),
-                "owner_name": str(owner.get("owner_name") or ""),
-                "owner_email": str(owner.get("owner_email") or ""),
-                "state": slot_state,
-                "last_used_at": float(key_state.last_used_at),
-                "last_success_at": float(key_state.last_success_at),
-                "last_failure_at": float(key_state.last_failure_at),
-                "cooldown_until": float(key_state.cooldown_until),
-                "quarantine_until": float(key_state.quarantine_until),
-                "failure_count": int(key_state.failure_count),
-                "last_error": str(key_state.last_error),
-                "remaining_credits": credit_state.get("remaining_credits") if credit_state else None,
-                "required_credits": credit_state.get("required_credits") if credit_state else None,
-                "credit_subject": credit_state.get("credit_subject") if credit_state else None,
-                "estimated_remaining_credits": estimated_remaining_credits,
-                "estimated_credit_basis": estimated_credit_basis,
-                "max_credits": _onemin_max_credits_per_key(),
-                "last_balance_observed_at": latest_balance.happened_at if latest_balance is not None else None,
-                "last_balance_source": latest_balance.source if latest_balance is not None else None,
-                "topup_detected": bool(latest_balance.topup_detected) if latest_balance is not None else False,
-                "topup_delta": latest_balance.topup_delta if latest_balance is not None else None,
-                "last_billing_snapshot_at": latest_billing.observed_at if latest_billing is not None else None,
-                "billing_remaining_credits": latest_billing.remaining_credits if latest_billing is not None else None,
-                "billing_max_credits": latest_billing.max_credits if latest_billing is not None else None,
-                "billing_used_percent": latest_billing.used_percent if latest_billing is not None else None,
-                "billing_next_topup_at": latest_billing.next_topup_at if latest_billing is not None else None,
-                "billing_topup_amount": latest_billing.topup_amount if latest_billing is not None else None,
-                "billing_rollover_enabled": latest_billing.rollover_enabled if latest_billing is not None else None,
-                "billing_basis": latest_billing.basis if latest_billing is not None else None,
-                "billing_team_id": billing_team_id or None,
-                "billing_team_name": billing_team_name or None,
-                "billing_team_mismatch": billing_team_mismatch,
-                "billing_team_match_subject": billing_team_subject or None,
-                "billing_plan_name": billing_plan_name,
-                "billing_cycle": billing_cycle,
-                "billing_subscription_status": billing_subscription_status,
-                "billing_daily_bonus_cta_text": billing_daily_bonus_cta_text,
-                "billing_daily_bonus_available": billing_daily_bonus_available,
-                "billing_daily_bonus_credits": billing_daily_bonus_credits,
-                "billing_usage_history_count": billing_usage_history_count,
-                "billing_latest_usage_at": billing_latest_usage_at,
-                "billing_earliest_usage_at": billing_earliest_usage_at,
-                "billing_observed_usage_credits_total": billing_observed_usage_credits_total,
-                "billing_observed_usage_window_hours": billing_observed_usage_window_hours,
-                "billing_observed_usage_burn_credits_per_hour": billing_observed_usage_burn_credits_per_hour,
-                "member_reconciliation_at": latest_members.observed_at if latest_members is not None else None,
-                "member_reconciliation_count": len(latest_members.members_json) if latest_members is not None else 0,
-                "observed_consumed_credits": observed_spend,
-                "observed_success_count": observed_success_count,
-                "next_retry_at": next_retry_at or None,
-                "upstream_reset_unknown": bool(credit_state and credit_state.get("remaining_credits") == 0),
-                "last_probe_at": latest_probe.happened_at if latest_probe is not None else None,
-                "last_probe_result": latest_probe.result if latest_probe is not None else None,
-                "last_probe_detail": latest_probe.detail if latest_probe is not None else "",
-                "last_probe_model": latest_probe.model if latest_probe is not None else "",
-                "last_probe_latency_ms": latest_probe.latency_ms if latest_probe is not None else None,
-                "last_probe_source": latest_probe.source if latest_probe is not None else "",
-            }
-        )
+        slot_payload = {
+            "slot": slot_name,
+            "configured": bool(key),
+            "account_name": account_name,
+            "slot_env_name": account_name,
+            "slot_role": slot_role,
+            "owner_label": str(owner.get("owner_label") or ""),
+            "owner_name": str(owner.get("owner_name") or ""),
+            "owner_email": str(owner.get("owner_email") or ""),
+            "state": slot_state,
+            "last_used_at": float(key_state.last_used_at),
+            "last_success_at": float(key_state.last_success_at),
+            "last_failure_at": float(key_state.last_failure_at),
+            "cooldown_until": float(key_state.cooldown_until),
+            "quarantine_until": float(key_state.quarantine_until),
+            "failure_count": int(key_state.failure_count),
+            "last_error": str(key_state.last_error),
+            "remaining_credits": credit_state.get("remaining_credits") if credit_state else None,
+            "required_credits": credit_state.get("required_credits") if credit_state else None,
+            "credit_subject": credit_state.get("credit_subject") if credit_state else None,
+            "estimated_remaining_credits": estimated_remaining_credits,
+            "estimated_credit_basis": estimated_credit_basis,
+            "max_credits": _onemin_max_credits_per_key(),
+            "last_balance_observed_at": latest_balance.happened_at if latest_balance is not None else None,
+            "last_balance_source": latest_balance.source if latest_balance is not None else None,
+            "topup_detected": bool(latest_balance.topup_detected) if latest_balance is not None else False,
+            "topup_delta": latest_balance.topup_delta if latest_balance is not None else None,
+            "last_billing_snapshot_at": latest_billing.observed_at if latest_billing is not None else None,
+            "billing_remaining_credits": latest_billing.remaining_credits if latest_billing is not None else None,
+            "billing_max_credits": latest_billing.max_credits if latest_billing is not None else None,
+            "billing_used_percent": latest_billing.used_percent if latest_billing is not None else None,
+            "billing_next_topup_at": latest_billing.next_topup_at if latest_billing is not None else None,
+            "billing_topup_amount": latest_billing.topup_amount if latest_billing is not None else None,
+            "billing_rollover_enabled": latest_billing.rollover_enabled if latest_billing is not None else None,
+            "billing_basis": latest_billing.basis if latest_billing is not None else None,
+            "billing_team_id": billing_team_id or None,
+            "billing_team_name": billing_team_name or None,
+            "billing_team_mismatch": billing_team_mismatch,
+            "billing_team_match_subject": billing_team_subject or None,
+            "billing_plan_name": billing_plan_name,
+            "billing_cycle": billing_cycle,
+            "billing_subscription_status": billing_subscription_status,
+            "billing_daily_bonus_cta_text": billing_daily_bonus_cta_text,
+            "billing_daily_bonus_available": billing_daily_bonus_available,
+            "billing_daily_bonus_credits": billing_daily_bonus_credits,
+            "billing_usage_history_count": billing_usage_history_count,
+            "billing_latest_usage_at": billing_latest_usage_at,
+            "billing_earliest_usage_at": billing_earliest_usage_at,
+            "billing_observed_usage_credits_total": billing_observed_usage_credits_total,
+            "billing_observed_usage_window_hours": billing_observed_usage_window_hours,
+            "billing_observed_usage_burn_credits_per_hour": billing_observed_usage_burn_credits_per_hour,
+            "member_reconciliation_at": latest_members.observed_at if latest_members is not None else None,
+            "member_reconciliation_count": len(latest_members.members_json) if latest_members is not None else 0,
+            "observed_consumed_credits": observed_spend,
+            "observed_success_count": observed_success_count,
+            "next_retry_at": next_retry_at or None,
+            "upstream_reset_unknown": bool(credit_state and credit_state.get("remaining_credits") == 0),
+            "last_probe_at": latest_probe.happened_at if latest_probe is not None else None,
+            "last_probe_result": latest_probe.result if latest_probe is not None else None,
+            "last_probe_detail": latest_probe.detail if latest_probe is not None else "",
+            "last_probe_model": latest_probe.model if latest_probe is not None else "",
+            "last_probe_latency_ms": latest_probe.latency_ms if latest_probe is not None else None,
+            "last_probe_source": latest_probe.source if latest_probe is not None else "",
+        }
+        slot_payload["raw_state"] = slot_state
+        slot_payload["state"] = _onemin_slot_effective_state(slot_payload)
+        onemin_slots.append(slot_payload)
 
     onemin_max_total = _onemin_max_credits_total(len(onemin_slots))
     onemin_known_remaining_total = sum(

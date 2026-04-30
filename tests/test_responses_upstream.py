@@ -490,6 +490,83 @@ def test_pick_onemin_key_returns_none_when_all_known_balances_are_below_required
     assert pick is None
 
 
+def test_pick_onemin_key_skips_probe_depleted_slot_even_with_recent_success_and_positive_billing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("probe-depleted", "healthy")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: keys)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {
+            "probe-depleted": upstream.OneminKeyState(key="probe-depleted", last_success_at=995.0),
+            "healthy": upstream.OneminKeyState(key="healthy"),
+        },
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_provider_account_name",
+        lambda _provider, key_names, key: f"account-{key}",
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_key_slot",
+        lambda key, key_names: f"slot-{key}",
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "account-probe-depleted",
+                            "slot": "slot-probe-depleted",
+                            "state": "ready",
+                            "billing_remaining_credits": 15000,
+                            "estimated_remaining_credits": 13297,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 139 credits",
+                        },
+                        {
+                            "account_name": "account-healthy",
+                            "slot": "slot-healthy",
+                            "state": "ready",
+                            "remaining_credits": 5000,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "OK",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    def fake_credit_snapshot_state(*, api_key: str, **_: object) -> tuple[int | None, str, bool, float, float]:
+        if api_key == "probe-depleted":
+            return (15000, "actual_billing_usage_page", True, 995.0, 995.0)
+        return (5000, "actual_billing_usage_page", True, 995.0, 995.0)
+
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", fake_credit_snapshot_state)
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (0.0, 0.0, 0.0, 0, 0))
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_FAST,
+        model="gpt-5.4",
+        required_credits=1726,
+    )
+
+    assert pick is not None
+    assert pick[0] == "healthy"
+
+
 def test_pick_onemin_key_keeps_actual_billing_positive_account_routable_despite_observed_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -635,6 +712,34 @@ def test_pick_onemin_key_prefers_observed_balance_over_synthetic_balance(
 
     assert pick is not None
     assert pick[0] == "observed"
+
+
+def test_pick_onemin_key_returns_none_when_only_blocked_keys_remain_for_credit_bound_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("blocked-a", "blocked-b")
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {
+            "blocked-a": upstream.OneminKeyState(key="blocked-a", quarantine_until=1300.0),
+            "blocked-b": upstream.OneminKeyState(key="blocked-b", cooldown_until=1250.0),
+        },
+    )
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_FAST,
+        model="gpt-5.4",
+        required_credits=1726,
+    )
+
+    assert pick is None
 
 
 def test_groundwork_public_model_uses_gemini_only_candidates(
@@ -1362,6 +1467,66 @@ def test_call_onemin_provider_health_bypasses_stale_known_exhaustion_precheck(
     assert result.provider_account_name == "ONEMIN_AI_API_KEY"
 
 
+def test_call_onemin_uses_lightweight_provider_health_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1-nano")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    provider_health_calls: list[bool] = []
+
+    def fake_provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
+        provider_health_calls.append(bool(lightweight))
+        return {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 4200,
+                            "billing_remaining_credits": 4200,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "OK",
+                        }
+                    ]
+                }
+            }
+        }
+
+    monkeypatch.setattr(upstream, "_provider_health_report", fake_provider_health_report)
+
+    def fake_post_json(**_: object) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1-nano",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 9,
+                    "completion_tokens": 5,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(prompt="Reply with exactly ok.", requested_model="onemin:gpt-4.1-nano")
+
+    assert result.text == "ok"
+    assert provider_health_calls == [True]
+
+
 def test_onemin_provider_health_pick_recovers_quarantined_budget_limited_slot_for_smaller_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1408,6 +1573,146 @@ def test_onemin_provider_health_pick_recovers_quarantined_budget_limited_slot_fo
 
     assert pick is not None
     assert pick[0] == "recoverable-key"
+
+
+def test_onemin_provider_health_pick_rejects_quarantined_slot_with_only_upstream_reset_unknown_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "recoverable-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 4255550,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1078 credits, but the Team only has 0 credits",
+                            "upstream_reset_unknown": True,
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=900,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is None
+
+
+def test_onemin_provider_health_pick_rejects_depleted_slot_when_actual_remaining_is_below_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "depleted-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "degraded",
+                            "remaining_credits": 219,
+                            "estimated_remaining_credits": 4_000_030,
+                            "billing_remaining_credits": 4_000_030,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 219 credits",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=10_118,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is None
+
+
+def test_onemin_provider_health_pick_rejects_ready_slot_when_probe_budget_signal_is_below_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "depleted-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "estimated_remaining_credits": 4_029_986,
+                            "billing_remaining_credits": 4_029_986,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Poland Office team only has 141 credits",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=1_726,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is None
+
+
+def test_onemin_provider_health_pick_rejects_probe_ok_slot_with_zero_actual_remaining_and_no_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "depleted-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "remaining_credits": 0,
+                            "required_credits": 1_726,
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": None,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "OK",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=1_726,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is None
 
 
 def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_request(
@@ -1944,6 +2249,38 @@ def test_provider_health_estimates_onemin_remaining_from_observed_usage(monkeypa
     assert slot["estimated_credit_basis"] == "max_minus_observed_usage"
     assert slot["observed_consumed_credits"] == 30
     assert slot["observed_success_count"] == 1
+
+
+def test_provider_health_keeps_probe_depleted_zero_credit_slot_in_quarantine_despite_positive_billing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "recoverable-key")
+
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "observed_at": "2026-04-30T04:00:00Z",
+            "remaining_credits": 4255550,
+            "max_credits": 4255550,
+            "basis": "actual_billing_usage_page",
+        },
+        source="test",
+    )
+    upstream._mark_onemin_failure(
+        "recoverable-key",
+        "INSUFFICIENT_CREDITS:The feature requires 1078 credits, but the Team only has 0 credits",
+    )
+
+    health = upstream._provider_health_report()
+    slot = health["providers"]["onemin"]["slots"][0]
+
+    assert slot["raw_state"] == "quarantine"
+    assert slot["state"] == "quarantine"
+    assert slot["billing_remaining_credits"] == 4255550
+    assert slot["upstream_reset_unknown"] is True
 
 
 def test_provider_health_includes_fleet_jury_service_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
