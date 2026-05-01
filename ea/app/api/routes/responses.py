@@ -14,6 +14,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -68,6 +69,10 @@ _PROVIDER_HEALTH_EXECUTOR = ThreadPoolExecutor(
 _PROVIDER_REGISTRY_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, min(4, int(os.environ.get("EA_PROVIDER_REGISTRY_EXECUTOR_WORKERS", "2") or "2"))),
     thread_name_prefix="provider-registry",
+)
+_RESPONSES_ROUTE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, min(128, int(os.environ.get("EA_RESPONSES_ROUTE_EXECUTOR_WORKERS", "64") or "64"))),
+    thread_name_prefix="responses-route",
 )
 _PROVIDER_HEALTH_CACHE_LOCK = threading.Lock()
 _PROVIDER_HEALTH_CACHE: dict[bool, dict[str, object]] = {}
@@ -3601,7 +3606,21 @@ def _store_background_terminal_response(
     background_job: dict[str, object] | None,
 ) -> dict[str, object]:
     with _BACKGROUND_RESPONSE_TRANSITION_LOCK:
-        stored = _load_response(response_id=response_id, principal_id=principal_id, container=container)
+        try:
+            stored = _load_response(response_id=response_id, principal_id=principal_id, container=container)
+        except HTTPException as exc:
+            if int(getattr(exc, "status_code", 0) or 0) != 404:
+                raise
+            _store_response(
+                response_id=response_id,
+                response_obj=response_obj,
+                input_items=input_items,
+                history_items=history_items,
+                principal_id=principal_id,
+                container=container,
+                background_job=background_job,
+            )
+            return response_obj
         current_response = dict(stored.response)
         current_status = str(current_response.get("status") or "").strip().lower()
         if current_status != "in_progress":
@@ -5073,7 +5092,8 @@ def _tool_shim_staged_commands(latest_user_text: str) -> list[str]:
             break
         if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
             candidate = candidate[1:-1].strip()
-        if _tool_shim_looks_like_shell_command(candidate):
+        bare_absolute_path = candidate.startswith("/") and not re.search(r"\s", candidate)
+        if _tool_shim_looks_like_shell_command(candidate) and not bare_absolute_path:
             if candidate not in shell_commands:
                 shell_commands.append(candidate)
             continue
@@ -9230,6 +9250,28 @@ def _run_response(
     )
 
 
+async def _run_response_in_executor(
+    request_payload: dict[str, object],
+    *,
+    context: RequestContext,
+    container: object | None = None,
+    codex_profile: str | None = None,
+    preferred_onemin_labels: tuple[str, ...] = (),
+) -> Response:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _RESPONSES_ROUTE_EXECUTOR,
+        partial(
+            _run_response,
+            request_payload,
+            context=context,
+            container=container,
+            codex_profile=codex_profile,
+            preferred_onemin_labels=preferred_onemin_labels,
+        ),
+    )
+
+
 @models_router.get("", response_model=_ModelListObject)
 def list_models(request: Request) -> Response:
     return JSONResponse(
@@ -9334,7 +9376,7 @@ def get_response_input_items(
         }
     },
 )
-def create_response(
+async def create_response(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9349,7 +9391,7 @@ def create_response(
         header_profile = "review_light"
     if header_profile not in {"core", "core_batch", "core_rescue", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
         header_profile = ""
-    return _run_response(
+    return await _run_response_in_executor(
         payload,
         context=context,
         container=container,
@@ -9385,7 +9427,7 @@ def create_response(
         }
     },
 )
-def create_codex_core(
+async def create_codex_core(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9398,7 +9440,7 @@ def create_codex_core(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9426,7 +9468,7 @@ def create_codex_core(
         }
     },
 )
-def create_codex_core_batch(
+async def create_codex_core_batch(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9439,7 +9481,7 @@ def create_codex_core_batch(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9475,7 +9517,7 @@ def create_codex_core_batch(
         }
     },
 )
-def create_codex_core_rescue(
+async def create_codex_core_rescue(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9488,7 +9530,7 @@ def create_codex_core_rescue(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9524,7 +9566,7 @@ def create_codex_core_rescue(
         }
     },
 )
-def create_codex_easy(
+async def create_codex_easy(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9537,7 +9579,7 @@ def create_codex_easy(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9573,7 +9615,7 @@ def create_codex_easy(
         }
     },
 )
-def create_codex_repair(
+async def create_codex_repair(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9586,7 +9628,7 @@ def create_codex_repair(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9622,7 +9664,7 @@ def create_codex_repair(
         }
     },
 )
-def create_codex_groundwork(
+async def create_codex_groundwork(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9635,7 +9677,7 @@ def create_codex_groundwork(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9671,7 +9713,7 @@ def create_codex_groundwork(
         }
     },
 )
-def create_codex_review_light(
+async def create_codex_review_light(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9684,7 +9726,7 @@ def create_codex_review_light(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9712,7 +9754,7 @@ def create_codex_review_light(
         }
     },
 )
-def create_codex_survival(
+async def create_codex_survival(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9725,7 +9767,7 @@ def create_codex_survival(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,
@@ -9761,7 +9803,7 @@ def create_codex_survival(
         }
     },
 )
-def create_codex_audit(
+async def create_codex_audit(
     payload: dict[str, object],
     *,
     request: Request,
@@ -9774,7 +9816,7 @@ def create_codex_audit(
         container=container,
         principal_id=context.principal_id,
     )
-    return _run_response(
+    return await _run_response_in_executor(
         normalized,
         context=context,
         container=container,

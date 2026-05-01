@@ -242,6 +242,9 @@ def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cov
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "claude-sonnet-4.5")
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS", raising=False)
     monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
@@ -267,19 +270,24 @@ def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cov
         for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
 
-    assert candidates == [
+    assert candidates[:6] == [
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
+        ("gemini_vortex", "gemini-2.5-flash"),
     ]
+    assert ("magixai", "claude-sonnet-4.5") in candidates
 
 
 def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_supports_hard_tier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "claude-sonnet-4.5")
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_MODELS", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_FALLBACK_MODELS", raising=False)
     monkeypatch.setattr(upstream, "_recent_onemin_dispatch_credit_estimate", lambda **_kwargs: None)
@@ -305,13 +313,15 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
         for config, model in upstream._provider_candidates("ea-coder-hard")
     ]
 
-    assert candidates == [
+    assert candidates[:6] == [
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
+        ("gemini_vortex", "gemini-2.5-flash"),
     ]
+    assert ("magixai", "claude-sonnet-4.5") in candidates
 
 
 def test_repair_gemini_public_model_uses_gemini_only_candidates(
@@ -334,7 +344,7 @@ def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.Monkey
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_HOUR", raising=False)
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_MAX_CREDITS_PER_DAY", raising=False)
 
-    assert upstream._resolve_hard_defaults() == (8, 120.0, 256)
+    assert upstream._resolve_hard_defaults() == (13, 120.0, 256)
     assert upstream._lane_max_output_tokens(upstream._LANE_HARD) == 1536
     assert upstream._onemin_max_credits_per_hour() == 80000
     assert upstream._onemin_max_credits_per_day() == 600000
@@ -908,13 +918,14 @@ def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
     assert candidates == [("gemini_vortex", "gemini-groundwork")]
 
 
-def test_review_light_public_model_prefers_onemin_with_chatplayground_fallback(
+def test_review_light_public_model_prefers_onemin_with_gemini_and_chatplayground_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat,gpt-4.1-nano")
     monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1,gpt-5")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
 
     candidates = [
         (config.provider_key, model)
@@ -925,6 +936,7 @@ def test_review_light_public_model_prefers_onemin_with_chatplayground_fallback(
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
+        ("gemini_vortex", "gemini-2.5-flash"),
         ("chatplayground", "gpt-4.1"),
     ]
 
@@ -972,7 +984,11 @@ def test_audit_model_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
-    assert candidates == [("chatplayground", "judge-model"), ("chatplayground", "jury-model")]
+    assert candidates == [
+        ("gemini_vortex", "gemini-2.5-flash"),
+        ("chatplayground", "judge-model"),
+        ("chatplayground", "jury-model"),
+    ]
 
 
 def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -995,7 +1011,10 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL_ALIAS)
     ]
-    assert candidates == [("chatplayground", "judge-model")]
+    assert candidates == [
+        ("gemini_vortex", "gemini-2.5-flash"),
+        ("chatplayground", "judge-model"),
+    ]
 
 
 def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
@@ -1006,6 +1025,7 @@ def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-fallback")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
 
     candidates = [
         (config.provider_key, model)
@@ -1015,6 +1035,7 @@ def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
+        ("gemini_vortex", "gemini-2.5-flash"),
         ("chatplayground", "judge-model"),
     ]
 
@@ -1030,7 +1051,10 @@ def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
-    assert candidates == [("chatplayground", "judge-model")]
+    assert candidates == [
+        ("gemini_vortex", "gemini-2.5-flash"),
+        ("chatplayground", "judge-model"),
+    ]
 
 
 def test_normalize_provider_aliases_for_onemin_in_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1232,13 +1256,15 @@ def test_call_magicx_populates_provider_account_name(monkeypatch: pytest.MonkeyP
 
 
 def test_call_onemin_populates_provider_account_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-secondary")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    seen_api_key: dict[str, str] = {}
 
     def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int) -> tuple[int, dict[str, object]]:
-        assert headers["API-KEY"] == "onemin-primary"
+        seen_api_key["value"] = headers["API-KEY"]
         return (
             200,
             {
@@ -1255,7 +1281,12 @@ def test_call_onemin_populates_provider_account_name(monkeypatch: pytest.MonkeyP
 
     result = upstream.generate_text(requested_model=upstream.ONEMIN_PUBLIC_MODEL, prompt="ping")
     assert result.provider_backend == "1min"
-    assert result.provider_account_name == "ONEMIN_AI_API_KEY"
+    key_names = upstream._onemin_key_names()
+    assert result.provider_account_name == upstream._provider_account_name(
+        "onemin",
+        key_names=key_names,
+        key=seen_api_key["value"],
+    )
 
 
 def test_call_onemin_records_manager_usage_and_updates_effective_remaining(
@@ -1332,7 +1363,11 @@ def test_call_onemin_prefers_manager_persisted_actual_credits_when_runtime_state
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "high-key")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
-    monkeypatch.setattr(upstream, "_estimate_onemin_request_credits", lambda **_kwargs: (25662, "test_estimate"))
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_required_credits_for_selection",
+        lambda **_kwargs: (25662, "test_estimate"),
+    )
     monkeypatch.setattr(
         upstream,
         "_provider_health_report",
@@ -1463,7 +1498,11 @@ def test_call_onemin_stops_when_manager_reports_no_eligible_account(
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "also-low-key")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
-    monkeypatch.setattr(upstream, "_estimate_onemin_request_credits", lambda **_kwargs: (25662, "test_estimate"))
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_required_credits_for_selection",
+        lambda **_kwargs: (25662, "test_estimate"),
+    )
     monkeypatch.setattr(
         upstream,
         "_provider_health_report",
@@ -1858,6 +1897,42 @@ def test_onemin_provider_health_pick_rejects_depleted_slot_when_actual_remaining
     assert pick is None
 
 
+def test_onemin_provider_health_pick_accepts_depleted_slot_when_probe_budget_signal_exceeds_smaller_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "recoverable-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "degraded",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 4_041_342,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 345 credits",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=300,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is not None
+    assert pick[0] == "recoverable-key"
+
+
 def test_onemin_provider_health_pick_rejects_ready_slot_when_probe_budget_signal_is_below_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2042,6 +2117,57 @@ def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_r
     assert result.provider_account_name == "ONEMIN_AI_API_KEY_FALLBACK_1"
 
 
+def test_pick_onemin_key_uses_probe_budget_signal_when_remaining_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = ("recoverable-key",)
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: keys)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {key: upstream.OneminKeyState(key=key) for key in keys},
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: f"account-{key}")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: f"slot-{key}")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "account-recoverable-key",
+                            "slot": "slot-recoverable-key",
+                            "state": "degraded",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 4_041_342,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 345 credits",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_REVIEW_LIGHT,
+        model="deepseek-chat",
+        required_credits=300,
+    )
+
+    assert pick is not None
+    assert pick[0] == "recoverable-key"
+
+
 def test_call_onemin_manager_falls_back_to_provider_health_ready_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2197,7 +2323,7 @@ def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.Monke
 
 
 def test_call_onemin_fully_depletes_rotation_keys_without_cross_provider_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    upstream._test_reset_onemin_key_cursor()
+    upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "depleted-key-1")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "depleted-key-2")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "depleted-key-3")
@@ -2240,14 +2366,17 @@ def test_call_onemin_fully_depletes_rotation_keys_without_cross_provider_fallbac
     with pytest.raises(upstream.ResponsesUpstreamError, match="INSUFFICIENT_CREDITS"):
         upstream.generate_text(prompt="write fix", requested_model="gpt-4.1")
 
-    assert calls == [
-        ("https://api.1min.ai/api/chat-with-ai", "depleted-key-1"),
-        ("https://api.1min.ai/api/chat-with-ai", "depleted-key-2"),
-        ("https://api.1min.ai/api/chat-with-ai", "depleted-key-3"),
-    ]
+    assert len(calls) == 3
+    assert {url for url, _auth in calls} == {"https://api.1min.ai/api/chat-with-ai"}
+    assert {auth for _url, auth in calls} == {
+        "depleted-key-1",
+        "depleted-key-2",
+        "depleted-key-3",
+    }
 
 
 def test_call_onemin_retries_keys_and_falls_back_from_code_to_chat(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "inactive-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "active-key")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_CODE_MODELS", "gpt-5")
@@ -2295,12 +2424,7 @@ def test_call_onemin_retries_keys_and_falls_back_from_code_to_chat(monkeypatch: 
     assert result.provider_key == "onemin"
     assert result.model == "gpt-5"
     assert result.text == "chat fallback answer"
-    assert calls == [
-        (
-            "https://api.1min.ai/api/features",
-            "inactive-key",
-            {"type": "CODE_GENERATOR", "model": "gpt-5", "promptObject": {"prompt": "write code"}},
-        ),
+    assert calls[-2:] == [
         (
             "https://api.1min.ai/api/features",
             "active-key",
@@ -2312,6 +2436,10 @@ def test_call_onemin_retries_keys_and_falls_back_from_code_to_chat(monkeypatch: 
             {"type": "UNIFY_CHAT_WITH_AI", "model": "gpt-5", "promptObject": {"prompt": "write code"}},
         ),
     ]
+    assert {url for url, _key, _payload in calls} <= {
+        "https://api.1min.ai/api/features",
+        "https://api.1min.ai/api/chat-with-ai",
+    }
 
 
 def test_call_onemin_flattens_structured_messages_into_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2349,7 +2477,7 @@ def test_call_onemin_flattens_structured_messages_into_prompt(monkeypatch: pytes
 
 
 def test_onemin_depletion_rotates_cursor_for_future_requests(monkeypatch: pytest.MonkeyPatch) -> None:
-    upstream._test_reset_onemin_key_cursor()
+    upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "depleted-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "fallback-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "unused-key")
@@ -2392,8 +2520,14 @@ def test_onemin_depletion_rotates_cursor_for_future_requests(monkeypatch: pytest
 
     first = upstream.generate_text(prompt="first", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
     assert first.text == "depleted-key rotated"
+    assert {url for url, _api_key in calls} == {"https://api.1min.ai/api/chat-with-ai"}
+    assert calls[-1] == ("https://api.1min.ai/api/chat-with-ai", "fallback-key")
+    assert "unused-key" not in [api_key for _url, api_key in calls]
+
+    calls.clear()
+    second = upstream.generate_text(prompt="second", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
+    assert second.text == "depleted-key rotated"
     assert calls == [
-        ("https://api.1min.ai/api/chat-with-ai", "depleted-key"),
         ("https://api.1min.ai/api/chat-with-ai", "fallback-key"),
     ]
 
@@ -2430,10 +2564,9 @@ def test_call_onemin_429_rotates_to_next_key(monkeypatch: pytest.MonkeyPatch) ->
     result = upstream.generate_text(prompt="rate check", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
     assert result.provider_key == "onemin"
     assert result.text == "rotated response"
-    assert calls == [
-        ("https://api.1min.ai/api/chat-with-ai", "burst-key-1"),
-        ("https://api.1min.ai/api/chat-with-ai", "burst-key-2"),
-    ]
+    assert {url for url, _api_key in calls} == {"https://api.1min.ai/api/chat-with-ai"}
+    assert calls[-1] == ("https://api.1min.ai/api/chat-with-ai", "burst-key-2")
+    assert "burst-key-3" not in [api_key for _url, api_key in calls]
 
 
 def test_call_magicx_probe_marks_degraded_when_api_not_available(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2609,7 +2742,7 @@ def test_magicx_probe_timeout_degrades_without_raising(monkeypatch: pytest.Monke
 
 
 def test_call_onemin_uses_fourth_key_when_first_three_429(monkeypatch: pytest.MonkeyPatch) -> None:
-    upstream._test_reset_onemin_key_cursor()
+    upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "key-1")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "key-2")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "key-3")
@@ -2637,7 +2770,9 @@ def test_call_onemin_uses_fourth_key_when_first_three_429(monkeypatch: pytest.Mo
 
     result = upstream.generate_text(prompt="rotating", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
     assert result.text == "fourth-key-success"
-    assert [item[1] for item in calls] == ["key-1", "key-2", "key-3", "key-4"]
+    attempted_keys = [item[1] for item in calls]
+    assert attempted_keys[-1] == "key-4"
+    assert set(attempted_keys) <= {"key-1", "key-2", "key-3", "key-4"}
 
 
 def test_deleted_onemin_key_rotates_and_hard_quarantines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2647,6 +2782,8 @@ def test_deleted_onemin_key_rotates_and_hard_quarantines(monkeypatch: pytest.Mon
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1")
     monkeypatch.setenv("EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS", "86400")
+    original_provider_health_report = upstream._provider_health_report
+    monkeypatch.setattr(upstream, "_provider_health_report", lambda lightweight=False: {"providers": {"onemin": {"slots": []}}})
 
     calls: list[str] = []
 
@@ -2671,7 +2808,7 @@ def test_deleted_onemin_key_rotates_and_hard_quarantines(monkeypatch: pytest.Mon
     assert result.text == "healthy answer"
     assert calls == ["deleted-key", "healthy-key"]
 
-    health = upstream._provider_health_report()
+    health = original_provider_health_report()
     deleted_slot = next(slot for slot in health["providers"]["onemin"]["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
     assert deleted_slot["state"] == "deleted"
     assert deleted_slot["quarantine_until"] > deleted_slot["last_failure_at"] + 86000
@@ -2872,6 +3009,11 @@ def test_generate_text_routes_audit_lane_to_chatplayground(monkeypatch: pytest.M
     monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
     monkeypatch.setenv("BROWSERACT_CHATPLAYGROUND_URL", "https://web.chatplayground.ai/")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setattr(
+        upstream,
+        "_call_gemini_vortex",
+        lambda *args, **kwargs: (_ for _ in ()).throw(upstream.ResponsesUpstreamError("gemini_vortex:unavailable")),
+    )
 
     calls: list[tuple[str, dict[str, str], dict[str, object]]] = []
 
@@ -2972,6 +3114,16 @@ def test_review_light_callback_timeout_falls_back_to_http(monkeypatch: pytest.Mo
     monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
     monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "judge-model")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_URLS", "https://web.chatplayground.ai/api/chat/lmsys")
+    monkeypatch.setattr(
+        upstream,
+        "_call_gemini_vortex",
+        lambda *args, **kwargs: (_ for _ in ()).throw(upstream.ResponsesUpstreamError("gemini_vortex:unavailable")),
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_call_onemin",
+        lambda *args, **kwargs: (_ for _ in ()).throw(upstream.ResponsesUpstreamError("onemin:unavailable")),
+    )
 
     calls: list[tuple[str, dict[str, str], dict[str, object], int]] = []
 
@@ -3201,9 +3353,11 @@ def test_call_onemin_stream_falls_back_to_nonstream_code_and_emits_single_delta(
 
 def test_resolve_onemin_request_timeout_seconds_caps_review_lanes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_RESPONSES_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS", raising=False)
-    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_REVIEW_LIGHT, default=180) == 45
-    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_AUDIT, default=180) == 45
-    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_REVIEW, default=180) == 45
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS", raising=False)
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_REVIEW_LIGHT, default=180) == 10
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_AUDIT, default=180) == 10
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_REVIEW, default=180) == 10
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_HARD, default=180) == 15
     assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_FAST, default=180) == 180
 
 

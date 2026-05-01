@@ -214,12 +214,21 @@ class GeminiVortexToolAdapter:
     def _default_model(self) -> str:
         return _env_value("EA_GEMINI_VORTEX_MODEL") or "gemini-2.5-flash"
 
-    def _timeout_seconds(self) -> int:
+    def _timeout_seconds(self, payload: dict[str, Any] | None = None) -> int:
         raw = _env_value("EA_GEMINI_VORTEX_TIMEOUT_SECONDS") or "300"
         try:
-            return max(15, int(raw))
+            configured_timeout = max(15, int(raw))
         except Exception:
-            return 300
+            configured_timeout = 300
+        requested_timeout = 0
+        if isinstance(payload, dict):
+            try:
+                requested_timeout = max(0, int(payload.get("timeout_seconds") or 0))
+            except Exception:
+                requested_timeout = 0
+        if requested_timeout > 0:
+            return max(15, min(configured_timeout, requested_timeout))
+        return configured_timeout
 
     def _auth_slots(self) -> tuple[GeminiAuthSlot, ...]:
         slots = [GeminiAuthSlot(slot="default", account_name=_DEFAULT_GEMINI_AUTH_ACCOUNT)]
@@ -406,7 +415,7 @@ class GeminiVortexToolAdapter:
                     check=True,
                     text=True,
                     capture_output=True,
-                    timeout=self._timeout_seconds(),
+                    timeout=self._timeout_seconds(payload),
                     env=self._command_env(slot),
                 )
                 selected_slot = slot

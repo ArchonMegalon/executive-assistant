@@ -311,6 +311,8 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     assert "EA_ROLE=api" in compose
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose
+    assert "ea-responses-proxy" in compose
+    assert "http://127.0.0.1:8091/health/ready" in compose
 
 
 def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:

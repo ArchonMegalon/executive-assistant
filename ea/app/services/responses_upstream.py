@@ -104,8 +104,8 @@ _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_DEPLETED_KEY_COOLDOWN_SECONDS = 1800.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 60
-_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS = 45
+_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 15
+_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS = 10
 _ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS = 120.0
 _ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS = 1800.0
 _ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS = 12
@@ -2582,6 +2582,15 @@ def _pick_onemin_key(
                     observed_remaining = int(budget_signal.get("remaining_credits") or 0)
                 except Exception:
                     observed_remaining = None
+        elif observed_remaining <= 0:
+            budget_signal = _onemin_slot_budget_signal(slot_row)
+            if budget_signal is not None:
+                try:
+                    budget_remaining = int(budget_signal.get("remaining_credits") or 0)
+                except Exception:
+                    budget_remaining = 0
+                if budget_remaining > observed_remaining:
+                    observed_remaining = budget_remaining
         if (
             required_credits is not None
             and required_credits > 0
@@ -2873,6 +2882,13 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
         return None
     probe_result = str(slot.get("last_probe_result") or "").strip().lower()
     upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(slot)
+    budget_signal = _onemin_slot_budget_signal(slot)
+    observed_remaining = 0
+    if budget_signal is not None:
+        try:
+            observed_remaining = int(budget_signal.get("remaining_credits") or 0)
+        except Exception:
+            observed_remaining = 0
     actual_remaining: int | None = None
     raw_remaining = slot.get("remaining_credits")
     if raw_remaining not in (None, ""):
@@ -2880,25 +2896,23 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
             actual_remaining = int(round(float(raw_remaining)))
         except Exception:
             actual_remaining = None
+    if actual_remaining is not None and observed_remaining > actual_remaining:
+        actual_remaining = observed_remaining
     if actual_remaining is not None:
         if actual_remaining > 0:
             return actual_remaining
         if (
             probe_result in {"depleted", "insufficient_credits"}
             and upstream_reset_estimated_recovery is None
+            and observed_remaining <= 0
             and state not in {"quarantine", "cooldown"}
         ):
             return None
-    budget_signal = _onemin_slot_budget_signal(slot)
     if probe_result in {"depleted", "insufficient_credits"} and budget_signal is not None:
         if _onemin_slot_recent_billing_recovery(slot):
             billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
             if billing_remaining > 0:
                 return billing_remaining
-        try:
-            observed_remaining = int(budget_signal.get("remaining_credits") or 0)
-        except Exception:
-            observed_remaining = 0
         if observed_remaining > 0:
             return observed_remaining
         if upstream_reset_estimated_recovery is not None:
@@ -3074,6 +3088,13 @@ def _onemin_provider_health_pick(
                 observed_remaining = int(budget_signal.get("remaining_credits") or 0)
             except Exception:
                 observed_remaining = None
+        elif observed_remaining is not None and budget_signal is not None:
+            try:
+                budget_remaining = int(budget_signal.get("remaining_credits") or 0)
+            except Exception:
+                budget_remaining = 0
+            if budget_remaining > observed_remaining:
+                observed_remaining = budget_remaining
         billing_hint = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
         billing_recovery = _onemin_slot_recent_billing_recovery(
             slot,
@@ -3956,6 +3977,19 @@ def _cheap_provider_order() -> tuple[str, ...]:
     return ("gemini_vortex", "magixai", "onemin")
 
 
+def _hard_provider_order() -> tuple[str, ...]:
+    raw = _env("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in raw.split(","):
+        provider_key = _normalize_provider(item)
+        if not provider_key or provider_key in seen:
+            continue
+        seen.add(provider_key)
+        ordered.append(provider_key)
+    return tuple(ordered or ("onemin", "gemini_vortex", "magixai"))
+
+
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
     normalized = str(requested_model or "").strip().lower()
     if normalized == "":
@@ -4003,7 +4037,7 @@ def _provider_model_order_for_lane(
             return (requested,)
         if normalized == GEMINI_VORTEX_PUBLIC_MODEL:
             return _gemini_vortex_models()
-        if lane in {_LANE_FAST, _LANE_OVERFLOW}:
+        if lane in {_LANE_FAST, _LANE_OVERFLOW, _LANE_HARD, _LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
             return _gemini_vortex_models()
         return ()
 
@@ -4725,6 +4759,9 @@ def _provider_candidates(
         onemin_config = configs.get("onemin")
         if onemin_config is not None and onemin_config.api_keys:
             ordered.append("onemin")
+        gemini_config = configs.get("gemini_vortex")
+        if gemini_config is not None and gemini_config.api_keys:
+            ordered.append("gemini_vortex")
         ordered.append("chatplayground")
         return tuple(dict.fromkeys(ordered))
 
@@ -4829,18 +4866,26 @@ def _provider_candidates(
         ]
 
     if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
-        return [
-            (configs["onemin"], model_name)
-            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
-            or _onemin_hard_models()
-        ]
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _hard_provider_order():
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
 
     if normalized == HARD_RESCUE_PUBLIC_MODEL:
-        return [
-            (configs["onemin"], model_name)
-            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
-            or _onemin_rescue_models()
-        ]
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _hard_provider_order():
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
 
     if normalized in {FAST_PUBLIC_MODEL, "ea-overflow"}:
         candidates: list[tuple[ProviderConfig, str]] = []
@@ -5831,6 +5876,16 @@ def _call_onemin(
     active_key_names = _ordered_onemin_keys_allow_reserve(False)
     all_key_names = _ordered_onemin_keys_allow_reserve(True)
     allow_reserve = False
+    manager_provider_health_authoritative = True
+    if manager is not None:
+        provider_health_authority_checker = getattr(manager, "_provider_health_is_authoritative", None)
+        if callable(provider_health_authority_checker):
+            try:
+                manager_provider_health_authoritative = bool(
+                    provider_health_authority_checker(provider_health=provider_health)
+                )
+            except Exception:
+                manager_provider_health_authoritative = True
     if not all_key_names:
         raise ResponsesUpstreamError("onemin_missing_api_key")
     if manager is None:
@@ -5946,7 +6001,9 @@ def _call_onemin(
             api_key = str(manager_selection.get("api_key") or "")
             wait_until = 0.0
             manager_lease_id = str(manager_selection.get("lease_id") or "")
-        elif manager is not None and provider_health_pick is None:
+        elif manager is not None and (
+            provider_health_pick is None or not manager_provider_health_authoritative
+        ):
             if not allow_reserve and len(all_key_names) > len(active_key_names):
                 allow_reserve = True
                 continue
@@ -6618,7 +6675,19 @@ def _run_text_request(
     errors: list[str] = []
     blocked_providers: set[str] = set()
     try:
-        for config, model_name in _provider_candidates(requested_model, lane=lane):
+        provider_candidates = _provider_candidates(requested_model, lane=lane)
+        if chatplayground_audit_callback_only and lane in {_LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+            provider_candidates = [
+                (config, model_name)
+                for config, model_name in provider_candidates
+                if config.provider_key == "chatplayground"
+            ]
+            if not provider_candidates:
+                config = _provider_configs().get("chatplayground")
+                if config is not None:
+                    model_names = _provider_model_order_for_lane("chatplayground", lane, requested_model) or config.default_models
+                    provider_candidates = [(config, model_name) for model_name in model_names]
+        for config, model_name in provider_candidates:
             if config.provider_key in blocked_providers:
                 continue
             if not config.api_keys:

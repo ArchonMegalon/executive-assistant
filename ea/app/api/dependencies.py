@@ -301,29 +301,8 @@ def require_request_auth(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> None:
-    if isinstance(access_identity, DependsMarker):
-        access_identity = get_cloudflare_access_identity(request, container)
-    profile = _runtime_profile(container)
-    if access_identity is not None:
-        return
-    if _workspace_session_payload(request, container) is not None:
-        return
-    if _loopback_no_auth_allowed(request, container):
-        return
-    if profile.auth_mode not in {"token", "token_or_access", "access"}:
-        return
-    if profile.auth_mode == "access":
-        _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
-        raise HTTPException(status_code=401, detail="auth_required")
-    expected = _configured_api_token(container)
-    if not expected:
-        _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
-        raise HTTPException(status_code=401, detail="auth_required")
-    provided = _extract_token(request)
-    if provided == expected:
-        return
-    _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=True)
-    raise HTTPException(status_code=401, detail="auth_required")
+    get_request_context(request, container, access_identity)
+    return None
 
 
 @dataclass(frozen=True)
@@ -408,6 +387,9 @@ def get_request_context(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> RequestContext:
+    cached_context = getattr(request.state, "ea_request_context", None)
+    if isinstance(cached_context, RequestContext):
+        return cached_context
     if isinstance(access_identity, DependsMarker):
         access_identity = get_cloudflare_access_identity(request, container)
     profile = _runtime_profile(container)
@@ -418,13 +400,15 @@ def get_request_context(
             authenticated=True,
             access_identity=access_identity,
         )
-        return RequestContext(
+        context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
             auth_source="cloudflare_access",
             access_email=access_identity.email,
             operator_id=build_operator_id(access_identity),
         )
+        setattr(request.state, "ea_request_context", context)
+        return context
     workspace_session = _workspace_session_payload(request, container)
     if workspace_session is not None:
         principal_id = str(workspace_session.get("principal_id") or "").strip()
@@ -433,24 +417,28 @@ def get_request_context(
             raise HTTPException(status_code=401, detail="principal_required")
         role = str(workspace_session.get("role") or "principal").strip().lower() or "principal"
         operator_id = str(workspace_session.get("operator_id") or "").strip() if role == "operator" else ""
-        return RequestContext(
+        context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
             auth_source="workspace_access_session",
             access_email=str(workspace_session.get("email") or "").strip().lower(),
             operator_id=operator_id,
         )
+        setattr(request.state, "ea_request_context", context)
+        return context
     if _loopback_no_auth_allowed(request, container):
         principal_id = _resolved_principal_id(request, container=container, authenticated=True)
         if not principal_id:
             _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
             raise HTTPException(status_code=401, detail="principal_required")
-        return RequestContext(
+        context = RequestContext(
             principal_id=principal_id,
             authenticated=True,
             auth_source="loopback_no_auth",
             operator_id=_requested_operator_id(request),
         )
+        setattr(request.state, "ea_request_context", context)
+        return context
     authenticated = False
     if profile.auth_mode in {"token", "token_or_access"}:
         expected = _configured_api_token(container)
@@ -472,12 +460,14 @@ def get_request_context(
     if not principal_id:
         _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))
         raise HTTPException(status_code=401, detail="principal_required")
-    return RequestContext(
+    context = RequestContext(
         principal_id=principal_id,
         authenticated=authenticated,
         auth_source="api_token" if authenticated else "anonymous",
         operator_id=_requested_operator_id(request) if authenticated else "",
     )
+    setattr(request.state, "ea_request_context", context)
+    return context
 
 
 def require_operator_context(context: RequestContext = Depends(get_request_context)) -> None:

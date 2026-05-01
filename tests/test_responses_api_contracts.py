@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import re
 import shlex
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -71,6 +73,24 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
         client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
+
+
+def test_responses_create_routes_run_as_async_wrappers() -> None:
+    from app.api.routes import responses
+
+    for route_fn in (
+        responses.create_response,
+        responses.create_codex_core,
+        responses.create_codex_core_batch,
+        responses.create_codex_core_rescue,
+        responses.create_codex_easy,
+        responses.create_codex_repair,
+        responses.create_codex_groundwork,
+        responses.create_codex_review_light,
+        responses.create_codex_survival,
+        responses.create_codex_audit,
+    ):
+        assert inspect.iscoroutinefunction(route_fn)
 
 
 def test_tool_shim_does_not_inject_fleet_status_when_worker_prompt_forbids_it() -> None:
@@ -6026,9 +6046,6 @@ def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.Mo
     from app.api.routes import responses
     from app.services import responses_upstream as upstream
 
-    class _NoToolContainer:
-        tool_execution = None
-
     def fail_post_json(
         *,
         url: str,
@@ -6039,7 +6056,8 @@ def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.Mo
         raise AssertionError("http path should not be used for callback-only audit lane")
 
     monkeypatch.setattr(upstream, "_post_json", fail_post_json)
-    monkeypatch.setattr(responses, "get_container", lambda: _NoToolContainer())
+    degraded_container = replace(client.app.state.container, tool_execution=None)
+    client.app.dependency_overrides[responses.get_container] = lambda: degraded_container
 
     response = client.post("/v1/codex/audit", json={"input": "review this change"})
     assert response.status_code == 200
@@ -6052,6 +6070,7 @@ def test_codex_audit_path_degrades_without_tool_execution(monkeypatch: pytest.Mo
     assert body["metadata"]["codex_profile"] == "audit"
     assert body["metadata"]["codex_review_required"] is True
     assert body["metadata"]["provider_account_name"].startswith("chatplayground_")
+    client.app.dependency_overrides.clear()
 
 
 def test_codex_audit_smoke_uses_chatplayground_callback_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6288,7 +6307,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["governance"]["support_help_boundary"]["owner"] == "chummer6-hub"
     assert any(item["label"] == "PRODUCT_HEALTH_SCORECARD.yaml" for item in body["governance"]["sources"])
     assert body["profiles"][0]["lane"] == "hard"
-    assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
+    assert body["profiles"][0]["provider_hint_order"] == ["onemin", "gemini_vortex"]
     assert body["profiles"][0]["work_class"] == "hard_coder"
     assert "Hard coder lane" in body["profiles"][0]["expectation_summary"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
@@ -6323,9 +6342,9 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert "Groundwork lane" in groundwork_profile["expectation_summary"]
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
-    assert review_light_profile["provider_hint_order"] == ["browseract"]
-    assert review_light_profile["backend"] == "browseract"
-    assert review_light_profile["health_provider_key"] == "browseract"
+    assert review_light_profile["provider_hint_order"] == ["onemin", "gemini_vortex", "browseract"]
+    assert review_light_profile["backend"] == "onemin"
+    assert review_light_profile["health_provider_key"] == "onemin"
     survival_profile = next(profile for profile in body["profiles"] if profile["profile"] == "survival")
     assert survival_profile["lane"] == "survival"
     assert survival_profile["provider_hint_order"] == ["onemin", "gemini_vortex"]
@@ -6347,7 +6366,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["capacity_summary"]["last_used_sponsor_session_id"] == ""
     assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == ""
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
-    assert review_light_lane["health_provider_key"] == "browseract"
+    assert review_light_lane["health_provider_key"] == "onemin"
 
 
 def test_codex_profiles_endpoint_hides_survival_lane_when_all_routes_are_blocked(

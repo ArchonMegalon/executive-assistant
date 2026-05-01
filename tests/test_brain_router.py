@@ -93,9 +93,24 @@ def test_brain_router_falls_back_to_browseract_review_metadata_when_onemin_is_un
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "")
 
-    router = BrainRouterService(provider_registry=ProviderRegistryService())
-    decision = router.resolve_profile("review_light")
+    repo = InMemoryProviderBindingRepository()
+    repo.upsert(principal_id="exec-1", provider_key="gemini_vortex", status="disabled")
+    router = BrainRouterService(provider_registry=ProviderRegistryService(provider_binding_repo=repo))
+    decision = router.resolve_profile("review_light", principal_id="exec-1")
 
     assert decision.provider_hint_order == ("browseract",)
     assert decision.backend_key == "browseract"
     assert decision.health_provider_key == "browseract"
+
+
+def test_brain_router_prefers_onemin_for_review_light_when_available(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    router = BrainRouterService(provider_registry=ProviderRegistryService())
+    decision = router.resolve_profile("review_light")
+
+    assert decision.provider_hint_order[0] == "onemin"
+    assert decision.backend_key == "onemin"
+    assert decision.health_provider_key == "onemin"

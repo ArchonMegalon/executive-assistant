@@ -29,6 +29,7 @@ from app.services.tool_execution import (
     ToolExecutionService,
 )
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
+from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter
 from app.services.tool_runtime import ToolRuntimeService
 
 
@@ -173,6 +174,58 @@ def test_tool_execution_service_executes_structured_generate_via_brain_router(mo
     assert result.output_json["brain_profile"] == "groundwork"
     assert result.output_json["routed_provider_key"] == "gemini_vortex"
     assert result.receipt_json["logical_tool_name"] == "provider.brain_router.structured_generate"
+
+
+def test_gemini_vortex_adapter_honors_payload_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "python3")
+    adapter = GeminiVortexToolAdapter()
+    seen: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):  # type: ignore[no-untyped-def]
+        seen["command"] = command
+        seen["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout='{"response":"{\\"text\\":\\"ok\\"}","stats":{}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = adapter.execute(
+        ToolInvocationRequest(
+            session_id="session-gemini-timeout-1",
+            step_id="step-gemini-timeout-1",
+            tool_name="provider.gemini_vortex.structured_generate",
+            action_kind="content.generate",
+            payload_json={
+                "source_text": "Say ok",
+                "response_schema_json": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {"text": {"type": "string"}},
+                },
+                "timeout_seconds": 20,
+                "model": "gemini-3-flash-preview",
+            },
+            context_json={"principal_id": "exec-1"},
+        ),
+        ToolDefinition(
+            tool_name="provider.gemini_vortex.structured_generate",
+            version="builtin",
+            input_schema_json={},
+            output_schema_json={},
+            policy_json={},
+            allowed_channels=("commentary",),
+            approval_default="never",
+            enabled=True,
+            updated_at="2026-05-01T00:00:00Z",
+        ),
+    )
+
+    assert seen["timeout"] == 20
+    assert result.output_json["structured_output_json"]["text"] == "ok"
 
 
 def test_provider_registry_exposes_binding_states(monkeypatch: pytest.MonkeyPatch) -> None:

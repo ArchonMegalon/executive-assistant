@@ -3488,6 +3488,78 @@ def test_onemin_manager_actual_snapshot_ignores_mismatched_actual_billing() -> N
     assert accounts[0]["credit_basis"] == "observed_error"
 
 
+def test_onemin_manager_non_authoritative_provider_health_does_not_block_persisted_ready_account() -> None:
+    from app.domain.models import OneminAccount, OneminCredential
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    manager._repo.replace_state(
+        accounts=[
+            OneminAccount(
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_1",
+                account_label="ONEMIN_AI_API_KEY_FALLBACK_1",
+                status="ready",
+                remaining_credits=40000,
+                max_credits=15000,
+                last_billing_snapshot_at="2026-04-28T08:30:00Z",
+                details_json={
+                    "credit_basis": "actual_billing_usage_page",
+                    "has_actual_billing": True,
+                    "actual_remaining_credits": 40000.0,
+                    "actual_max_credits": 15000.0,
+                },
+            )
+        ],
+        credentials=[
+            OneminCredential(
+                credential_id="fallback_1",
+                account_id="ONEMIN_AI_API_KEY_FALLBACK_1",
+                slot_name="fallback_1",
+                secret_env_name="ONEMIN_AI_API_KEY_FALLBACK_1",
+                state="ready",
+                remaining_credits=40000,
+            )
+        ],
+    )
+    candidate = {
+        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "account_id": "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "slot_name": "fallback_1",
+        "credential_id": "fallback_1",
+        "secret_env_name": "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "state": "quarantine",
+        "slot_role": "active",
+        "remaining_credits": 0,
+        "estimated_remaining_credits": 0,
+        "billing_remaining_credits": 0,
+        "last_probe_result": "depleted",
+        "api_key": "high-key",
+    }
+    provider_health = {
+        "providers": {
+            "onemin": {
+                "slots": [candidate],
+            }
+        }
+    }
+
+    lease = manager.reserve_for_candidates(
+        candidates=[candidate],
+        lane="core",
+        capability="code_generate",
+        principal_id="exec-1",
+        request_id="req-non-authoritative-provider-health",
+        estimated_credits=25662,
+        allow_reserve=False,
+        provider_health=provider_health,
+    )
+
+    assert lease is not None
+    assert lease["api_key"] == "high-key"
+    assert lease["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_1"
+
+
 def test_refresh_onemin_api_account_uses_credit_subject_hint_to_select_matching_team(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import providers as providers_route
 

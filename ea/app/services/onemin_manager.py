@@ -417,6 +417,7 @@ class OneminManagerService:
         candidate: dict[str, object],
         accounts_by_label: dict[str, OneminAccount],
         credentials_by_label: dict[str, OneminCredential],
+        provider_health_authoritative: bool = True,
     ) -> dict[str, object]:
         result = dict(candidate)
         has_live_remaining_signal = (
@@ -429,7 +430,18 @@ class OneminManagerService:
             if not normalized:
                 return
             current = str(result.get("state") or "").strip().lower()
-            if current in {"", "unknown"} or normalized not in {"ready", "unknown"}:
+            effective_allowed_states = {"ready", "unknown", "degraded"}
+            if current in {"", "unknown"}:
+                result["state"] = normalized
+                return
+            if (
+                not provider_health_authoritative
+                and normalized in effective_allowed_states
+                and current not in effective_allowed_states
+            ):
+                result["state"] = normalized
+                return
+            if normalized not in {"ready", "unknown"}:
                 result["state"] = normalized
 
         credential = None
@@ -1023,9 +1035,12 @@ class OneminManagerService:
         provider_health: dict[str, object] | None = None,
     ) -> dict[str, object] | None:
         task_class = self._task_class(lane=lane, capability=capability)
+        provider_health_authoritative = True
         with self._lock:
             if provider_health is not None:
-                self._sync_state(provider_health=provider_health)
+                provider_health_authoritative = self._provider_health_is_authoritative(provider_health=provider_health)
+                if provider_health_authoritative:
+                    self._sync_state(provider_health=provider_health)
             accounts_by_label, credentials_by_label = self._persisted_candidate_lookups()
             eligible: list[tuple[float, dict[str, object]]] = []
             for candidate in candidates:
@@ -1033,6 +1048,7 @@ class OneminManagerService:
                     candidate=candidate,
                     accounts_by_label=accounts_by_label,
                     credentials_by_label=credentials_by_label,
+                    provider_health_authoritative=provider_health_authoritative,
                 )
                 allowed, _ = self._candidate_allowed(
                     candidate=effective_candidate,

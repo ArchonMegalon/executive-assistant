@@ -15,6 +15,10 @@ services:
       - EA_PORT=8090
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - HOME=/home/ea
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
       - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
       - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
@@ -31,6 +35,57 @@ services:
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/node:/usr/bin/node:ro
+      - /usr/lib/node_modules:/usr/lib/node_modules:ro
+      - ${HOME}/.gemini:/home/ea/.gemini:rw
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+    depends_on:
+      ea-db:
+        condition: service_healthy
+
+  ea-responses-proxy:
+    image: ea-rewrite:latest
+    container_name: ea-responses-proxy
+    restart: unless-stopped
+    mem_limit: 2g
+    mem_reservation: 512m
+    env_file:
+      - .env
+    environment:
+      - EA_ROLE=api
+      - EA_RESPONSES_PROXY_PORT=8091
+      - HOME=/home/ea
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
+      - TZ=Europe/Vienna
+    ports:
+      - "${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - ea_artifacts:/data/artifacts
+      - ea_provider_ledger:/data/provider-ledger
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/node:/usr/bin/node:ro
+      - /usr/lib/node_modules:/usr/lib/node_modules:ro
+      - ${HOME}/.gemini:/home/ea/.gemini:rw
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
+    command:
+      - env
+      - PYTHONPATH=/docker/EA/ea
+      - python
+      - /docker/EA/scripts/ea_responses_proxy.py
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health/ready >/dev/null
+      interval: 30s
+      timeout: 10s
+      retries: 5
     depends_on:
       ea-db:
         condition: service_healthy
@@ -48,6 +103,10 @@ services:
       - EA_ROLE=worker
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - HOME=/home/ea
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
       - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
       - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
@@ -62,6 +121,11 @@ services:
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/node:/usr/bin/node:ro
+      - /usr/lib/node_modules:/usr/lib/node_modules:ro
+      - ${HOME}/.gemini:/home/ea/.gemini:rw
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
     depends_on:
       ea-db:
         condition: service_healthy
@@ -79,6 +143,10 @@ services:
       - EA_ROLE=scheduler
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - HOME=/home/ea
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
       - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
       - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
@@ -93,6 +161,11 @@ services:
       - ea_provider_ledger:/data/provider-ledger
       - /docker:/docker
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/node:/usr/bin/node:ro
+      - /usr/lib/node_modules:/usr/lib/node_modules:ro
+      - ${HOME}/.gemini:/home/ea/.gemini:rw
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/group:/etc/group:ro
     depends_on:
       ea-db:
         condition: service_healthy
