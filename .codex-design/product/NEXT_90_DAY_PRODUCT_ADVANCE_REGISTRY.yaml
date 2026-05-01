@@ -10,9 +10,10 @@ activation:
     - The current full-product flagship closeout frontier reports zero open milestones.
     - FLAGSHIP_PRODUCT_READINESS.generated.json is green for desktop_client and the other flagship readiness planes.
     - The promoted desktop route is honest on Windows, macOS, and Linux.
-  control_plane_rule: Launch this wave on spare Fleet shards immediately, but do not let it steal shards already assigned to the current flagship closeout frontier.
+  control_plane_rule: Launch this wave on spare Fleet shards immediately, prioritize W22P parity-proof and desktop-proof closure ahead of later successor waves, but do not let it steal shards already assigned to the current flagship closeout frontier.
 
 ordering_rule:
+  - Before broader successor breadth, drive the Chummer5A human-parity matrix to zero `no` rows and clear desktop executable proof drift.
   - Productionize native-host desktop release and promotion first.
   - Turn Chummer5a parity into oracle-backed release truth second.
   - Make desktop-native trust, recovery, and workspace continuity boring third.
@@ -124,6 +125,39 @@ waves:
     status: not_started
     milestone_ids:
     - 135
+  - id: W22P
+    name: Close human-tested parity proof and desktop executable trust before successor breadth
+    status: not_started
+    milestone_ids:
+    - 141
+    - 142
+    - 143
+    - 144
+  - id: W23
+    name: Calm-under-pressure payoff, veteran-depth parity, and campaign continuity closure
+    status: not_started
+    milestone_ids:
+    - 136
+  - id: W24
+    name: Make ecosystem leverage, community formation, and acquisition-fit seams explicit
+    status: not_started
+    milestone_ids:
+    - 137
+  - id: W25
+    name: Turn first emotional wins and participation bridges into release-gated product truth
+    status: not_started
+    milestone_ids:
+    - 138
+  - id: W26
+    name: Make GM prep, world broadcast, creator feedback, and community trust feel lived-in
+    status: not_started
+    milestone_ids:
+    - 139
+  - id: W27
+    name: Turn runner portability, ritual return loops, creator operations, and LTD cadence into habitual product value
+    status: not_started
+    milestone_ids:
+    - 140
 
 milestones:
   - id: 101
@@ -1417,7 +1451,7 @@ milestones:
       - 107
     exit_criteria:
       - Approved campaign primer and mission packs can emit locale-matched cold-open and briefing bundles with video, audio, preview, and packet siblings.
-      - Campaign home, claimed desktop, and mobile surfaces can launch those artifacts without browser ritual or spoiler drift.
+      - Campaign home, claimed desktop, and mobile surfaces can launch those artifacts through governed route refs and audience-bound artifact refs without requiring a browser-only copy/paste handoff, and spoiler posture is enforced by campaign-owned audience receipts.
       - Campaign artifact delivery stays tied to approved primer, mission, and audience truth rather than ad hoc narration.
     work_tasks:
       - id: 108.1
@@ -1507,7 +1541,7 @@ milestones:
     exit_criteria:
       - Approved Build Lab explain packets can emit localized video, audio, preview, and packet companions from the same rule-environment and explain receipts used by the product.
       - Compare, import, and blocker surfaces can launch inspectable explain companions without turning media into rules truth.
-      - Build and explain artifacts feel premium while staying grounded in engine-owned proofs.
+      - Build and explain artifacts preserve engine-owned explain refs, rule-environment refs, locale refs, and approval posture across every rendered sibling so no companion artifact can drift away from canonical explain truth.
     work_tasks:
       - id: 109.1
         owner: chummer6-core
@@ -1934,7 +1968,7 @@ milestones:
     exit_criteria:
       - Dossiers, campaigns, recaps, replays, and external exchange outputs carry lineage, portability, provenance, and bounded-loss posture.
       - Export, import, recap, and federation flows are governed by the same artifact and release-truth lanes as normal Chummer outputs.
-      - Exchange becomes a second pillar without weakening campaign, rules, or publication truth.
+      - Exchange outputs are first-class release-governed artifacts with lineage, compatibility, revocation, and bounded-loss receipts, and no federation or export lane can mutate canonical campaign, rules, or publication truth.
     work_tasks:
       - id: 115.1
         owner: chummer6-core
@@ -2074,7 +2108,7 @@ milestones:
       - 112
       - 117
     exit_criteria:
-      - New users can reach first playable session through guided install, claim, campaign primer, starter build, briefing, and support-safe recovery without browser ritual.
+      - New users can reach first playable session through guided install, claim, campaign primer, starter build, briefing, and support-safe recovery using governed install, claim, and route truth without a required browser-only copy/paste handoff.
       - Starter lane artifacts are localized, inspectable, audience-safe, and tied to campaign and install truth.
       - Onboarding can measure drop-offs and feed the product-governor loop.
     work_tasks:
@@ -2859,7 +2893,9 @@ milestones:
     owners:
     - chummer6-core
     - chummer6-hub
+    - chummer6-hub-registry
     - chummer6-ui
+    - chummer6-ui-kit
     - chummer6-mobile
     - executive-assistant
     - fleet
@@ -2873,15 +2909,25 @@ milestones:
     - 133
     - 134
     - 135
+    - 141
+    - 142
+    - 143
+    - 144
     exit_criteria:
     - One player and one GM can move through action help, local source anchor, campaign adoption, runner goal update, run closeout,
       and one approved consequence loop without leaving governed Chummer truth.
+    - CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json reports `summary.visual_no_count = 0` and `summary.behavioral_no_count = 0`; any remaining `no`, blank, inferred, or stale row blocks closeout.
     - Veteran-replacement families now have direct screenshot-backed and runtime-backed proof for translator or XML, dense builder
       and career flows, dice and initiative, import oracles or Hero Lab, contacts or lifestyles or history, and print or export
       utilities, plus dialog-level element inventories carrying `present_in_chummer5a`, `present_in_chummer6`, `visual_parity`,
       `behavioral_parity`, `removable_if_not_in_chummer5a`, and `reason`.
-    - Mobile and companion continuity make recap, return moment, player-safe consequence feed, and degraded-network posture feel
-      dependable instead of desk-only.
+    - Release-health planes now publish separate truth for SR5 veteran readiness, veteran deep workflow readiness, public shelf readiness,
+      data durability, recovery trust, rules explainability, custom-data survival, large-sheet performance, SR4 parity, and SR6 parity.
+    - Installer bytes, release-channel truth, public shelf truth, in-app update truth, and support truth agree for the promoted flagship route;
+      split-brain release truth fails closeout.
+    - Every remaining intentional parity difference is classified as `must_match`, `may_improve`, or `may_remove_if_non_degrading`;
+      unclassified drift blocks closeout.
+    - Mobile and companion continuity publish recap, return-moment, player-safe consequence-feed, and degraded-network receipts from governed campaign truth on mobile and companion surfaces; missing or stale receipts block closeout.
     work_tasks:
     - id: '136.1'
       owner: chummer6-hub
@@ -2941,6 +2987,36 @@ milestones:
     - id: '136.9'
       owner: fleet
       title: Bind the machine-readable human parity matrix into audit/gate consumption so hard families cannot close on prose-only proof.
+    - id: '136.10'
+      owner: chummer6-design
+      title: Publish machine-readable flagship readiness planes plus divergence classes for must-match, may-improve, and may-remove-if-non-degrading review.
+    - id: '136.11'
+      owner: fleet
+      title: Publish derived release-health planes from live proof so structural green cannot masquerade as SR5 veteran, durability, explainability, or public-shelf readiness.
+    - id: '136.12'
+      owner: chummer6-core
+      title: Bind data durability, custom-data survival, rules explainability, and large-sheet performance evidence into release-bound engine proof.
+    - id: '136.13'
+      owner: chummer6-hub
+      title: Close split-brain release truth so installer bytes, release-channel truth, public shelf truth, in-app update truth, and support posture agree.
+    - id: '136.14'
+      owner: chummer6-hub-registry
+      title: Publish primary-vs-fallback channel metadata, rollback/revoke posture, and desktop-route rationale so public-shelf-ready truth is machine-checkable.
+    - id: '136.15'
+      owner: chummer6-ui
+      title: Close raw promoted desktop recovery-trust proof on every advertised platform with non-borrowed startup, update, rollback, restore, and first-launch receipts.
+    - id: '136.16'
+      owner: fleet
+      title: Fail parity closeout when remaining deltas are not classified as must-match, may-improve, or may-remove-if-non-degrading in the audit artifacts.
+    - id: '136.17'
+      owner: chummer6-ui-kit
+      title: Bind large-sheet, dense-roster, status-strip, and workbench-noise budgets into the flagship desktop preset so dense-workbench-ready proof is not theme-fragile.
+    - id: '136.18'
+      owner: executive-assistant
+      title: Extract Chummer5A screenshot baselines, first-minute task packs, import/export fixtures, and dense-workbench compare packs into the parity lab as governed oracle inputs.
+    - id: '136.19'
+      owner: fleet
+      title: Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead of letting adjacent coverage inherit from broad desktop readiness.
   - id: 137
     title: Ecosystem leverage, community formation, and acquisition-fit integration seams
     wave: W24
@@ -2995,3 +3071,331 @@ milestones:
     - id: '137.8'
       owner: chummer6-design
       title: Close ecosystem leverage, integration seams, acquisition-fit posture, and non-shadow-truth boundaries in canonical design.
+  - id: 138
+    title: First emotional wins, no-desktop participation, and adoption confidence closure
+    wave: W25
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-ui
+    - chummer6-mobile
+    - chummer6-media-factory
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 119
+    - 123
+    - 136
+    - 137
+    exit_criteria:
+    - New users can discover a beginner-safe run, choose a quickstart or existing approved runner, pass readable preflight, acknowledge the table contract, and receive meeting handoff without needing the flagship desktop before they know whether they are welcome.
+    - Ready for Tonight exists as a governed player, GM, and organizer verdict surface that answers status, blockers, changes since last session, next best action, and proof receipts.
+    - Existing tables can adopt from current truth, mark unknown history explicitly, bind the current rule environment, and receive adoption-confidence output instead of having to reconstruct campaign history first.
+    - Source-aware explain and role-kit posture publish explain anchors, local-source posture, legality reasons, rule-environment refs, and swap-safe recommendation receipts for beginner and veteran flows.
+    - One Foundry-first handoff proof emits a runner export, opposition packet export, player-safe handout export, and visible export receipt or failure state from governed Chummer truth.
+    - Ready-for-tonight, role-kit, adoption, and Foundry-first acceptance registries are consumed by control-plane and public-posture truth instead of remaining prose-only canon.
+    work_tasks:
+    - id: '138.1'
+      owner: chummer6-design
+      title: Publish the hero-path canon for Ready for Tonight, no-desktop participation, role kits, source-aware explain, start-from-today adoption, and Foundry-first handoff.
+    - id: '138.2'
+      owner: chummer6-hub
+      title: Bind open-run discovery, quickstart selection, table contract, readable preflight, and meeting handoff into a beginner-safe no-desktop participation path.
+    - id: '138.3'
+      owner: chummer6-ui
+      title: Surface Ready for Tonight, source-aware explain, role-kit guidance, and start-from-today adoption in the flagship desktop without collapsing them into dashboard chrome.
+    - id: '138.4'
+      owner: chummer6-mobile
+      title: Deliver the no-desktop participation bridge for run discovery, quickstart selection, readable blockers, accepted-player handoff, recap, and return.
+    - id: '138.5'
+      owner: chummer6-core
+      title: Keep readiness verdicts, role-kit reasoning, explain anchors, adoption confidence, and Foundry-first export lineage deterministic and source-backed.
+    - id: '138.6'
+      owner: chummer6-hub-registry
+      title: Publish route-truth and participation metadata so public beginner paths, desktop handoff posture, and export posture cannot overclaim.
+    - id: '138.7'
+      owner: chummer6-media-factory
+      title: Render beginner-safe onboarding, mission handoff, recap, and starter-loadout support artifacts that stay secondary to governed product truth.
+    - id: '138.8'
+      owner: executive-assistant
+      title: Compile beginner-friction, gear-paralysis, rule-ambiguity, and adoption-confidence packets from governed truth without becoming a second product brain.
+    - id: '138.9'
+      owner: fleet
+      title: Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence receipts, or Foundry-first handoff receipts are stale, missing, or contradicted by public posture.
+    - id: '138.10'
+      owner: fleet
+      title: Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE, and related newcomer-path proof into machine-readable readiness and public-truth projections.
+  - id: 139
+    title: GM tonight pack, world broadcast cadence, creator analytics, community safety, and cognitive-load trust closure
+    wave: W26
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-ui
+    - chummer6-mobile
+    - chummer6-media-factory
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 113
+    - 123
+    - 137
+    - 138
+    exit_criteria:
+    - GMs can open one governed tonight pack containing job packet, opposition packet, handouts, reward posture, rule-environment warnings, and Foundry-class or PDF export receipts.
+    - The world talks back on a repeatable cadence through one weekly city ticker, one faction-spin item, one GM-only digest, and one public-safe media card, all sourced from approved truth.
+    - Community safety, moderation, consent, and appeals expose governed report, triage, temporary-action, final-decision, appeal, retention, and publication states for the first public and semi-public edge cases before open-run scale is treated as a mature public promise.
+    - Creator publication emits bounded adoption-band, compatibility, moderation, update-request, support-issue, and collateral-state signals from the governed analytics schema instead of remaining a shelf-only publication lane.
+    - Accessibility and reduced-cognitive-load gates are explicit release-bound truths for dense workflows, warning states, trust surfaces, and mobile glanceability.
+    - Safety-state, world-broadcast, creator-analytics, and cognitive-load registries are consumed by release-health and public-trust projections instead of remaining sidecar canon.
+    work_tasks:
+    - id: '139.1'
+      owner: chummer6-design
+      title: Publish the canon for community safety, world broadcast cadence, creator analytics, accessibility and cognitive-load bar, and GM tonight-pack posture.
+    - id: '139.2'
+      owner: chummer6-hub
+      title: Bind GM tonight-pack generation, run closeout, world-broadcast sources, moderation events, and creator-publication followthrough into one governed operations lane.
+    - id: '139.3'
+      owner: chummer6-ui
+      title: Surface GM tonight-pack, moderation posture, creator feedback, and accessibility-safe cognitive-load affordances on desktop where operators actually act.
+    - id: '139.4'
+      owner: chummer6-mobile
+      title: Surface mobile-safe recap, return, moderation, and public-safe world-broadcast moments without making mobile carry full desktop prep debt.
+    - id: '139.5'
+      owner: chummer6-core
+      title: Keep tonight-pack receipts, world-broadcast lineage, creator-analytics fields, and moderation state transitions deterministic and privacy-bounded.
+    - id: '139.6'
+      owner: chummer6-hub-registry
+      title: Publish creator compatibility, publication analytics schema, world-broadcast recipe metadata, and moderation-status posture without leaking private campaign truth.
+    - id: '139.7'
+      owner: chummer6-media-factory
+      title: Render weekly broadcast, public-safe media cards, creator collateral, and GM-pack siblings from receipt-backed campaign truth.
+    - id: '139.8'
+      owner: executive-assistant
+      title: Compile world-broadcast, safety, creator, and accessibility followthrough packets from governed sources without outrunning canon or privacy bounds.
+    - id: '139.9'
+      owner: fleet
+      title: Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and appeals states, creator analytics bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory.
+    - id: '139.10'
+      owner: fleet
+      title: Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY, CREATOR_PUBLICATION_ANALYTICS_SCHEMA, and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and public-trust projections.
+  - id: 140
+    title: Runner passport, weekly world dispatch, creator operating system, and LTD-powered cadence closure
+    wave: W27
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-ui
+    - chummer6-mobile
+    - chummer6-media-factory
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 137
+    - 138
+    - 139
+    exit_criteria:
+    - A RunnerPassport exists as a governed trust and compatibility object carrying rule-environment fingerprint, approval posture, unresolved warning state, and bounded validity so communities can reuse review truth without turning it into a social score.
+    - The world dispatch loop emits a weekly city or campaign ticker, faction or world spin item, GM-only digest, player-safe what-changed card, and optional recruitment or return prompt from approved truth with explicit next useful actions.
+    - Creator publication behaves like a live operating system with bounded adoption-band, compatibility, moderation, update-request, support-issue, and collateral-state visibility instead of a static shelf.
+    - LTD-powered recurring loops for recruitment, reminder, clinic, publication, and blocker-reactivation are explicitly mapped to Chummer-owned source receipts and fail closed if any external tool becomes shadow authority.
+    - Runner-passport, world-dispatch, creator-operating-system, and LTD-cadence registries are consumed by readiness, trust, and public-posture projections instead of remaining sidecar canon.
+    work_tasks:
+    - id: '140.1'
+      owner: chummer6-design
+      title: Publish runner-passport, weekly dispatch, creator operating system, and LTD cadence canon with bounded trust and privacy posture.
+    - id: '140.2'
+      owner: chummer6-hub
+      title: Bind runner-passport issuance, cross-community review reuse, weekly world dispatch generation, and recurring followthrough loops into governed orchestrations.
+    - id: '140.3'
+      owner: chummer6-ui
+      title: Surface runner-passport trust state, what-changed dispatch, creator health, and reactivation entry points on desktop without diluting core campaign and rules truth.
+    - id: '140.4'
+      owner: chummer6-mobile
+      title: Surface player-safe passport, dispatch, return, and reactivation moments on mobile as glanceable continuity surfaces.
+    - id: '140.5'
+      owner: chummer6-core
+      title: Keep runner-passport fields, dispatch lineage, creator health fields, and recurring followthrough triggers deterministic and privacy-bounded.
+    - id: '140.6'
+      owner: chummer6-hub-registry
+      title: Publish runner-passport acceptance, world-dispatch provenance, creator operating-system fields, and LTD cadence bindings as machine-readable public and internal truth.
+    - id: '140.7'
+      owner: chummer6-media-factory
+      title: Render weekly dispatch, creator followthrough collateral, and return-prompt artifacts from receipt-backed source packets.
+    - id: '140.8'
+      owner: executive-assistant
+      title: Compile recruitment, reactivation, creator-health, and clinic followthrough packets from governed truth without becoming a second product authority.
+    - id: '140.9'
+      owner: fleet
+      title: Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system fields, or LTD cadence bindings are stale, missing, or contradicted by public posture.
+  - id: 141
+    title: Direct parity proof for translator, XML amendment, Hero Lab, and adjacent import routes
+    wave: W22P
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-ui
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 103
+    - 104
+    - 114
+    - 134
+    exit_criteria:
+    - CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json rows `source:translator_route`, `source:xml_amendment_editor_route`,
+      `source:hero_lab_importer_route`, `family:custom_data_xml_and_translator_bridge`, and `family:legacy_and_adjacent_import_oracles`
+      all report `visual_parity = yes` and `behavioral_parity = yes`; any `no`, blank, or inferred value blocks closeout.
+    - Direct screenshot-backed and runtime-backed receipts exist for `menu:translator`, `menu:xml_editor`, `menu:hero_lab_importer`,
+      and `workflow:import_oracle`, and those receipts are cited by the parity audit rows instead of family-level prose alone.
+    - Dialog-level inventories for these routes carry `present_in_chummer5a`, `present_in_chummer6`, `visual_parity`, `behavioral_parity`,
+      `removable_if_not_in_chummer5a`, and `reason`; missing fields, stale receipts, or unclassified drift block closeout.
+    work_tasks:
+    - id: '141.1'
+      owner: chummer6-ui
+      title: Capture direct screenshot and runtime proof for translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle routes.
+    - id: '141.2'
+      owner: chummer6-core
+      title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.
+    - id: '141.3'
+      owner: chummer6-hub
+      title: Keep route, support, and publication surfaces from claiming parity for these routes unless the direct proof receipts are current.
+    - id: '141.4'
+      owner: executive-assistant
+      title: Compile route-local screenshot packs and compare packets for translator, XML amendment, Hero Lab, and import-oracle proof without inventing parity.
+    - id: '141.5'
+      owner: fleet
+      title: Fail closeout when any of the five route or family rows in this milestone remain `no`, blank, stale, or unsupported by direct proof receipts.
+  - id: 142
+    title: Direct parity proof for dense workbench, dice utilities, and identity or lifestyle workflows
+    wave: W22P
+    owners:
+    - chummer6-core
+    - chummer6-ui-kit
+    - chummer6-ui
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 103
+    - 104
+    - 128
+    exit_criteria:
+    - CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json rows `family:dense_builder_and_career_workflows`,
+      `family:dice_initiative_and_table_utilities`, and `family:identity_contacts_lifestyles_history` all report
+      `visual_parity = yes` and `behavioral_parity = yes`; any `no`, blank, or inferred value blocks closeout.
+    - Direct screenshot-backed and runtime-backed receipts exist for `oracle:tabs`, `oracle:workspace_actions`,
+      `workflow:build_explain_publish`, `menu:dice_roller`, `workflow:initiative`, `workflow:contacts`,
+      `workflow:lifestyles`, and `workflow:notes`, and those receipts are cited by the parity audit rows.
+    - Dense-workbench, menu-bar, toolstrip, center-canvas, and compact-status-strip proof for these workflows remains current in the
+      visual familiarity and workflow execution gates; missing or stale captures block closeout.
+    work_tasks:
+    - id: '142.1'
+      owner: chummer6-ui
+      title: Close direct screenshot and runtime proof for dense builder and career flows, dice or initiative utilities, and contacts or lifestyles or notes workflows.
+    - id: '142.2'
+      owner: chummer6-ui-kit
+      title: Bind dense-workbench and noise-budget proof for these families into the flagship preset and fail-close on stale chrome regressions.
+    - id: '142.3'
+      owner: chummer6-core
+      title: Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.
+    - id: '142.4'
+      owner: executive-assistant
+      title: Compile family-local screenshot and interaction packs for these workflows without collapsing them into broad family prose.
+    - id: '142.5'
+      owner: fleet
+      title: Fail closeout when any route in this milestone closes on family prose, stale captures, or missing task-speed and runtime receipts.
+  - id: 143
+    title: Direct parity proof for print/export/exchange and SR6 supplements or house-rule workflows
+    wave: W22P
+    owners:
+    - chummer6-core
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-ui
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 103
+    - 114
+    - 115
+    - 134
+    exit_criteria:
+    - CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json rows `family:sheet_export_print_viewer_and_exchange` and
+      `family:sr6_supplements_designers_and_house_rules` both report `visual_parity = yes` and `behavioral_parity = yes`;
+      any `no`, blank, or inferred value blocks closeout.
+    - Direct screenshot-backed and runtime-backed receipts exist for `menu:open_for_printing`, `menu:open_for_export`,
+      `menu:file_print_multiple`, `workflow:sr6_supplements`, and `workflow:house_rules`, and those receipts are cited by the parity audit rows.
+    - Print, export, exchange, SR6 supplement, and house-rule flows emit current receipt-backed outputs or explicit bounded failure states;
+      missing generated outputs, stale captures, or undocumented behavior drift block closeout.
+    work_tasks:
+    - id: '143.1'
+      owner: chummer6-ui
+      title: Capture direct screenshot and runtime proof for print, export, exchange, SR6 supplement, and house-rule workflows.
+    - id: '143.2'
+      owner: chummer6-core
+      title: Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.
+    - id: '143.3'
+      owner: chummer6-hub
+      title: Bind exchange and outward-facing output routes to visible receipt or bounded-failure posture instead of silent optimistic claims.
+    - id: '143.4'
+      owner: chummer6-hub-registry
+      title: Keep public or signed-in release and exchange surfaces from overstating output readiness when proof receipts are stale or incomplete.
+    - id: '143.5'
+      owner: executive-assistant
+      title: Compile route-specific compare packs and artifact proofs for print, export, exchange, SR6 supplement, and house-rule workflows.
+    - id: '143.6'
+      owner: fleet
+      title: Fail closeout when these families remain green only by broad family prose, missing outputs, or stale route-local receipts.
+  - id: 144
+    title: Desktop executable proof integrity and publishable flagship-route closure
+    wave: W22P
+    owners:
+    - chummer6-hub
+    - chummer6-hub-registry
+    - chummer6-ui
+    - fleet
+    - chummer6-design
+    status: not_started
+    dependencies:
+    - 101
+    - 102
+    - 127
+    exit_criteria:
+    - UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json reports passing status for the promoted Windows flagship tuple, and its startup-smoke
+      receipt version, artifactDigest, bytes, and readyCheckpoint all match the currently promoted installer bytes; any mismatch, stale
+      receipt, or carried-forward proof blocks closeout.
+    - DESKTOP_EXECUTABLE_EXIT_GATE.generated.json reports passing status with `local_blocking_findings_count = 0`; any local blocking
+      finding, stale platform gate receipt, or missing receipt path blocks closeout.
+    - RELEASE_CHANNEL.generated.json reports `desktopTupleCoverage.missingRequiredPlatforms = []`,
+      `desktopTupleCoverage.missingRequiredPlatformHeadPairs = []`, and `desktopTupleCoverage.missingRequiredPlatformHeadRidTuples = []`;
+      any split-brain between registry manifest, portal bytes, startup-smoke receipts, and promoted tuple truth blocks closeout.
+    - FLAGSHIP_PRODUCT_READINESS.generated.json reports `status = pass` and `coverage.desktop_client = ready`; any desktop-client fail,
+      warning, or missing state blocks closeout.
+    work_tasks:
+    - id: '144.1'
+      owner: chummer6-ui
+      title: Capture fresh Windows, Linux, and macOS startup-smoke and executable-gate proof for the currently promoted flagship bytes.
+    - id: '144.2'
+      owner: chummer6-hub-registry
+      title: Keep release-channel tuple coverage, startup-smoke receipt identity, and local verifier routing fail-closed on proof drift.
+    - id: '144.3'
+      owner: chummer6-hub
+      title: Keep public and signed-in shelf bytes, proof routes, and release truth aligned with the same promoted tuple receipts.
+    - id: '144.4'
+      owner: fleet
+      title: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel tuple proof.

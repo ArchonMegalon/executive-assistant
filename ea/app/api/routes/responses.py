@@ -320,7 +320,12 @@ _PROMPT_ROUTE_CODE_MARKERS = (
 )
 
 
-def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: str = "") -> float:
+def _responses_upstream_idle_timeout_seconds(
+    *,
+    model: str = "",
+    codex_profile: str = "",
+    enforce_heartbeat_floor: bool = True,
+) -> float:
     raw = str(os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS") or "2700").strip()
     try:
         parsed = float(raw)
@@ -328,43 +333,88 @@ def _responses_upstream_idle_timeout_seconds(*, model: str = "", codex_profile: 
         parsed = 2700.0
     normalized_model = str(model or "").strip().lower()
     normalized_profile = str(codex_profile or "").strip().lower()
+    survival_timeout_raw = str(
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SURVIVAL_SECONDS") or "180"
+    ).strip()
+    try:
+        survival_parsed = float(survival_timeout_raw)
+    except Exception:
+        survival_parsed = 180.0
     hard_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or max(parsed, 2700.0)
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or "180"
     ).strip()
     try:
         hard_parsed = float(hard_timeout_raw)
     except Exception:
         hard_parsed = max(parsed, 2700.0)
+    review_timeout_raw = str(
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_REVIEW_LIGHT_SECONDS") or "180"
+    ).strip()
+    try:
+        review_parsed = float(review_timeout_raw)
+    except Exception:
+        review_parsed = 180.0
+    audit_timeout_raw = str(
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_AUDIT_SECONDS") or "180"
+    ).strip()
+    try:
+        audit_parsed = float(audit_timeout_raw)
+    except Exception:
+        audit_parsed = 180.0
     hard_profiles = {
         "core",
         "core_authority",
         "core_booster",
         "core_rescue",
+    }
+    audit_profiles = {
+        "audit",
         "jury",
         "jury_deep",
         "audit_shard",
     }
+    review_profiles = {
+        "review_light",
+    }
+    survival_profiles = {
+        "survival",
+    }
+    survival_models = {
+        str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
+        "ea-coder-survival",
+    }
     hard_models = {
         str(DEFAULT_PUBLIC_MODEL or "").strip().lower(),
-        str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(),
         "ea-coder-hard",
         str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(),
         str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(),
+    }
+    review_models = {
+        str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip().lower(),
+    }
+    audit_models = {
         "ea-audit-jury",
-        "ea-coder-survival",
     }
     rescue_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_CORE_RESCUE_SECONDS") or max(hard_parsed, 900.0)
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_CORE_RESCUE_SECONDS") or max(hard_parsed, 240.0)
     ).strip()
     try:
         rescue_parsed = float(rescue_timeout_raw)
     except Exception:
         rescue_parsed = max(hard_parsed, 900.0)
-    if normalized_profile == "core_rescue" or normalized_model == str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower():
+    if normalized_profile in survival_profiles or normalized_model in survival_models:
+        timeout_seconds = survival_parsed
+    elif normalized_profile in audit_profiles or normalized_model in audit_models:
+        timeout_seconds = audit_parsed
+    elif normalized_profile in review_profiles or normalized_model in review_models:
+        timeout_seconds = review_parsed
+    elif normalized_profile == "core_rescue" or normalized_model == str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower():
         timeout_seconds = rescue_parsed
     else:
         timeout_seconds = hard_parsed if normalized_profile in hard_profiles or normalized_model in hard_models else parsed
-    return max(timeout_seconds, STREAM_HEARTBEAT_SECONDS + 1.0)
+    if enforce_heartbeat_floor:
+        return max(timeout_seconds, STREAM_HEARTBEAT_SECONDS + 1.0)
+    return max(timeout_seconds, 1.0)
 
 
 def _streaming_codex_profiles() -> set[str]:
@@ -2887,20 +2937,30 @@ def _requested_max_output_tokens_from_response(response_obj: dict[str, object]) 
 
 
 def _browseract_binding_id(*, container: object | None, principal_id: str) -> str:
-    if container is None or not principal_id:
+    if container is None:
         return ""
     tool_runtime = getattr(container, "tool_runtime", None)
     if tool_runtime is None:
         return ""
+    if principal_id:
+        try:
+            bindings = tool_runtime.list_connector_bindings(principal_id, limit=100)
+        except Exception:
+            bindings = []
+        for binding in bindings:
+            connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
+            status = str(getattr(binding, "status", "") or "").strip().lower()
+            if connector_name != "browseract":
+                continue
+            if status and status != "enabled":
+                continue
+            return str(getattr(binding, "binding_id", "") or "").strip()
     try:
-        bindings = tool_runtime.list_connector_bindings(principal_id, limit=100)
+        bindings = tool_runtime.list_connector_bindings_for_connector("browseract", limit=100)
     except Exception:
         return ""
     for binding in bindings:
-        connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
         status = str(getattr(binding, "status", "") or "").strip().lower()
-        if connector_name != "browseract":
-            continue
         if status and status != "enabled":
             continue
         return str(getattr(binding, "binding_id", "") or "").strip()
@@ -2923,6 +2983,14 @@ def _build_chatplayground_audit_callback(
         tool_execution = getattr(container, "tool_execution", None)
         if tool_execution is None:
             raise RuntimeError("chatplayground_tool_execution_unavailable")
+        raw_timeout = kwargs.get("timeout_seconds")
+        if raw_timeout is None:
+            raw_timeout = os.environ.get("EA_CHATPLAYGROUND_AUDIT_CALLBACK_TIMEOUT_SECONDS", "75")
+        try:
+            timeout_seconds = float(raw_timeout)
+        except Exception:
+            timeout_seconds = 75.0
+        timeout_seconds = max(0.01, min(timeout_seconds, 300.0))
         invocation = ToolInvocationRequest(
             session_id=f"codex-audit:{uuid.uuid4().hex}",
             step_id=f"codex-audit-step:{uuid.uuid4().hex}",
@@ -2934,30 +3002,57 @@ def _build_chatplayground_audit_callback(
             },
             context_json={"principal_id": principal_id},
         )
+        result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+        def _invoke() -> None:
+            try:
+                result = tool_execution.execute_invocation(invocation)
+                result_queue.put(("result", result.output_json))
+            except ToolExecutionError as exc:
+                result_queue.put(("error", exc))
+            except Exception as exc:  # pragma: no cover - defensive parity with tool execution surface
+                result_queue.put(("error", exc))
+
+        worker = threading.Thread(target=_invoke, daemon=True)
+        worker.start()
         try:
-            result = tool_execution.execute_invocation(invocation)
-        except ToolExecutionError as exc:
-            raise RuntimeError(str(exc)) from exc
-        return result.output_json
+            status, payload = result_queue.get(timeout=timeout_seconds)
+        except queue.Empty as exc:
+            raise RuntimeError(f"chatplayground_callback_timeout:{timeout_seconds:g}s") from exc
+        if status == "error":
+            if isinstance(payload, ToolExecutionError):
+                raise RuntimeError(str(payload)) from payload
+            raise RuntimeError(str(payload))
+        return payload
 
     return _chatplayground_audit_callback
 
 
 def _browseract_binding_id(*, container: object | None, principal_id: str) -> str:
-    if container is None or not principal_id:
+    if container is None:
         return ""
     tool_runtime = getattr(container, "tool_runtime", None)
     if tool_runtime is None:
         return ""
+    if principal_id:
+        try:
+            bindings = tool_runtime.list_connector_bindings(principal_id, limit=100)
+        except Exception:
+            bindings = []
+        for binding in bindings:
+            connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
+            status = str(getattr(binding, "status", "") or "").strip().lower()
+            if connector_name != "browseract":
+                continue
+            if status and status != "enabled":
+                continue
+            return str(getattr(binding, "binding_id", "") or "").strip()
     try:
-        bindings = tool_runtime.list_connector_bindings(principal_id, limit=100)
+        bindings = tool_runtime.list_connector_bindings_for_connector("browseract", limit=100)
     except Exception:
         return ""
     for binding in bindings:
-        connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
         status = str(getattr(binding, "status", "") or "").strip().lower()
-        if connector_name != "browseract":
-            continue
         if status and status != "enabled":
             continue
         return str(getattr(binding, "binding_id", "") or "").strip()
@@ -8402,8 +8497,10 @@ def _run_response(
         upstream_idle_timeout_seconds = _responses_upstream_idle_timeout_seconds(
             model=model,
             codex_profile=effective_codex_profile,
+            enforce_heartbeat_floor=False,
         )
         request_deadline_monotonic = time.monotonic() + upstream_idle_timeout_seconds
+        codex_compatible_failure_status = 200 if (effective_codex_profile or codex_profile) else 504
 
         def _run_non_stream() -> None:
             try:
@@ -8451,6 +8548,8 @@ def _run_response(
                 instructions=instructions,
                 input_items=parsed_input.input_items,
                 failure_message=failure_message,
+                item_id=item_id,
+                visible_text=f"Error: {failure_message}",
             )
             if _should_store_response(request):
                 _store_response(
@@ -8471,10 +8570,43 @@ def _run_response(
                     "failure_message": failure_message,
                 },
             )
-            return JSONResponse(failed_obj, status_code=504)
+            return JSONResponse(failed_obj, status_code=codex_compatible_failure_status)
         if status == "error":
             failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
-            raise failure
+            failure_message = str(failure)[:500]
+            failed_obj = _build_failed_response(
+                response_id=response_id,
+                created_at=created_at,
+                model=model,
+                requested_max_output_tokens=max_output_tokens,
+                metadata=response_metadata,
+                instructions=instructions,
+                input_items=parsed_input.input_items,
+                failure_message=failure_message,
+                item_id=item_id,
+                visible_text=f"Error: {failure_message}",
+            )
+            if _should_store_response(request):
+                _store_response(
+                    response_id=response_id,
+                    response_obj=failed_obj,
+                    input_items=parsed_input.input_items,
+                    history_items=history_items,
+                    principal_id=context.principal_id,
+                    container=container,
+                )
+            _capture_responses_debug(
+                name="response_error",
+                payload={
+                    "principal_id": context.principal_id,
+                    "codex_profile": codex_profile,
+                    "response_id": response_id,
+                    "model": model,
+                    "failure_message": failure_message,
+                },
+            )
+            status_code = 200 if (effective_codex_profile or codex_profile) else 502
+            return JSONResponse(failed_obj, status_code=status_code)
         tool_decision: _ToolShimDecision | None = None
         if status == "decision":
             if not isinstance(result_payload, _ToolShimDecision) or not isinstance(result_payload.upstream_result, UpstreamResult):

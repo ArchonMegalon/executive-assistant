@@ -117,7 +117,7 @@ def _clamp_text(text: str, *, limit: int) -> str:
 
 
 def _survival_route_order() -> tuple[str, ...]:
-    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "chatplayground,gemini_web,gemini_vortex,onemin")
+    raw = _env("EA_SURVIVAL_ROUTE_ORDER", "onemin,gemini_vortex,gemini_web,chatplayground")
     ordered: list[str] = []
     seen: set[str] = set()
     aliases = {
@@ -139,7 +139,7 @@ def _survival_route_order() -> tuple[str, ...]:
             continue
         seen.add(normalized)
         ordered.append(normalized)
-    return tuple(ordered or ("chatplayground", "gemini_web", "gemini_vortex", "onemin"))
+    return tuple(ordered or ("onemin", "gemini_vortex", "gemini_web", "chatplayground"))
 
 
 def _survival_cache_ttl_seconds() -> int:
@@ -171,6 +171,14 @@ def _survival_gemini_web_deep_think_allowed() -> bool:
 
 def _survival_chatplayground_role() -> str:
     return str(_env("EA_SURVIVAL_CHATPLAYGROUND_SINGLE_ROLE", "factuality") or "factuality").strip() or "factuality"
+
+
+def _survival_onemin_model() -> str:
+    for env_name in ("EA_SURVIVAL_ONEMIN_MODEL", "EA_ONEMIN_TOOL_REVIEW_MODEL", "EA_ONEMIN_TOOL_CODE_MODEL"):
+        configured = str(_env(env_name, "") or "").strip()
+        if configured:
+            return configured
+    return "deepseek-chat"
 
 
 def _ui_challenge_cooldown_seconds() -> int:
@@ -736,7 +744,7 @@ class SurvivalLaneService:
                 "Return only the answer text unless the desired format explicitly asks for something else."
             ),
             "goal": packet.objective,
-            "model": _env("EA_SURVIVAL_ONEMIN_MODEL", _env("EA_ONEMIN_TOOL_CODE_MODEL", "")),
+            "model": _survival_onemin_model(),
         }
         invocation = ToolInvocationRequest(
             session_id=f"survival:{uuid.uuid4().hex}",
@@ -794,7 +802,7 @@ class SurvivalLaneService:
             text=text,
             provider_key="onemin",
             provider_backend=str(output_json.get("provider_backend") or "1min"),
-            model=str(result.model_name or output_json.get("model") or _env("EA_SURVIVAL_ONEMIN_MODEL", "gpt-5")),
+            model=str(result.model_name or output_json.get("model") or _survival_onemin_model()),
             latency_ms=max(0, int((time.time() - started_at) * 1000)),
             attempts=tuple(attempts),
         )
@@ -1151,17 +1159,27 @@ class SurvivalLaneService:
         )
 
     def _browseract_binding_id(self) -> str:
-        if self._tool_runtime is None or not self._principal_id:
+        if self._tool_runtime is None:
             return ""
+        if self._principal_id:
+            try:
+                bindings = self._tool_runtime.list_connector_bindings(self._principal_id, limit=100)
+            except Exception:
+                bindings = []
+            for binding in bindings:
+                connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
+                status = str(getattr(binding, "status", "") or "").strip().lower()
+                if connector_name != "browseract":
+                    continue
+                if status and status != "enabled":
+                    continue
+                return str(getattr(binding, "binding_id", "") or "").strip()
         try:
-            bindings = self._tool_runtime.list_connector_bindings(self._principal_id, limit=100)
+            bindings = self._tool_runtime.list_connector_bindings_for_connector("browseract", limit=100)
         except Exception:
             return ""
         for binding in bindings:
-            connector_name = str(getattr(binding, "connector_name", "") or "").strip().lower()
             status = str(getattr(binding, "status", "") or "").strip().lower()
-            if connector_name != "browseract":
-                continue
             if status and status != "enabled":
                 continue
             return str(getattr(binding, "binding_id", "") or "").strip()

@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-04-24
+Updated: 2026-05-01
 
 ## Workspace Integration Tier Guide
 
@@ -19,7 +19,7 @@ Updated: 2026-04-24
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Legacy prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for internal guide pipelines; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
-| `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 4` | Local `.env` API key only | API key is stored locally for transactional email delivery wiring; runtime integration and sender-domain verification are still pending. |
+| `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 1` | Local `.env` API key plus verified `chummer.run` sender-domain wiring in EA | Transactional Emailit delivery is wired locally, `chummer.run` is verified as a sending domain, and the CodexEA internal-affairs daily summary now sends from `ia@chummer.run`. |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 1` | `ea/app/services/responses_upstream.py` fallback lane and `ea/app/api/routes/responses.py` `/v1/codex` selectors | Routed as a gated secondary lane for short/overflow paths and audit support where 1min capacity is constrained. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
@@ -76,7 +76,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
-| `Emailit` |  | `manual_seeded` | `local_env` |  | Tier 5 is noted manually and the API key is stored locally; account-level verification and sender-domain setup are still pending. |
+| `Emailit` |  | `manual_seeded` | `emailit_api_live` | 2026-05-01T05:00:00Z | Tier 5 is noted manually; the local API key is live, `chummer.run` is verified as an Emailit sending domain, and `ia@chummer.run` is wired as the CodexEA internal-affairs sender. |
 | `AI Magicx` |  | `missing` | `manual_inventory` |  | Local overflow-response wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `FastestVPN PRO` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `OneAir` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |

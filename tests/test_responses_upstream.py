@@ -65,7 +65,6 @@ def test_default_public_model_uses_easy_lane_candidates(monkeypatch: pytest.Monk
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
         ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
     ]
 
 
@@ -91,7 +90,6 @@ def test_blank_requested_model_uses_easy_lane_candidates(monkeypatch: pytest.Mon
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
         ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
     ]
 
 
@@ -192,11 +190,15 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
     ]
 
     assert candidates == [
+        ("gemini_vortex", "gemini-2.5-flash"),
+        ("magixai", "mx-best"),
+        ("magixai", "x-ai/grok-code-fast-1"),
+        ("magixai", "mistralai/codestral-2508"),
+        ("magixai", "inception/mercury-coder"),
         ("onemin", "gpt-5.4"),
         ("onemin", "gpt-5"),
         ("onemin", "gpt-4o"),
         ("onemin", "deepseek-chat"),
-        ("onemin", "gpt-4.1-nano"),
     ]
 
 
@@ -219,7 +221,7 @@ def test_onemin_required_credits_for_selection_uses_model_family_defaults_before
         model="gpt-5.4",
     )
 
-    assert (light_required, light_basis) == (1200, "model_family_default")
+    assert (light_required, light_basis) == (300, "model_family_default")
     assert (hard_required, hard_basis) == (50000, "model_family_default")
 
 
@@ -233,7 +235,7 @@ def test_onemin_required_credits_for_selection_caps_poisoned_light_dispatch_medi
         model="gpt-4.1-nano",
     )
 
-    assert (required, basis) == (1200, "model_family_default_capped_recent_dispatch")
+    assert (required, basis) == (300, "model_family_default_capped_recent_dispatch")
 
 
 def test_hard_public_model_candidates_downshift_when_live_slot_budget_cannot_cover_hard_tier(
@@ -906,9 +908,11 @@ def test_groundwork_legacy_alias_routes_to_same_gemini_only_candidates(
     assert candidates == [("gemini_vortex", "gemini-groundwork")]
 
 
-def test_review_light_public_model_uses_single_chatplayground_model(
+def test_review_light_public_model_prefers_onemin_with_chatplayground_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat,gpt-4.1-nano")
     monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "gpt-4.1,gpt-5")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
 
@@ -917,7 +921,12 @@ def test_review_light_public_model_uses_single_chatplayground_model(
         for config, model in upstream._provider_candidates(upstream.REVIEW_LIGHT_PUBLIC_MODEL)
     ]
 
-    assert candidates == [("chatplayground", "gpt-4.1")]
+    assert candidates == [
+        ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-4.1"),
+        ("chatplayground", "gpt-4.1"),
+    ]
 
 
 def test_provider_prefixed_request_uses_explicit_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -989,9 +998,11 @@ def test_audit_alias_candidates_route_to_chatplayground(monkeypatch: pytest.Monk
     assert candidates == [("chatplayground", "judge-model")]
 
 
-def test_audit_model_candidates_include_onemin_if_available(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_audit_model_candidates_prefer_onemin_with_chatplayground_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
-    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "deepseek-chat")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_MODELS", "deepseek-chat")
     monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
     monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-fallback")
@@ -1001,11 +1012,25 @@ def test_audit_model_candidates_include_onemin_if_available(monkeypatch: pytest.
         for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
     ]
     assert candidates == [
-        ("chatplayground", "judge-model"),
         ("onemin", "deepseek-chat"),
         ("onemin", "gpt-4.1-nano"),
         ("onemin", "gpt-4.1"),
+        ("chatplayground", "judge-model"),
     ]
+
+def test_audit_model_candidates_route_to_chatplayground_when_onemin_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "chatplayground-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
+
+    candidates = [
+        (config.provider_key, model)
+        for config, model in upstream._provider_candidates(upstream.AUDIT_PUBLIC_MODEL)
+    ]
+    assert candidates == [("chatplayground", "judge-model")]
 
 
 def test_normalize_provider_aliases_for_onemin_in_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1744,6 +1769,58 @@ def test_onemin_provider_health_pick_rejects_quarantined_slot_with_only_upstream
     )
 
     assert pick is None
+
+
+def test_onemin_slot_effective_state_recovers_quarantined_slot_with_positive_estimated_hint() -> None:
+    slot = {
+        "state": "quarantine",
+        "remaining_credits": 0,
+        "estimated_remaining_credits": 13_322,
+        "billing_remaining_credits": 15_025,
+        "last_probe_result": "depleted",
+        "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 0 credits",
+        "upstream_reset_unknown": True,
+    }
+
+    assert upstream._onemin_slot_effective_state(slot) == "degraded"
+    assert upstream._onemin_slot_effective_state(slot, required_credits=900) == "degraded"
+
+
+def test_onemin_provider_health_pick_accepts_quarantined_slot_with_upstream_reset_unknown_and_positive_estimated_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "recoverable-key")
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 13_322,
+                            "billing_remaining_credits": 15_025,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 0 credits",
+                            "upstream_reset_unknown": True,
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=900,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is not None
+    assert pick[0] == "recoverable-key"
 
 
 def test_onemin_provider_health_pick_rejects_depleted_slot_when_actual_remaining_is_below_required(
@@ -2891,6 +2968,50 @@ def test_chatplayground_audit_callback_errors_return_unavailable_payload(monkeyp
     assert "tool-unavailable" in payload["risks"]
 
 
+def test_review_light_callback_timeout_falls_back_to_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
+    monkeypatch.setenv("EA_RESPONSES_REVIEW_LIGHT_CHATPLAYGROUND_MODELS", "judge-model")
+    monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_URLS", "https://web.chatplayground.ai/api/chat/lmsys")
+
+    calls: list[tuple[str, dict[str, str], dict[str, object], int]] = []
+
+    def timeout_callback(**kwargs: object) -> object:
+        raise RuntimeError("chatplayground_callback_timeout:1s")
+
+    def fake_post_json(
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, object],
+        timeout_seconds: int,
+    ) -> tuple[int, dict[str, object]]:
+        calls.append((url, headers, payload, timeout_seconds))
+        return (
+            200,
+            {
+                "consensus": "pass",
+                "recommendation": "approved",
+                "roles": ["factuality"],
+                "disagreements": [],
+                "risks": [],
+                "model_deltas": [],
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream.generate_text(
+        requested_model=upstream.REVIEW_LIGHT_PUBLIC_MODEL,
+        prompt="review now",
+        chatplayground_audit_callback=timeout_callback,
+    )
+
+    assert result.provider_key == "chatplayground"
+    assert result.provider_backend == "browseract"
+    assert result.model == "judge-model"
+    assert calls
+
+
 def test_chatplayground_audit_unavailable_payload_redacts_full_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BROWSERACT_API_KEY", "judge-key")
     monkeypatch.setenv("EA_RESPONSES_CHATPLAYGROUND_MODELS", "judge-model")
@@ -3075,4 +3196,96 @@ def test_call_onemin_stream_falls_back_to_nonstream_code_and_emits_single_delta(
 
     assert result.text == "ok"
     assert result.model == "gpt-5.4"
+    assert chunks == ["ok"]
+
+
+def test_resolve_onemin_request_timeout_seconds_caps_review_lanes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_RESPONSES_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS", raising=False)
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_REVIEW_LIGHT, default=180) == 45
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_AUDIT, default=180) == 45
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_REVIEW, default=180) == 45
+    assert upstream._resolve_onemin_request_timeout_seconds(lane=upstream._LANE_FAST, default=180) == 180
+
+
+def test_call_onemin_review_light_skips_stream_and_uses_chat_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = upstream.ProviderConfig(
+        provider_key="onemin",
+        display_name="1min",
+        api_keys=("key-1",),
+        default_models=("deepseek-chat",),
+        timeout_seconds=180,
+    )
+    chunks: list[str] = []
+
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS", "45")
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_ordered_onemin_keys_allow_reserve", lambda _allow_reserve: ("key-1",))
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: ("key-1",))
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {"key-1": upstream.OneminKeyState(key="key-1")},
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: "account-1")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: "slot-1")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {"account_name": "account-1", "slot": "slot-1", "last_probe_result": "ok"},
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_onemin_required_credits_for_selection", lambda **_kwargs: (500, "test"))
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", lambda **_kwargs: (500, "actual_provider_api", True, 0.0, 0.0))
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (0.0, 0.0, 0.0, 0, 0))
+    monkeypatch.setattr(upstream, "_mark_onemin_request_start", lambda _api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_success", lambda _api_key: None)
+    monkeypatch.setattr(upstream, "_mark_onemin_failure", lambda *args, **kwargs: None)
+    monkeypatch.setattr(upstream, "_rotate_onemin_cursor_after_key_usage", lambda _api_key: None)
+    monkeypatch.setattr(upstream, "_record_onemin_usage_and_measure_delta", lambda **_kwargs: (None, "test"))
+    monkeypatch.setattr(
+        upstream,
+        "_post_sse",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("review_light should not use onemin stream path")),
+    )
+
+    def fake_post_json(*, url: str, headers: dict[str, str], payload: dict[str, object], timeout_seconds: int):
+        assert headers == {"API-KEY": "key-1"}
+        assert timeout_seconds == 45
+        assert url == upstream._onemin_chat_url()
+        assert payload["type"] == "UNIFY_CHAT_WITH_AI"
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "deepseek-chat",
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 1},
+                    "aiRecordDetail": {
+                        "resultObject": "ok",
+                    },
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    result = upstream._call_onemin(
+        config,
+        prompt="Reply with exactly ok.",
+        model="deepseek-chat",
+        lane=upstream._LANE_REVIEW_LIGHT,
+        on_delta=chunks.append,
+    )
+
+    assert result.text == "ok"
+    assert result.model == "deepseek-chat"
     assert chunks == ["ok"]

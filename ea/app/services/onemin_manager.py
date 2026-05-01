@@ -872,7 +872,6 @@ class OneminManagerService:
             has_actual_billing = bool(credit_rollup.get("has_actual_billing"))
             billing_remaining = self._parse_float(credit_rollup.get("actual_remaining_credits"))
             estimated_remaining_value = self._parse_float(credit_rollup.get("estimated_remaining_credits"))
-            estimated_remaining = estimated_remaining_value or 0.0
             remaining_credits = (
                 billing_remaining
                 if has_actual_billing and billing_remaining is not None
@@ -908,7 +907,7 @@ class OneminManagerService:
                     "has_actual_billing": bool(credit_rollup.get("has_actual_billing")),
                     "actual_remaining_credits": billing_remaining,
                     "actual_max_credits": self._parse_float(credit_rollup.get("actual_max_credits")),
-                    "estimated_remaining_credits": estimated_remaining if estimated_remaining > 0 else 0.0,
+                    "estimated_remaining_credits": estimated_remaining_value,
                     "billing_team_name": next((str(slot.get("billing_team_name") or "").strip() for slot in slots if str(slot.get("billing_team_name") or "").strip()), ""),
                     "billing_team_id": next((str(slot.get("billing_team_id") or "").strip() for slot in slots if str(slot.get("billing_team_id") or "").strip()), ""),
                     "billing_team_mismatch": any(bool(slot.get("billing_team_mismatch")) for slot in slots),
@@ -921,6 +920,18 @@ class OneminManagerService:
                     "estimated_pool_burn_credits_per_hour": self._parse_float(burn_rollup.get("estimated_pool_burn_credits_per_hour")),
                     "current_burn_credits_per_hour": self._parse_float(burn_rollup.get("current_burn_credits_per_hour")),
                     "burn_basis": str(burn_rollup.get("burn_basis") or "unknown"),
+                    "live_observed_slot_count": sum(
+                        1
+                        for slot in slots
+                        if self._parse_float(slot.get("estimated_remaining_credits")) is not None
+                        or self._parse_float(slot.get("remaining_credits")) is not None
+                    ),
+                    "live_negative_signal_count": sum(
+                        1
+                        for slot in slots
+                        if self._candidate_budget_signal(slot) is not None
+                        or str(slot.get("last_probe_result") or "").strip().lower() in {"depleted", "insufficient_credits"}
+                    ),
                     "active_lease_count": len(account_leases),
                     "active_lease_task_classes": sorted(
                         {
@@ -1218,6 +1229,24 @@ class OneminManagerService:
             account_credentials = credentials_by_account.get(account.account_id, [])
             account_leases = leases_by_account.get(account.account_id, [])
             details_json = dict(account.details_json or {})
+            live_remaining_credits = self._parse_float(details_json.get("estimated_remaining_credits"))
+            actual_remaining_credits = self._parse_float(details_json.get("actual_remaining_credits"))
+            actual_max_credits = self._parse_float(details_json.get("actual_max_credits"))
+            live_negative_signal_count = int(details_json.get("live_negative_signal_count") or 0)
+            if (
+                actual_remaining_credits not in (None, 0.0)
+                and (live_remaining_credits is None or (live_remaining_credits <= 0.0 and live_negative_signal_count <= 0))
+            ):
+                live_remaining_credits = actual_remaining_credits
+            elif live_remaining_credits is None and not bool(details_json.get("has_actual_billing")):
+                live_remaining_credits = self._parse_float(account.remaining_credits)
+            live_max_credits = self._parse_float(account.max_credits)
+            live_remaining_percent_of_max = None
+            if live_remaining_credits is not None and live_max_credits not in (None, 0):
+                live_remaining_percent_of_max = round((float(live_remaining_credits) / float(live_max_credits)) * 100.0, 2)
+            actual_remaining_percent_of_max = None
+            if actual_remaining_credits is not None and actual_max_credits not in (None, 0):
+                actual_remaining_percent_of_max = round((float(actual_remaining_credits) / float(actual_max_credits)) * 100.0, 2)
             binding_ids = list(binding_map.get(account.account_id, binding_map.get(account.account_label, [])))
             if normalized_principal and not binding_ids:
                 continue
@@ -1233,8 +1262,12 @@ class OneminManagerService:
                     "browseract_binding_ids": binding_ids,
                     "credit_basis": str(details_json.get("credit_basis") or "unknown"),
                     "has_actual_billing": bool(details_json.get("has_actual_billing")),
-                    "actual_remaining_credits": self._parse_float(details_json.get("actual_remaining_credits")),
-                    "actual_max_credits": self._parse_float(details_json.get("actual_max_credits")),
+                    "actual_remaining_credits": actual_remaining_credits,
+                    "actual_max_credits": actual_max_credits,
+                    "actual_remaining_percent_of_max": actual_remaining_percent_of_max,
+                    "live_remaining_credits": live_remaining_credits,
+                    "live_max_credits": live_max_credits,
+                    "live_remaining_percent_of_max": live_remaining_percent_of_max,
                     "estimated_remaining_credits": self._parse_float(details_json.get("estimated_remaining_credits")),
                     "observed_usage_burn_credits_per_hour": self._parse_float(details_json.get("observed_usage_burn_credits_per_hour")),
                     "slot_count_with_observed_usage_burn": int(details_json.get("slot_count_with_observed_usage_burn") or 0),
@@ -1268,6 +1301,7 @@ class OneminManagerService:
             principal_id=normalized_principal,
         )
         onemin = dict(((provider_health.get("providers") or {}).get("onemin") or {}))
+        onemin_slots = [dict(item) for item in (onemin.get("slots") or []) if isinstance(item, dict)]
         remaining_total = sum(float(item.get("remaining_credits") or 0.0) for item in accounts)
         max_total = sum(float(item.get("max_credits") or 0.0) for item in accounts)
         core_floor_total = sum(float(item.get("core_floor_credits") or 0.0) for item in accounts)
@@ -1279,6 +1313,15 @@ class OneminManagerService:
         bound_accounts = [item for item in accounts if list(item.get("browseract_binding_ids") or [])]
         bound_actual_accounts = [item for item in bound_accounts if bool(item.get("has_actual_billing"))]
         actual_free_total = sum(float(item.get("actual_remaining_credits") or 0.0) for item in actual_accounts)
+        actual_max_total = sum(float(item.get("actual_max_credits") or item.get("max_credits") or 0.0) for item in actual_accounts)
+        live_remaining_total = sum(float(item.get("live_remaining_credits") or 0.0) for item in accounts)
+        live_positive_balance_account_count = sum(1 for item in accounts if float(item.get("live_remaining_credits") or 0.0) > 0.0)
+        live_ready_account_count = sum(
+            1
+            for item in accounts
+            if str(item.get("status") or "").strip().lower() == "ready"
+            and float(item.get("live_remaining_credits") or 0.0) > 0.0
+        )
         estimated_free_total = sum(float(item.get("estimated_remaining_credits") or item.get("remaining_credits") or 0.0) for item in estimated_accounts)
         bound_actual_free_total = sum(float(item.get("actual_remaining_credits") or 0.0) for item in bound_actual_accounts)
         bound_estimated_free_total = sum(
@@ -1286,10 +1329,42 @@ class OneminManagerService:
             for item in bound_accounts
             if not bool(item.get("has_actual_billing"))
         )
+        scoped_account_ids = {
+            str(item.get("account_id") or item.get("account_label") or "").strip()
+            for item in accounts
+            if str(item.get("account_id") or item.get("account_label") or "").strip()
+        }
+        if normalized_principal and scoped_account_ids:
+            onemin_slots = [
+                slot
+                for slot in onemin_slots
+                if str(slot.get("account_name") or slot.get("slot_env_name") or slot.get("slot") or "").strip() in scoped_account_ids
+            ]
+
+        def _slot_live_remaining(slot: dict[str, object]) -> float | None:
+            for key in ("estimated_remaining_credits", "remaining_credits"):
+                value = self._parse_float(slot.get(key))
+                if value is not None:
+                    return max(0.0, value)
+            return None
+
+        live_positive_balance_slot_count = sum(
+            1 for slot in onemin_slots if (_slot_live_remaining(slot) or 0.0) > 0.0
+        )
+        live_ready_slot_count = sum(
+            1
+            for slot in onemin_slots
+            if str(slot.get("state") or "").strip().lower() == "ready"
+            and (_slot_live_remaining(slot) or 0.0) > 0.0
+        )
         observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in accounts)
         observed_usage_burn_account_count = sum(1 for item in accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, ""))
         estimated_pool_burn = self._parse_float(onemin.get("estimated_burn_credits_per_hour"))
         global_estimated_free_total = self._parse_float(onemin.get("estimated_remaining_credits_total"))
+        global_live_remaining_credits_total = self._parse_float(onemin.get("live_remaining_credits_total"))
+        if global_live_remaining_credits_total is None:
+            global_live_remaining_credits_total = global_estimated_free_total
+        global_actual_remaining_credits_total = self._parse_float(onemin.get("actual_remaining_credits_total"))
         estimated_days_remaining_7d = self._parse_float(onemin.get("estimated_days_remaining_at_7d_average"))
         derived_avg_hourly_burn_7d = None
         if global_estimated_free_total not in (None, 0) and estimated_days_remaining_7d not in (None, 0):
@@ -1299,6 +1374,12 @@ class OneminManagerService:
         if current_burn in (None, 0) and derived_avg_hourly_burn_7d not in (None, 0):
             current_burn = derived_avg_hourly_burn_7d
             burn_basis = "7d_average"
+        live_remaining_percent_of_max = None
+        if max_total > 0:
+            live_remaining_percent_of_max = round((float(live_remaining_total) / float(max_total)) * 100.0, 2)
+        actual_remaining_percent_of_max = None
+        if actual_max_total > 0:
+            actual_remaining_percent_of_max = round((float(actual_free_total) / float(actual_max_total)) * 100.0, 2)
         bound_observed_usage_burn_total = sum(float(item.get("observed_usage_burn_credits_per_hour") or 0.0) for item in bound_accounts)
         bound_observed_usage_burn_account_count = sum(
             1 for item in bound_accounts if item.get("observed_usage_burn_credits_per_hour") not in (None, "")
@@ -1354,6 +1435,13 @@ class OneminManagerService:
             "sum_free_credits": remaining_total,
             "sum_max_credits": max_total or None,
             "actual_free_credits_total": actual_free_total,
+            "actual_remaining_percent_of_max": actual_remaining_percent_of_max,
+            "live_remaining_credits_total": live_remaining_total,
+            "live_remaining_percent_of_max": live_remaining_percent_of_max,
+            "live_positive_balance_account_count": live_positive_balance_account_count,
+            "live_ready_account_count": live_ready_account_count,
+            "live_positive_balance_slot_count": live_positive_balance_slot_count,
+            "live_ready_slot_count": live_ready_slot_count,
             "estimated_free_credits_total": estimated_free_total,
             "core_floor_credits_total": core_floor_total,
             "image_spendable_credits_total": image_spendable_total,
@@ -1368,7 +1456,13 @@ class OneminManagerService:
             "days_remaining_at_7d_average": onemin.get("estimated_days_remaining_at_7d_average"),
             "global_configured_slot_count": int(onemin.get("configured_slots") or 0),
             "global_estimated_free_credits_total": global_estimated_free_total,
+            "global_live_remaining_credits_total": global_live_remaining_credits_total,
+            "global_actual_remaining_credits_total": global_actual_remaining_credits_total,
             "global_remaining_percent_of_max": self._parse_float(onemin.get("remaining_percent_of_max")),
+            "global_live_remaining_percent_of_max": self._parse_float(onemin.get("live_remaining_percent_of_max"))
+            if self._parse_float(onemin.get("live_remaining_percent_of_max")) is not None
+            else self._parse_float(onemin.get("remaining_percent_of_max")),
+            "global_actual_remaining_percent_of_max": self._parse_float(onemin.get("actual_remaining_percent_of_max")),
             "global_estimated_hours_remaining_at_current_pace": global_estimated_hours_remaining_at_current_pace,
             "global_estimated_days_remaining_at_7d_average": self._parse_float(onemin.get("estimated_days_remaining_at_7d_average")),
             "active_lease_count": len(active_leases),
@@ -1469,7 +1563,11 @@ class OneminManagerService:
             current_burn = self._parse_float(aggregate.get("observed_usage_burn_credits_per_hour"))
         if current_burn is None:
             current_burn = self._parse_float(aggregate.get("current_pace_burn_credits_per_hour"))
-        remaining_credits = float(aggregate.get("sum_free_credits") or 0.0)
+        remaining_credits = float(
+            aggregate.get("live_remaining_credits_total")
+            or aggregate.get("sum_free_credits")
+            or 0.0
+        )
         hours_remaining = self._parse_float(aggregate.get("hours_remaining_at_current_pace"))
         if hours_remaining is None and current_burn is not None and current_burn > 0:
             hours_remaining = round(remaining_credits / current_burn, 2)
@@ -1496,7 +1594,11 @@ class OneminManagerService:
                 "scope_note": aggregate.get("scope_note"),
                 "global_configured_slot_count": aggregate.get("global_configured_slot_count"),
                 "global_estimated_free_credits_total": aggregate.get("global_estimated_free_credits_total"),
+                "global_live_remaining_credits_total": aggregate.get("global_live_remaining_credits_total"),
+                "global_actual_remaining_credits_total": aggregate.get("global_actual_remaining_credits_total"),
                 "global_remaining_percent_of_max": aggregate.get("global_remaining_percent_of_max"),
+                "global_live_remaining_percent_of_max": aggregate.get("global_live_remaining_percent_of_max"),
+                "global_actual_remaining_percent_of_max": aggregate.get("global_actual_remaining_percent_of_max"),
                 "global_estimated_hours_remaining_at_current_pace": aggregate.get("global_estimated_hours_remaining_at_current_pace"),
                 "global_estimated_days_remaining_at_7d_average": aggregate.get("global_estimated_days_remaining_at_7d_average"),
                 "burn_basis": aggregate.get("burn_basis"),

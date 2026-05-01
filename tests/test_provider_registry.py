@@ -603,8 +603,8 @@ def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch:
     assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
 
     review_light = next(item for item in payload["lanes"] if item["profile"] == "review_light")
-    assert review_light["backend"] == "chatplayground"
-    assert review_light["health_provider_key"] == "chatplayground"
+    assert review_light["backend"] == "browseract"
+    assert review_light["health_provider_key"] == "browseract"
     assert review_light["providers"][0]["provider_key"] == "browseract"
 
     browseract = next(item for item in payload["providers"] if item["provider_key"] == "browseract")

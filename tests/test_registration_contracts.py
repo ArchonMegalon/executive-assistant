@@ -265,3 +265,87 @@ def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.M
     assert payload["meta"]["delivery_ref"]
     assert "delivery_url" not in payload["meta"]
     assert receipt.message_id == "emailit-digest-1"
+
+
+def test_plaintext_digest_email_payload_uses_full_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "Kleinhirn")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-plaintext-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_plaintext_digest_email(
+        recipient_email="tibor.girschele@gmail.com",
+        digest_key="codexea-ia-2026-05-01",
+        headline="CodexEA internal affairs summary",
+        preview_text="4 cycles, 2 fixes, 0 unresolved blockers.",
+        plain_text="Important things fixed today.\n- lane selection no longer loops the same failure.\n",
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "Kleinhirn <kleinhirn@girschele.com>"
+    assert payload["subject"] == "CodexEA internal affairs summary"
+    assert "4 cycles, 2 fixes, 0 unresolved blockers." in payload["text"]
+    assert "Important things fixed today." in payload["text"]
+    assert payload["meta"]["digest_key"] == "codexea-ia-2026-05-01"
+    assert receipt.message_id == "emailit-plaintext-1"
+
+
+def test_plaintext_digest_email_supports_custom_sender(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "Kleinhirn")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-plaintext-custom-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_plaintext_digest_email(
+        recipient_email="tibor.girschele@gmail.com",
+        digest_key="codexea-ia-custom-sender",
+        headline="Internal affairs summary",
+        preview_text="Sender override smoke test.",
+        plain_text="Plain body",
+        sender_email="ia@chummer.run",
+        sender_name="Internal Affairs",
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "Internal Affairs <ia@chummer.run>"
+    assert payload["reply_to"] == "ia@chummer.run"
+    assert receipt.message_id == "emailit-plaintext-custom-1"

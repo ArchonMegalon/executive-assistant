@@ -44,13 +44,14 @@ Until then, this wave should shape follow-on work without preempting the current
 
 ## Ordering rule
 
-1. Productionize native-host desktop release and promotion first.
-2. Turn Chummer5a parity into oracle-backed release truth second.
-3. Make desktop-native trust, recovery, and workspace continuity boring third.
-4. Materialize the small campaign loops users can feel immediately: action budgets, local source anchors, campaign adoption, runner goals, GM Runboard, prep packets, and one BLACK LEDGER consequence slice.
-5. Turn release, support, build, campaign, and runsite truth into first-party artifact bundles next.
-6. Pull the preserved Next Big Wins forward into a broader successor tranche for campaign operations, rules/build/exchange moat, creator/community publication, onboarding, and public launch health.
-7. Keep the product-governor loop measured and weekly instead of heroic and ad hoc.
+1. Before broader successor breadth, drive the Chummer5A human-parity matrix to zero `no` rows and clear desktop executable proof drift.
+2. Productionize native-host desktop release and promotion first.
+3. Turn Chummer5a parity into oracle-backed release truth second.
+4. Make desktop-native trust, recovery, and workspace continuity boring third.
+5. Materialize the small campaign loops users can feel immediately: action budgets, local source anchors, campaign adoption, runner goals, GM Runboard, prep packets, and one BLACK LEDGER consequence slice.
+6. Turn release, support, build, campaign, and runsite truth into first-party artifact bundles next.
+7. Pull the preserved Next Big Wins forward into a broader successor tranche for campaign operations, rules/build/exchange moat, creator/community publication, onboarding, and public launch health.
+8. Keep the product-governor loop measured and weekly instead of heroic and ad hoc.
 
 ## Wave 6 - make desktop promotion repeatable
 
@@ -233,6 +234,54 @@ Exit: media/social horizons become bounded implementation lanes with first-party
 ### 135. Product backbone, contract sets, ownership matrix, repo hygiene, and final design coverage closeout
 Owners: `chummer6-design`, `fleet`, `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-ui-kit`, `chummer6-media-factory`, `executive-assistant`
 Exit: every canonical design source family is implemented, explicitly non-goal/future-only, or represented by a repo-owned executable milestone with queue slice, allowed paths, proof gate, and stop condition.
+
+## Wave 22P - close human-tested parity proof and desktop executable trust before successor breadth
+
+### 141. Direct parity proof for translator, XML amendment, Hero Lab, and adjacent import routes
+Owners: `chummer6-core`, `chummer6-hub`, `chummer6-ui`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: the translator, XML amendment editor, Hero Lab importer, custom-data/XML bridge, and adjacent import-oracle rows all flip to direct `yes/yes` parity with current screenshot-backed and runtime-backed receipts.
+
+### 142. Direct parity proof for dense workbench, dice utilities, and identity or lifestyle workflows
+Owners: `chummer6-core`, `chummer6-ui-kit`, `chummer6-ui`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: dense builder/career, dice/initiative, and identity/contacts/lifestyles/history families all flip to direct `yes/yes` parity with current route-local proof and dense-workbench captures.
+
+### 143. Direct parity proof for print/export/exchange and SR6 supplements or house-rule workflows
+Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: print/export/exchange plus SR6 supplement/house-rule families all flip to direct `yes/yes` parity with current screenshot/runtime proof and receipt-backed outputs.
+
+### 144. Desktop executable proof integrity and publishable flagship-route closure
+Owners: `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `fleet`, `chummer6-design`
+Exit: Windows, Linux, and macOS promoted desktop tuples have matching startup-smoke receipts, executable-gate proof, release-channel tuple truth, and `desktop_client` readiness with no stale or inherited trust.
+
+## Wave 23 - close calm-under-pressure payoff and veteran continuity
+
+### 136. Calm-under-pressure payoff, veteran-depth parity, and campaign continuity closure
+Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-ui-kit`, `chummer6-mobile`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: the product proves the calm-under-pressure loop, reaches zero `no` rows in the Chummer5A human-parity matrix, closes the hard veteran parity families, closes split-brain release truth, and publishes dependable companion continuity rather than broad structural green.
+
+## Wave 24 - make ecosystem leverage explicit without losing truth authority
+
+### 137. Ecosystem leverage, community formation, and acquisition-fit integration seams
+Owners: `chummer6-hub`, `chummer6-hub-registry`, `chummer6-media-factory`, `chummer6-ui`, `chummer6-mobile`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: Open Runs, Community Hub, publication, recap, route, and community formation seams connect back to campaign, consent, release, and trust truth instead of behaving like detached horizons.
+
+## Wave 25 - turn first emotional wins into release-gated product truth
+
+### 138. First emotional wins, no-desktop participation, and adoption confidence closure
+Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: the hero paths are real and proven: `Ready for Tonight`, no-desktop beginner participation, start-from-today adoption, source-aware explain, role kits, and one excellent Foundry-first export handoff.
+
+## Wave 26 - make the world, creator, and trust loops feel lived-in
+
+### 139. GM tonight pack, world broadcast cadence, creator analytics, community safety, and cognitive-load trust closure
+Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: a GM can assemble tonight's governed pack, the world can talk back on a weekly cadence, creators can see bounded adoption feedback, moderation and appeals exist before public scale, and accessibility plus cognitive-load gates are release-bound truths.
+
+## Wave 27 - turn portability, return cadence, creator health, and LTD followthrough into habit
+
+### 140. Runner passport, weekly world dispatch, creator operating system, and LTD-powered cadence closure
+Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: a runner can carry governed trust posture between communities, the world can emit recurring return prompts from approved truth, creator publication behaves like a live operating system instead of a shelf, and LTD-powered followthrough loops stay bounded by Chummer-owned receipts instead of becoming shadow authority.
 
 ## Non-goals for this quarter
 

@@ -52,6 +52,20 @@ def _registration_sender_name() -> str:
     return fallback or DEFAULT_SENDER_NAME
 
 
+def _resolved_sender_email(sender_email: str = "") -> str:
+    configured = str(sender_email or "").strip()
+    if configured:
+        return configured
+    return _registration_sender_email()
+
+
+def _resolved_sender_name(sender_name: str = "") -> str:
+    configured = str(sender_name or "").strip()
+    if configured:
+        return configured
+    return _registration_sender_name()
+
+
 def _registration_subject() -> str:
     return "Verify your email for Executive Assistant"
 
@@ -116,17 +130,21 @@ def _send_emailit_email(
     text: str,
     kind: str,
     meta: dict[str, object] | None = None,
+    sender_email: str = "",
+    sender_name: str = "",
 ) -> RegistrationEmailReceipt:
     api_key = str(os.environ.get("EMAILIT_API_KEY") or "").strip()
     if not api_key:
         raise RuntimeError("registration_email_api_key_missing")
+    resolved_sender_email = _resolved_sender_email(sender_email)
+    resolved_sender_name = _resolved_sender_name(sender_name)
     payload = {
-        "from": f"{_registration_sender_name()} <{_registration_sender_email()}>",
+        "from": f"{resolved_sender_name} <{resolved_sender_email}>",
         "to": str(recipient_email or "").strip(),
         "subject": str(subject or "").strip(),
         "text": str(text or "").strip(),
         "html": "",
-        "reply_to": _registration_sender_email(),
+        "reply_to": resolved_sender_email,
         "tracking": False,
         "meta": {
             "kind": kind,
@@ -140,6 +158,8 @@ def _send_emailit_email(
             "recipient_email": str(recipient_email or "").strip().lower(),
             "subject": str(subject or "").strip(),
             "meta": dict(meta or {}),
+            "sender_email": resolved_sender_email.lower(),
+            "sender_name": resolved_sender_name,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -274,4 +294,31 @@ def send_channel_digest_email(
         text="\n".join(body).strip() + "\n",
         kind="ea_channel_digest_delivery",
         meta={"digest_key": str(digest_key or "").strip().lower(), "delivery_ref": _meta_ref(delivery_url)},
+    )
+
+
+def send_plaintext_digest_email(
+    *,
+    recipient_email: str,
+    digest_key: str,
+    headline: str,
+    preview_text: str,
+    plain_text: str,
+    sender_email: str = "",
+    sender_name: str = "",
+) -> RegistrationEmailReceipt:
+    label = str(headline or "Executive Assistant update").strip() or "Executive Assistant update"
+    preview = str(preview_text or "").strip()
+    body = [label, ""]
+    if preview:
+        body.extend([preview, ""])
+    body.extend([str(plain_text or "").strip()])
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=label,
+        text="\n".join(body).strip() + "\n",
+        kind="ea_plaintext_digest_delivery",
+        meta={"digest_key": str(digest_key or "").strip().lower()},
+        sender_email=sender_email,
+        sender_name=sender_name,
     )

@@ -27,14 +27,33 @@ class _FakeToolExecution:
 
 
 class _FakeToolRuntime:
-    def __init__(self, *, binding_id: str = "binding-browseract-1") -> None:
+    def __init__(
+        self,
+        *,
+        binding_id: str = "binding-browseract-1",
+        principal_binding_id: str | None = "binding-browseract-1",
+    ) -> None:
         self._binding = SimpleNamespace(
             binding_id=binding_id,
             connector_name="browseract",
             status="enabled",
         )
+        self._principal_binding = (
+            SimpleNamespace(
+                binding_id=principal_binding_id,
+                connector_name="browseract",
+                status="enabled",
+            )
+            if principal_binding_id
+            else None
+        )
 
     def list_connector_bindings(self, _principal_id: str, limit: int = 100):
+        assert limit >= 1
+        return [self._principal_binding] if self._principal_binding is not None else []
+
+    def list_connector_bindings_for_connector(self, connector_name: str, limit: int = 100):
+        assert connector_name == "browseract"
         assert limit >= 1
         return [self._binding]
 
@@ -96,10 +115,10 @@ def test_survival_falls_back_from_gemini_vortex_to_gemini_web(monkeypatch: pytes
     assert result.attempts[1].status == "completed"
 
 
-def test_survival_route_order_defaults_to_ui_rescue_before_onemin(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_survival_route_order_defaults_to_onemin_before_ui_rescue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_SURVIVAL_ROUTE_ORDER", raising=False)
 
-    assert _survival_route_order() == ("chatplayground", "gemini_web", "gemini_vortex", "onemin")
+    assert _survival_route_order() == ("onemin", "gemini_vortex", "gemini_web", "chatplayground")
 
 
 def test_survival_uses_onemin_before_ui_backends(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,6 +162,71 @@ def test_survival_uses_onemin_before_ui_backends(monkeypatch: pytest.MonkeyPatch
     assert result.provider_backend == "1min"
     assert [item.backend for item in result.attempts] == ["onemin"]
     assert tool_execution.calls == ["provider.onemin.code_generate"]
+
+
+def test_survival_onemin_defaults_to_review_model_before_code_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_SURVIVAL_ROUTE_ORDER", "onemin")
+    monkeypatch.setenv("EA_ONEMIN_TOOL_REVIEW_MODEL", "deepseek-chat")
+    monkeypatch.setenv("EA_ONEMIN_TOOL_CODE_MODEL", "gpt-5.4")
+    seen_payload: dict[str, object] = {}
+
+    def _onemin(invocation) -> ToolInvocationResult:
+        seen_payload.update(invocation.payload_json)
+        return _result(
+            tool_name="provider.onemin.code_generate",
+            output_json={
+                "normalized_text": "from onemin",
+                "provider_backend": "1min",
+                "model": "deepseek-chat",
+            },
+            model_name="deepseek-chat",
+        )
+
+    service = SurvivalLaneService(
+        tool_execution=_FakeToolExecution({"provider.onemin.code_generate": _onemin}),
+        tool_runtime=_FakeToolRuntime(),
+        principal_id="survival-test",
+    )
+
+    result = service.execute(
+        instructions=None,
+        history_items=[],
+        current_input="use the cheap lane",
+        desired_format="plain_text",
+    )
+
+    assert seen_payload["model"] == "deepseek-chat"
+    assert result.model == "deepseek-chat"
+
+
+def test_survival_uses_global_browseract_binding_when_principal_binding_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_SURVIVAL_ROUTE_ORDER", "gemini_web")
+    seen_payload: dict[str, object] = {}
+
+    def _gemini_web(invocation) -> ToolInvocationResult:
+        seen_payload.update(invocation.payload_json)
+        return _result(
+            tool_name="browseract.gemini_web_generate",
+            output_json={"text": "from gemini web", "mode_used": "thinking"},
+        )
+
+    service = SurvivalLaneService(
+        tool_execution=_FakeToolExecution({"browseract.gemini_web_generate": _gemini_web}),
+        tool_runtime=_FakeToolRuntime(binding_id="binding-browseract-global", principal_binding_id=None),
+        principal_id="survival-test",
+    )
+
+    result = service.execute(
+        instructions=None,
+        history_items=[],
+        current_input="fallback through browseract",
+        desired_format="plain_text",
+    )
+
+    assert result.provider_backend == "gemini_web"
+    assert seen_payload["binding_id"] == "binding-browseract-global"
 
 
 def test_survival_falls_back_from_gemini_web_to_chatplayground_on_challenge(monkeypatch: pytest.MonkeyPatch) -> None:

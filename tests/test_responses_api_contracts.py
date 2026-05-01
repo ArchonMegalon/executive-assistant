@@ -4943,6 +4943,81 @@ def test_codex_survival_stream_returns_completed_sse(monkeypatch: pytest.MonkeyP
     assert "survival stream output" in body
 
 
+def test_responses_upstream_idle_timeout_defaults_survival_lower_than_hard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses
+
+    monkeypatch.delenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SURVIVAL_SECONDS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_REVIEW_LIGHT_SECONDS", raising=False)
+    monkeypatch.delenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_AUDIT_SECONDS", raising=False)
+    monkeypatch.setenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_CORE_RESCUE_SECONDS", "900")
+
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-survival", codex_profile="survival") == 180.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-review-light", codex_profile="review_light") == 180.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-audit-jury", codex_profile="audit") == 180.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-hard", codex_profile="core") == 180.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-hard-rescue", codex_profile="core_rescue") == 900.0
+
+
+def test_codex_survival_stream_fails_fast_after_idle_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-survival-timeout")
+    from app.api.routes import responses
+
+    def fake_execute(
+        self,
+        *,
+        instructions: str | None,
+        history_items: list[dict[str, object]],
+        current_input: str,
+        desired_format: str | None = None,
+        prompt_cache_key: str | None = None,
+        previous_response_id: str | None = None,
+    ):
+        time.sleep(1.2)
+        raise AssertionError("survival worker should have been timed out before producing a result")
+
+    monkeypatch.setenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SURVIVAL_SECONDS", "1")
+    monkeypatch.setattr(responses.SurvivalLaneService, "execute", fake_execute)
+    monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
+
+    with client.stream("POST", "/v1/codex/survival", json={"input": "keep going", "stream": True}) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+
+    assert "event: response.failed" in body
+    assert "Error: survival_timeout:1s" in body
+    assert "event: response.done" in body
+
+
+def test_codex_core_nonstream_timeout_returns_failed_response_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-core-timeout")
+    from app.api.routes import responses
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        time.sleep(2.5)
+        raise AssertionError("core worker should have been timed out before producing a result")
+
+    monkeypatch.setenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS", "1")
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response = client.post("/v1/codex/core", json={"input": "keep going"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["output_text"] == "Error: upstream_timeout:1s"
+    assert body["output"][0]["content"][0]["text"] == "Error: upstream_timeout:1s"
+
+
 def test_codex_survival_ignores_client_tools_for_codex_compat(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-survival-tools")
     from app.api.routes import responses
@@ -5600,6 +5675,26 @@ def test_core_batch_resume_spawns_only_one_worker_for_concurrent_polls(monkeypat
     assert calls == ["race resume"]
 
 
+def test_build_chatplayground_audit_callback_times_out_tool_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import responses
+
+    class _SlowToolExecution:
+        def execute_invocation(self, request):  # noqa: ANN001
+            time.sleep(0.05)
+            raise AssertionError("callback worker should have timed out before returning")
+
+    container = type("Container", (), {"tool_execution": _SlowToolExecution(), "tool_runtime": None})()
+    callback = responses._build_chatplayground_audit_callback(
+        container=container,
+        principal_id="callback-timeout-principal",
+    )
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="chatplayground_callback_timeout:0.01s"):
+        callback(prompt="review this", timeout_seconds=0.01)
+    assert (time.monotonic() - started) < 0.5
+
+
 def test_core_batch_resume_rebuilds_audit_callback(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-core-batch-replay-callback")
     from app.api.routes import responses
@@ -6229,13 +6324,13 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     review_light_profile = next(profile for profile in body["profiles"] if profile["profile"] == "review_light")
     assert review_light_profile["lane"] == "review"
     assert review_light_profile["provider_hint_order"] == ["browseract"]
-    assert review_light_profile["backend"] == "chatplayground"
-    assert review_light_profile["health_provider_key"] == "chatplayground"
+    assert review_light_profile["backend"] == "browseract"
+    assert review_light_profile["health_provider_key"] == "browseract"
     survival_profile = next(profile for profile in body["profiles"] if profile["profile"] == "survival")
     assert survival_profile["lane"] == "survival"
-    assert survival_profile["provider_hint_order"] == ["browseract", "gemini_vortex", "onemin"]
-    assert survival_profile["backend"] == "chatplayground"
-    assert survival_profile["health_provider_key"] == "chatplayground"
+    assert survival_profile["provider_hint_order"] == ["onemin", "gemini_vortex"]
+    assert survival_profile["backend"] == "onemin"
+    assert survival_profile["health_provider_key"] == "onemin"
     assert body["provider_health"]["providers"]["onemin"]["backend"] == "1min"
     assert body["provider_health"]["providers"]["magixai"]["slots"][0]["account_name"] == ""
     assert body["provider_health"]["providers"]["onemin"]["slots"][0]["account_name"] == ""
@@ -6252,7 +6347,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["capacity_summary"]["last_used_sponsor_session_id"] == ""
     assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == ""
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
-    assert review_light_lane["health_provider_key"] == "chatplayground"
+    assert review_light_lane["health_provider_key"] == "browseract"
 
 
 def test_codex_profiles_endpoint_hides_survival_lane_when_all_routes_are_blocked(
@@ -6448,6 +6543,9 @@ def test_responses_provider_health_endpoint_exposes_slots(monkeypatch: pytest.Mo
     assert providers["onemin"]["max_requests_per_hour"] == 120
     assert providers["onemin"]["max_credits_per_hour"] == 80000
     assert providers["onemin"]["max_credits_per_day"] == 600000
+    assert providers["onemin"]["live_remaining_credits_total"] == providers["onemin"]["estimated_remaining_credits_total"]
+    assert providers["onemin"]["actual_remaining_credits_total"] == 0.0
+    assert providers["onemin"]["live_ready_slot_count"] == 0
     assert body["provider_registry"]["contract_name"] == "ea.provider_registry"
     onemin_provider = next(item for item in body["provider_registry"]["providers"] if item["provider_key"] == "onemin")
     assert onemin_provider["slot_pool"]["configured_slots"] == 34
@@ -6546,6 +6644,8 @@ def test_responses_provider_health_reports_observed_credit_balance_without_leaki
     assert slot["next_retry_at"] is not None
     assert slot["upstream_reset_unknown"] is True
     assert health["providers"]["onemin"]["remaining_percent_of_max"] == 0.0
+    assert health["providers"]["onemin"]["live_remaining_credits_total"] == 0
+    assert health["providers"]["onemin"]["actual_remaining_credits_total"] == 0.0
     assert "secret-primary-key" not in json.dumps(health)
 
 
@@ -6621,6 +6721,9 @@ def test_responses_provider_health_recovers_depleted_onemin_slot_from_actual_bil
     assert slot["last_error"] == ""
     assert onemin["estimated_remaining_credits_total"] == 4_200_000
     assert onemin["remaining_percent_of_max"] == 94.38
+    assert onemin["live_remaining_credits_total"] == 4_200_000
+    assert onemin["actual_remaining_credits_total"] == 4_200_000
+    assert onemin["actual_remaining_percent_of_max"] == 94.38
 
 
 def test_responses_provider_health_keeps_onemin_slot_degraded_when_actual_billing_team_mismatches(monkeypatch: pytest.MonkeyPatch) -> None:

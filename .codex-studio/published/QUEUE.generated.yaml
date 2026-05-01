@@ -1,12 +1,14 @@
 mode: append
 items:
-- title: Auto-detect and repair recurring `ea` mirror drift after 15967 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
-  task: Auto-detect and repair recurring `ea` mirror drift after 15967 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
+- title: Auto-detect and repair recurring `ea` mirror drift after 16732 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
+  task: Auto-detect and repair recurring `ea` mirror drift after 16732 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
   package_id: audit-task-4257456
   source_ref: audit_task_candidates[4257456]
   audit_finding_key: project.design_mirror_missing_or_stale
   audit_scope_id: ea
   source_items:
+  - /docker/EA/.codex-design/product/README.md
+  - /docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
   - /docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   allowed_paths:
   - .codex-design

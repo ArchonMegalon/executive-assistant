@@ -2426,7 +2426,10 @@ def test_onemin_aggregate_and_runway_expose_scope_and_operator_global_view(
     principal_aggregate_body = principal_aggregate.json()
     assert principal_aggregate_body["scope"] == "principal_bindings"
     assert principal_aggregate_body["sum_free_credits"] == 1000.0
+    assert principal_aggregate_body["live_remaining_credits_total"] == 1000.0
+    assert principal_aggregate_body["live_positive_balance_account_count"] == 1
     assert principal_aggregate_body["global_estimated_free_credits_total"] == 1500.0
+    assert principal_aggregate_body["global_live_remaining_credits_total"] == 1500.0
     assert principal_aggregate_body["global_estimated_hours_remaining_at_current_pace"] == 12.0
     assert principal_aggregate_body["scope_note"].startswith("principal view only includes 1min accounts bound")
 
@@ -2436,6 +2439,7 @@ def test_onemin_aggregate_and_runway_expose_scope_and_operator_global_view(
     assert principal_runway_body["forecast"]["scope"] == "principal_bindings"
     assert principal_runway_body["forecast"]["remaining_credits"] == 1000.0
     assert principal_runway_body["forecast"]["global_estimated_free_credits_total"] == 1500.0
+    assert principal_runway_body["forecast"]["global_live_remaining_credits_total"] == 1500.0
 
     viewer = _client(principal_id="exec-viewer")
     denied_global = viewer.get("/v1/providers/onemin/aggregate?scope=global")
@@ -2453,6 +2457,8 @@ def test_onemin_aggregate_and_runway_expose_scope_and_operator_global_view(
     assert global_aggregate_body["scope"] == "global_pool"
     assert global_aggregate_body["scope_principal_id"] is None
     assert global_aggregate_body["sum_free_credits"] == 1500.0
+    assert global_aggregate_body["live_remaining_credits_total"] == 1500.0
+    assert global_aggregate_body["live_positive_balance_slot_count"] == 2
     assert global_aggregate_body["account_count"] == 2
     assert global_aggregate_body["scope_note"] == ""
 
@@ -2462,6 +2468,7 @@ def test_onemin_aggregate_and_runway_expose_scope_and_operator_global_view(
     assert global_runway_body["principal_id"] == "exec-ops"
     assert global_runway_body["forecast"]["scope"] == "global_pool"
     assert global_runway_body["forecast"]["remaining_credits"] == 1500.0
+    assert global_runway_body["forecast"]["global_live_remaining_credits_total"] == 1500.0
 
 
 def test_onemin_manager_runway_falls_back_to_observed_burn_when_provider_pace_is_missing() -> None:

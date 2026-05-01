@@ -104,7 +104,8 @@ _ONEMIN_DELETED_KEY_QUARANTINE_SECONDS = 86400.0
 _ONEMIN_RATE_LIMIT_COOLDOWN_SECONDS = 60.0
 _ONEMIN_DEPLETED_KEY_COOLDOWN_SECONDS = 1800.0
 _ONEMIN_FAILURE_COOLDOWN_SECONDS = 20.0
-_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 180
+_ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS = 60
+_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS = 45
 _ONEMIN_BACKGROUND_REFRESH_INTERVAL_SECONDS = 120.0
 _ONEMIN_BACKGROUND_REFRESH_STALE_SECONDS = 1800.0
 _ONEMIN_BACKGROUND_REFRESH_TIMEOUT_SECONDS = 12
@@ -2850,7 +2851,7 @@ def _onemin_default_required_credits(model: str) -> int | None:
     env_defaults = {
         "hard": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_HARD", 50000),
         "medium": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_MEDIUM", 4000),
-        "light": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_LIGHT", 1200),
+        "light": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_LIGHT", 300),
         "default": ("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_DEFAULT", 4000),
     }
     env_name, default = env_defaults.get(family, env_defaults["default"])
@@ -2871,6 +2872,7 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
     if state in {"missing", "blocked", "unavailable"}:
         return None
     probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+    upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(slot)
     actual_remaining: int | None = None
     raw_remaining = slot.get("remaining_credits")
     if raw_remaining not in (None, ""):
@@ -2881,7 +2883,11 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
     if actual_remaining is not None:
         if actual_remaining > 0:
             return actual_remaining
-        if probe_result in {"depleted", "insufficient_credits"}:
+        if (
+            probe_result in {"depleted", "insufficient_credits"}
+            and upstream_reset_estimated_recovery is None
+            and state not in {"quarantine", "cooldown"}
+        ):
             return None
     budget_signal = _onemin_slot_budget_signal(slot)
     if probe_result in {"depleted", "insufficient_credits"} and budget_signal is not None:
@@ -2895,9 +2901,13 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
             observed_remaining = 0
         if observed_remaining > 0:
             return observed_remaining
+        if upstream_reset_estimated_recovery is not None:
+            return upstream_reset_estimated_recovery
         return None
     if state == "quarantine":
         if budget_signal is None:
+            if upstream_reset_estimated_recovery is not None:
+                return upstream_reset_estimated_recovery
             return None
         try:
             recovered_remaining = int(budget_signal.get("remaining_credits") or 0)
@@ -2905,6 +2915,8 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
             recovered_remaining = 0
         if recovered_remaining > 0:
             return recovered_remaining
+        if upstream_reset_estimated_recovery is not None:
+            return upstream_reset_estimated_recovery
         return None
     for field_name in ("billing_remaining_credits", "estimated_remaining_credits", "remaining_credits"):
         value = slot.get(field_name)
@@ -2924,6 +2936,24 @@ def _onemin_slot_positive_actual_billing(slot: dict[str, object]) -> bool:
         return False
     billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
     return billing_remaining > 0
+
+
+def _onemin_slot_upstream_reset_estimated_recovery_hint(
+    slot: dict[str, object],
+    *,
+    required_credits: int | None = None,
+) -> int | None:
+    if not bool(slot.get("upstream_reset_unknown")):
+        return None
+    if not _onemin_slot_positive_actual_billing(slot):
+        return None
+    estimated_remaining = _to_int(slot.get("estimated_remaining_credits"), 0, minimum=0, maximum=1000000000)
+    if estimated_remaining <= 0:
+        return None
+    normalized_required = int(required_credits or 0)
+    if normalized_required > 0 and estimated_remaining < normalized_required:
+        return None
+    return estimated_remaining
 
 
 def _onemin_slot_recent_billing_recovery(
@@ -2957,6 +2987,8 @@ def _onemin_slot_recovery_evidence(slot: dict[str, object]) -> bool:
     if probe_result == "ok":
         return True
     if _onemin_slot_recent_billing_recovery(slot):
+        return True
+    if _onemin_slot_upstream_reset_estimated_recovery_hint(slot) is not None:
         return True
     last_success_at = _to_float(slot.get("last_success_at"), 0.0, minimum=0.0)
     last_failure_at = _to_float(slot.get("last_failure_at"), 0.0, minimum=0.0)
@@ -3047,6 +3079,10 @@ def _onemin_provider_health_pick(
             slot,
             required_credits=normalized_required,
         )
+        upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(
+            slot,
+            required_credits=normalized_required,
+        )
         raw_state = str(slot.get("state") or "").strip().lower()
         recoverable_quarantine = (
             raw_state == "quarantine"
@@ -3067,7 +3103,7 @@ def _onemin_provider_health_pick(
             and observed_remaining is not None
             and observed_remaining < normalized_required
         ):
-            if not billing_recovery:
+            if not billing_recovery and upstream_reset_estimated_recovery is None:
                 continue
         if (
             normalized_required > 0
@@ -3212,6 +3248,19 @@ def _resolve_onemin_cooldowns() -> tuple[float, float, float, float]:
 
 def _resolve_onemin_request_timeout_seconds(*, lane: str, default: int) -> int:
     baseline = _to_int(default, default or _ONEMIN_HARD_REQUEST_TIMEOUT_SECONDS, minimum=5, maximum=600)
+    if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+        return min(
+            baseline,
+            _to_int(
+                _env(
+                    "EA_RESPONSES_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS",
+                    str(_ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS),
+                ),
+                _ONEMIN_REVIEW_REQUEST_TIMEOUT_SECONDS,
+                minimum=5,
+                maximum=600,
+            ),
+        )
     if lane != _LANE_HARD:
         return baseline
     return min(
@@ -3904,7 +3953,7 @@ def _provider_order() -> tuple[str, ...]:
 
 
 def _cheap_provider_order() -> tuple[str, ...]:
-    return ("onemin",)
+    return ("gemini_vortex", "magixai", "onemin")
 
 
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
@@ -3972,6 +4021,8 @@ def _provider_model_order_for_lane(
         return (requested,)
     if normalized in {item.lower() for item in _magicx_lane_models()}:
         return ()
+    if normalized == REVIEW_LIGHT_PUBLIC_MODEL or lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+        return _onemin_review_models()
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
         return _onemin_review_models()
     if normalized in {"ea-review", "ea-critic"}:
@@ -4003,6 +4054,10 @@ def _groundwork_lane_models() -> tuple[str, ...]:
 def _review_light_lane_models() -> tuple[str, ...]:
     models = _review_light_chatplayground_models()
     return models[:1] or models
+
+
+def _audit_onemin_fallback_allowed() -> bool:
+    return _to_bool(_env("EA_AUDIT_ALLOW_ONEMIN_FALLBACK", "0"), False)
 
 
 def _magicx_config() -> ProviderConfig:
@@ -4665,6 +4720,14 @@ def _provider_candidates(
     configs = _provider_configs()
     gemini_model_names = {item.lower() for item in _gemini_vortex_models()}
 
+    def _review_audit_provider_order() -> tuple[str, ...]:
+        ordered: list[str] = []
+        onemin_config = configs.get("onemin")
+        if onemin_config is not None and onemin_config.api_keys:
+            ordered.append("onemin")
+        ordered.append("chatplayground")
+        return tuple(dict.fromkeys(ordered))
+
     if lane == _LANE_DEFAULT:
         lane = _effective_request_lane(requested_model=requested, max_output_tokens=None)
 
@@ -4680,18 +4743,18 @@ def _provider_candidates(
     provider_keys_by_lane: tuple[str, ...]
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
         provider_keys_by_lane = _cheap_provider_order()
-    elif lane == _LANE_REVIEW_LIGHT:
-        provider_keys_by_lane = ("chatplayground",)
-    elif lane == _LANE_AUDIT:
-        provider_keys_by_lane = ("chatplayground",)
+    elif lane in {_LANE_REVIEW_LIGHT, _LANE_AUDIT}:
+        provider_keys_by_lane = _review_audit_provider_order()
     else:
         provider_keys_by_lane = _provider_order()
 
     if normalized == DEFAULT_PUBLIC_MODEL or requested == "":
         # Keep the public default biased toward the fast lane. In the current
-        # OneMinAI-only execution policy, that lane is intentionally backed by onemin.
+        # public execution policy, the default alias stays intentionally pinned
+        # to onemin even though the explicit fast lane can spill to cheaper
+        # Gemini/Magicx backends first.
         if lane in {_LANE_FAST, _LANE_OVERFLOW}:
-            provider_keys_by_lane = _cheap_provider_order()
+            provider_keys_by_lane = ("onemin",)
         candidates: list[tuple[ProviderConfig, str]] = []
         for provider_key in provider_keys_by_lane:
             config = configs.get(provider_key)
@@ -4737,27 +4800,25 @@ def _provider_candidates(
         ]
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
-        return [
-            (configs["chatplayground"], model_name)
-            for model_name in _review_light_lane_models()
-        ]
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _review_audit_provider_order():
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
 
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
-        candidates: list[tuple[ProviderConfig, str]] = [
-            (configs["chatplayground"], model_name)
-            for model_name in _provider_model_order_for_lane("chatplayground", lane, requested)
-            or _audit_lane_models()
-        ]
-        onemin_config = configs.get("onemin")
-        if onemin_config and onemin_config.api_keys:
-            candidates.extend(
-                (
-                    onemin_config,
-                    model_name,
-                )
-                for model_name in _provider_model_order_for_lane("onemin", lane, requested)
-                or _onemin_models()
-            )
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _review_audit_provider_order():
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
         return candidates
 
     if normalized in {"ea-review", "ea-critic"}:
@@ -5215,6 +5276,7 @@ def _chatplayground_audit_callback_candidates(
     run_url: str,
     principal_id: str,
     requested_models: tuple[str, ...],
+    timeout_seconds: int,
 ) -> list[dict[str, Any]]:
     request_payload = {
         "prompt": prompt,
@@ -5225,15 +5287,16 @@ def _chatplayground_audit_callback_candidates(
         "run_url": run_url,
         "requested_models": list(requested_models),
         "principal_id": principal_id,
+        "timeout_seconds": timeout_seconds,
     }
     candidates = [
-        {"prompt": prompt, "roles": roles, "audit_scope": audit_scope, "model": model, "requested_models": list(requested_models), "run_url": run_url, "principal_id": principal_id},
+        {"prompt": prompt, "roles": roles, "audit_scope": audit_scope, "model": model, "requested_models": list(requested_models), "run_url": run_url, "principal_id": principal_id, "timeout_seconds": timeout_seconds},
         {"request_payload": request_payload},
         {"payload": request_payload},
         {"run_url": run_url, "request_payload": request_payload},
-        {"run_url": run_url, "prompt": prompt, "roles": roles},
-        {"prompt": prompt, "roles": roles, "requested_roles": roles, "model": model, "audit_scope": audit_scope, "run_url": run_url},
-        {"run_url": run_url, "scope": audit_scope, "prompt": prompt, "roles": roles},
+        {"run_url": run_url, "prompt": prompt, "roles": roles, "timeout_seconds": timeout_seconds},
+        {"prompt": prompt, "roles": roles, "requested_roles": roles, "model": model, "audit_scope": audit_scope, "run_url": run_url, "timeout_seconds": timeout_seconds},
+        {"run_url": run_url, "scope": audit_scope, "prompt": prompt, "roles": roles, "timeout_seconds": timeout_seconds},
         {},
     ]
 
@@ -5343,6 +5406,10 @@ def _call_chatplayground_audit(
     tested: set[str] = set()
     for model_name in model_candidates:
         if chatplayground_audit_callback is not None:
+            callback_timeout_seconds = _effective_request_timeout_seconds(
+                default_timeout_seconds=config.timeout_seconds,
+                request_deadline_monotonic=request_deadline_monotonic,
+            )
             for candidate in _chatplayground_audit_callback_candidates(
                 callback=chatplayground_audit_callback,
                 prompt=prompt_text,
@@ -5352,6 +5419,7 @@ def _call_chatplayground_audit(
                 run_url=run_url_candidates[0] if run_url_candidates else "",
                 principal_id=chatplayground_audit_principal_id,
                 requested_models=tuple(config.default_models),
+                timeout_seconds=callback_timeout_seconds,
             ):
                 callback_started_at = _now_ms()
                 try:
@@ -5720,6 +5788,8 @@ def _call_onemin(
     if not prompt_text:
         raise ResponsesUpstreamError("onemin_prompt_required")
 
+    review_like_lane = lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}
+
     key_names = tuple(config.api_keys)
     if not key_names:
         raise ResponsesUpstreamError("onemin_missing_api_key")
@@ -5740,6 +5810,8 @@ def _call_onemin(
                 for url, mode in urls
                 if mode == "chat" and url == _onemin_chat_url()
             ]
+    elif review_like_lane:
+        urls = [(_onemin_chat_url(), "chat")]
     else:
         urls = [(_onemin_chat_stream_url(), "chat_stream")]
         if _onemin_model_supports_code(model):
@@ -8241,6 +8313,18 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
         for slot in onemin_slots
         if slot.get("estimated_remaining_credits") is not None
     )
+    onemin_actual_remaining_total = sum(
+        float(slot.get("billing_remaining_credits") or 0.0)
+        for slot in onemin_slots
+        if slot.get("billing_remaining_credits") not in (None, "")
+        and not bool(slot.get("billing_team_mismatch"))
+    )
+    onemin_actual_max_total = sum(
+        float(slot.get("billing_max_credits") or 0.0)
+        for slot in onemin_slots
+        if slot.get("billing_max_credits") not in (None, "")
+        and not bool(slot.get("billing_team_mismatch"))
+    )
     onemin_unknown_slots = sum(1 for slot in onemin_slots if slot.get("estimated_remaining_credits") is None)
     onemin_burn_summary = _onemin_burn_summary(
         now=now,
@@ -8249,6 +8333,24 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
     onemin_remaining_percent = None
     if onemin_max_total > 0 and onemin_unknown_slots == 0:
         onemin_remaining_percent = round((onemin_known_remaining_total / onemin_max_total) * 100.0, 2)
+    onemin_actual_remaining_percent = None
+    if onemin_actual_max_total > 0:
+        onemin_actual_remaining_percent = round((onemin_actual_remaining_total / onemin_actual_max_total) * 100.0, 2)
+    onemin_live_positive_balance_slot_count = sum(
+        1 for slot in onemin_slots if int(slot.get("estimated_remaining_credits") or 0) > 0
+    )
+    onemin_live_ready_slot_count = sum(
+        1
+        for slot in onemin_slots
+        if str(slot.get("state") or "").strip().lower() == "ready"
+        and int(slot.get("estimated_remaining_credits") or 0) > 0
+    )
+    onemin_actual_positive_balance_slot_count = sum(
+        1
+        for slot in onemin_slots
+        if not bool(slot.get("billing_team_mismatch"))
+        and float(slot.get("billing_remaining_credits") or 0.0) > 0.0
+    )
     actual_snapshots = [
         snapshot
         for snapshot in _recent_topup_events(provider_key="onemin", limit=512)
@@ -8360,9 +8462,16 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
                 },
                 "remaining_percent_of_max": onemin_remaining_percent,
                 "estimated_remaining_credits_total": onemin_known_remaining_total,
+                "live_remaining_percent_of_max": onemin_remaining_percent,
+                "live_remaining_credits_total": onemin_known_remaining_total,
+                "actual_remaining_percent_of_max": onemin_actual_remaining_percent,
+                "actual_remaining_credits_total": round(onemin_actual_remaining_total, 2),
                 "max_credits_total": onemin_max_total,
                 "max_credits_per_key": _onemin_max_credits_per_key(),
                 "unknown_balance_slots": onemin_unknown_slots,
+                "live_positive_balance_slot_count": onemin_live_positive_balance_slot_count,
+                "live_ready_slot_count": onemin_live_ready_slot_count,
+                "actual_positive_balance_slot_count": onemin_actual_positive_balance_slot_count,
                 "last_actual_balance_at": latest_actual_balance_at,
                 "last_probe_at": last_probe_at,
                 "owner_mapped_slots": owner_mapped_slots,

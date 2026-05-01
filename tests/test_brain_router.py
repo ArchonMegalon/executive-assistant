@@ -79,12 +79,23 @@ def test_brain_router_merges_contract_profile_and_provider_hints(monkeypatch) ->
     assert "browseract" in hints
 
 
-def test_brain_router_keeps_chatplayground_backend_metadata_when_alias_maps_to_browseract(monkeypatch) -> None:
+def test_brain_router_falls_back_to_browseract_review_metadata_when_onemin_is_unavailable(monkeypatch) -> None:
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_2", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_3", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_4", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_5", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_6", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_7", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_8", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_9", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_10", "")
 
     router = BrainRouterService(provider_registry=ProviderRegistryService())
     decision = router.resolve_profile("review_light")
 
     assert decision.provider_hint_order == ("browseract",)
-    assert decision.backend_key == "chatplayground"
-    assert decision.health_provider_key == "chatplayground"
+    assert decision.backend_key == "browseract"
+    assert decision.health_provider_key == "browseract"
