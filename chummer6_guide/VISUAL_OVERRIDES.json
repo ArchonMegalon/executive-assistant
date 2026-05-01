@@ -369,6 +369,30 @@
       "humor_policy": "forbid"
     }
   },
+  "assets/horizons/black-ledger.png": {
+    "visual_prompt": "Living-city consequence board in a rain-battered Seattle control room: one GM-world operator pair stands at a vertical district map wall where branch pins, faction pressure strands, reviewed intel sleeves, mission-market hooks, and player-safe rumor rails physically climb across a battered city board. Make the moment about governed consequence and live city memory, not a clean hologram showroom or a generic dossier desk. Keep the district wall, pin lattice, heat bands, reviewed intel sleeves, and mission hooks dominant. No readable text, no dashboard-wall cliché, no giant floating UI slab, and no detective-board vibe.",
+    "scene_contract": {
+      "composition": "district_map",
+      "subject": "a GM and world operator reading a living Seattle district wall as governed consequence pathways light up around approved fallout",
+      "environment": "a rain-streaked control room with a physical district board, mission pins, reviewed intel sleeves, heat bands, faction strings, and ugly Sixth World clutter",
+      "action": "turning approved run fallout into mission hooks, faction pressure, and player-safe city rumors without surrendering GM authority",
+      "props": ["district board", "mission pins", "intel sleeves", "heat bands", "faction strings", "news rail", "branch markers"],
+      "overlays": ["pressure arcs", "world-tick traces", "branch markers", "player-safe rumor halos"],
+      "mood": "scheming, civic, pressure-loaded, and unmistakably alive"
+    }
+  },
+  "assets/horizons/community-hub.png": {
+    "visual_prompt": "Open-run intake and roster handoff at a grimy Sixth World coordination checkpoint: one organizer, one GM, and one runner candidate meet at a crowded dispatch counter where seat chips, consent tags, roster sleeves, prep packet rails, and schedule handoff markers cling to a real check-in lane. The scene must feel like governed recruiting and table fit, not another approval bench or a vague social app metaphor. Keep the queue geometry, roster lane, packet handoff, and practical check-in hardware dominant. No readable text, no clean conference table, no empty lobby, and no generic neon-hub wallpaper.",
+    "scene_contract": {
+      "composition": "transit_checkpoint",
+      "subject": "an organizer, a GM, and a runner candidate negotiating whether a real seat fits a real table",
+      "environment": "a crowded dispatch checkpoint with roster sleeves, consent tags, seat chips, packet rails, queue stanchions, and lived-in district grime",
+      "action": "checking fit, prep, and closeout responsibilities before a run becomes a real table commitment",
+      "props": ["seat chips", "roster sleeves", "prep packets", "queue rails", "consent tags", "dispatch counter"],
+      "overlays": ["seat-fit brackets", "roster halos", "prep handoff marks", "closeout route traces"],
+      "mood": "busy, social, governed, and practical"
+    }
+  },
   "assets/horizons/mirrorshard.png": {
     "visual_prompt": "Split-future build comparison scene: one runner forked into stealth and loud futures on paired displays, the player choosing between two bad ideas before committing, grounded desk realism.",
     "scene_contract": {

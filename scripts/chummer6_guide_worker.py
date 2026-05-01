@@ -51,12 +51,14 @@ EA_CONTAINER = None
 PUBLIC_WRITER_SKILL_KEY = "chummer6_public_writer"
 VISUAL_DIRECTOR_SKILL_KEY = "chummer6_visual_director"
 PUBLIC_AUDITOR_SKILL_KEY = "chummer6_public_auditor"
+USER_AUDITOR_SKILL_KEY = "chummer6_user_auditor"
 SCENE_AUDITOR_SKILL_KEY = "chummer6_scene_auditor"
 VISUAL_AUDITOR_SKILL_KEY = "chummer6_visual_auditor"
 PACK_AUDITOR_SKILL_KEY = "chummer6_pack_auditor"
 REQUIRED_CHUMMER6_SKILL_KEYS: tuple[str, ...] = (
     PUBLIC_WRITER_SKILL_KEY,
     PUBLIC_AUDITOR_SKILL_KEY,
+    USER_AUDITOR_SKILL_KEY,
     VISUAL_DIRECTOR_SKILL_KEY,
     SCENE_AUDITOR_SKILL_KEY,
     VISUAL_AUDITOR_SKILL_KEY,
@@ -833,20 +835,66 @@ def editorial_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
     return summary
 
 
+def load_visual_overrides() -> dict[str, object]:
+    overrides_path = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
+    if not overrides_path.exists():
+        return {}
+    try:
+        loaded = json.loads(overrides_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _merge_media_override_row(base_row: dict[str, object], override_row: dict[str, object]) -> dict[str, object]:
+    merged = dict(base_row)
+    for key, value in override_row.items():
+        if key == "scene_contract" and isinstance(value, dict):
+            base_contract = dict(merged.get("scene_contract") or {})
+            base_contract.update(value)
+            merged["scene_contract"] = base_contract
+        else:
+            merged[key] = value
+    return merged
+
+
+def apply_visual_overrides_to_media(overrides: dict[str, object]) -> None:
+    media = overrides.get("media")
+    if not isinstance(media, dict):
+        return
+    visual_overrides = load_visual_overrides()
+    if not visual_overrides:
+        return
+
+    hero = media.get("hero")
+    hero_override = visual_overrides.get("assets/hero/chummer6-hero.png")
+    if isinstance(hero, dict) and isinstance(hero_override, dict):
+        media["hero"] = _merge_media_override_row(dict(hero), hero_override)
+
+    for group, prefix in (("parts", "assets/parts"), ("horizons", "assets/horizons")):
+        rows = media.get(group)
+        if not isinstance(rows, dict):
+            continue
+        merged_rows: dict[str, object] = {}
+        for item_id, row in rows.items():
+            if not isinstance(row, dict):
+                merged_rows[item_id] = row
+                continue
+            target = f"{prefix}/{item_id}.png"
+            override_row = visual_overrides.get(target)
+            if isinstance(override_row, dict):
+                merged_rows[item_id] = _merge_media_override_row(dict(row), override_row)
+            else:
+                merged_rows[item_id] = row
+        media[group] = merged_rows
+
+
 def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
     media = overrides.get("media")
     if not isinstance(media, dict):
         return {"status": "skipped", "reason": "missing_media", "checked": 0}
 
-    visual_overrides: dict[str, object] = {}
-    overrides_path = EA_ROOT / "chummer6_guide" / "VISUAL_OVERRIDES.json"
-    if overrides_path.exists():
-        try:
-            loaded = json.loads(overrides_path.read_text(encoding="utf-8"))
-        except Exception:
-            loaded = {}
-        if isinstance(loaded, dict):
-            visual_overrides = loaded
+    visual_overrides = load_visual_overrides()
 
     checked = 0
     tableau = 0
@@ -3739,18 +3787,20 @@ def apply_public_copy_revision(overrides: dict[str, object], revision: dict[str,
     )
 
 
-def run_public_copy_audit_loop(
+def run_copy_audit_loop(
     *,
+    label: str,
+    skill_key: str,
+    focus: str,
     overrides: dict[str, object],
     model: str,
     max_revision_attempts: int = 2,
 ) -> dict[str, object]:
     attempts: list[dict[str, object]] = []
-    focus = "Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes."
     for attempt_index in range(max_revision_attempts + 1):
         audit = run_skill_audit(
-            label="public",
-            skill_key=PUBLIC_AUDITOR_SKILL_KEY,
+            label=label,
+            skill_key=skill_key,
             focus=focus,
             payload=_copy_audit_snapshot(overrides),
             model=model,
@@ -3763,7 +3813,7 @@ def run_public_copy_audit_loop(
             return audit
         if attempt_index >= max_revision_attempts:
             break
-        trace(f"public audit revise: attempt {attempt_index + 1}")
+        trace(f"{label} audit revise: attempt {attempt_index + 1}")
         revision = chat_json(
             build_public_copy_revision_prompt(payload=_copy_audit_snapshot(overrides), audit=audit),
             model=model,
@@ -3775,7 +3825,39 @@ def run_public_copy_audit_loop(
     scopes = ",".join(final["risky_scopes"][:8]) if final["risky_scopes"] else "unspecified"
     messages = list(final["findings"][:4]) or list(final["improvement_suggestions"][:4])
     findings = " | ".join(messages) if messages else final["summary"]
-    raise RuntimeError(f"public_audit_failed:{scopes}:{findings}")
+    raise RuntimeError(f"{label}_audit_failed:{scopes}:{findings}")
+
+
+def run_public_copy_audit_loop(
+    *,
+    overrides: dict[str, object],
+    model: str,
+    max_revision_attempts: int = 2,
+) -> dict[str, object]:
+    return run_copy_audit_loop(
+        label="public",
+        skill_key=PUBLIC_AUDITOR_SKILL_KEY,
+        focus="Check reader usefulness, CTA routing, public-safe language, and whether the copy still sounds like a human guide instead of internal coordination notes.",
+        overrides=overrides,
+        model=model,
+        max_revision_attempts=max_revision_attempts,
+    )
+
+
+def run_user_copy_audit_loop(
+    *,
+    overrides: dict[str, object],
+    model: str,
+    max_revision_attempts: int = 2,
+) -> dict[str, object]:
+    return run_copy_audit_loop(
+        label="user",
+        skill_key=USER_AUDITOR_SKILL_KEY,
+        focus="Check target-audience fit: the copy should clearly serve players, GMs, and curious tinkerers, answer 'what's in it for me?', give a practical next step, and avoid maintainer-first framing or abstract product-story drift.",
+        overrides=overrides,
+        model=model,
+        max_revision_attempts=max_revision_attempts,
+    )
 
 
 COPY_KEYS_BY_SECTION: dict[str, tuple[str, ...]] = {
@@ -7505,14 +7587,21 @@ def generate_overrides(
                 horizon_copy_rows[horizon_id] = fallback_horizon_copy(horizon_id, dict(selected_horizons.get(horizon_id) or {}))
         overrides["horizons"] = horizon_copy_rows
         overrides["media"]["horizons"] = horizon_media_rows
+    apply_visual_overrides_to_media(overrides)
     if run_skill_audits:
         trace("public audit")
         overrides["meta"]["public_skill_audit"] = run_public_copy_audit_loop(
             overrides=overrides,
             model=model,
         )
+        trace("user audit")
+        overrides["meta"]["user_skill_audit"] = run_user_copy_audit_loop(
+            overrides=overrides,
+            model=model,
+        )
     else:
         overrides["meta"]["public_skill_audit"] = {"status": "skipped", "reason": "partial_regen"}
+        overrides["meta"]["user_skill_audit"] = {"status": "skipped", "reason": "partial_regen"}
     run_media_audits = include_hero_media or include_parts or include_horizons
     if run_media_audits and run_skill_audits:
         trace("scene audit")

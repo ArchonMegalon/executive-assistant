@@ -2452,6 +2452,7 @@ def test_generate_overrides_can_skip_skill_audits_for_partial_regen(monkeypatch:
 
     assert audit_calls == []
     assert overrides["meta"]["public_skill_audit"]["status"] == "skipped"
+    assert overrides["meta"]["user_skill_audit"]["status"] == "skipped"
     assert overrides["meta"]["pack_skill_audit"]["reason"] == "partial_regen"
 
 
@@ -2511,6 +2512,90 @@ def test_public_copy_audit_loop_revises_rejected_copy(monkeypatch: pytest.Monkey
     assert result["approval_state"] == "approved"
     assert result["attempts"][0]["approval_state"] == "rejected"
     assert overrides["pages"]["start_here"]["intro"] == "Hand players a polished briefing they can use immediately."
+
+
+def test_user_copy_audit_loop_revises_copy_that_misses_user_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker = _load_worker_module()
+    audit_statuses = iter(
+        [
+            {
+                "status": "revise",
+                "approval_state": "rejected",
+                "summary": "The copy still centers maintainer intent instead of user value.",
+                "findings": ["The page explains implementation posture before telling the reader why they should care tonight."],
+                "risky_scopes": ["pages.start_here"],
+                "improvement_suggestions": ["Lead with table value and an obvious next step for players or GMs."],
+                "rewritten_content": "Tell users what problem this solves at the table before discussing internals.",
+            },
+            {
+                "status": "ok",
+                "approval_state": "approved",
+                "summary": "The copy now leads with user value.",
+                "findings": [],
+                "risky_scopes": [],
+                "improvement_suggestions": [],
+                "rewritten_content": "",
+            },
+        ]
+    )
+
+    def fake_chat_json(prompt, *, model=worker.DEFAULT_MODEL, skill_key=worker.PUBLIC_WRITER_SKILL_KEY):
+        if skill_key == worker.USER_AUDITOR_SKILL_KEY:
+            return next(audit_statuses)
+        assert "Auditor result" in prompt
+        return {
+            "pages": {
+                "start_here": {
+                    "intro": "See what Chummer6 helps you prove at the table before you commit to a deeper dive.",
+                    "body": "Players and GMs get a clearer path through trust, receipts, and the next useful click.",
+                    "kicker": "Start where tonight's friction is highest, not where the architecture is loudest.",
+                }
+            }
+        }
+
+    monkeypatch.setattr(worker, "chat_json", fake_chat_json)
+    overrides = {
+        "pages": {
+            "start_here": {
+                "intro": "Architecture-first campaign OS posture",
+                "body": "The implementation focus is durable coordination and explainable structure.",
+                "kicker": "Success looks like the system can evolve cleanly.",
+            }
+        },
+        "parts": {},
+        "horizons": {},
+    }
+
+    result = worker.run_user_copy_audit_loop(overrides=overrides, model="ea-groundwork", max_revision_attempts=1)
+
+    assert result["status"] == "ok"
+    assert result["approval_state"] == "approved"
+    assert result["attempts"][0]["approval_state"] == "rejected"
+    assert overrides["pages"]["start_here"]["intro"] == "See what Chummer6 helps you prove at the table before you commit to a deeper dive."
+
+
+def test_apply_visual_overrides_to_media_merges_curated_horizon_contracts() -> None:
+    worker = _load_worker_module()
+    overrides = {
+        "media": {
+            "horizons": {
+                "black-ledger": {
+                    "title": "Black Ledger",
+                    "visual_prompt": "placeholder prompt",
+                    "scene_contract": {
+                        "composition": "dossier_desk",
+                        "subject": "placeholder",
+                    },
+                }
+            }
+        }
+    }
+
+    worker.apply_visual_overrides_to_media(overrides)
+
+    row = overrides["media"]["horizons"]["black-ledger"]
+    assert row["scene_contract"]["composition"] == "district_map"
+    assert "Living-city consequence board" in row["visual_prompt"]
 
 
 def test_generate_overrides_falls_back_to_default_global_ooda_when_writer_returns_non_json(

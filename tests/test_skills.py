@@ -837,6 +837,7 @@ def test_chummer6_guide_bootstrap_keeps_publish_schedule_off_auditor_skills() ->
 
     for skill_key in (
         "chummer6_public_auditor",
+        "chummer6_user_auditor",
         "chummer6_scene_auditor",
         "chummer6_visual_auditor",
         "chummer6_pack_auditor",
@@ -863,6 +864,18 @@ def test_chummer6_public_writer_declares_post_generation_audit_loop() -> None:
     assert auditor["runtime_policy_json"]["send_rejected_copy_back_to_generator"] is True
     assert auditor["output_schema_json"]["properties"]["approval_state"]["enum"] == ["approved", "rejected"]
     assert "improvement_suggestions" in auditor["output_schema_json"]["required"]
+
+
+def test_chummer6_user_auditor_declares_user_value_gate() -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+    payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+
+    auditor = payloads["chummer6_user_auditor"]
+    assert auditor["task_key"] == "chummer6_user_facing_audit"
+    assert auditor["runtime_policy_json"]["audit_position"] == "post_generation_pre_publish"
+    assert auditor["runtime_policy_json"]["send_rejected_copy_back_to_generator"] is True
+    assert auditor["output_schema_json"]["properties"]["approval_state"]["enum"] == ["approved", "rejected"]
+    assert "rewritten_content" in auditor["output_schema_json"]["required"]
 
 
 def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_targeted_rerun_scope() -> None:
@@ -898,6 +911,7 @@ def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_t
     ("skill_key", "task_key", "memory_fact_key"),
     [
         ("chummer6_public_auditor", "chummer6_public_copy_audit", "copy"),
+        ("chummer6_user_auditor", "chummer6_user_facing_audit", "user"),
         ("chummer6_scene_auditor", "chummer6_scene_plan_audit", "scene"),
         ("chummer6_visual_auditor", "chummer6_visual_audit", "visual"),
         ("chummer6_pack_auditor", "chummer6_pack_audit", "pack"),
