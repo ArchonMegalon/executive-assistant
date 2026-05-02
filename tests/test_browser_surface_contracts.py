@@ -25,6 +25,16 @@ APP_ROUTES = (
     "/app/settings",
 )
 
+LEGACY_APP_ROUTE_REDIRECTS = {
+    "/app/briefing": "/app/queue",
+    "/app/inbox": "/app/queue",
+    "/app/follow-ups": "/app/commitments",
+    "/app/memory": "/app/people",
+    "/app/contacts": "/app/evidence",
+    "/app/channels": "/app/settings",
+    "/app/automations": "/app/settings",
+}
+
 
 def _client(*, principal_id: str = "exec-browser-contract") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -95,10 +105,23 @@ def test_app_surface_routes_render_without_product_drift() -> None:
     assert "What is most likely to slip" in today.text
 
     queue = client.get("/app/queue")
-    assert "Decision Queue" in queue.text
-    assert "What changed since the last memo" in queue.text
+    assert "Queue" in queue.text
+    assert "What needs an explicit call" in queue.text
     assert "What gets tight first" in queue.text
 
     people = client.get("/app/people")
-    assert "People Graph" in people.text
+    assert "People" in people.text
+    assert "Who matters right now" in people.text
     assert "What still hangs off those relationships" in people.text
+
+
+def test_legacy_app_aliases_redirect_to_canonical_routes() -> None:
+    client = _client()
+    for path, target in LEGACY_APP_ROUTE_REDIRECTS.items():
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 307, path
+        assert response.headers["location"] == target
+
+    redirected = client.get("/app/inbox?focus=board", follow_redirects=False)
+    assert redirected.status_code == 307
+    assert redirected.headers["location"] == "/app/queue?focus=board"

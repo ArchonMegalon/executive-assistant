@@ -4,22 +4,21 @@
   "surface": "browser_workflow_proof",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-04-23T08:31:16Z",
+  "generated_at": "2026-05-01T16:59:29Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "status": "blocked",
-  "operator_summary": "EA browser workflow proof is published, but it is blocked by failing or unavailable proof lanes.",
+  "status": "pass",
+  "operator_summary": "EA browser workflow proof is published and green across both seeded browser journeys and real-browser E2E.",
   "seed_source": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
   "release_claim_summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
   "expected_browser_signals": [
-    "/register leads with Google-first activation and a first useful loop",
+    "/register leads with email-first workspace setup, workspace shape, Google connection, and first brief setup",
     "/app/today renders Morning Memo, Send board materials, and Approve reply to Sofia N.",
-    "/app/briefing renders a decision queue tied to workspace objects",
-    "/app/inbox renders drafts and open commitments rather than placeholder cards",
-    "/app/follow-ups renders open handoffs and unresolved commitments",
-    "/app/settings keeps operator/admin noise out of the core product story"
+    "/app/queue renders decisions, drafts, and commitments tied to workspace objects",
+    "/app/people renders stakeholder memory, open loops, and recent evidence",
+    "/app/settings keeps memo timing, approvals, and workspace rules visible without leading with operator noise"
   ],
   "source_backed_journey_proof": {
-    "status": "blocked",
+    "status": "pass",
     "command": "/docker/EA/.venv/bin/python -m pytest -q tests/test_product_browser_journeys.py -k 'test_workspace_pages_render_seeded_product_objects or test_browser_journey_updates_after_approval_and_commitment_closure or test_browser_action_routes_match_rendered_forms or test_browser_handoff_and_people_memory_actions_work'",
     "cwd": "/docker/EA",
     "python_bin": "/docker/EA/.venv/bin/python",
@@ -30,15 +29,16 @@
       "test_browser_action_routes_match_rendered_forms",
       "test_browser_handoff_and_people_memory_actions_work"
     ],
-    "exit_code": 1,
-    "duration_seconds": 0.013,
+    "exit_code": 0,
+    "duration_seconds": 3.744,
     "output_excerpt": [
-      "/docker/EA/.venv/bin/python: No module named pytest"
+      "....                                                                     [100%]",
+      "4 passed, 20 deselected in 2.90s"
     ],
     "limitations": []
   },
   "real_browser_e2e_proof": {
-    "status": "blocked",
+    "status": "pass",
     "command": "/docker/EA/.venv/bin/python -m pytest -q tests/e2e/test_product_workflows.py -k 'test_activation_and_memo_flow_in_real_browser or test_draft_and_commitment_workflows_in_real_browser' -rs",
     "cwd": "/docker/EA",
     "python_bin": "/docker/EA/.venv/bin/python",
@@ -47,16 +47,14 @@
       "test_activation_and_memo_flow_in_real_browser",
       "test_draft_and_commitment_workflows_in_real_browser"
     ],
-    "exit_code": 1,
-    "duration_seconds": 0.012,
+    "exit_code": 0,
+    "duration_seconds": 12.821,
     "output_excerpt": [
-      "/docker/EA/.venv/bin/python: No module named pytest"
+      "..                                                                       [100%]",
+      "2 passed, 19 deselected in 11.94s"
     ],
     "limitations": []
   },
-  "blocking_reasons": [
-    "source-backed browser journey proof is not passing",
-    "real browser E2E proof is not passing"
-  ],
+  "blocking_reasons": [],
   "current_limitations": []
 }

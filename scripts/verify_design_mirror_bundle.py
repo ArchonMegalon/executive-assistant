@@ -38,11 +38,6 @@ class MirrorBinding:
 def _bindings() -> list[MirrorBinding]:
     return [
         MirrorBinding(
-            key="weekly_product_pulse",
-            local_path=LOCAL_PRODUCT_ROOT / "WEEKLY_PRODUCT_PULSE.generated.json",
-            source_path=DEFAULT_DESIGN_ROOT / "WEEKLY_PRODUCT_PULSE.generated.json",
-        ),
-        MirrorBinding(
             key="next_90_day_queue_staging",
             local_path=LOCAL_PRODUCT_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
             source_path=DEFAULT_DESIGN_ROOT / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml",

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import html
+import json
 import os
+import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +21,7 @@ from app.api.routes.landing import (
     _default_operator_id_for_browser,
     _render_public_template,
 )
+from app.api.routes.product_api_contracts import OfficeSignalResultOut, SignalIngestEndpointOut
 from app.api.routes.landing_content import APP_NAV_GROUPS
 from app.container import AppContainer
 from app.product.service import build_product_service
@@ -36,6 +39,39 @@ def _public_base_url(request: Request) -> str:
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"
     return str(request.base_url).rstrip("/")
+
+
+async def _signal_upload_payload(request: Request) -> dict[str, object]:
+    raw_bytes = await request.body()
+    raw_text = raw_bytes.decode("utf-8", "replace").strip()
+    content_type = str(request.headers.get("content-type") or "").strip().lower()
+    body_payload: dict[str, object] = {}
+    if "application/json" in content_type and raw_text:
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            body_payload = {"raw_body": raw_text}
+        else:
+            if isinstance(parsed, dict):
+                body_payload = dict(parsed)
+            else:
+                body_payload = {"value": parsed}
+    elif "application/x-www-form-urlencoded" in content_type and raw_text:
+        body_payload = {
+            key: values[0] if len(values) == 1 else values
+            for key, values in urllib.parse.parse_qs(raw_text, keep_blank_values=True).items()
+        }
+    elif raw_text:
+        body_payload = {"raw_body": raw_text}
+
+    query_payload = {key: value for key, value in request.query_params.items()}
+    merged = {**query_payload, **body_payload}
+    merged["_query"] = query_payload
+    merged["_request_meta"] = {
+        "content_type": content_type.split(";", 1)[0].strip(),
+        "user_agent": str(request.headers.get("user-agent") or "").strip(),
+    }
+    return merged
 
 
 @router.get("/app/channel/drafts/{draft_ref}/approve")
@@ -115,6 +151,40 @@ def channel_digest_delivery_open(
     response.set_cookie("ea_workspace_session", str(delivery.get("access_token") or "").strip(), httponly=True, samesite="lax", path="/")
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
+
+
+@router.get("/signals/pocket/{token}", response_model=SignalIngestEndpointOut)
+def preview_pocket_signal_upload(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> SignalIngestEndpointOut:
+    product = build_product_service(container)
+    payload = product.preview_signal_ingest_endpoint(token=token, base_url=_public_base_url(request))
+    if payload is None or str(payload.get("channel") or "").strip().lower() != "pocket":
+        raise HTTPException(status_code=404, detail="signal_ingest_endpoint_not_found")
+    return SignalIngestEndpointOut(**payload)
+
+
+@router.post("/signals/pocket/{token}", response_model=OfficeSignalResultOut)
+async def ingest_pocket_signal_upload(
+    token: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> OfficeSignalResultOut:
+    product = build_product_service(container)
+    preview = product.preview_signal_ingest_endpoint(token=token)
+    if preview is None or str(preview.get("channel") or "").strip().lower() != "pocket":
+        raise HTTPException(status_code=404, detail="signal_ingest_endpoint_not_found")
+    payload = await _signal_upload_payload(request)
+    result = product.ingest_signal_upload(
+        token=token,
+        payload=payload,
+        actor="pocket_webhook",
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="signal_ingest_endpoint_not_found")
+    return OfficeSignalResultOut(**result)
 
 
 @router.get("/app/channel-loop/{digest_key}/plain", response_class=HTMLResponse)

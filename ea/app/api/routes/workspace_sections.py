@@ -211,7 +211,7 @@ def _suggested_sequence_rows(
                 action_href=f"/app/actions/queue/{decision.id}/resolve",
                 action_label="Resolve",
                 action_value="resolve",
-                return_to="/app/briefing",
+                return_to="/app/queue",
             )
         )
     if drafts:
@@ -226,7 +226,7 @@ def _suggested_sequence_rows(
                 href=f"/app/threads/{thread_id}",
                 action_href=f"/app/actions/drafts/{draft.id}/approve",
                 action_label="Approve",
-                return_to="/app/briefing",
+                return_to="/app/queue",
                 secondary_action_href=f"/app/threads/{thread_id}",
                 secondary_action_label="Open thread",
                 secondary_action_method="get",
@@ -252,7 +252,7 @@ def _suggested_sequence_rows(
                 action_href=f"/app/actions/queue/{commitment.id}/resolve",
                 action_label="Defer" if due_bonus(commitment.due_at) >= 28 else "Close",
                 action_value="defer" if due_bonus(commitment.due_at) >= 28 else "close",
-                return_to="/app/briefing",
+                return_to="/app/queue",
             )
         )
     if people:
@@ -329,12 +329,12 @@ def _queue_rows(values: tuple[DecisionQueueItem, ...]) -> list[dict[str, str]]:
                 action_href=action_href,
                 action_label=action_label,
                 action_value=action_value,
-                return_to="/app/briefing",
+                return_to="/app/queue",
                 secondary_action_href=f"/app/actions/queue/{value.id}/resolve" if value.id.startswith(("commitment:", "follow_up:")) else "",
                 secondary_action_label="Drop" if value.id.startswith(("commitment:", "follow_up:")) else "",
                 secondary_action_value="drop" if value.id.startswith(("commitment:", "follow_up:")) else "",
                 secondary_action_method="post" if value.id.startswith(("commitment:", "follow_up:")) else "",
-                secondary_return_to="/app/briefing" if value.id.startswith(("commitment:", "follow_up:")) else "",
+                secondary_return_to="/app/queue" if value.id.startswith(("commitment:", "follow_up:")) else "",
             )
         )
     return rows
@@ -371,7 +371,7 @@ def _decision_rows(values: tuple[DecisionItem, ...], *, return_to: str) -> list[
     return rows
 
 
-def _commitment_rows(values: tuple[CommitmentItem, ...], *, return_to: str = "/app/inbox") -> list[dict[str, str]]:
+def _commitment_rows(values: tuple[CommitmentItem, ...], *, return_to: str = "/app/commitments") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
         status_label = str(value.status or "open").strip().replace("_", " ").title()
@@ -432,11 +432,11 @@ def _candidate_rows(values: tuple[CommitmentCandidate, ...]) -> list[dict[str, s
                 href=f"/app/commitments/candidates/{value.candidate_id}",
                 action_href=f"/app/actions/commitments/candidates/{value.candidate_id}/accept",
                 action_label="Accept",
-                return_to="/app/inbox",
+                return_to="/app/queue",
                 secondary_action_href=f"/app/actions/commitments/candidates/{value.candidate_id}/reject",
                 secondary_action_label="Reject",
                 secondary_action_method="post",
-                secondary_return_to="/app/inbox",
+                secondary_return_to="/app/queue",
             )
         )
     return rows
@@ -466,11 +466,11 @@ def _draft_rows(values: tuple[DraftCandidate, ...]) -> list[dict[str, str]]:
                 href=f"/app/threads/{thread_id}",
                 action_href=f"/app/actions/drafts/{value.id}/approve",
                 action_label="Approve",
-                return_to="/app/inbox",
+                return_to="/app/queue",
                 secondary_action_href=f"/app/actions/drafts/{value.id}/reject",
                 secondary_action_label="Reject",
                 secondary_action_method="post",
-                secondary_return_to="/app/inbox",
+                secondary_return_to="/app/queue",
                 tertiary_action_href=f"/app/threads/{thread_id}",
                 tertiary_action_label="Open thread",
                 tertiary_action_method="get",
@@ -512,7 +512,7 @@ def _people_rows(values: tuple[PersonProfile, ...]) -> list[dict[str, str]]:
     return rows
 
 
-def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", actionable: bool = True, return_to: str = "/app/follow-ups") -> list[dict[str, str]]:
+def _handoff_rows(values: tuple[HandoffNote, ...], *, operator_id: str = "", actionable: bool = True, return_to: str = "/app/commitments") -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values:
         action_options = handoff_action_options(value, operator_id=operator_id, return_to=return_to) if actionable else ()
@@ -682,7 +682,7 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/support"),
         _row("Provider risk", str(providers.get("risk_state") or "unknown").replace("_", " "), "Support", href="/app/settings/support"),
         _row("Fallback lanes", str(providers.get("lanes_with_fallback") or 0), "Support", href="/app/settings/support"),
-        _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/activity"),
+        _row("Load score", str(queue_health.get("load_score") or 0), "Queue", href="/app/settings/usage"),
         _row(
             "Messaging scope",
             "Included in this plan" if entitlements.get("messaging_channels_enabled") else "Upgrade required for Telegram and WhatsApp",
@@ -694,7 +694,7 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
         _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics", href="/app/settings/usage"),
         _row(
-            "Blocked send follow-ups",
+            "Blocked delivery follow-ups",
             str(analytics.get("delivery_followup_blocked_count") or 0),
             "Analytics",
             href="/app/settings/outcomes",
@@ -786,7 +786,7 @@ def workspace_section_payload(
             "SLA breaches",
             f"{int(queue_health.get('sla_breaches') or 0)} handoffs already breached their SLA.",
             "Queue",
-            href="/app/activity",
+            href="/admin/office",
         )
         for _ in [0]
         if int(queue_health.get("sla_breaches") or 0)
@@ -854,7 +854,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "At-risk commitments",
                     "title": "What is most likely to slip today",
-                    "body": "Promises, deadlines, and follow-ups stay visible before they silently roll into tomorrow.",
+                    "body": "Promises, deadlines, and commitments stay visible before they silently roll into tomorrow.",
                     "items": _commitment_rows((due_now_commitments or open_commitments)[:6], return_to="/app/today")
                     or [_row("No commitments at risk", "Nothing open is currently due now or overdue.", "Clear")],
                 },
@@ -873,42 +873,48 @@ def workspace_section_payload(
                 },
             ],
         },
-        "briefing": {
-            "title": "Decision Queue",
-            "summary": "Clear the day by resolving what is blocked, what needs approval, and which commitments are running out of runway.",
+        "queue": {
+            "title": "Queue",
+            "summary": "Decisions, drafts, captured work, and active commitments stay inside one bounded review lane.",
             "cards": [
                 {
-                    "eyebrow": "Overnight changes",
-                    "title": "What changed since the last memo",
-                    "body": "Start the brief on surfaced changes rather than a generic queue summary.",
-                    "items": _brief_rows(snapshot.brief_items[:8], tag="Brief")
-                    or [_row("No overnight changes", "The brief has not surfaced any new movement yet.", "Clear")],
+                    "eyebrow": "Decision Queue",
+                    "title": "What needs an explicit call",
+                    "body": "Decisions and deadlines stay visible before the day fragments into separate tools.",
+                    "items": _decision_rows(open_decisions[:8], return_to="/app/queue")
+                    or [_row("No blocked decisions", "No unresolved decisions are currently shaping the queue.", "Clear")],
+                },
+                {
+                    "eyebrow": "Draft Queue",
+                    "title": "What can be approved right now",
+                    "body": "Drafts stay beside the work they affect instead of hiding in a separate mail-only concept.",
+                    "items": _draft_queue_rows(snapshot.drafts[:8]),
+                },
+                {
+                    "eyebrow": "Commitment review",
+                    "title": "What still needs human judgment",
+                    "body": "Captured commitments stay reviewable before they enter the live ledger.",
+                    "items": _candidate_rows(snapshot.commitment_candidates[:6])
+                    or [_row("No pending captures", "Nothing is waiting to be reviewed into the commitment ledger.", "Clear")],
+                },
+                {
+                    "eyebrow": "Open commitments",
+                    "title": "What the queue is protecting",
+                    "body": "Queue work matters because it prevents real promises from slipping.",
+                    "items": _commitment_rows((due_now_commitments or open_commitments)[:6], return_to="/app/queue")
+                    or [_row("No commitments at risk", "No current commitments are pressing on the day.", "Clear")],
                 },
                 {
                     "eyebrow": "Calendar pressure",
                     "title": "What gets tight first",
-                    "body": "Decision and deadline windows should be readable as day pressure, not just metadata.",
+                    "body": "Decision and deadline windows should read as day pressure, not buried metadata.",
                     "items": _calendar_pressure_rows(snapshot.queue_items),
                 },
                 {
                     "eyebrow": "People to respond to",
-                    "title": "Who needs a reply or correction",
-                    "body": "Threads and people stay attached to the brief so the next reply is obvious.",
+                    "title": "Who is shaping the queue",
+                    "body": "Threads and stakeholder context stay attached to the next move.",
                     "items": _thread_rows(snapshot.threads[:6]) or _people_rows(sorted_people[:6]),
-                },
-                {
-                    "eyebrow": "Commitments at risk",
-                    "title": "What the brief is protecting",
-                    "body": "The brief matters because it keeps active commitments from slipping.",
-                    "items": _commitment_rows((due_now_commitments or open_commitments)[:6], return_to="/app/briefing")
-                    or [_row("No commitments at risk", "No current commitments are pressing on the day.", "Clear")],
-                },
-                {
-                    "eyebrow": "Blocked decisions",
-                    "title": "What still needs a call",
-                    "body": "Blocked choices stay visible with their next action and impact.",
-                    "items": _decision_rows(open_decisions[:8], return_to="/app/briefing")
-                    or [_row("No blocked decisions", "No unresolved decisions are currently shaping the brief.", "Clear")],
                 },
                 {
                     "eyebrow": "Suggested sequence",
@@ -923,64 +929,24 @@ def workspace_section_payload(
                 },
             ],
         },
-        "inbox": {
-            "title": "Draft Queue",
-            "summary": "Reviewable drafts stay first, with open commitments and conversation context still attached to the same queue.",
-            "cards": [
-                {
-                    "eyebrow": "Ready for review",
-                    "title": "What can be approved right now",
-                    "body": "Keep ready drafts at the front of the inbox instead of hiding them behind generic commitment cards.",
-                    "items": _draft_queue_rows(snapshot.drafts[:8]),
-                },
-                {
-                    "eyebrow": "Open commitments",
-                    "title": "Open commitments",
-                    "body": "The response queue stays honest when open commitments remain visible beside the draft work.",
-                    "items": _commitment_rows(open_commitments[:8])
-                    or [_row("No open commitments", "There are no active commitments tied to the inbox right now.", "Clear")],
-                },
-                {
-                    "eyebrow": "Conversation threads",
-                    "title": "What live conversations are shaping the queue",
-                    "body": "Threads are now a first-class product object tied to drafts, commitments, and decisions.",
-                    "items": _thread_rows(snapshot.threads[:6])
-                    or [_row("No live threads", "No thread context is currently shaping the inbox queue.", "Clear")],
-                },
-                {
-                    "eyebrow": "Pending captures",
-                    "title": "What still needs commitment review",
-                    "body": "Extracted commitments stay reviewable before they enter the live ledger.",
-                    "items": _candidate_rows(snapshot.commitment_candidates[:6])
-                    or [_row("No pending captures", "Nothing is waiting to be reviewed into the commitment ledger.", "Clear")],
-                },
-                {
-                    "eyebrow": "Decision pressure",
-                    "title": "What will force movement next",
-                    "body": "The commitment loop stays honest when decisions and deadlines remain visible.",
-                    "items": _queue_rows(snapshot.queue_items[:6])
-                    or [_row("No decision pressure", "No queue items are currently forcing inbox movement.", "Clear")],
-                },
-            ],
-        },
-        "follow-ups": {
-            "title": "Follow-up Ledger",
-            "summary": "Keep due work, handoffs, unresolved promises, and recently closed movement visible in one lane.",
+        "commitments": {
+            "title": "Commitments",
+            "summary": "Keep due work, handoffs, unresolved promises, and recent closures visible in one durable commitment lane.",
             "cards": [
                 {
                     "eyebrow": "Due now",
                     "title": "What is due today or already overdue",
-                    "body": "The follow-up ledger should open on the work most likely to miss today.",
-                    "items": _commitment_rows((due_now_commitments or open_commitments)[:8], return_to="/app/follow-ups")
-                    or [_row("No due follow-ups", "Nothing open is due now or overdue.", "Clear")],
+                    "body": "The commitment lane opens on the work most likely to miss today.",
+                    "items": _commitment_rows((due_now_commitments or open_commitments)[:8], return_to="/app/commitments")
+                    or [_row("No due commitments", "Nothing open is due now or overdue.", "Clear")],
                 },
                 {
                     "eyebrow": "Waiting on others",
                     "title": "What is blocked outside the office loop",
                     "body": "Use explicit waiting and scheduled states instead of leaving external dependencies hidden inside open promises.",
                     "items": (
-                        _commitment_rows(waiting_commitments[:8], return_to="/app/follow-ups")
-                        + _handoff_rows(snapshot.handoffs[:8], operator_id=operator_key, return_to="/app/follow-ups")
+                        _commitment_rows(waiting_commitments[:8], return_to="/app/commitments")
+                        + _handoff_rows(snapshot.handoffs[:8], operator_id=operator_key, return_to="/app/commitments")
                     )[:8]
                     or [_row("No external waits", "Nothing is currently waiting on another party or operator handoff.", "Clear")],
                 },
@@ -988,37 +954,37 @@ def workspace_section_payload(
                     "eyebrow": "Unresolved promises",
                     "title": "What still needs a close or defer",
                     "body": "Open promises should stay clear even when the queue is noisy.",
-                    "items": _commitment_rows(open_commitments[:8], return_to="/app/follow-ups")
-                    or [_row("No unresolved promises", "The follow-up ledger does not currently have open promises.", "Clear")],
+                    "items": _commitment_rows(open_commitments[:8], return_to="/app/commitments")
+                    or [_row("No unresolved promises", "The commitment lane does not currently have open promises.", "Clear")],
                 },
                 {
                     "eyebrow": "Stale work",
                     "title": "What has drifted too long",
-                    "body": "Overdue or untouched follow-ups should be obvious instead of hiding in the ledger.",
-                    "items": _commitment_rows(stale_commitments[:8], return_to="/app/follow-ups")
-                    or [_row("No stale commitments", "Open follow-ups are still moving inside an acceptable window.", "Clear")],
+                    "body": "Overdue or untouched commitments should be obvious instead of hiding in the ledger.",
+                    "items": _commitment_rows(stale_commitments[:8], return_to="/app/commitments")
+                    or [_row("No stale commitments", "Open commitments are still moving inside an acceptable window.", "Clear")],
                 },
                 {
                     "eyebrow": "Recently closed",
                     "title": "What just moved through the loop",
                     "body": "Recently completed commitments and handoffs stay visible long enough to confirm the loop actually closed.",
                     "items": (
-                        _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/app/follow-ups")
-                        + _handoff_rows(snapshot.completed_handoffs[:6], actionable=False, return_to="/app/follow-ups")
+                        _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/app/commitments")
+                        + _handoff_rows(snapshot.completed_handoffs[:6], actionable=False, return_to="/app/commitments")
                     )[:6]
                     or [_row("Nothing recently closed", "Completed handoffs will appear here once the loop closes.", "Clear")],
                 },
                 {
                     "eyebrow": "Stakeholders",
-                    "title": "Who the follow-up lane affects",
+                    "title": "Who the commitment lane affects",
                     "body": "The office loop stays legible when people stay attached to the work.",
                     "items": _people_rows(sorted_people[:6])
-                    or [_row("No stakeholder pressure", "No people records are currently attached to this follow-up lane.", "Clear")],
+                    or [_row("No stakeholder pressure", "No people records are currently attached to this commitment lane.", "Clear")],
                 },
             ],
         },
-        "memory": {
-            "title": "People Graph",
+        "people": {
+            "title": "People",
             "summary": "People, relationship temperature, open loops, and recurring themes live in one durable relationship system.",
             "cards": [
                 {
@@ -1041,7 +1007,7 @@ def workspace_section_payload(
                 },
             ],
         },
-        "contacts": {
+        "evidence": {
             "title": "Evidence",
             "summary": "Evidence should explain why something surfaced, what supports it, and what action it is driving.",
             "cards": [
@@ -1104,7 +1070,7 @@ def workspace_section_payload(
                         _row("Google sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/usage"),
                         _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/usage"),
                         _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/usage"),
-                        _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/inbox"),
+                        _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
                     ],
                 },
                 {
@@ -1145,7 +1111,7 @@ def workspace_section_payload(
                             action_href=f"/app/actions/handoffs/{str(item.get('id') or '')}/assign" if str(item.get("id") or "").strip() else "",
                             action_label="Claim" if str(item.get("id") or "").strip() else "",
                             action_value="assign" if str(item.get("id") or "").strip() else "",
-                            return_to="/app/activity" if str(item.get("id") or "").strip() else "",
+                            return_to="/admin/office" if str(item.get("id") or "").strip() else "",
                         )
                         for item in assignment_suggestions[:3]
                     ]
@@ -1162,13 +1128,13 @@ def workspace_section_payload(
                     "eyebrow": "Assigned to me",
                     "title": "What already belongs to this operator lane",
                     "body": "Assigned work should stay separate from the claimable backlog.",
-                    "items": _handoff_rows(assigned_handoffs[:8], operator_id=operator_key, return_to="/app/activity"),
+                    "items": _handoff_rows(assigned_handoffs[:8], operator_id=operator_key, return_to="/admin/office"),
                 },
                 {
                     "eyebrow": "Unclaimed handoffs",
                     "title": "What can be claimed next",
                     "body": "Operator work should be explicit, claimable, and closable from the same queue.",
-                    "items": _handoff_rows(remaining_unclaimed_handoffs[:8], operator_id=operator_key, return_to="/app/activity")
+                    "items": _handoff_rows(remaining_unclaimed_handoffs[:8], operator_id=operator_key, return_to="/admin/office")
                     or [_row("No unclaimed handoffs", "Suggested claims already cover the current claimable backlog.", "Clear")],
                 },
                 {
@@ -1189,7 +1155,7 @@ def workspace_section_payload(
                     "title": "What just moved through the operator lane",
                     "body": "Returned handoffs and recently closed commitments should stay visible long enough to confirm the office loop actually closed.",
                     "items": (
-                        _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/app/activity")
+                        _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/admin/office")
                         + _handoff_rows(snapshot.completed_handoffs[:6], actionable=False)
                     )[:6],
                 },
@@ -1197,11 +1163,11 @@ def workspace_section_payload(
                     "eyebrow": "Commitment pressure",
                     "title": "What operator work is protecting",
                     "body": "Operator tasks are only useful when they keep the right commitments from slipping.",
-                    "items": _commitment_rows(snapshot.commitments[:8], return_to="/app/activity"),
+                    "items": _commitment_rows(snapshot.commitments[:8], return_to="/admin/office"),
                 },
                 {
                     "eyebrow": "Affected stakeholders",
-                    "title": "Who is attached to the operator queue",
+                    "title": "Who the office control surface is serving",
                     "body": "The operator lane should stay tied to the people and relationships it serves.",
                     "items": _people_rows(snapshot.people[:6]),
                 },
@@ -1352,7 +1318,7 @@ def workspace_section_payload(
                         _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
                         _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
                         _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
-                        _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/inbox"),
+                        _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
                     ],
                 },
                 {
@@ -1395,7 +1361,7 @@ def workspace_section_payload(
                         _row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or analytics.get("approval_coverage_rate") or 0), "Approvals", href="/app/settings/outcomes"),
                         _row("Approval send rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
                         _row(
-                            "Follow-up closeout rate",
+                            "Delivery closeout rate",
                             str(
                                 outcomes.get("delivery_followup_resolution_rate")
                                 if outcomes.get("delivery_followup_resolution_rate") is not None
@@ -1407,7 +1373,7 @@ def workspace_section_payload(
                             href="/app/settings/outcomes",
                         ),
                         _row(
-                            "Blocked follow-up rate",
+                            "Blocked delivery rate",
                             str(
                                 outcomes.get("delivery_followup_blocked_rate")
                                 if outcomes.get("delivery_followup_blocked_rate") is not None

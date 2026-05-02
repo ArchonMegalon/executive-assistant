@@ -4,7 +4,7 @@
 
 This checklist is not enough by itself.
 
-A flagship claim must also satisfy `FLAGSHIP_CLOSEOUT_PLAN.md`, `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and the generated `EA_FLAGSHIP_RELEASE_GATE.generated.json` receipt.
+A flagship claim must also satisfy `.codex-design/ea/START_HERE.md`, `FLAGSHIP_CLOSEOUT_PLAN.md`, `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and the generated `EA_FLAGSHIP_RELEASE_GATE.generated.json` receipt.
 `MILESTONE.json` is supporting delivery history, not the release oracle.
 
 The critical test is whether the shipped workspace behaves like a real executive-office work system rather than a polished shell.

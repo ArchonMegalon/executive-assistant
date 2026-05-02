@@ -17,6 +17,14 @@ from app.api.routes.product_api_contracts import (
     OfficeEventResponse,
     OfficeSignalIn,
     OfficeSignalResultOut,
+    PocketSignalCursorResetIn,
+    PocketSignalCursorResetOut,
+    PocketRecordingDetailOut,
+    PocketSignalImportIn,
+    PocketSignalImportOut,
+    PocketSignalSyncOut,
+    SignalIngestEndpointCreateIn,
+    SignalIngestEndpointOut,
     WebhookDeliveryOut,
     WebhookDeliveryResponse,
     WebhookOut,
@@ -85,6 +93,129 @@ def ingest_office_signal(
         actor=actor,
     )
     return OfficeSignalResultOut(**payload)
+
+
+@router.post("/signals/pocket/upload-url", response_model=SignalIngestEndpointOut)
+def create_pocket_signal_upload_url(
+    request: Request,
+    body: SignalIngestEndpointCreateIn | None = None,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> SignalIngestEndpointOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    spec = body or SignalIngestEndpointCreateIn()
+    payload = service.issue_signal_ingest_endpoint(
+        principal_id=context.principal_id,
+        channel="pocket",
+        signal_type=spec.signal_type,
+        label=spec.label,
+        counterparty=spec.counterparty,
+        base_url=_public_base_url(request),
+        actor=actor,
+    )
+    return SignalIngestEndpointOut(**payload)
+
+
+@router.post("/signals/pocket/import-local", response_model=PocketSignalImportOut)
+def import_pocket_saved_links_from_local_path(
+    body: PocketSignalImportIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketSignalImportOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.import_pocket_saved_links_from_local_path(
+            principal_id=context.principal_id,
+            path=body.path,
+            counterparty=body.counterparty,
+            actor=actor,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "pocket_import_path_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketSignalImportOut(**payload)
+
+
+@router.post("/signals/pocket/sync", response_model=PocketSignalSyncOut)
+def sync_pocket_recordings(
+    limit: int = Query(default=5, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketSignalSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.sync_pocket_recordings(
+            principal_id=context.principal_id,
+            actor=actor,
+            limit=limit,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 429 if detail.startswith("pocket_api_http_429:") else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketSignalSyncOut(**payload)
+
+
+@router.post("/signals/pocket/backfill", response_model=PocketSignalSyncOut)
+def backfill_pocket_recordings(
+    limit: int = Query(default=25, ge=1, le=250),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketSignalSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.backfill_pocket_recordings(
+            principal_id=context.principal_id,
+            actor=actor,
+            limit=limit,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 429 if detail.startswith("pocket_api_http_429:") else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketSignalSyncOut(**payload)
+
+
+@router.post("/signals/pocket/reset-cursor", response_model=PocketSignalCursorResetOut)
+def reset_pocket_recording_sync_cursor(
+    body: PocketSignalCursorResetIn | None = None,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketSignalCursorResetOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    payload = service.reset_pocket_recording_sync_cursor(
+        principal_id=context.principal_id,
+        actor=actor,
+        reason=str((body.reason if body is not None else "") or "").strip(),
+    )
+    return PocketSignalCursorResetOut(**payload)
+
+
+@router.get("/signals/pocket/recordings/{recording_id}", response_model=PocketRecordingDetailOut)
+def get_pocket_recording_detail(
+    recording_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketRecordingDetailOut:
+    service = build_product_service(container)
+    try:
+        payload = service.get_pocket_recording_detail(recording_id=recording_id)
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "pocket_recording_not_found":
+            status_code = 404
+        elif detail.startswith("pocket_api_http_429:"):
+            status_code = 429
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketRecordingDetailOut(**payload)
 
 
 @router.post("/signals/google/sync", response_model=GoogleSignalSyncOut)

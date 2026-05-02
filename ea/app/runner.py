@@ -19,6 +19,7 @@ _ERROR_BACKOFF_SECONDS = 2.0
 _SCHEDULER_SCAN_INTERVAL_SECONDS = 900.0
 _SCHEDULER_ONEMIN_REFRESH_INTERVAL_SECONDS = 86400.0
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
+_SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
@@ -31,6 +32,15 @@ def _env_float(name: str, default: float) -> float:
     except Exception:
         value = default
     return max(0.0, value)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.environ.get(name) or "").strip()
+    try:
+        value = int(raw) if raw else default
+    except Exception:
+        value = default
+    return value
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -64,6 +74,21 @@ def _scheduler_google_signal_sync_interval_seconds() -> float:
 
 def _scheduler_google_signal_sync_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_ENABLED", True)
+
+
+def _scheduler_pocket_signal_sync_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS",
+        _SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS,
+    )
+
+
+def _scheduler_pocket_signal_sync_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_POCKET_SIGNAL_SYNC_ENABLED", bool(str(os.environ.get("POCKET_API_KEY") or "").strip()))
+
+
+def _scheduler_pocket_signal_sync_limit() -> int:
+    return max(1, min(_env_int("EA_SCHEDULER_POCKET_SIGNAL_SYNC_LIMIT", 5), 100))
 
 
 def _scheduler_morning_memo_interval_seconds() -> float:
@@ -639,6 +664,40 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
     }
 
 
+def _run_scheduler_pocket_signal_sync(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+
+    if not str(os.environ.get("POCKET_API_KEY") or "").strip():
+        return {"ran": False, "attempted": 0, "synced": 0, "errors": 0, "reason": "pocket_api_key_missing"}
+    principal_id = str(getattr(getattr(container.settings, "auth", None), "default_principal_id", "") or "").strip() or "local-user"
+    service = build_product_service(container)
+    try:
+        summary = service.sync_pocket_recordings(
+            principal_id=principal_id,
+            actor="scheduler",
+            limit=_scheduler_pocket_signal_sync_limit(),
+        )
+        synced_total = max(int(summary.get("synced_total") or summary.get("total") or 0), 0)
+        failed_total = max(int(summary.get("failed_total") or 0), 0)
+        return {
+            "ran": True,
+            "attempted": 1,
+            "synced": synced_total,
+            "errors": failed_total,
+            "principal_id": principal_id,
+        }
+    except RuntimeError as exc:
+        log.info(
+            "scheduler pocket signal sync skipped principal=%s reason=%s",
+            principal_id,
+            str(exc or "unknown_error"),
+        )
+        return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
+    except Exception:
+        log.exception("scheduler pocket signal sync failed principal=%s", principal_id)
+        return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
+
+
 def _run_scheduler_morning_memo_delivery(
     container,
     log: logging.Logger,
@@ -941,6 +1000,7 @@ def _run_execution_worker(role: str) -> None:
     last_horizon_scan_at = 0.0
     last_onemin_refresh_at = 0.0
     last_google_signal_sync_at = 0.0
+    last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
@@ -1015,6 +1075,23 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler google signal sync failed", role)
                     last_google_signal_sync_at = now
+            if _scheduler_pocket_signal_sync_enabled() and (
+                now - last_pocket_signal_sync_at >= _scheduler_pocket_signal_sync_interval_seconds()
+            ):
+                try:
+                    sync_summary = _run_scheduler_pocket_signal_sync(container, log)
+                    last_pocket_signal_sync_at = now
+                    log.info(
+                        "role=%s scheduler pocket signal sync attempted=%s synced=%s errors=%s principal=%s",
+                        role,
+                        sync_summary.get("attempted"),
+                        sync_summary.get("synced"),
+                        sync_summary.get("errors"),
+                        sync_summary.get("principal_id", ""),
+                    )
+                except Exception:
+                    log.exception("role=%s scheduler pocket signal sync failed", role)
+                    last_pocket_signal_sync_at = now
             if _scheduler_morning_memo_enabled() and (
                 now - last_morning_memo_at >= _scheduler_morning_memo_interval_seconds()
             ):

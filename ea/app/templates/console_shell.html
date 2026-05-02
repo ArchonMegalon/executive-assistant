@@ -321,7 +321,7 @@
     <div>
       <div class="console-kicker">Next to clear</div>
       <h2>{{ c1.title if c1 else 'Work the queue.' }}</h2>
-      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Keep the draft, review, and follow-up lane easy to clear.' }}</p>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Keep the draft, review, and commitment lane easy to clear.' }}</p>
     </div>
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Review', 'Prepared as an explicit next step rather than another hidden reminder.') }}
@@ -329,24 +329,24 @@
     <div class="console-callout">{{ console_summary }}</div>
   </aside>
 </section>
-{% elif current_nav in ('briefing', 'queue') %}
+{% elif current_nav == 'queue' %}
 <section class="console-stage">
   <section class="console-panel">
-    <div class="console-kicker">Briefing</div>
+    <div class="console-kicker">Queue</div>
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Brief', 'These are the items the user should understand before diving back into tools.') }}
+      {{ rows(c0['items'], 'Review', 'These are the items that should move next instead of being rediscovered later.') }}
     {% endif %}
   </section>
   <aside class="console-focus">
     <div>
-      <div class="console-kicker">Context that shapes the day</div>
-      <h2>{{ c1.title if c1 else 'Themes and people' }}</h2>
-      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Recurring themes and people give the brief its shape.' }}</p>
+      <div class="console-kicker">What can move now</div>
+      <h2>{{ c1.title if c1 else 'Ready drafts and reviewable work' }}</h2>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Keep the next draft, decision, or captured item easy to clear.' }}</p>
     </div>
     {% if c1 and c1['items'] %}
-      {{ rows(c1['items'], 'Context', 'This is the context the assistant is carrying into the brief.') }}
+      {{ rows(c1['items'], 'Ready', 'This work is staged to move, not to sit in another hidden backlog.') }}
     {% endif %}
     <div class="console-callout">
       <div class="console-kicker">Capture from note</div>
@@ -370,20 +370,20 @@
             <span>Kind</span>
             <select id="extract_kind" name="kind">
               <option value="commitment" selected>Commitment</option>
-              <option value="follow_up">Follow-up</option>
+              <option value="follow_up">Commitment</option>
             </select>
           </label>
           <label class="console-field">
             <span>Stakeholder ID (optional)</span>
-            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="For explicit follow-up linking">
+            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="Link directly to a known stakeholder">
           </label>
         </div>
-        <input type="hidden" name="return_to" value="/app/inbox">
+        <input type="hidden" name="return_to" value="/app/queue">
         <button class="console-action" type="submit">Capture item</button>
       </form>
     </div>
     <div class="console-callout">
-      <div class="console-kicker">Create a follow-up</div>
+      <div class="console-kicker">Create a commitment</div>
       <form class="console-form" method="post" action="/app/actions/commitments/create">
         <label class="console-field">
           <span>Title</span>
@@ -391,7 +391,7 @@
         </label>
         <label class="console-field">
           <span>Context</span>
-          <textarea id="create_followup_details" name="details" placeholder="Why this follow-up matters and what the next move should be."></textarea>
+          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move should be."></textarea>
         </label>
         <div class="console-field-grid">
           <label class="console-field">
@@ -407,7 +407,7 @@
           <label class="console-field">
             <span>Kind</span>
             <select id="create_followup_kind" name="kind">
-              <option value="follow_up" selected>Follow-up</option>
+              <option value="follow_up" selected>Commitment</option>
               <option value="commitment">Commitment</option>
             </select>
           </label>
@@ -417,71 +417,16 @@
           </label>
         </div>
         <input type="hidden" name="channel_hint" value="email">
-        <input type="hidden" name="return_to" value="/app/follow-ups">
-        <button class="console-action" type="submit">Create follow-up</button>
+        <input type="hidden" name="return_to" value="/app/commitments">
+        <button class="console-action" type="submit">Create commitment</button>
       </form>
     </div>
   </aside>
 </section>
-{% elif current_nav == 'inbox' %}
+{% elif current_nav == 'commitments' %}
 <section class="console-stage">
   <section class="console-panel">
-    <div class="console-kicker">Inbox</div>
-    <h2>{{ c0.title if c0 else console_title }}</h2>
-    <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
-    {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Draft', 'This queue should help the user move replies forward, not just restate channel state.') }}
-    {% endif %}
-  </section>
-  <aside class="console-focus">
-    <div>
-      <div class="console-kicker">Channel readiness</div>
-      <h2>{{ c1.title if c1 else 'What is feeding the queue' }}</h2>
-      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Connected channels and review settings determine what can be drafted or verified here.' }}</p>
-    </div>
-    {% if c1 and c1['items'] %}
-      {{ rows(c1['items'], 'Ready', 'These channels are shaping what the inbox view can do right now.') }}
-    {% endif %}
-    <div class="console-callout">
-      <div class="console-kicker">Capture from note</div>
-      <form class="console-form" method="post" action="/app/actions/commitments/extract">
-        <label class="console-field">
-          <span>Note or thread snippet</span>
-          <textarea id="extract_source_text" name="source_text" placeholder="Paste the note, thread, or meeting takeaway that should become a commitment." required></textarea>
-        </label>
-        <div class="console-field-grid">
-          <label class="console-field">
-            <span>Counterparty</span>
-            <input id="extract_counterparty" name="counterparty" placeholder="Sofia N.">
-          </label>
-          <label class="console-field">
-            <span>Due at</span>
-            <input id="extract_due_at" name="due_at" placeholder="YYYY-MM-DDTHH:MM:SS+00:00">
-          </label>
-        </div>
-        <div class="console-field-grid">
-          <label class="console-field">
-            <span>Kind</span>
-            <select id="extract_kind" name="kind">
-              <option value="commitment" selected>Commitment</option>
-              <option value="follow_up">Follow-up</option>
-            </select>
-          </label>
-          <label class="console-field">
-            <span>Stakeholder ID (optional)</span>
-            <input id="extract_stakeholder_id" name="stakeholder_id" placeholder="For explicit follow-up linking">
-          </label>
-        </div>
-        <input type="hidden" name="return_to" value="/app/inbox">
-        <button class="console-action" type="submit">Capture item</button>
-      </form>
-    </div>
-  </aside>
-</section>
-{% elif current_nav == 'follow-ups' %}
-<section class="console-stage">
-  <section class="console-panel">
-    <div class="console-kicker">Follow-ups</div>
+    <div class="console-kicker">Commitments</div>
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
@@ -492,13 +437,13 @@
     <div>
       <div class="console-kicker">What keeps it honest</div>
       <h2>{{ c1.title if c1 else 'Commitments stay attached to the work' }}</h2>
-      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Follow-up work should stay connected to the right people, threads, and urgency.' }}</p>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Commitment work should stay connected to the right people, threads, and urgency.' }}</p>
     </div>
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Context', 'This is why these items are still in the queue.') }}
     {% endif %}
     <div class="console-callout">
-      <div class="console-kicker">Create a follow-up</div>
+      <div class="console-kicker">Create a commitment</div>
       <form class="console-form" method="post" action="/app/actions/commitments/create">
         <label class="console-field">
           <span>Title</span>
@@ -506,7 +451,7 @@
         </label>
         <label class="console-field">
           <span>Context</span>
-          <textarea id="create_followup_details" name="details" placeholder="Why this follow-up matters and what the next move should be."></textarea>
+          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move should be."></textarea>
         </label>
         <div class="console-field-grid">
           <label class="console-field">
@@ -522,7 +467,7 @@
           <label class="console-field">
             <span>Kind</span>
             <select id="create_followup_kind" name="kind">
-              <option value="follow_up" selected>Follow-up</option>
+              <option value="follow_up" selected>Commitment</option>
               <option value="commitment">Commitment</option>
             </select>
           </label>
@@ -532,16 +477,16 @@
           </label>
         </div>
         <input type="hidden" name="channel_hint" value="email">
-        <input type="hidden" name="return_to" value="/app/follow-ups">
-        <button class="console-action" type="submit">Create follow-up</button>
+        <input type="hidden" name="return_to" value="/app/commitments">
+        <button class="console-action" type="submit">Create commitment</button>
       </form>
     </div>
   </aside>
 </section>
-{% elif current_nav in ('memory', 'people') %}
+{% elif current_nav == 'people' %}
 <section class="console-support-grid">
   <section class="console-panel">
-    <div class="console-kicker">Memory</div>
+    <div class="console-kicker">People</div>
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
@@ -557,7 +502,7 @@
     {% endif %}
   </section>
 </section>
-{% elif current_nav == 'contacts' %}
+{% elif current_nav == 'evidence' %}
 <section class="console-support-grid">
   <section class="console-panel">
     <div class="console-kicker">Evidence</div>
@@ -570,9 +515,9 @@
   <section class="console-panel">
     <div class="console-kicker">Evidence trail</div>
     <h2>{{ c1.title if c1 else 'Topics around those people' }}</h2>
-    <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics should stay connected so follow-up work makes sense on sight.' }}</p>
+    <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics should stay connected so commitment work makes sense on sight.' }}</p>
     {% if c1 and c1['items'] %}
-      {{ rows(c1['items'], 'Topic', 'This is the context that keeps those contacts meaningful.') }}
+      {{ rows(c1['items'], 'Topic', 'This is the context that keeps the evidence attached to real office work.') }}
     {% endif %}
   </section>
 </section>

@@ -25,20 +25,15 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     payload = json.loads(completed.stdout)
     keys = {row["key"] for row in payload}
     assert keys == {
-        "weekly_product_pulse",
         "next_90_day_queue_staging",
         "published_queue_overlay",
     }
-    pulse_row = next(row for row in payload if row["key"] == "weekly_product_pulse")
-    assert pulse_row["local_path"].endswith(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json")
-    assert pulse_row["source_path"] == "/docker/chummercomplete/chummer-design/products/chummer/WEEKLY_PRODUCT_PULSE.generated.json"
     queue_row = next(row for row in payload if row["key"] == "next_90_day_queue_staging")
     assert queue_row["local_path"].endswith(".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
     assert queue_row["source_path"] == "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     overlay_row = next(row for row in payload if row["key"] == "published_queue_overlay")
     assert overlay_row["local_path"].endswith(".codex-studio/published/QUEUE.generated.yaml")
     assert overlay_row["source_items"] == [
-        "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
         "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     ]
 
@@ -93,38 +88,6 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) ->
         shutil.copy2(backup_queue, local_queue)
 
 
-def test_repair_design_mirror_bundle_restores_drifted_weekly_product_pulse(tmp_path) -> None:
-    local_pulse = ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
-    source_pulse = Path("/docker/chummercomplete/chummer-design/products/chummer/WEEKLY_PRODUCT_PULSE.generated.json")
-    backup_pulse = tmp_path / "WEEKLY_PRODUCT_PULSE.generated.json.backup"
-
-    shutil.copy2(local_pulse, backup_pulse)
-    try:
-        local_pulse.write_text('{"contract_name":"ea.weekly_product_pulse","drifted":true}\n', encoding="utf-8")
-
-        failed = subprocess.run(
-            [sys.executable, str(SCRIPT)],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert failed.returncode == 1
-        assert "drift: weekly_product_pulse" in failed.stdout
-
-        repaired = subprocess.run(
-            ["bash", str(REPAIR_SCRIPT)],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        assert "ok: weekly_product_pulse" in repaired.stdout
-        assert local_pulse.read_text(encoding="utf-8") == source_pulse.read_text(encoding="utf-8")
-    finally:
-        shutil.copy2(backup_pulse, local_pulse)
-
-
 def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items(tmp_path) -> None:
     queue_overlay = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
     backup_overlay = tmp_path / "QUEUE.generated.yaml.backup"
@@ -159,7 +122,6 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_overlay_source_items
         repaired_payload = yaml.safe_load(queue_overlay.read_text(encoding="utf-8"))
         repaired_items = repaired_payload.get("items") or []
         assert repaired_items[0]["source_items"] == [
-            "/docker/EA/.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
             "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
         ]
     finally:

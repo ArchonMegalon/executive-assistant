@@ -22,7 +22,7 @@ async def app_approve_draft(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _form_value(body, "return_to", "/app/inbox")
+    return_to = _form_value(body, "return_to", "/app/queue")
     reason = _form_value(body, "reason", "Approved from browser workflow.")
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
@@ -45,7 +45,7 @@ async def app_reject_draft(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _form_value(body, "return_to", "/app/inbox")
+    return_to = _form_value(body, "return_to", "/app/queue")
     reason = _form_value(body, "reason", "Rejected from browser workflow.")
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "product").strip()
@@ -69,7 +69,7 @@ async def app_resolve_queue_item(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _form_value(body, "return_to", "/app/briefing")
+    return_to = _form_value(body, "return_to", "/app/queue")
     action = _form_value(body, "action", "resolve")
     reason = _form_value(body, "reason", "Resolved from browser workflow.")
     product = build_product_service(container)
@@ -109,7 +109,7 @@ async def app_create_commitment(
             stakeholder_id=_form_value(body, "stakeholder_id", ""),
             channel_hint=_form_value(body, "channel_hint", "email"),
         )
-    return RedirectResponse(_form_value(body, "return_to", "/app/follow-ups"), status_code=303)
+    return RedirectResponse(_form_value(body, "return_to", "/app/commitments"), status_code=303)
 
 
 @router.post("/app/actions/commitments/extract")
@@ -130,7 +130,7 @@ async def app_extract_commitment(
             kind=_form_value(body, "kind", "commitment"),
             stakeholder_id=_form_value(body, "stakeholder_id", ""),
         )
-    return RedirectResponse(_form_value(body, "return_to", "/app/inbox"), status_code=303)
+    return RedirectResponse(_form_value(body, "return_to", "/app/queue"), status_code=303)
 
 
 @router.post("/app/actions/commitments/candidates/{candidate_id}/accept")
@@ -156,7 +156,7 @@ async def app_accept_commitment_candidate(
     )
     if created is None:
         raise HTTPException(status_code=404, detail="commitment_candidate_not_found")
-    return RedirectResponse(_form_value(body, "return_to", "/app/inbox"), status_code=303)
+    return RedirectResponse(_form_value(body, "return_to", "/app/queue"), status_code=303)
 
 
 @router.post("/app/actions/commitments/candidates/{candidate_id}/reject")
@@ -172,7 +172,7 @@ async def app_reject_commitment_candidate(
     rejected = product.reject_commitment_candidate(principal_id=context.principal_id, candidate_id=candidate_id, reviewer=reviewer)
     if rejected is None:
         raise HTTPException(status_code=404, detail="commitment_candidate_not_found")
-    return RedirectResponse(_form_value(body, "return_to", "/app/inbox"), status_code=303)
+    return RedirectResponse(_form_value(body, "return_to", "/app/queue"), status_code=303)
 
 
 @router.post("/app/actions/handoffs/{handoff_ref:path}/assign")
@@ -183,7 +183,7 @@ async def app_assign_handoff(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _form_value(body, "return_to", "/app/follow-ups")
+    return_to = _form_value(body, "return_to", "/app/commitments")
     operator_id = (
         _form_value(body, "operator_id", "")
         or str(context.operator_id or "").strip()
@@ -212,7 +212,7 @@ async def app_complete_handoff(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    return_to = _form_value(body, "return_to", "/app/follow-ups")
+    return_to = _form_value(body, "return_to", "/app/commitments")
     resolution = _form_value(body, "action", "completed")
     operator_id = (
         _form_value(body, "operator_id", "")

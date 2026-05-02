@@ -1,0 +1,25 @@
+product: executive-assistant
+version: 1
+metrics:
+  - id: first_brief_time
+    description: Time from workspace creation to first useful morning brief.
+    target: "<= 15 minutes"
+  - id: first_review_loop_completed
+    description: Share of new workspaces that clear one reviewable queue item on day one.
+    target: ">= 60%"
+  - id: memo_delivery_success
+    description: Scheduled morning memos delivered successfully.
+    target: ">= 99%"
+  - id: approval_visibility
+    description: Sensitive outbound actions that remain visibly review-gated.
+    target: "100%"
+  - id: commitment_visibility
+    description: Open commitments with an owner and visible status.
+    target: "100%"
+slos:
+  - name: morning_memo_delivery
+    objective: Morning memo lands by the scheduled local delivery time.
+  - name: queue_state_freshness
+    objective: Today and Queue reflect approvals and closures without stale narration.
+  - name: evidence_traceability
+    objective: Decisions and recommendations keep a visible evidence path.

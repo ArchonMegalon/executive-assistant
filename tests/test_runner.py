@@ -363,6 +363,38 @@ def test_scheduler_google_signal_sync_runs_for_enabled_google_bindings(
     assert calls == ["principal-google-1|scheduler|5|5"]
 
 
+def test_scheduler_pocket_signal_sync_runs_for_default_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("POCKET_API_KEY", "pk_test")
+    monkeypatch.setenv("EA_SCHEDULER_POCKET_SIGNAL_SYNC_LIMIT", "7")
+
+    calls: list[str] = []
+
+    class _FakeService:
+        def sync_pocket_recordings(self, *, principal_id: str, actor: str, limit: int):
+            calls.append(f"{principal_id}|{actor}|{limit}")
+            return {"total": 3}
+
+    container = SimpleNamespace(
+        settings=SimpleNamespace(
+            auth=SimpleNamespace(default_principal_id="local-user"),
+        ),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_pocket_signal_sync(container, logging.getLogger("test.runner"))
+
+    assert summary == {"ran": True, "attempted": 1, "synced": 3, "errors": 0, "principal_id": "local-user"}
+    assert calls == ["local-user|scheduler|7"]
+
+
 def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
 

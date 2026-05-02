@@ -286,11 +286,6 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert "Open commitments" in page.content()
     assert "Why the product surfaced this person" in page.content()
 
-    response = page.goto(f"{base_url}/app/activity", wait_until="networkidle")
-    assert response is not None and response.ok
-    assert "Operator Queue" in page.content()
-    assert "Prepare board follow-up handoff" in page.content()
-
     response = page.goto(f"{base_url}/app/channel-loop/memo", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Morning memo digest" in page.content()
@@ -308,36 +303,36 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
 def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
 
-    response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
     assert "sofia@example.com" in page.content()
     with page.expect_response(lambda value: "/app/actions/drafts/" in value.url) as approval_response:
-        page.locator(".console-row", has_text="sofia@example.com").get_by_role("button", name="Approve").click()
+        page.locator(".console-row", has_text="Approve reply to Sofia N.").get_by_role("button", name="Approve").first.click()
     assert approval_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/inbox")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
 
-    response = page.goto(f"{base_url}/app/briefing", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Approve reply to Sofia N." not in page.content()
     assert "Choose board memo owner" in page.content()
 
-    response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
     with page.expect_response(lambda value: "/app/actions/queue/" in value.url) as close_response:
         page.locator(".console-row", has_text="Send board materials").get_by_role("button", name="Close").first.click()
     assert close_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/inbox")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
     assert "Send board materials" not in page.content()
 
-    response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
     assert "What just moved through the loop" in page.content()
     assert "Send board materials" in page.content()
     assert "Reopen" in page.content()
 
-    response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
 
     page.locator("#extract_source_text").fill("Please send the revised board packet to Sofia tomorrow morning.")
@@ -345,17 +340,17 @@ def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_brow
     with page.expect_response(lambda value: "/app/actions/commitments/extract" in value.url and value.request.method == "POST") as extract_response:
         page.get_by_role("button", name="Capture item").click()
     assert extract_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/inbox")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
     assert "revised board packet" in page.content().lower()
     with page.expect_response(lambda value: "/app/actions/commitments/candidates/" in value.url and value.request.method == "POST") as accept_response:
         page.locator(".console-row", has_text="revised board packet").get_by_role("button", name="Accept").first.click()
     assert accept_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/inbox")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
     assert "revised board packet" in page.content().lower()
 
-    response = page.goto(f"{base_url}/app/contacts", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/evidence", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Evidence" in page.content()
     assert "Decision window" in page.content() or "Commitment" in page.content()
@@ -364,27 +359,27 @@ def test_draft_and_commitment_workflows_in_real_browser(page: Page, product_brow
 def test_draft_rejection_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
 
-    response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
     assert "sofia@example.com" in page.content()
     with page.expect_response(lambda value: "/app/actions/drafts/" in value.url and value.request.method == "POST") as reject_response:
-        page.locator(".console-row", has_text="sofia@example.com").get_by_role("button", name="Reject").click()
+        page.locator(".console-row", has_text="Approve reply to Sofia N.").get_by_role("button", name="Reject").first.click()
     assert reject_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/inbox")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
-    assert "sofia@example.com" not in page.content()
+    assert "Approve reply to Sofia N." not in page.content()
 
 
 def test_follow_up_drop_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
 
-    response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Confirm investor meeting time" in page.content()
     with page.expect_response(lambda value: "/app/actions/queue/follow_up:" in value.url and value.request.method == "POST") as drop_response:
         page.locator(".console-row", has_text="Confirm investor meeting time").get_by_role("button", name="Drop").first.click()
     assert drop_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/follow-ups")
+    page.wait_for_url(f"{base_url}/app/commitments")
     page.wait_for_load_state("networkidle")
     assert "What just moved through the loop" in page.content()
     assert "Confirm investor meeting time" in page.content()
@@ -415,7 +410,7 @@ def test_commitment_detail_lifecycle_form_in_real_browser(page: Page, product_br
     assert "board_review_booked" in page.content()
     assert "Scheduled" in page.content()
 
-    response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
     assert "What is blocked outside the office loop" in page.content()
     assert "Send board materials" in page.content()
@@ -552,7 +547,7 @@ def test_admin_operator_queue_actions_in_real_browser(page: Page, product_browse
     with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as complete_response:
         page.locator(".console-row", has_text="Prepare board follow-up handoff").get_by_role("button", name="Complete").first.click()
     assert complete_response.value.status == 303
-    page.goto(f"{base_url}/app/activity", wait_until="networkidle")
+    page.goto(f"{base_url}/admin/office", wait_until="networkidle")
     assert "Recently completed" in page.content()
     assert "Prepare board follow-up handoff" in page.content()
 
@@ -598,16 +593,16 @@ def test_people_memory_correction_and_handoff_actions_in_real_browser(page: Page
     assert "Recent relationship history" in page.content()
     assert "Memory Corrected" in page.content()
 
-    response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
     page.locator("#create_followup_title").fill("Confirm board dinner date")
     page.locator("#create_followup_details").fill("Manual follow-up from the browser surface.")
     page.locator("#create_followup_counterparty").fill("Sofia N.")
     page.locator("#create_followup_stakeholder_id").fill(stakeholder_id)
     with page.expect_response(lambda value: "/app/actions/commitments/create" in value.url and value.request.method == "POST") as create_response:
-        page.get_by_role("button", name="Create follow-up").click()
+        page.get_by_role("button", name="Create commitment").click()
     assert create_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/follow-ups")
+    page.wait_for_url(f"{base_url}/app/commitments")
     page.wait_for_load_state("networkidle")
     assert "Confirm board dinner date" in page.content()
 
@@ -647,7 +642,7 @@ def test_team_fixture_in_real_browser(browser: Browser, team_browser_server: dic
         assert "Team / Operators" in page.content()
         assert "Team Operator" in page.content()
 
-        response = page.goto(f"{base_url}/app/follow-ups", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
         assert response is not None and response.ok
         with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as handoff_response:
             page.locator(".console-row", has_text="Prepare board follow-up handoff").get_by_role("button", name="Claim").click()
@@ -673,7 +668,7 @@ def test_operator_scoped_browser_queue_hides_other_operator_work(browser: Browse
         assert "Prepare board follow-up handoff" in page.content()
         assert "Coordinate shared follow-up queue" not in page.content()
 
-        response = page.goto(f"{base_url}/app/briefing", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
         assert response is not None and response.ok
         assert "Prepare board follow-up handoff" in page.content()
         assert "Coordinate shared follow-up queue" not in page.content()
@@ -687,9 +682,9 @@ def test_core_surface_visual_regression(browser: Browser, product_browser_server
         ("/", "landing-page.png", True),
         ("/register", "get-started-page.png", True),
         ("/app/today", "today-page.png", True),
-        ("/app/briefing", "briefing-page.png", False),
-        ("/app/inbox", "inbox-page.png", True),
-        ("/app/follow-ups", "followups-page.png", True),
+        ("/app/queue", "briefing-page.png", False),
+        ("/app/queue", "inbox-page.png", True),
+        ("/app/commitments", "followups-page.png", True),
         ("/admin/audit-trail", "admin-audit-page.png", True),
     )
     for path, snapshot_name, full_page in cases:
@@ -768,7 +763,7 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     page.wait_for_url(f"{base_url}/app/settings/support*")
     page.wait_for_load_state("networkidle")
     assert "Open delivery link" in page.content()
-    assert "Open workspace link" in page.content()
+    assert "Open access link" in page.content()
     next_action_row = page.locator(".object-row", has_text="Next action")
 
     with page.expect_response(lambda value: "/channel-loop/deliveries/" in value.url) as delivery_response:
@@ -784,7 +779,7 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     next_action_row = page.locator(".object-row", has_text="Next action")
 
     with page.expect_response(lambda value: "/workspace-access/" in value.url) as access_response:
-        next_action_row.get_by_role("link", name="Open workspace link").click()
+        next_action_row.get_by_role("link", name="Open access link").click()
     assert access_response.value.status == 303
     page.wait_for_url(f"{base_url}/app/today")
     page.wait_for_load_state("networkidle")
@@ -810,7 +805,7 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
 def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
     base_url = str(product_browser_server["base_url"])
 
-    response = page.goto(f"{base_url}/app/inbox", wait_until="networkidle")
+    response = page.goto(f"{base_url}/app/queue", wait_until="networkidle")
     assert response is not None and response.ok
 
     page.locator("#extract_source_text").fill("Please send the revised board packet to Sofia tomorrow morning.")
@@ -818,7 +813,7 @@ def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: 
     with page.expect_response(lambda value: "/app/actions/commitments/extract" in value.url and value.request.method == "POST") as extract_response:
         page.get_by_role("button", name="Capture item").click()
     assert extract_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/inbox")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
 
     page.locator("a[href*='/app/commitments/candidates/']").first.click()
@@ -831,7 +826,7 @@ def test_commitment_candidate_can_be_edited_before_accept_in_real_browser(page: 
     with page.expect_response(lambda value: "/app/actions/commitments/candidates/" in value.url and value.request.method == "POST") as accept_response:
         page.get_by_role("button", name="Accept into commitment ledger").click()
     assert accept_response.value.status == 303
-    page.wait_for_url(f"{base_url}/app/follow-ups")
+    page.wait_for_url(f"{base_url}/app/queue")
     page.wait_for_load_state("networkidle")
     assert "Send revised board packet" in page.content()
 
@@ -984,8 +979,8 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
 
         response = page.goto(f"{base_url}/admin/community", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Organizer / Community" in page.content()
-        assert "What participation and release currently look like" in page.content()
+        assert "Access / Rollout" in page.content()
+        assert "Workspace access and rollout posture" in page.content()
         assert "operator-browser-community@example.com" in page.content()
         assert "browser-community-access@example.com" in page.content()
         _assert_visual_baseline(page, "admin-community-page.png")

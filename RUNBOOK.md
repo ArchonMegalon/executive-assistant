@@ -267,6 +267,7 @@ make operator-help
 `bash scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.
 Refresh the machine-readable receipt with `python3 scripts/materialize_ea_flagship_release_gate.py`.
 Refresh the weekly pulse in `WEEKLY_PRODUCT_PULSE.generated.json` with `python3 scripts/materialize_weekly_product_pulse.py`.
+EA product canon for those claims now lives in `.codex-design/ea/START_HERE.md`.
 
 ## CI Gate Summary
 

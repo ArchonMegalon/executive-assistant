@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+from urllib.parse import urlparse
+
+import app.product.service as product_service
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
@@ -399,6 +403,978 @@ def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
     assert duplicate_body["staged_count"] >= 1
     assert duplicate_body["draft_count"] == 1
     assert duplicate_body["staged_drafts"][0]["id"] == body["staged_drafts"][0]["id"]
+
+
+def test_pocket_signal_upload_url_uses_public_host_and_ingests_saved_link(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-signal"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+
+    issued = client.post("/app/api/signals/pocket/upload-url", json={})
+    assert issued.status_code == 200
+    issued_body = issued.json()
+    assert issued_body["channel"] == "pocket"
+    assert issued_body["signal_type"] == "saved_link"
+    assert issued_body["counterparty"] == "Pocket"
+    assert issued_body["upload_url"].startswith("https://myexternalbrain.com/signals/pocket/")
+    upload_path = urlparse(issued_body["upload_url"]).path
+
+    preview = client.get(upload_path)
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["endpoint_id"] == issued_body["endpoint_id"]
+    assert preview_body["upload_url"] == issued_body["upload_url"]
+
+    ingested = client.post(
+        upload_path,
+        content="url=https%3A%2F%2Fexample.com%2Fboard-packet&title=Board+packet&excerpt=Send+the+revised+board+packet+to+Sofia+tomorrow+morning.&item_id=pocket-123&tags=board%2Csofia",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+    assert ingested.status_code == 200
+    ingested_body = ingested.json()
+    assert ingested_body["channel"] == "pocket"
+    assert ingested_body["event_type"] == "office_signal_saved_link"
+    assert ingested_body["source_id"] == "pocket:pocket-123"
+    assert ingested_body["external_id"] == "pocket-123"
+    assert ingested_body["staged_count"] >= 1
+
+    duplicate = client.post(
+        upload_path,
+        json={
+            "url": "https://example.com/board-packet",
+            "title": "Board packet",
+            "excerpt": "Send the revised board packet to Sofia tomorrow morning.",
+            "item_id": "pocket-123",
+            "tags": ["board", "sofia"],
+        },
+    )
+    assert duplicate.status_code == 200
+    duplicate_body = duplicate.json()
+    assert duplicate_body["deduplicated"] is True
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    events_body = events.json()
+    assert any(item["event_type"] == "office_signal_saved_link" for item in events_body["items"])
+    pocket_event = next(item for item in events_body["items"] if item["source_id"] == "pocket:pocket-123")
+    assert pocket_event["external_id"] == "pocket-123"
+    assert pocket_event["payload"]["captured_url"] == "https://example.com/board-packet"
+    assert pocket_event["payload"]["captured_tags"] in {"board, sofia", "board,sofia"}
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    counts = dict(diagnostics.json()["analytics"]["counts"])
+    assert int(counts.get("signal_ingest_endpoint_issued") or 0) >= 1
+    assert int(counts.get("signal_ingest_endpoint_used") or 0) >= 1
+
+
+def test_pocket_saved_link_import_from_local_json_archive(tmp_path) -> None:
+    principal_id = "exec-product-pocket-import"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    export_path = tmp_path / "ril_export.json"
+    export_path.write_text(
+        json.dumps(
+            [
+                {
+                    "item_id": "pocket-import-1",
+                    "resolved_url": "https://example.com/board-packet",
+                    "resolved_title": "Board packet",
+                    "excerpt": "Send the revised board packet to Sofia tomorrow morning.",
+                    "tags": {"board": {"tag": "board"}, "sofia": {"tag": "sofia"}},
+                    "time_added": "1714585500",
+                },
+                {
+                    "item_id": "pocket-import-2",
+                    "resolved_url": "https://example.com/follow-up",
+                    "resolved_title": "Follow-up note",
+                    "excerpt": "Confirm the follow-up plan with Sofia before lunch.",
+                    "tags": ["follow-up", "sofia"],
+                    "time_added": "1714585600",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    imported = client.post("/app/api/signals/pocket/import-local", json={"path": str(export_path)})
+    assert imported.status_code == 200
+    body = imported.json()
+    assert body["source_path"] == str(export_path)
+    assert body["source_formats"] == ["json"]
+    assert body["parsed_entry_total"] == 2
+    assert body["total"] == 2
+    assert body["synced_total"] == 2
+    assert body["deduplicated_total"] == 0
+    assert all(item["channel"] == "pocket" for item in body["items"])
+    assert all(item["event_type"] == "office_signal_saved_link" for item in body["items"])
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    events_body = events.json()
+    assert any(item["source_id"] == "pocket:pocket-import-1" for item in events_body["items"])
+    imported_event = next(item for item in events_body["items"] if item["source_id"] == "pocket:pocket-import-1")
+    assert imported_event["payload"]["captured_url"] == "https://example.com/board-packet"
+    assert imported_event["payload"]["captured_tags"] == "board, sofia"
+    assert imported_event["payload"]["import_channel"] == "pocket_export"
+
+    repeated = client.post("/app/api/signals/pocket/import-local", json={"path": str(export_path)})
+    assert repeated.status_code == 200
+    repeated_body = repeated.json()
+    assert repeated_body["total"] == 2
+    assert repeated_body["synced_total"] == 0
+    assert repeated_body["deduplicated_total"] == 2
+
+
+def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "pending-1", "title": "Pending pocket item", "state": "pending"},
+                {"id": "done-1", "title": "Pocket meeting", "state": "completed"},
+            ],
+            "pagination": {"total": 2},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket meeting",
+                "state": "completed",
+                "duration": 62.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:00:00Z",
+                "created_at": "2026-05-01T08:01:00Z",
+                "updated_at": "2026-05-01T08:02:00Z",
+                "tags": ["meeting", "sofia"],
+                "transcript": {
+                    "text": "Discuss the board packet and send the revised version to Sofia.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Discuss the board packet."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-1": {
+                        "id": "summary-1",
+                        "v2": {"summary": {"markdown": "Send the revised board packet to Sofia today."}},
+                    }
+                },
+            },
+        },
+    )
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["recording_total"] == 2
+    assert body["total"] == 1
+    assert body["synced_total"] == 1
+    assert body["deduplicated_total"] == 0
+    assert body["suppressed_total"] == 1
+    assert body["failed_total"] == 0
+    assert body["cursor_recording_id"] == "pending-1"
+    assert body["cursor_updated_at"] == ""
+    assert body["cursor_advanced"] is True
+    assert body["items"][0]["channel"] == "pocket"
+    assert body["items"][0]["event_type"] == "office_signal_audio_recording"
+    assert body["items"][0]["source_id"] == "pocket-recording:done-1"
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["source_id"] == "pocket-recording:done-1")
+    assert event["payload"]["summary_markdown"] == "Send the revised board packet to Sofia today."
+    assert event["payload"]["transcript_excerpt"] == "Discuss the board packet and send the revised version to Sofia."
+    assert "audio_download_url" not in event["payload"]
+
+
+def test_pocket_api_sync_uses_cursor_and_suppresses_non_actionable_audio_candidates(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-cursor"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    responses = [
+        {
+            "success": True,
+            "data": [
+                {
+                    "id": "noise-1",
+                    "title": "Pocket play",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:00:00Z",
+                    "updated_at": "2026-05-01T08:04:00Z",
+                    "recording_at": "2026-05-01T08:00:00Z",
+                },
+                {
+                    "id": "work-1",
+                    "title": "Pocket meeting",
+                    "state": "completed",
+                    "created_at": "2026-05-01T07:58:00Z",
+                    "updated_at": "2026-05-01T08:02:00Z",
+                    "recording_at": "2026-05-01T07:57:00Z",
+                },
+            ],
+            "pagination": {"total": 2, "has_more": False},
+        },
+        {
+            "success": True,
+            "data": [
+                {
+                    "id": "work-2",
+                    "title": "Pocket follow-up",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:05:00Z",
+                    "updated_at": "2026-05-01T08:06:00Z",
+                    "recording_at": "2026-05-01T08:05:00Z",
+                },
+                {
+                    "id": "noise-1",
+                    "title": "Pocket play",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:00:00Z",
+                    "updated_at": "2026-05-01T08:04:00Z",
+                    "recording_at": "2026-05-01T08:00:00Z",
+                },
+                {
+                    "id": "work-1",
+                    "title": "Pocket meeting",
+                    "state": "completed",
+                    "created_at": "2026-05-01T07:58:00Z",
+                    "updated_at": "2026-05-01T08:02:00Z",
+                    "recording_at": "2026-05-01T07:57:00Z",
+                },
+            ],
+            "pagination": {"total": 3, "has_more": False},
+        },
+    ]
+    call_index = {"value": 0}
+
+    def _list_recordings(*, limit, page=1):
+        assert page == 1
+        response = responses[min(call_index["value"], len(responses) - 1)]
+        call_index["value"] += 1
+        return response
+
+    details = {
+        "noise-1": {
+            "success": True,
+            "data": {
+                "id": "noise-1",
+                "title": "Pocket play",
+                "state": "completed",
+                "duration": 180.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:00:00Z",
+                "created_at": "2026-05-01T08:00:00Z",
+                "updated_at": "2026-05-01T08:04:00Z",
+                "tags": ["family"],
+                "transcript": {
+                    "text": "I need a communicator for the game and then we should eat.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Play transcript"}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-noise": {
+                        "id": "summary-noise",
+                        "v2": {
+                            "summary": {
+                                "markdown": "The transcript captures a playful role-playing session between an adult and a child."
+                            }
+                        },
+                    }
+                },
+            },
+        },
+        "work-1": {
+            "success": True,
+            "data": {
+                "id": "work-1",
+                "title": "Pocket meeting",
+                "state": "completed",
+                "duration": 62.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:57:00Z",
+                "created_at": "2026-05-01T07:58:00Z",
+                "updated_at": "2026-05-01T08:02:00Z",
+                "tags": ["meeting", "sofia"],
+                "transcript": {
+                    "text": "Discuss the board packet and send the revised version to Sofia.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Discuss the board packet."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-1": {
+                        "id": "summary-1",
+                        "v2": {"summary": {"markdown": "Send the revised board packet to Sofia today."}},
+                    }
+                },
+            },
+        },
+        "work-2": {
+            "success": True,
+            "data": {
+                "id": "work-2",
+                "title": "Pocket follow-up",
+                "state": "completed",
+                "duration": 32.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:05:00Z",
+                "created_at": "2026-05-01T08:05:00Z",
+                "updated_at": "2026-05-01T08:06:00Z",
+                "tags": ["follow-up"],
+                "transcript": {
+                    "text": "Review the term sheet and email the signed notes today.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Review the term sheet."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-2": {
+                        "id": "summary-2",
+                        "v2": {"summary": {"markdown": "Review the term sheet and email the signed notes today."}},
+                    }
+                },
+            },
+        },
+    }
+
+    monkeypatch.setattr(product_service, "_pocket_list_recordings", _list_recordings)
+    monkeypatch.setattr(product_service, "_pocket_get_recording_details", lambda recording_id: details[recording_id])
+
+    first_sync = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert first_sync.status_code == 200
+    first_body = first_sync.json()
+    assert first_body["recording_total"] == 2
+    assert first_body["cursor_recording_id"] == "noise-1"
+    items_by_source = {item["source_id"]: item for item in first_body["items"]}
+    assert items_by_source["pocket-recording:noise-1"]["staged_count"] == 0
+    assert items_by_source["pocket-recording:work-1"]["staged_count"] >= 1
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    noise_event = next(item for item in events.json()["items"] if item["source_id"] == "pocket-recording:noise-1")
+    assert noise_event["payload"]["suppress_candidate_staging"] is True
+    assert noise_event["payload"]["staging_suppression_reason"] == "non_actionable_context"
+    assert "adult and a child" in noise_event["payload"]["text"]
+
+    second_sync = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert second_sync.status_code == 200
+    second_body = second_sync.json()
+    assert second_body["recording_total"] == 1
+    assert second_body["total"] == 1
+    assert second_body["items"][0]["source_id"] == "pocket-recording:work-2"
+    assert second_body["cursor_recording_id"] == "work-2"
+
+
+def test_pocket_api_sync_suppresses_performance_recordings_even_with_action_verbs(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-performance-noise"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "performance-1",
+                    "title": "Pocket rehearsal",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:10:00Z",
+                    "updated_at": "2026-05-01T08:11:00Z",
+                    "recording_at": "2026-05-01T08:10:00Z",
+                }
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket rehearsal",
+                "state": "completed",
+                "duration": 120.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:10:00Z",
+                "created_at": "2026-05-01T08:10:00Z",
+                "updated_at": "2026-05-01T08:11:00Z",
+                "tags": ["music"],
+                "transcript": {
+                    "text": "Review the chorus, start again, and thank you for watching.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Review the chorus."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-performance": {
+                        "id": "summary-performance",
+                        "v2": {
+                            "summary": {
+                                "markdown": "This recording captures a vocal performance or rehearsal focused on repetitive phonetic patterns."
+                            }
+                        },
+                    }
+                },
+            },
+        },
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["total"] == 1
+    assert body["staging_suppressed_total"] == 1
+    assert body["items"][0]["staged_count"] == 0
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["source_id"] == "pocket-recording:performance-1")
+    assert event["payload"]["suppress_candidate_staging"] is True
+    assert event["payload"]["staging_suppression_reason"] == "non_actionable_context"
+
+
+def test_pocket_api_sync_suppresses_personal_medical_recordings(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-medical-noise"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "medical-1",
+                    "title": "Pocket medical update",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:20:00Z",
+                    "updated_at": "2026-05-01T08:21:00Z",
+                    "recording_at": "2026-05-01T08:20:00Z",
+                }
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket medical update",
+                "state": "completed",
+                "duration": 240.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:20:00Z",
+                "created_at": "2026-05-01T08:20:00Z",
+                "updated_at": "2026-05-01T08:21:00Z",
+                "tags": ["health"],
+                "transcript": {
+                    "text": "Schedule the next therapy session after the colonoscopy and review the chemo timeline.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Medical transcript"}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-medical": {
+                        "id": "summary-medical",
+                        "v2": {
+                            "summary": {
+                                "markdown": "Therapy session scheduling and health update after chemo delay and an upcoming colonoscopy."
+                            }
+                        },
+                    }
+                },
+            },
+        },
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["total"] == 1
+    assert body["staging_suppressed_total"] == 1
+    assert body["items"][0]["staged_count"] == 0
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["source_id"] == "pocket-recording:medical-1")
+    assert event["payload"]["suppress_candidate_staging"] is True
+    assert event["payload"]["staging_suppression_reason"] == "non_actionable_context"
+
+
+def test_pocket_api_backfill_rejects_existing_candidates_when_recording_is_now_non_actionable(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-cleanup"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+
+    seeded = service.stage_extracted_commitments(
+        principal_id=principal_id,
+        text="Review the toy plan and start the next round.",
+        counterparty="Pocket",
+        channel_hint="pocket",
+        source_ref="pocket-recording:noise-1",
+        signal_type="audio_recording",
+    )
+    assert len(seeded) >= 1
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="pocket",
+        event_type="office_signal_audio_recording",
+        payload={
+            "signal_type": "audio_recording",
+            "title": "Pocket play",
+            "summary": "Review the toy plan and start the next round.",
+            "text": "Review the toy plan and start the next round.",
+            "counterparty": "Pocket",
+            "recording_id": "noise-1",
+            "summary_markdown": "Review the toy plan and start the next round.",
+            "transcript_excerpt": "Review the toy plan and start the next round.",
+            "transcript_segment_count": 1,
+            "staged_candidate_ids": [row.candidate_id for row in seeded],
+        },
+        source_id="pocket-recording:noise-1",
+        external_id="noise-1",
+        dedupe_key="office-signal|exec-product-pocket-cleanup|audio_recording|noise-1|pocket-recording:noise-1|Review the toy plan and start the next round.",
+    )
+
+    candidates = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert candidates.status_code == 200
+    assert any(item["source_ref"] == "pocket-recording:noise-1" for item in candidates.json())
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "noise-1",
+                    "title": "Pocket play",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:00:00Z",
+                    "updated_at": "2026-05-01T08:04:00Z",
+                    "recording_at": "2026-05-01T08:00:00Z",
+                }
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket play",
+                "state": "completed",
+                "duration": 180.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:00:00Z",
+                "created_at": "2026-05-01T08:00:00Z",
+                "updated_at": "2026-05-01T08:04:00Z",
+                "tags": ["family"],
+                "transcript": {
+                    "text": "I need a communicator for the game and then we should eat.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Play transcript"}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-noise": {
+                        "id": "summary-noise",
+                        "v2": {
+                            "summary": {
+                                "markdown": "The transcript captures a playful role-playing session between an adult and a child."
+                            }
+                        },
+                    }
+                },
+            },
+        },
+    )
+
+    backfill = client.post("/app/api/signals/pocket/backfill", params={"limit": 1})
+    assert backfill.status_code == 200
+    body = backfill.json()
+    assert body["mode"] == "backfill"
+    assert body["items"][0]["deduplicated"] is True
+    assert body["staging_suppressed_total"] == 1
+
+    pending = client.get("/app/api/commitments/candidates", params={"status": "pending"})
+    assert pending.status_code == 200
+    assert not any(item["source_ref"] == "pocket-recording:noise-1" for item in pending.json())
+
+    rejected = client.get("/app/api/commitments/candidates", params={"status": "rejected"})
+    assert rejected.status_code == 200
+    assert any(item["source_ref"] == "pocket-recording:noise-1" for item in rejected.json())
+
+def test_pocket_api_sync_continues_after_recording_failure_without_advancing_cursor(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-failure"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "bad-1",
+                    "title": "Pocket blocked item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:10:00Z",
+                    "updated_at": "2026-05-01T08:11:00Z",
+                    "recording_at": "2026-05-01T08:10:00Z",
+                },
+                {
+                    "id": "good-1",
+                    "title": "Pocket good item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:08:00Z",
+                    "updated_at": "2026-05-01T08:09:00Z",
+                    "recording_at": "2026-05-01T08:08:00Z",
+                },
+            ],
+            "pagination": {"total": 2, "has_more": False},
+        },
+    )
+
+    attempts = {"bad-1": 0}
+
+    def _detail(recording_id: str):
+        if recording_id == "bad-1":
+            attempts["bad-1"] += 1
+            if attempts["bad-1"] == 1:
+                raise RuntimeError("pocket_api_http_503:temporary upstream issue")
+        return {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": f"Pocket {recording_id}",
+                "state": "completed",
+                "duration": 22.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:08:00Z",
+                "created_at": "2026-05-01T08:08:10Z",
+                "updated_at": "2026-05-01T08:09:10Z" if recording_id == "good-1" else "2026-05-01T08:11:10Z",
+                "tags": ["ops"],
+                "transcript": {
+                    "text": "Review the notes and send the follow-up today.",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "Review the notes."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    f"summary-{recording_id}": {
+                        "id": f"summary-{recording_id}",
+                        "v2": {"summary": {"markdown": "Review the notes and send the follow-up today."}},
+                    }
+                },
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_pocket_get_recording_details", _detail)
+
+    first_sync = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert first_sync.status_code == 200
+    first_body = first_sync.json()
+    assert first_body["total"] == 1
+    assert first_body["synced_total"] == 1
+    assert first_body["failed_total"] == 1
+    assert first_body["cursor_advanced"] is False
+
+    second_sync = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert second_sync.status_code == 200
+    second_body = second_sync.json()
+    assert second_body["total"] == 2
+    assert second_body["synced_total"] == 1
+    assert second_body["deduplicated_total"] == 1
+    assert second_body["failed_total"] == 0
+    assert second_body["cursor_recording_id"] == "bad-1"
+
+
+def test_pocket_api_backfill_ignores_cursor_but_preserves_incremental_position(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-backfill"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    calls = {"count": 0}
+
+    def _list_recordings(*, limit, page=1):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "success": True,
+                "data": [
+                    {
+                        "id": "new-1",
+                        "title": "Pocket newest item",
+                        "state": "completed",
+                        "created_at": "2026-05-01T09:10:00Z",
+                        "updated_at": "2026-05-01T09:11:00Z",
+                        "recording_at": "2026-05-01T09:10:00Z",
+                    }
+                ],
+                "pagination": {"total": 1, "has_more": False},
+            }
+        return {
+            "success": True,
+            "data": [
+                {
+                    "id": "new-1",
+                    "title": "Pocket newest item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T09:10:00Z",
+                    "updated_at": "2026-05-01T09:11:00Z",
+                    "recording_at": "2026-05-01T09:10:00Z",
+                },
+                {
+                    "id": "old-1",
+                    "title": "Pocket older item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T09:00:00Z",
+                    "updated_at": "2026-05-01T09:01:00Z",
+                    "recording_at": "2026-05-01T09:00:00Z",
+                },
+                {
+                    "id": "old-2",
+                    "title": "Pocket oldest item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:50:00Z",
+                    "updated_at": "2026-05-01T08:51:00Z",
+                    "recording_at": "2026-05-01T08:50:00Z",
+                },
+            ],
+            "pagination": {"total": 3, "has_more": False},
+        }
+
+    def _detail(recording_id: str):
+        return {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": f"Pocket {recording_id}",
+                "state": "completed",
+                "duration": 18.0,
+                "language": "en",
+                "recording_at": "2026-05-01T09:00:00Z",
+                "created_at": "2026-05-01T09:00:10Z",
+                "updated_at": {
+                    "new-1": "2026-05-01T09:11:00Z",
+                    "old-1": "2026-05-01T09:01:00Z",
+                    "old-2": "2026-05-01T08:51:00Z",
+                }[recording_id],
+                "tags": ["ops"],
+                "transcript": {
+                    "text": "Review the notes and send the follow-up today.",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "Review the notes."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    f"summary-{recording_id}": {
+                        "id": f"summary-{recording_id}",
+                        "v2": {"summary": {"markdown": "Review the notes and send the follow-up today."}},
+                    }
+                },
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_pocket_list_recordings", _list_recordings)
+    monkeypatch.setattr(product_service, "_pocket_get_recording_details", _detail)
+
+    first_sync = client.post("/app/api/signals/pocket/sync", params={"limit": 1})
+    assert first_sync.status_code == 200
+    first_body = first_sync.json()
+    assert first_body["cursor_recording_id"] == "new-1"
+    assert first_body["cursor_persisted"] is True
+
+    backfill = client.post("/app/api/signals/pocket/backfill", params={"limit": 10})
+    assert backfill.status_code == 200
+    backfill_body = backfill.json()
+    assert backfill_body["mode"] == "backfill"
+    assert backfill_body["cursor_used"] is False
+    assert backfill_body["cursor_persisted"] is False
+    assert backfill_body["cursor_recording_id"] == "new-1"
+    assert backfill_body["total"] == 3
+    assert backfill_body["synced_total"] == 2
+    assert backfill_body["deduplicated_total"] == 1
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    source_ids = {item["source_id"] for item in events.json()["items"]}
+    assert {"pocket-recording:new-1", "pocket-recording:old-1", "pocket-recording:old-2"} <= source_ids
+
+
+def test_pocket_api_reset_cursor_allows_historical_rescan(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-reset"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "new-1",
+                    "title": "Pocket newest item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T09:10:00Z",
+                    "updated_at": "2026-05-01T09:11:00Z",
+                    "recording_at": "2026-05-01T09:10:00Z",
+                },
+                {
+                    "id": "old-1",
+                    "title": "Pocket older item",
+                    "state": "completed",
+                    "created_at": "2026-05-01T09:00:00Z",
+                    "updated_at": "2026-05-01T09:01:00Z",
+                    "recording_at": "2026-05-01T09:00:00Z",
+                },
+            ],
+            "pagination": {"total": 2, "has_more": False},
+        },
+    )
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": f"Pocket {recording_id}",
+                "state": "completed",
+                "duration": 18.0,
+                "language": "en",
+                "recording_at": "2026-05-01T09:00:00Z",
+                "created_at": "2026-05-01T09:00:10Z",
+                "updated_at": "2026-05-01T09:11:00Z" if recording_id == "new-1" else "2026-05-01T09:01:00Z",
+                "tags": ["ops"],
+                "transcript": {
+                    "text": "Review the notes and send the follow-up today.",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "Review the notes."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    f"summary-{recording_id}": {
+                        "id": f"summary-{recording_id}",
+                        "v2": {"summary": {"markdown": "Review the notes and send the follow-up today."}},
+                    }
+                },
+            },
+        },
+    )
+
+    first_sync = client.post("/app/api/signals/pocket/sync", params={"limit": 1})
+    assert first_sync.status_code == 200
+    assert first_sync.json()["cursor_recording_id"] == "new-1"
+
+    reset = client.post("/app/api/signals/pocket/reset-cursor", json={"reason": "historical replay"})
+    assert reset.status_code == 200
+    reset_body = reset.json()
+    assert reset_body["cursor_cleared"] is True
+    assert reset_body["reason"] == "historical replay"
+    assert reset_body["cursor_recording_id"] == ""
+
+    replay = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert replay.status_code == 200
+    replay_body = replay.json()
+    assert replay_body["mode"] == "incremental"
+    assert replay_body["total"] == 2
+    assert replay_body["synced_total"] == 1
+    assert replay_body["deduplicated_total"] == 1
+    assert replay_body["cursor_recording_id"] == "new-1"
+
+
+def test_pocket_api_sync_surfaces_rate_limits(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-rate-limit"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    def _raise_rate_limit(*, limit, page=1):
+        raise RuntimeError('pocket_api_http_429:{"success":false,"error":"rate limit exceeded"}')
+
+    monkeypatch.setattr(product_service, "_pocket_list_recordings", _raise_rate_limit)
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 429
+    assert "rate limit exceeded" in synced.json()["error"]["details"]
+
+
+def test_pocket_recording_detail_returns_transcript_summary_and_audio(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-detail"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket detail item",
+                "state": "completed",
+                "duration": 25.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["detail"],
+                "transcript": {
+                    "text": "Transcript body",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "Transcript body"}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-9": {
+                        "summarizationId": "summary-9",
+                        "v2": {"summary": {"markdown": "Summary body"}},
+                    }
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+
+    detail = client.get("/app/api/signals/pocket/recordings/rec-9")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["recording_id"] == "rec-9"
+    assert body["transcript_text"] == "Transcript body"
+    assert body["transcript_segment_count"] == 1
+    assert body["summary_markdown"] == "Summary body"
+    assert body["summary_id"] == "summary-9"
+    assert body["audio_download_url"] == "https://audio.example/rec-9.mp3"
+    assert body["audio_expires_at"] == "2026-05-01T08:00:00Z"
 
 
 def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> None:
@@ -2006,9 +2982,9 @@ def test_operator_scope_hides_other_operator_handoffs_from_queue_and_browser() -
     assert queue.status_code == 200
     assert all(item["title"] != "Other operator-only handoff" for item in queue.json()["items"])
 
-    activity = client.get("/app/activity")
-    assert activity.status_code == 200
-    assert "Other operator-only handoff" not in activity.text
+    office = client.get("/admin/office")
+    assert office.status_code == 200
+    assert "Other operator-only handoff" not in office.text
 
 
 def test_people_graph_correction_updates_person_detail() -> None:

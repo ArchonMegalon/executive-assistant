@@ -67,48 +67,24 @@ def _build_doc_checks(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return rendered, missing
 
 
-def _build_chummer5a_parity_oracle(
-    root: Path, seed: dict[str, Any]
-) -> tuple[dict[str, Any], str | None, str | None]:
-    lane = dict(seed.get("chummer5a_parity_oracle") or {})
-    receipt_rel = Path(str(lane.get("published_receipt") or "").strip()) if lane.get("published_receipt") else None
-    required_outputs = [str(item) for item in list(lane.get("required_outputs") or []) if str(item).strip()]
-    noise_auditor = dict(lane.get("desktop_noise_auditor") or {})
-    receipt_present = False
-    receipt_status: str | None = None
-    output_presence: list[dict[str, Any]] = []
-    missing_outputs: list[str] = []
-    if receipt_rel is not None and receipt_rel.as_posix():
-        candidate = root / receipt_rel
-        receipt_present = candidate.exists()
-        if receipt_present:
-            payload = _load_json(candidate)
-            receipt_status = str(payload.get("status") or payload.get("state") or "").strip() or None
-            output_index = dict(payload.get("outputs") or {})
-            for output_name in required_outputs:
-                present = bool(output_index.get(output_name))
-                output_presence.append({"name": output_name, "present": present})
-                if not present:
-                    missing_outputs.append(output_name)
-        else:
-            for output_name in required_outputs:
-                output_presence.append({"name": output_name, "present": False})
-            missing_outputs = list(required_outputs)
-    lane_payload = {
-        "published_receipt": receipt_rel.as_posix() if receipt_rel is not None else "",
-        "published_receipt_present": receipt_present,
-        "published_receipt_status": receipt_status,
-        "required_outputs": required_outputs,
-        "outputs_present": output_presence,
-        "desktop_noise_auditor": {
-            "target_surface": str(noise_auditor.get("target_surface") or ""),
-            "metrics": [str(item) for item in list(noise_auditor.get("metrics") or []) if str(item).strip()],
-        },
-    }
-    missing_reason = None
-    if missing_outputs:
-        missing_reason = "missing parity outputs: " + ", ".join(missing_outputs)
-    return lane_payload, receipt_status, missing_reason
+def _build_product_canon(root: Path, seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    canon = dict(seed.get("ea_product_canon") or {})
+    source_root = str(canon.get("source_root") or "").strip()
+    required_docs = [str(item) for item in list(canon.get("required_docs") or []) if str(item).strip()]
+    docs_present: list[dict[str, Any]] = []
+    missing_docs: list[str] = []
+    for doc in required_docs:
+        rel = Path(doc)
+        present = _present(root, rel)
+        docs_present.append({"path": rel.as_posix(), "present": present})
+        if not present:
+            missing_docs.append(rel.as_posix())
+    return {
+        "source_root": source_root,
+        "required_docs": required_docs,
+        "docs_present": docs_present,
+        "all_required_docs_present": not missing_docs,
+    }, missing_docs
 
 
 def build_receipt(
@@ -122,11 +98,13 @@ def build_receipt(
     truth_plane_present = _present(root, truth_plane_path)
     docs, missing_docs = _build_doc_checks(root)
     browser_sources, missing_browser_sources = _build_browser_sources(root, seed)
-    parity_oracle, parity_status, parity_missing_reason = _build_chummer5a_parity_oracle(root, seed)
+    product_canon, missing_canon_docs = _build_product_canon(root, seed)
 
     published_browser_receipt = None
     browser_receipt_status = None
     browser_receipt_path_value = None
+    browser_receipt_blockers: list[str] = []
+    browser_receipt_limitations: list[str] = []
     if browser_proof_receipt_path is not None:
         candidate = root / browser_proof_receipt_path
         browser_receipt_path_value = browser_proof_receipt_path.as_posix()
@@ -138,6 +116,12 @@ def build_receipt(
                 or published_browser_receipt.get("release_truth")
                 or ""
             ).strip()
+            browser_receipt_blockers = [
+                str(item) for item in list(published_browser_receipt.get("blocking_reasons") or []) if str(item).strip()
+            ]
+            browser_receipt_limitations = [
+                str(item) for item in list(published_browser_receipt.get("current_limitations") or []) if str(item).strip()
+            ]
         elif truth_plane_present:
             browser_receipt_status = None
 
@@ -145,14 +129,23 @@ def build_receipt(
     current_limitations: list[str] = []
     if not truth_plane_present:
         blockers.append(f"missing truth plane: {truth_plane_path.as_posix()}")
+    if missing_canon_docs:
+        blockers.append("missing EA product canon docs: " + ", ".join(missing_canon_docs))
     if missing_docs:
         blockers.append("missing release docs: " + ", ".join(missing_docs))
     if missing_browser_sources:
         blockers.append("missing browser proof sources: " + ", ".join(missing_browser_sources))
     if published_browser_receipt is None:
         current_limitations.append("no published browser execution receipt is attached yet")
-    if parity_missing_reason:
-        current_limitations.append("chummer5a parity oracle lane is incomplete: " + parity_missing_reason)
+    else:
+        current_limitations.extend(browser_receipt_limitations)
+        if browser_receipt_status in {"blocked", "fail"}:
+            if browser_receipt_blockers:
+                blockers.extend("browser workflow proof: " + reason for reason in browser_receipt_blockers)
+            else:
+                blockers.append("browser workflow proof reported blocked status")
+        elif browser_receipt_status == "preview_only" and not browser_receipt_limitations:
+            current_limitations.append("browser workflow proof remains preview_only")
 
     status = "blocked" if blockers else "preview_only"
     if published_browser_receipt is not None:
@@ -160,20 +153,17 @@ def build_receipt(
             status = "pass" if browser_receipt_status == "pass" and not blockers else "blocked" if browser_receipt_status == "fail" else browser_receipt_status
         else:
             status = "preview_only" if not blockers else "blocked"
-    if parity_status == "fail":
-        blockers.append("chummer5a parity oracle lane reported fail status")
-        status = "blocked"
-    elif parity_status != "pass":
-        if status == "pass":
-            status = "preview_only"
 
     release_summary = str((seed.get("release_claim") or {}).get("summary") or "").strip()
+    blockers = list(dict.fromkeys(blockers))
+    current_limitations = list(dict.fromkeys(current_limitations))
+
     if status == "pass":
         operator_summary = "EA flagship release truth is published as a machine-readable receipt and currently green."
     elif status == "preview_only":
         operator_summary = "EA flagship release truth is materialized as a machine-readable receipt, but the current claim is preview_only until browser execution proof is published."
     else:
-        operator_summary = "EA flagship release truth is materialized, but it is blocked by missing proof or docs."
+        operator_summary = "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim."
 
     receipt: dict[str, Any] = {
         "product": str(seed.get("product") or "executive-assistant"),
@@ -190,13 +180,13 @@ def build_receipt(
             "legacy_history": (seed.get("truth_plane") or {}).get("legacy_history"),
         },
         "release_claim": seed.get("release_claim") or {},
+        "ea_product_canon": product_canon,
         "browser_workflow_proof": {
             "evidence_sources": seed.get("browser_workflow_proof", {}).get("evidence_sources", []),
             "source_files_present": browser_sources,
             "published_receipt": browser_receipt_path_value,
             "published_receipt_present": published_browser_receipt is not None,
         },
-        "chummer5a_parity_oracle": parity_oracle,
         "verification_binding": {
             "primary_verifier": (seed.get("verification_binding") or {}).get("primary_verifier", "scripts/verify_release_assets.sh"),
             "supporting_test": (seed.get("verification_binding") or {}).get("supporting_test", "tests/test_flagship_truth_plane.py"),

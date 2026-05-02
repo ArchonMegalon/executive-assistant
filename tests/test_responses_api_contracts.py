@@ -5038,6 +5038,13 @@ def test_codex_core_nonstream_timeout_returns_failed_response_body(monkeypatch: 
     assert body["output"][0]["content"][0]["text"] == "Error: upstream_timeout:1s"
 
 
+def test_repair_profile_defaults_to_nonstream_upstream() -> None:
+    from app.api.routes import responses
+
+    assert "repair" not in responses._streaming_codex_profiles()
+    assert responses._prefer_nonstream_upstream(model="ea-repair-gemini", codex_profile="repair") is True
+
+
 def test_codex_survival_ignores_client_tools_for_codex_compat(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-survival-tools")
     from app.api.routes import responses
@@ -5332,6 +5339,63 @@ def test_codex_repair_endpoint_uses_onemin_model_when_cheap_repair_backends_are_
     assert body["metadata"]["codex_effective_profile"] == "repair"
     assert body["metadata"]["codex_effective_model"] == "ea-onemin-coder"
     assert body["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY"
+
+
+def test_codex_repair_endpoint_prefers_funded_onemin_pool_even_when_gemini_claims_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="codex-repair-funded-onemin")
+    from app.api.routes import responses
+
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    monkeypatch.setattr(
+        responses,
+        "_provider_health_report",
+        lambda: {
+            "providers": {
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "unknown"},
+                "onemin": {
+                    "state": None,
+                    "live_remaining_credits_total": 2051,
+                    "actual_remaining_credits_total": 118681415,
+                    "live_positive_balance_slot_count": 20,
+                    "live_ready_slot_count": 0,
+                },
+            }
+        },
+    )
+
+    def fake_generate(
+        *,
+        prompt: str,
+        messages: list[dict[str, str]] | None = None,
+        requested_model: str,
+        max_output_tokens: int | None = None,
+        **_: object,
+    ) -> UpstreamResult:
+        assert prompt == "repair funded onemin"
+        assert messages == [{"role": "user", "content": "repair funded onemin"}]
+        assert requested_model == "ea-onemin-coder"
+        assert max_output_tokens is None
+        return UpstreamResult(
+            text="repair via funded onemin",
+            provider_key="onemin",
+            model="deepseek-chat",
+            tokens_in=2,
+            tokens_out=1,
+            provider_account_name="ONEMIN_AI_API_KEY_FALLBACK_2",
+        )
+
+    monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+
+    response = client.post("/v1/codex/repair", json={"input": "repair funded onemin"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output_text"] == "repair via funded onemin"
+    assert body["metadata"]["codex_effective_model"] == "ea-onemin-coder"
+    assert body["metadata"]["provider_account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_2"
 
 
 def test_core_batch_get_response_resumes_in_progress_job_after_worker_loss(monkeypatch: pytest.MonkeyPatch) -> None:

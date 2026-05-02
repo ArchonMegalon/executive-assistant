@@ -11,20 +11,32 @@ OUTPUT = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
 TRUTH_PLANE = Path(".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md")
 BROWSER_PROOF = Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json")
-PARITY_ORACLE = Path(".codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json")
+PRODUCT_CANON_DOCS = [
+    Path(".codex-design/ea/README.md"),
+    Path(".codex-design/ea/START_HERE.md"),
+    Path(".codex-design/ea/VISION.md"),
+    Path(".codex-design/ea/PUBLIC_NAVIGATION.yaml"),
+    Path(".codex-design/ea/APP_NAVIGATION.yaml"),
+    Path(".codex-design/ea/SURFACE_DESIGN_SYSTEM.md"),
+    Path(".codex-design/ea/FIRST_VALUE_JOURNEY.md"),
+    Path(".codex-design/ea/COPY_PRINCIPLES.md"),
+    Path(".codex-design/ea/METRICS_AND_SLOS.yaml"),
+    Path(".codex-design/ea/LTD_INTEGRATION_MAP.md"),
+]
 
 
 def _write_minimal_flagship_tree(
     root: Path,
     *,
     browser_proof_status: str | None = None,
-    parity_oracle_status: str | None = None,
 ) -> None:
     (root / SEED).parent.mkdir(parents=True, exist_ok=True)
     (root / TRUTH_PLANE).parent.mkdir(parents=True, exist_ok=True)
     (root / OUTPUT).parent.mkdir(parents=True, exist_ok=True)
     (root / BROWSER_PROOF).parent.mkdir(parents=True, exist_ok=True)
-    (root / PARITY_ORACLE).parent.mkdir(parents=True, exist_ok=True)
+    for rel in PRODUCT_CANON_DOCS:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("# canon\n", encoding="utf-8")
 
     seed = {
         "product": "executive-assistant",
@@ -37,12 +49,17 @@ def _write_minimal_flagship_tree(
         "release_claim": {
             "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
             "required_conditions": [
+                "EA product canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
                 "browser workflow proof renders seeded browser workspace pages with durable product objects",
                 "browser workflow proof shows browser actions updating the live workspace without stale narration",
                 "real browser E2E covers activation and the memo-to-queue loop",
                 "release asset verification knows the EA flagship truth plane and gate seed",
                 "release checklists cite the EA truth plane instead of using MILESTONE green as the oracle",
             ],
+        },
+        "ea_product_canon": {
+            "source_root": ".codex-design/ea",
+            "required_docs": [path.as_posix() for path in PRODUCT_CANON_DOCS],
         },
         "browser_workflow_proof": {
             "evidence_sources": [
@@ -59,25 +76,6 @@ def _write_minimal_flagship_tree(
         "verification_binding": {
             "primary_verifier": "scripts/verify_release_assets.sh",
             "supporting_test": "tests/test_flagship_truth_plane.py",
-        },
-        "chummer5a_parity_oracle": {
-            "published_receipt": PARITY_ORACLE.as_posix(),
-            "required_outputs": [
-                "screenshot_corpora",
-                "workflow_maps",
-                "compare_packs",
-                "import_export_fixture_inventory",
-            ],
-            "desktop_noise_auditor": {
-                "target_surface": "Avalonia screenshots",
-                "metrics": [
-                    "spacing_padding_budget",
-                    "visible_row_count",
-                    "header_to_content_ratio",
-                    "badge_banner_count",
-                    "menu_toolstrip_status_strip_presence",
-                ],
-            },
         },
     }
     (root / SEED).write_text(json.dumps(seed, indent=2) + "\n", encoding="utf-8")
@@ -101,23 +99,6 @@ def _write_minimal_flagship_tree(
     if browser_proof_status is not None:
         (root / BROWSER_PROOF).write_text(
             json.dumps({"status": browser_proof_status, "browser_workflow_proof": True}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-    if parity_oracle_status is not None:
-        (root / PARITY_ORACLE).write_text(
-            json.dumps(
-                {
-                    "status": parity_oracle_status,
-                    "outputs": {
-                        "screenshot_corpora": True,
-                        "workflow_maps": True,
-                        "compare_packs": True,
-                        "import_export_fixture_inventory": True,
-                    },
-                },
-                indent=2,
-            )
-            + "\n",
             encoding="utf-8",
         )
 
@@ -151,18 +132,18 @@ def test_materializer_writes_preview_only_receipt_without_browser_execution_rece
     assert receipt["version"] == 1
     assert receipt["status"] == "preview_only"
     assert receipt["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
+    assert receipt["ea_product_canon"]["source_root"] == ".codex-design/ea"
+    assert receipt["ea_product_canon"]["all_required_docs_present"] is True
     assert receipt["browser_workflow_proof"]["published_receipt_present"] is False
     assert receipt["browser_workflow_proof"]["source_files_present"][0]["present"] is True
     assert receipt["browser_workflow_proof"]["source_files_present"][1]["present"] is True
     assert "no published browser execution receipt is attached yet" in receipt["current_limitations"]
-    assert any("chummer5a parity oracle lane is incomplete" in item for item in receipt["current_limitations"])
     assert receipt["blocking_reasons"] == []
-    assert receipt["chummer5a_parity_oracle"]["published_receipt_present"] is False
     assert "preview_only" in receipt["operator_summary"]
 
 
 def test_materializer_can_publish_pass_when_browser_execution_receipt_exists(tmp_path: Path) -> None:
-    _write_minimal_flagship_tree(tmp_path, browser_proof_status="pass", parity_oracle_status="pass")
+    _write_minimal_flagship_tree(tmp_path, browser_proof_status="pass")
 
     subprocess.run(
         [
@@ -192,5 +173,51 @@ def test_materializer_can_publish_pass_when_browser_execution_receipt_exists(tmp
     assert receipt["browser_workflow_proof"]["published_receipt"] == BROWSER_PROOF.as_posix()
     assert receipt["current_limitations"] == []
     assert receipt["blocking_reasons"] == []
-    assert receipt["chummer5a_parity_oracle"]["published_receipt_status"] == "pass"
+    assert receipt["ea_product_canon"]["all_required_docs_present"] is True
     assert "green" in receipt["operator_summary"]
+
+
+def test_materializer_surfaces_browser_proof_blockers_when_published_receipt_is_blocked(tmp_path: Path) -> None:
+    _write_minimal_flagship_tree(tmp_path)
+    (tmp_path / BROWSER_PROOF).write_text(
+        json.dumps(
+            {
+                "status": "blocked",
+                "blocking_reasons": [
+                    "source-backed browser journey proof is not passing",
+                    "real browser E2E proof is not passing",
+                ],
+                "current_limitations": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--seed",
+            SEED.as_posix(),
+            "--truth-plane",
+            TRUTH_PLANE.as_posix(),
+            "--output",
+            OUTPUT.as_posix(),
+            "--browser-proof-receipt",
+            BROWSER_PROOF.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    receipt = json.loads((tmp_path / OUTPUT).read_text(encoding="utf-8"))
+
+    assert receipt["status"] == "blocked"
+    assert "browser workflow proof: source-backed browser journey proof is not passing" in receipt["blocking_reasons"]
+    assert "browser workflow proof: real browser E2E proof is not passing" in receipt["blocking_reasons"]

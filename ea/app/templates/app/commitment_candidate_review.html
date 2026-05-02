@@ -148,7 +148,7 @@
     </div>
 
     <form class="review-form" method="post" action="/app/actions/commitments/candidates/{{ candidate.candidate_id }}/accept">
-      <input type="hidden" name="return_to" value="/app/follow-ups">
+      <input type="hidden" name="return_to" value="/app/queue">
       <label class="review-field">
         <span>Title</span>
         <input id="candidate_title" name="title" value="{{ candidate.title }}" required>
@@ -171,13 +171,13 @@
           <select id="candidate_kind" name="kind">
             <option value="">Use staged kind</option>
             <option value="commitment">Commitment</option>
-            <option value="follow_up">Follow-up</option>
+            <option value="follow_up">Commitment</option>
           </select>
         </label>
       </div>
       <div class="review-actions">
         <button class="review-button" type="submit">Accept into commitment ledger</button>
-        <a class="review-link" href="/app/inbox">Back to inbox</a>
+        <a class="review-link" href="/app/queue">Back to queue</a>
       </div>
     </form>
   </section>
@@ -201,7 +201,7 @@
       </div>
       <div class="review-row">
         <strong>Alternative path</strong>
-        <small>If the candidate is weak, go back to the inbox and reject it instead of carrying vague work into the ledger.</small>
+        <small>If the candidate is weak, go back to the queue and reject it instead of carrying vague work into the ledger.</small>
       </div>
     </div>
   </aside>

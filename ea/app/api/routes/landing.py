@@ -15,7 +15,6 @@ from app.api.dependencies import (
     get_cloudflare_access_identity,
     get_container,
     get_request_context,
-    is_operator_context,
     require_operator_context,
 )
 from app.api.routes.landing_content import (
@@ -381,9 +380,9 @@ def integration_detail(
             "title": "Google Core",
             "eyebrow": "Google",
             "detail_points": (
-                "Start with Google Core unless you already know you need wider inbox actions.",
-                "Google Core is enough for drafts, delivery verification, calendar context, contacts context, and a useful first brief.",
-                "Full Workspace is the explicit upgrade path when you need broader inbox or Drive context.",
+                "Start with Google Core unless you already know you need broader workspace actions.",
+                "Google Core is enough for drafts, delivery verification, calendar context, people context, and a useful first brief.",
+                "Full Workspace is the explicit upgrade path when you need broader Gmail or Drive context.",
             ),
             "body_points": (
                 "Explain permissions in plain language first and raw scopes second.",
@@ -823,26 +822,24 @@ def app_shell(
     allowed.update({"channel-loop", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "channels", "automations"})
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
-    resolved_section = {
-        "queue": "briefing",
-        "people": "memory",
-    }.get(section, section)
-    current_nav = {
-        "briefing": "queue",
-        "inbox": "queue",
-        "follow-ups": "queue",
-        "memory": "people",
-        "contacts": "people",
-        "activity": "settings",
-        "channels": "settings",
-        "automations": "settings",
-    }.get(section, section)
-    if (
-        resolved_section == "activity"
-        and is_operator_context(context)
-        and context.auth_source != "loopback_no_auth"
-    ):
-        return RedirectResponse("/admin/office", status_code=303)
+    legacy_redirects = {
+        "briefing": "/app/queue",
+        "inbox": "/app/queue",
+        "follow-ups": "/app/commitments",
+        "memory": "/app/people",
+        "contacts": "/app/evidence",
+        "activity": "/admin/office",
+        "channels": "/app/settings",
+        "automations": "/app/settings",
+    }
+    if section in legacy_redirects:
+        target = legacy_redirects[section]
+        query = str(request.url.query or "").strip()
+        if query:
+            target = f"{target}?{query}"
+        return RedirectResponse(target, status_code=307)
+    resolved_section = section
+    current_nav = section
     status = container.onboarding.status(principal_id=context.principal_id)
     if resolved_section == "channel-loop":
         workspace = dict(status.get("workspace") or {})
@@ -903,16 +900,15 @@ def app_shell(
                 stats=stats,
             ),
         )
-    core_sections = {"today", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "settings"}
+    core_sections = {"today", "queue", "commitments", "people", "evidence", "activity", "settings"}
     if resolved_section in core_sections:
         product = build_product_service(container)
         surface_event = {
             "today": "memo_opened",
-            "briefing": "memo_opened",
-            "inbox": "queue_opened",
-            "follow-ups": "queue_opened",
-            "memory": "people_graph_opened",
-            "contacts": "evidence_opened",
+            "queue": "queue_opened",
+            "commitments": "commitment_ledger_opened",
+            "people": "people_graph_opened",
+            "evidence": "evidence_opened",
             "activity": "operator_queue_opened",
             "settings": "rules_opened",
         }.get(resolved_section)
@@ -1016,7 +1012,7 @@ def legacy_privacy_redirect() -> RedirectResponse:
 
 @router.get("/demo/brief")
 def legacy_brief_redirect() -> RedirectResponse:
-    return RedirectResponse("/app/briefing", status_code=307)
+    return RedirectResponse("/app/queue", status_code=307)
 
 
 @router.get("/channels/google")

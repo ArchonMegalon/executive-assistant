@@ -423,9 +423,9 @@ def _responses_upstream_idle_timeout_seconds(
 
 
 def _streaming_codex_profiles() -> set[str]:
-    raw = str(os.environ.get("EA_RESPONSES_STREAMING_CODEX_PROFILES") or "easy,repair,groundwork").strip()
+    raw = str(os.environ.get("EA_RESPONSES_STREAMING_CODEX_PROFILES") or "easy,groundwork").strip()
     values = {item.strip().lower() for item in raw.split(",") if item.strip()}
-    return values or {"easy", "repair", "groundwork"}
+    return values or {"easy", "groundwork"}
 
 
 def _requested_model_is_explicit(value: str | None) -> bool:
@@ -897,6 +897,18 @@ def _repair_ready_provider(
         for item in (profile.get("provider_hint_order") or ())
         if str(item or "").strip()
     ]
+    if "onemin" in hints:
+        onemin = dict(providers.get("onemin") or {})
+        try:
+            live_remaining_credits_total = int(float(onemin.get("live_remaining_credits_total") or 0))
+        except Exception:
+            live_remaining_credits_total = 0
+        try:
+            live_positive_balance_slot_count = int(float(onemin.get("live_positive_balance_slot_count") or 0))
+        except Exception:
+            live_positive_balance_slot_count = 0
+        if live_remaining_credits_total >= 300 and live_positive_balance_slot_count > 0:
+            return "onemin"
     for provider_key in hints:
         row = dict(providers.get(provider_key) or {})
         state = str(row.get("state") or "").strip().lower()

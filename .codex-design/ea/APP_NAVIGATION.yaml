@@ -1,0 +1,44 @@
+surface: app
+primary_nav:
+  - label: Today
+    href: /app/today
+    route_status: current
+    purpose: Morning memo, urgent approvals, and what changed since yesterday.
+  - label: Queue
+    href: /app/queue
+    route_status: current
+    purpose: Decisions, drafts, and captured work that need review now.
+  - label: Commitments
+    href: /app/commitments
+    route_status: current
+    purpose: Open promises, handoffs, due work, and recent closures.
+  - label: People
+    href: /app/people
+    route_status: current
+    purpose: Relationship context, stakeholder posture, and open loops.
+  - label: Evidence
+    href: /app/evidence
+    route_status: current
+    purpose: Source trail, proof, and what supports the recommendation.
+  - label: Rules
+    href: /app/settings
+    route_status: current
+    purpose: Memo timing, review posture, quiet hours, and workspace defaults.
+secondary_objects:
+  - object: decisions
+    surface_status: embedded
+    primary_surface: Queue
+  - object: drafts
+    surface_status: embedded
+    primary_surface: Queue
+  - object: threads
+    surface_status: embedded
+    primary_surface: Queue
+  - object: handoffs
+    surface_status: operator_admin
+    primary_surface: /admin/operators
+rules:
+  - Keep object language stable.
+  - Canonical routes must exist as real surfaces, not only label aliases.
+  - Do not map new product nouns onto legacy labels in public copy.
+  - Introduce new top-level tabs only when they have real routes and daily value.

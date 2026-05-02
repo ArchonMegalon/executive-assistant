@@ -143,27 +143,9 @@ assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/tes
 assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_product_workflows.py"
 
 pulse = json.loads(Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json").read_text(encoding="utf-8"))
-<<<<<<< Updated upstream
 assert pulse["contract_name"] == "ea.weekly_product_pulse"
 assert pulse["release_truth_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
-=======
-assert pulse["contract_name"] in {"chummer.weekly_product_pulse", "ea.weekly_product_pulse"}
-if pulse["contract_name"] == "ea.weekly_product_pulse":
-    assert pulse["release_truth_source"] in {
-        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-        ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-    }
-    assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
-    assert pulse["supporting_signals"]["flagship_release_receipt_source"] in {
-        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-        ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-    }
-else:
-    assert pulse["contract_name"] == "chummer.weekly_product_pulse"
-    assert pulse["scorecard_source"] == "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml"
-    assert pulse["progress_report_source"] == "products/chummer/PROGRESS_REPORT.generated.json"
->>>>>>> Stashed changes
 assert pulse["supporting_signals"]["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
 assert pulse["supporting_signals"]["flagship_release_receipt_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert pulse["supporting_signals"]["launch_readiness"]
@@ -807,7 +789,7 @@ else
   missing=1
 fi
 
-if grep -Fq 'Docs parity confirms the EA flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.' "RELEASE_CHECKLIST.md"; then
+if grep -Fq 'Docs parity confirms the EA canon, flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.' "RELEASE_CHECKLIST.md"; then
   echo "ok: RELEASE_CHECKLIST EA truth-plane line"
 else
   echo "missing: RELEASE_CHECKLIST EA truth-plane line" >&2

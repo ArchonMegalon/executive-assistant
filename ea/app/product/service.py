@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
 import hmac
 import json
 import os
 import re
+import time
+import urllib.error
 import urllib.parse
+import urllib.request
+import zipfile
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import yaml
@@ -91,6 +97,84 @@ _EA_DELIVERY_TEXT_MARKERS = (
 _PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
 _PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
 _DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+_POCKET_PUBLIC_API_BASE_URL = "https://public.heypocketai.com/api/v1"
+_POCKET_API_MAX_ATTEMPTS = 4
+_POCKET_API_RETRY_BACKOFF_SECONDS = 1.0
+_POCKET_API_MAX_RETRY_BACKOFF_SECONDS = 5.0
+_POCKET_SYNC_EVENT_LOOKBACK = 200
+_POCKET_SIGNAL_DEDUPE_LOOKBACK = 2000
+_POCKET_SYNC_MAX_SCAN_PAGES = 12
+_POCKET_NON_ACTIONABLE_SUMMARY_MARKERS = (
+    "no substantive discussion to summarize",
+    "transcript contains no substantive discussion",
+)
+_POCKET_NON_ACTIONABLE_CONTEXT_MARKERS = (
+    "adult and a child",
+    "parent and a child",
+    "father and his son",
+    "mother and her son",
+    "mother and her daughter",
+    "playful",
+    "role-playing",
+    "role playing",
+    "game rules",
+    "mealtime",
+    "meal preparation",
+    "tooth brushing",
+    "good night",
+    "bedtime",
+    "snack",
+    "jam and yogurt",
+    "make a cake",
+    "leftover dough",
+    "princess",
+    "hedgehog",
+    "grandmother",
+    "noah",
+    "family support",
+    "parenting chat",
+    "stroke recovery",
+    "daily life discussion",
+    "health update",
+    "therapy session",
+    "medical leave",
+    "medical strategy",
+    "recovering from a stroke",
+    "chemo",
+    "colonoscopy",
+    "vocal performance",
+    "rehearsal",
+    "chant-like",
+    "chanting",
+    "phonetic patterns",
+    "thank you for watching",
+    "credits",
+)
+_POCKET_ACTIONABLE_MARKERS = (
+    "send ",
+    "share ",
+    "reply ",
+    "follow up",
+    "follow-up",
+    "confirm ",
+    "review ",
+    "approve ",
+    "prepare ",
+    "schedule ",
+    "reschedule",
+    "book ",
+    "call ",
+    "email ",
+    "check in",
+    "check ",
+    "decide ",
+    "decision",
+    "deadline",
+    "next step",
+    "action item",
+    "deliver ",
+    "update ",
+)
 
 
 def _now_iso() -> str:
@@ -273,6 +357,450 @@ def _search_score(*, tokens: tuple[str, ...], title: str = "", summary: str = ""
         if extra_text and token in extra_text:
             score += 2.0
     return score
+
+
+def _looks_like_url(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized.startswith("https://") or normalized.startswith("http://")
+
+
+def _saved_link_fallback_id(url_text: str) -> str:
+    normalized = str(url_text or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def _saved_link_tag_summary(value: object) -> str:
+    if isinstance(value, str):
+        return ", ".join(part.strip() for part in value.split(",") if part.strip())
+    if isinstance(value, dict):
+        names: list[str] = []
+        for key, nested in value.items():
+            nested_name = _first_non_empty_text(
+                nested.get("tag") if isinstance(nested, dict) else "",
+                nested.get("name") if isinstance(nested, dict) else "",
+                key,
+            )
+            if nested_name:
+                names.append(nested_name)
+        return ", ".join(names)
+    if isinstance(value, (list, tuple, set)):
+        names: list[str] = []
+        for nested in value:
+            if isinstance(nested, dict):
+                nested_name = _first_non_empty_text(nested.get("tag"), nested.get("name"), nested.get("label"))
+                if nested_name:
+                    names.append(nested_name)
+            else:
+                normalized = str(nested or "").strip()
+                if normalized:
+                    names.append(normalized)
+        return ", ".join(names)
+    return ""
+
+
+def _saved_link_reference_at(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.isdigit():
+        try:
+            epoch = int(normalized)
+            if epoch > 10_000_000_000:
+                epoch //= 1000
+            return datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+        except Exception:
+            return ""
+    parsed = _parse_iso(normalized)
+    return parsed.isoformat() if parsed is not None else ""
+
+
+class _SavedLinkHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.items: list[dict[str, object]] = []
+        self._current_attrs: dict[str, str] | None = None
+        self._current_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        self._current_attrs = {str(key or "").strip().lower(): str(value or "").strip() for key, value in attrs}
+        self._current_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._current_attrs is not None and data:
+            self._current_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or self._current_attrs is None:
+            return
+        item = dict(self._current_attrs)
+        title = " ".join(part.strip() for part in self._current_text if part.strip()).strip()
+        if title:
+            item["title"] = title
+        self.items.append(item)
+        self._current_attrs = None
+        self._current_text = []
+
+
+def _saved_link_archive_entries_from_json(payload: object) -> tuple[dict[str, object], ...]:
+    if isinstance(payload, dict):
+        for key in ("items", "list", "bookmarks", "saved_links", "links"):
+            nested = payload.get(key)
+            if isinstance(nested, list):
+                return tuple(item for item in nested if isinstance(item, (dict, str)))
+        if any(_looks_like_url(payload.get(key)) for key in ("url", "href", "resolved_url", "given_url")):
+            return (payload,)
+        dict_values = [item for item in payload.values() if isinstance(item, dict)]
+        if dict_values:
+            return tuple(dict_values)
+        return ()
+    if isinstance(payload, list):
+        return tuple(item for item in payload if isinstance(item, (dict, str)))
+    return ()
+
+
+def _saved_link_archive_entries_from_csv(text: str) -> tuple[dict[str, object], ...]:
+    reader = csv.DictReader(text.splitlines())
+    rows: list[dict[str, object]] = []
+    for row in reader:
+        normalized = {str(key or "").strip(): value for key, value in dict(row).items()}
+        if any(_looks_like_url(normalized.get(key)) for key in ("url", "href", "resolved_url", "given_url")):
+            rows.append(normalized)
+    return tuple(rows)
+
+
+def _saved_link_archive_entries_from_html(text: str) -> tuple[dict[str, object], ...]:
+    parser = _SavedLinkHTMLParser()
+    parser.feed(text)
+    return tuple(
+        item
+        for item in parser.items
+        if any(_looks_like_url(item.get(key)) for key in ("href", "url"))
+    )
+
+
+def _decode_saved_link_archive_bytes(raw_bytes: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            return raw_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
+def _saved_link_archive_format_name(suffix: str) -> str:
+    normalized = str(suffix or "").strip().lower()
+    if normalized == ".htm":
+        return "html"
+    return normalized.lstrip(".")
+
+
+def _saved_link_archive_sources(path: Path) -> tuple[dict[str, object], ...]:
+    suffix = path.suffix.lower()
+    if suffix == ".zip":
+        sources: list[dict[str, object]] = []
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                member_suffix = Path(info.filename).suffix.lower()
+                if member_suffix not in {".json", ".csv", ".html", ".htm"}:
+                    continue
+                sources.append(
+                    {
+                        "name": info.filename,
+                        "format": _saved_link_archive_format_name(member_suffix),
+                        "text": _decode_saved_link_archive_bytes(archive.read(info.filename)),
+                    }
+                )
+        return tuple(sources)
+    if suffix not in {".json", ".csv", ".html", ".htm"}:
+        return ()
+    return (
+        {
+            "name": path.name,
+            "format": _saved_link_archive_format_name(suffix),
+            "text": _decode_saved_link_archive_bytes(path.read_bytes()),
+        },
+    )
+
+
+def _saved_link_import_records_from_source(source: dict[str, object]) -> tuple[dict[str, object], ...]:
+    format_name = str(source.get("format") or "").strip().lower()
+    text = str(source.get("text") or "")
+    if format_name == "json":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return ()
+        rows = _saved_link_archive_entries_from_json(payload)
+    elif format_name == "csv":
+        rows = _saved_link_archive_entries_from_csv(text)
+    elif format_name == "html":
+        rows = _saved_link_archive_entries_from_html(text)
+    else:
+        rows = ()
+    records: list[dict[str, object]] = []
+    for row in rows:
+        if isinstance(row, str):
+            row = {"url": row}
+        if not isinstance(row, dict):
+            continue
+        url_text = _first_non_empty_text(row.get("url"), row.get("href"), row.get("resolved_url"), row.get("given_url"))
+        if not _looks_like_url(url_text):
+            continue
+        title_text = _first_non_empty_text(
+            row.get("title"),
+            row.get("resolved_title"),
+            row.get("given_title"),
+            row.get("name"),
+            url_text,
+        )
+        summary_text = _first_non_empty_text(
+            row.get("excerpt"),
+            row.get("summary"),
+            row.get("description"),
+            row.get("note"),
+            row.get("preview"),
+        )
+        tags_text = _saved_link_tag_summary(row.get("tags"))
+        item_id = _first_non_empty_text(row.get("item_id"), row.get("itemId"), row.get("resolved_id"), row.get("id"))
+        reference_at = _first_non_empty_text(
+            _saved_link_reference_at(row.get("time_added")),
+            _saved_link_reference_at(row.get("time_updated")),
+            _saved_link_reference_at(row.get("added_at")),
+            _saved_link_reference_at(row.get("created_at")),
+        )
+        records.append(
+            {
+                "url": url_text,
+                "title": title_text,
+                "summary": summary_text,
+                "tags": tags_text,
+                "item_id": item_id,
+                "reference_at": reference_at,
+                "payload": dict(row),
+            }
+        )
+    return tuple(records)
+
+
+def _pocket_api_key() -> str:
+    configured = str(os.environ.get("POCKET_API_KEY") or "").strip()
+    if not configured:
+        raise RuntimeError("pocket_api_key_missing")
+    return configured
+
+
+def _pocket_api_request(
+    path: str,
+    *,
+    method: str = "GET",
+    query: dict[str, object] | None = None,
+    body: dict[str, object] | None = None,
+) -> dict[str, object]:
+    base_url = str(os.environ.get("POCKET_PUBLIC_API_BASE_URL") or _POCKET_PUBLIC_API_BASE_URL).strip().rstrip("/")
+    normalized_path = "/" + str(path or "").strip().lstrip("/")
+    url = f"{base_url}{normalized_path}"
+    if query:
+        encoded_query = urllib.parse.urlencode(
+            {key: value for key, value in dict(query).items() if value is not None and str(value).strip() != ""}
+        )
+        if encoded_query:
+            url = f"{url}?{encoded_query}"
+    data: bytes | None = None
+    headers = {
+        "Authorization": f"Bearer {_pocket_api_key()}",
+        "Accept": "application/json",
+    }
+    normalized_method = str(method or "GET").strip().upper() or "GET"
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=normalized_method)
+    payload: dict[str, object] | None = None
+    for attempt in range(1, _POCKET_API_MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise RuntimeError("pocket_recording_not_found") from exc
+            detail = exc.read().decode("utf-8", "replace")
+            if exc.code == 429 and attempt < _POCKET_API_MAX_ATTEMPTS:
+                retry_after = str(exc.headers.get("Retry-After") or "").strip()
+                try:
+                    delay = float(retry_after) if retry_after else 0.0
+                except Exception:
+                    delay = 0.0
+                if delay <= 0.0:
+                    delay = min(
+                        _POCKET_API_RETRY_BACKOFF_SECONDS * float(attempt),
+                        _POCKET_API_MAX_RETRY_BACKOFF_SECONDS,
+                    )
+                time.sleep(max(0.0, delay))
+                continue
+            raise RuntimeError(f"pocket_api_http_{exc.code}:{detail[:200]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"pocket_api_unreachable:{exc.reason}") from exc
+    if payload is None:
+        raise RuntimeError("pocket_api_empty_response")
+    if not isinstance(payload, dict):
+        raise RuntimeError("pocket_api_invalid_payload")
+    if payload.get("success") is False:
+        raise RuntimeError(str(payload.get("error") or "pocket_api_request_failed"))
+    return payload
+
+
+def _pocket_list_recordings(*, limit: int, page: int = 1) -> dict[str, object]:
+    return _pocket_api_request("/public/recordings", query={"limit": max(int(limit), 1), "page": max(int(page), 1)})
+
+
+def _pocket_get_recording_details(recording_id: str) -> dict[str, object]:
+    return _pocket_api_request(
+        f"/public/recordings/{urllib.parse.quote(str(recording_id or '').strip(), safe='')}",
+        query={"include_transcript": "true", "include_summarizations": "true"},
+    )
+
+
+def _pocket_get_audio_download_url(recording_id: str) -> dict[str, object]:
+    return _pocket_api_request(
+        f"/public/recordings/{urllib.parse.quote(str(recording_id or '').strip(), safe='')}/audio-url"
+    )
+
+
+def _pocket_summary_payload(summary_payload: object) -> tuple[str, str]:
+    if not isinstance(summary_payload, dict):
+        return "", ""
+    if "id" in summary_payload or "summarizationId" in summary_payload:
+        summary_id = _first_non_empty_text(summary_payload.get("id"), summary_payload.get("summarizationId"))
+        markdown = _first_non_empty_text(
+            (((summary_payload.get("v2") or {}) if isinstance(summary_payload.get("v2"), dict) else {}).get("summary") or {}).get("markdown")
+            if isinstance((((summary_payload.get("v2") or {}) if isinstance(summary_payload.get("v2"), dict) else {}).get("summary") or {}), dict)
+            else "",
+            summary_payload.get("summary"),
+        )
+        return summary_id, markdown
+    for key, nested in summary_payload.items():
+        nested_id, nested_markdown = _pocket_summary_payload(nested)
+        if nested_markdown:
+            return nested_id or str(key or "").strip(), nested_markdown
+    return "", ""
+
+
+def _pocket_tags(recording_payload: dict[str, object]) -> list[str]:
+    tags = recording_payload.get("tags")
+    if isinstance(tags, list):
+        return [str(item or "").strip() for item in tags if str(item or "").strip()]
+    if isinstance(tags, dict):
+        values: list[str] = []
+        for key, value in tags.items():
+            normalized = _first_non_empty_text(value.get("name") if isinstance(value, dict) else "", key)
+            if normalized:
+                values.append(normalized)
+        return values
+    return []
+
+
+def _pocket_recording_projection(
+    detail_payload: dict[str, object],
+    *,
+    audio_payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    transcript = dict(detail_payload.get("transcript") or {}) if isinstance(detail_payload.get("transcript"), dict) else {}
+    transcript_segments = list(transcript.get("segments") or []) if isinstance(transcript.get("segments"), list) else []
+    summary_id, summary_markdown = _pocket_summary_payload(detail_payload.get("summarizations"))
+    audio = dict(audio_payload or {})
+    return {
+        "recording_id": str(detail_payload.get("id") or "").strip(),
+        "title": str(detail_payload.get("title") or "").strip(),
+        "state": str(detail_payload.get("state") or "").strip(),
+        "duration": detail_payload.get("duration"),
+        "language": str(detail_payload.get("language") or "").strip(),
+        "recording_at": str(detail_payload.get("recording_at") or "").strip(),
+        "created_at": str(detail_payload.get("created_at") or "").strip(),
+        "updated_at": str(detail_payload.get("updated_at") or "").strip(),
+        "tags": _pocket_tags(detail_payload),
+        "transcript_text": str(transcript.get("text") or "").strip(),
+        "transcript_segment_count": len(transcript_segments),
+        "transcript_metadata": dict(transcript.get("metadata") or {}) if isinstance(transcript.get("metadata"), dict) else {},
+        "summary_markdown": str(summary_markdown or "").strip(),
+        "summary_id": str(summary_id or "").strip(),
+        "audio_download_url": str(audio.get("signed_url") or audio.get("url") or "").strip(),
+        "audio_expires_at": str(audio.get("expires_at") or "").strip(),
+        "audio_expires_in": int(audio.get("expires_in")) if str(audio.get("expires_in") or "").strip().isdigit() else None,
+    }
+
+
+def _pocket_recording_effective_updated_at(payload: dict[str, object]) -> str:
+    return _first_non_empty_text(payload.get("updated_at"), payload.get("recording_at"), payload.get("created_at"))
+
+
+def _pocket_recording_cursor_tuple(*, recording_id: str, updated_at: str) -> tuple[datetime, str]:
+    parsed = _parse_iso(updated_at) or datetime.min.replace(tzinfo=timezone.utc)
+    return parsed, str(recording_id or "").strip()
+
+
+def _pocket_recording_is_newer_than_cursor(payload: dict[str, object], *, cursor_updated_at: str, cursor_recording_id: str) -> bool:
+    if not str(cursor_updated_at or "").strip() and not str(cursor_recording_id or "").strip():
+        return True
+    row_tuple = _pocket_recording_cursor_tuple(
+        recording_id=str(payload.get("id") or "").strip(),
+        updated_at=_pocket_recording_effective_updated_at(payload),
+    )
+    cursor_tuple = _pocket_recording_cursor_tuple(
+        recording_id=cursor_recording_id,
+        updated_at=cursor_updated_at,
+    )
+    return row_tuple > cursor_tuple
+
+
+def _pocket_signal_text(title: str, *, summary_markdown: str, transcript_text: str) -> str:
+    transcript_excerpt = compact_text(transcript_text, fallback="", limit=1200)
+    preferred = summary_markdown if not any(marker in summary_markdown.lower() for marker in _POCKET_NON_ACTIONABLE_SUMMARY_MARKERS) else ""
+    return compact_text(
+        " ".join(part for part in (str(title or "").strip(), preferred.strip(), transcript_excerpt) if part),
+        fallback=str(title or "").strip() or preferred.strip() or transcript_excerpt,
+        limit=2400,
+    )
+
+
+def _pocket_should_stage_commitments(
+    *,
+    title: str,
+    summary_markdown: str,
+    transcript_text: str,
+    tags: Sequence[str] | None = None,
+) -> tuple[bool, str]:
+    normalized_title = " ".join(str(title or "").lower().split())
+    normalized_summary = " ".join(str(summary_markdown or "").lower().split())
+    normalized_tags = " ".join(" ".join(str(tag or "").lower().split()) for tag in tuple(tags or ()))
+    if any(marker in normalized_summary for marker in _POCKET_NON_ACTIONABLE_SUMMARY_MARKERS):
+        return False, "non_substantive_summary"
+    candidate_source = " ".join(
+        part
+        for part in (
+            str(title or "").strip(),
+            str(summary_markdown or "").strip(),
+            compact_text(transcript_text, fallback="", limit=600),
+            normalized_tags,
+        )
+        if part
+    )
+    normalized_source = " ".join(candidate_source.lower().split())
+    if len(normalized_source) < 48:
+        return False, "too_short"
+    if any(marker in normalized_source for marker in _POCKET_NON_ACTIONABLE_CONTEXT_MARKERS):
+        return False, "non_actionable_context"
+    if any(marker in normalized_title for marker in _POCKET_NON_ACTIONABLE_CONTEXT_MARKERS):
+        return False, "non_actionable_context"
+    if not any(marker in normalized_source for marker in _POCKET_ACTIONABLE_MARKERS):
+        return False, "no_action_marker"
+    return True, ""
 
 
 def _repo_root() -> Path:
@@ -744,6 +1272,32 @@ def _verify_channel_payload(*, secret: str, token: str) -> dict[str, object] | N
     if expires_at is not None and expires_at <= datetime.now(timezone.utc):
         return None
     return payload
+
+
+def _first_non_empty_text(*values: object) -> str:
+    for value in values:
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _tag_summary_text(value: object) -> str:
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for key, item in value.items():
+            label = ""
+            if isinstance(item, dict):
+                label = _first_non_empty_text(item.get("tag"), item.get("label"), item.get("name"))
+            if not label:
+                label = str(key or "").strip()
+            if label:
+                parts.append(label)
+        return ", ".join(parts)
+    if isinstance(value, (list, tuple, set)):
+        parts = [str(item).strip() for item in value if str(item).strip()]
+        return ", ".join(parts)
+    return str(value or "").strip()
 
 
 class ProductService:
@@ -1251,7 +1805,7 @@ class ProductService:
         actions.append({"label": "Open support diagnostics", "href": "/app/api/support", "method": "get"})
         access_url = str(support_verification.get("access_url") or "").strip()
         if access_url:
-            actions.append({"label": "Open workspace link", "href": access_url, "method": "get"})
+            actions.append({"label": "Open access link", "href": access_url, "method": "get"})
         for action in _grounding_actions(contact_page.get("actions")):
             if len(actions) >= 4:
                 break
@@ -1527,6 +2081,13 @@ class ProductService:
             return f"{configured}:workspace-access"
         fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-workspace-access"
         return f"{fallback}:workspace-access"
+
+    def _signal_ingest_secret(self) -> str:
+        configured = str(self._container.settings.auth.api_token or "").strip()
+        if configured:
+            return f"{configured}:signal-ingest"
+        fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-signal-ingest"
+        return f"{fallback}:signal-ingest"
 
     def _record_product_event(
         self,
@@ -2934,6 +3495,10 @@ class ProductService:
         title_text = str(title or "").strip()
         source_text = str(text or "").strip() or " ".join(part for part in (title_text, summary_text) if part).strip()
         payload_json = dict(payload or {})
+        stable_external_identity = bool(str(external_id or "").strip() or str(source_ref or "").strip())
+        source_text_fragment = source_text[:80]
+        if normalized_channel == "pocket" and stable_external_identity:
+            source_text_fragment = ""
         suppress_candidate_staging = (
             normalized_channel == "gmail"
             and normalized_signal == "email_thread"
@@ -2943,18 +3508,24 @@ class ProductService:
                 payload=payload_json,
             )
         )
+        suppress_candidate_staging = suppress_candidate_staging or bool(payload_json.get("suppress_candidate_staging"))
         dedupe_parts = [
             "office-signal",
             principal_id,
             normalized_signal,
             str(external_id or "").strip(),
             str(source_ref or "").strip(),
-            source_text[:80],
+            source_text_fragment,
         ]
         dedupe_key = "|".join(part for part in dedupe_parts if part)
-        existing_event = self._container.channel_runtime.find_observation_by_dedupe(
-            dedupe_key,
+        existing_event = self._existing_office_signal_event(
             principal_id=principal_id,
+            dedupe_key=dedupe_key,
+            channel=normalized_channel,
+            signal_type=normalized_signal,
+            source_ref=str(source_ref or "").strip(),
+            external_id=str(external_id or "").strip(),
+            stable_external_identity=stable_external_identity,
         )
         if existing_event is not None:
             existing_candidates = self._matching_staged_signal_candidates(
@@ -3090,6 +3661,46 @@ class ProductService:
             "draft_count": 1 if staged_draft is not None else 0,
             "deduplicated": False,
         }
+
+    def _existing_office_signal_event(
+        self,
+        *,
+        principal_id: str,
+        dedupe_key: str,
+        channel: str,
+        signal_type: str,
+        source_ref: str,
+        external_id: str,
+        stable_external_identity: bool,
+    ):
+        existing = self._container.channel_runtime.find_observation_by_dedupe(
+            dedupe_key,
+            principal_id=principal_id,
+        )
+        if existing is not None:
+            return existing
+        if str(channel or "").strip().lower() != "pocket" or not stable_external_identity:
+            return None
+        expected_event_type = f"office_signal_{str(signal_type or '').strip().lower()}"
+        wanted_source_ref = str(source_ref or "").strip()
+        wanted_external_id = str(external_id or "").strip()
+        if not wanted_source_ref and not wanted_external_id:
+            return None
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_SIGNAL_DEDUPE_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip().lower() != "pocket":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip().lower() != expected_event_type:
+                continue
+            row_source_id = str(getattr(row, "source_id", "") or "").strip()
+            row_external_id = str(getattr(row, "external_id", "") or "").strip()
+            if wanted_source_ref and row_source_id == wanted_source_ref:
+                return row
+            if wanted_external_id and row_external_id == wanted_external_id:
+                return row
+        return None
 
     def sync_google_workspace_signals(
         self,
@@ -3438,7 +4049,7 @@ class ProductService:
                 kind="draft",
                 title=draft.recipient_summary or draft.intent,
                 summary=f"{draft.intent} · {draft.send_channel} · {draft.approval_status}",
-                href=f"/app/threads/{urllib.parse.quote(thread_id, safe='')}" if thread_id else "/app/inbox",
+                href=f"/app/threads/{urllib.parse.quote(thread_id, safe='')}" if thread_id else "/app/queue",
                 secondary_label=draft.approval_status,
                 related_object_refs=(draft.id, draft.thread_ref) if draft.thread_ref else (draft.id,),
                 extra=(draft.thread_ref, draft.intent, draft.send_channel, draft.draft_text, draft.recipient_summary, draft.tone),
@@ -3750,6 +4361,587 @@ class ProductService:
             delivery_kind="test",
         )
         return {"webhook": webhook, "delivery": delivery}
+
+    def issue_signal_ingest_endpoint(
+        self,
+        *,
+        principal_id: str,
+        channel: str,
+        signal_type: str,
+        label: str = "",
+        counterparty: str = "",
+        base_url: str = "",
+        actor: str = "",
+    ) -> dict[str, object]:
+        normalized_channel = str(channel or "").strip().lower() or "office_api"
+        normalized_signal = str(signal_type or "").strip().lower() or "saved_link"
+        endpoint_id = f"signal_ingest_{uuid4().hex[:10]}"
+        created_at = _now_iso()
+        resolved_label = str(label or "").strip() or f"{normalized_channel.title()} signal ingest"
+        token_payload = {
+            "token_kind": "signal_ingest_endpoint",
+            "endpoint_id": endpoint_id,
+            "principal_id": str(principal_id or "").strip(),
+            "channel": normalized_channel,
+            "signal_type": normalized_signal,
+            "label": resolved_label,
+            "counterparty": str(counterparty or "").strip(),
+            "created_at": created_at,
+        }
+        ingest_token = _sign_channel_payload(secret=self._signal_ingest_secret(), payload=token_payload)
+        upload_path = f"/signals/{urllib.parse.quote(normalized_channel, safe='')}/{ingest_token}"
+        upload_url = urllib.parse.urljoin(f"{str(base_url or '').strip().rstrip('/')}/", upload_path.lstrip("/")) if str(base_url or "").strip() else upload_path
+        payload = {
+            "endpoint_id": endpoint_id,
+            "label": resolved_label,
+            "channel": normalized_channel,
+            "signal_type": normalized_signal,
+            "counterparty": str(counterparty or "").strip(),
+            "created_at": created_at,
+            "upload_url": upload_url,
+            "ingest_token": ingest_token,
+            "issued_by": str(actor or "").strip() or "workspace",
+        }
+        self._container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="product",
+            event_type="signal_ingest_endpoint_issued",
+            payload=payload,
+            source_id=endpoint_id,
+            external_id=upload_url,
+            dedupe_key=f"{principal_id}|{endpoint_id}",
+        )
+        return payload
+
+    def preview_signal_ingest_endpoint(
+        self,
+        *,
+        token: str,
+        base_url: str = "",
+    ) -> dict[str, object] | None:
+        payload = _verify_channel_payload(secret=self._signal_ingest_secret(), token=token)
+        if payload is None or str(payload.get("token_kind") or "").strip() != "signal_ingest_endpoint":
+            return None
+        normalized_channel = str(payload.get("channel") or "").strip().lower()
+        if not normalized_channel:
+            return None
+        upload_path = f"/signals/{urllib.parse.quote(normalized_channel, safe='')}/{token}"
+        upload_url = urllib.parse.urljoin(f"{str(base_url or '').strip().rstrip('/')}/", upload_path.lstrip("/")) if str(base_url or "").strip() else upload_path
+        return {
+            "endpoint_id": str(payload.get("endpoint_id") or "").strip(),
+            "label": str(payload.get("label") or "").strip() or f"{normalized_channel.title()} signal ingest",
+            "channel": normalized_channel,
+            "signal_type": str(payload.get("signal_type") or "").strip().lower() or "saved_link",
+            "counterparty": str(payload.get("counterparty") or "").strip(),
+            "created_at": str(payload.get("created_at") or "").strip(),
+            "upload_url": upload_url,
+            "ingest_token": str(token or "").strip(),
+        }
+
+    def ingest_signal_upload(
+        self,
+        *,
+        token: str,
+        payload: dict[str, object] | None = None,
+        actor: str = "",
+    ) -> dict[str, object] | None:
+        token_payload = _verify_channel_payload(secret=self._signal_ingest_secret(), token=token)
+        if token_payload is None or str(token_payload.get("token_kind") or "").strip() != "signal_ingest_endpoint":
+            return None
+        principal_id = str(token_payload.get("principal_id") or "").strip()
+        if not principal_id:
+            return None
+        endpoint = self.preview_signal_ingest_endpoint(token=token)
+        if endpoint is None:
+            return None
+        normalized_channel = str(endpoint.get("channel") or "").strip().lower() or "office_api"
+        normalized_signal = str(endpoint.get("signal_type") or "").strip().lower() or "saved_link"
+        payload_json = dict(payload or {})
+        nested_item = payload_json.get("item")
+        item_payload = nested_item if isinstance(nested_item, dict) else {}
+        url_text = _first_non_empty_text(
+            payload_json.get("url"),
+            payload_json.get("href"),
+            payload_json.get("resolved_url"),
+            payload_json.get("given_url"),
+            item_payload.get("url"),
+            item_payload.get("resolved_url"),
+            item_payload.get("given_url"),
+        )
+        title_text = _first_non_empty_text(
+            payload_json.get("title"),
+            payload_json.get("given_title"),
+            payload_json.get("resolved_title"),
+            item_payload.get("title"),
+            item_payload.get("given_title"),
+            item_payload.get("resolved_title"),
+            url_text,
+        )
+        summary_text = _first_non_empty_text(
+            payload_json.get("summary"),
+            payload_json.get("excerpt"),
+            payload_json.get("description"),
+            payload_json.get("note"),
+            item_payload.get("summary"),
+            item_payload.get("excerpt"),
+            item_payload.get("description"),
+            item_payload.get("note"),
+        )
+        tags_text = _tag_summary_text(payload_json.get("tags") or item_payload.get("tags"))
+        raw_text = _first_non_empty_text(
+            payload_json.get("text"),
+            payload_json.get("raw_body"),
+            item_payload.get("text"),
+        )
+        text_parts = [part for part in (title_text, summary_text, url_text, f"Tags: {tags_text}" if tags_text else "", raw_text) if str(part or "").strip()]
+        source_text = " ".join(text_parts).strip()
+        item_id = _first_non_empty_text(
+            payload_json.get("item_id"),
+            payload_json.get("resolved_id"),
+            payload_json.get("external_id"),
+            payload_json.get("id"),
+            item_payload.get("item_id"),
+            item_payload.get("resolved_id"),
+            item_payload.get("external_id"),
+            item_payload.get("id"),
+        )
+        source_ref = _first_non_empty_text(
+            payload_json.get("source_ref"),
+            f"{normalized_channel}:{item_id}" if item_id else "",
+            url_text,
+        )
+        external_id = _first_non_empty_text(payload_json.get("external_id"), item_id, url_text)
+        counterparty = _first_non_empty_text(payload_json.get("counterparty"), endpoint.get("counterparty"), normalized_channel.title())
+        enriched_payload = {
+            **payload_json,
+            "endpoint_id": str(endpoint.get("endpoint_id") or "").strip(),
+            "endpoint_label": str(endpoint.get("label") or "").strip(),
+            "upload_channel": normalized_channel,
+            "upload_signal_type": normalized_signal,
+            "captured_url": url_text,
+            "captured_tags": tags_text,
+        }
+        result = self.ingest_office_signal(
+            principal_id=principal_id,
+            signal_type=normalized_signal,
+            channel=normalized_channel,
+            title=title_text,
+            summary=summary_text or url_text,
+            text=source_text,
+            source_ref=source_ref,
+            external_id=external_id,
+            counterparty=counterparty,
+            payload=enriched_payload,
+            actor=str(actor or "").strip() or f"{normalized_channel}_webhook",
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="signal_ingest_endpoint_used",
+            payload={
+                "endpoint_id": str(endpoint.get("endpoint_id") or "").strip(),
+                "channel": normalized_channel,
+                "signal_type": normalized_signal,
+                "source_ref": source_ref,
+                "external_id": external_id,
+            },
+            source_id=str(endpoint.get("endpoint_id") or source_ref or "").strip(),
+            dedupe_key=(
+                f"{str(endpoint.get('endpoint_id') or '').strip()}|"
+                f"{external_id or source_ref or result.get('observation_id') or uuid4().hex[:8]}"
+            ),
+        )
+        return result
+
+    def import_pocket_saved_links_from_local_path(
+        self,
+        *,
+        principal_id: str,
+        path: str,
+        counterparty: str = "Pocket",
+        actor: str = "",
+    ) -> dict[str, object]:
+        candidate_path = Path(str(path or "").strip()).expanduser()
+        if not candidate_path.is_absolute():
+            candidate_path = (_repo_root() / candidate_path).resolve()
+        if not candidate_path.exists() or not candidate_path.is_file():
+            raise RuntimeError("pocket_import_path_not_found")
+        sources = _saved_link_archive_sources(candidate_path)
+        if not sources:
+            raise RuntimeError("pocket_import_format_unsupported")
+        records: list[dict[str, object]] = []
+        source_formats: list[str] = []
+        for source in sources:
+            format_name = str(source.get("format") or "").strip().lower()
+            if format_name and format_name not in source_formats:
+                source_formats.append(format_name)
+            records.extend(_saved_link_import_records_from_source(source))
+        if not records:
+            raise RuntimeError("pocket_import_entries_not_found")
+        items: list[dict[str, object]] = []
+        for record in records:
+            url_text = str(record.get("url") or "").strip()
+            title_text = str(record.get("title") or "").strip() or url_text
+            summary_text = str(record.get("summary") or "").strip()
+            tags_text = str(record.get("tags") or "").strip()
+            item_id = str(record.get("item_id") or "").strip() or _saved_link_fallback_id(url_text)
+            source_ref = f"pocket:{item_id}" if item_id else url_text
+            external_id = item_id or url_text
+            source_text = " ".join(
+                part
+                for part in (
+                    title_text,
+                    summary_text,
+                    url_text,
+                    f"Tags: {tags_text}" if tags_text else "",
+                )
+                if str(part or "").strip()
+            ).strip()
+            payload_json = {
+                **dict(record.get("payload") or {}),
+                "import_source_path": str(candidate_path),
+                "import_channel": "pocket_export",
+                "captured_url": url_text,
+                "captured_tags": tags_text,
+                "received_at": str(record.get("reference_at") or "").strip(),
+            }
+            items.append(
+                self.ingest_office_signal(
+                    principal_id=principal_id,
+                    signal_type="saved_link",
+                    channel="pocket",
+                    title=title_text,
+                    summary=summary_text or url_text,
+                    text=source_text,
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    counterparty=str(counterparty or "").strip() or "Pocket",
+                    payload=payload_json,
+                    actor=str(actor or "").strip() or "pocket_import",
+                )
+            )
+        deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
+        synced_total = len(items) - deduplicated_total
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_saved_link_import_completed",
+            payload={
+                "source_path": str(candidate_path),
+                "source_formats": list(source_formats),
+                "processed_total": len(items),
+                "parsed_entry_total": len(records),
+                "synced_total": synced_total,
+                "deduplicated_total": deduplicated_total,
+            },
+            source_id=str(candidate_path),
+            dedupe_key=f"{principal_id}|pocket-import|{candidate_path}|{len(records)}|{_now_iso()}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "source_path": str(candidate_path),
+            "source_formats": list(source_formats),
+            "items": items,
+            "total": len(items),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
+            "suppressed_total": 0,
+            "parsed_entry_total": len(records),
+        }
+
+    def _latest_product_event(self, *, principal_id: str, event_type: str):  # type: ignore[no-untyped-def]
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_SYNC_EVENT_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != str(event_type or "").strip():
+                continue
+            return row
+        return None
+
+    def _pocket_sync_cursor(self, *, principal_id: str) -> dict[str, str]:
+        last_sync_event = self._latest_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_sync_completed",
+        )
+        last_reset_event = self._latest_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_sync_cursor_reset",
+        )
+        last_sync_created_at = str(getattr(last_sync_event, "created_at", "") or "").strip()
+        last_reset_created_at = str(getattr(last_reset_event, "created_at", "") or "").strip()
+        if last_reset_created_at and (not last_sync_created_at or last_reset_created_at >= last_sync_created_at):
+            return {
+                "updated_at": "",
+                "recording_id": "",
+                "completed_at": "",
+                "reset_at": last_reset_created_at,
+                "reset_reason": str(dict(getattr(last_reset_event, "payload", {}) or {}).get("reason") or "").strip(),
+            }
+        payload = dict(getattr(last_sync_event, "payload", {}) or {}) if last_sync_event is not None else {}
+        return {
+            "updated_at": str(payload.get("cursor_updated_at") or "").strip(),
+            "recording_id": str(payload.get("cursor_recording_id") or "").strip(),
+            "completed_at": last_sync_created_at,
+            "reset_at": last_reset_created_at,
+            "reset_reason": str(dict(getattr(last_reset_event, "payload", {}) or {}).get("reason") or "").strip(),
+        }
+
+    def get_pocket_recording_detail(self, *, recording_id: str, include_audio: bool = True) -> dict[str, object]:
+        detail_response = _pocket_get_recording_details(recording_id)
+        detail_payload = dict(detail_response.get("data") or {}) if isinstance(detail_response.get("data"), dict) else {}
+        if not detail_payload:
+            raise RuntimeError("pocket_recording_not_found")
+        audio_payload: dict[str, object] | None = None
+        if include_audio and str(detail_payload.get("state") or "").strip().lower() == "completed":
+            try:
+                audio_response = _pocket_get_audio_download_url(recording_id)
+            except RuntimeError:
+                audio_payload = None
+            else:
+                audio_payload = dict(audio_response.get("data") or {}) if isinstance(audio_response.get("data"), dict) else {}
+        return _pocket_recording_projection(detail_payload, audio_payload=audio_payload)
+
+    def reset_pocket_recording_sync_cursor(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        reason: str = "",
+    ) -> dict[str, object]:
+        reset_at = _now_iso()
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_sync_cursor_reset",
+            payload={
+                "reason": str(reason or "").strip(),
+                "actor": str(actor or "").strip() or "office_api",
+            },
+            source_id="pocket",
+            dedupe_key=f"{principal_id}|pocket-sync-cursor-reset|{reset_at}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "reset_at": reset_at,
+            "reason": str(reason or "").strip(),
+            "cursor_updated_at": "",
+            "cursor_recording_id": "",
+            "cursor_cleared": True,
+        }
+
+    def _run_pocket_recording_sync(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int,
+        use_cursor: bool,
+        persist_cursor: bool,
+        mode: str,
+        completion_event_type: str,
+    ) -> dict[str, object]:
+        max_limit = 250 if not use_cursor else 100
+        bounded_limit = max(1, min(int(limit or 5), max_limit))
+        previous_cursor = self._pocket_sync_cursor(principal_id=principal_id)
+        previous_cursor_updated_at = str(previous_cursor.get("updated_at") or "").strip()
+        previous_cursor_recording_id = str(previous_cursor.get("recording_id") or "").strip()
+        scan_cursor_updated_at = previous_cursor_updated_at if use_cursor else ""
+        scan_cursor_recording_id = previous_cursor_recording_id if use_cursor else ""
+        cursor_configured = use_cursor and bool(scan_cursor_updated_at or scan_cursor_recording_id)
+        page = 1
+        rows: list[dict[str, object]] = []
+        pages_scanned = 0
+        cursor_reached = False
+        scan_truncated = False
+        while pages_scanned < _POCKET_SYNC_MAX_SCAN_PAGES:
+            page_size = min(25, bounded_limit - len(rows)) if not cursor_configured else 25
+            if page_size <= 0:
+                break
+            response = _pocket_list_recordings(limit=page_size, page=page)
+            page_rows = list(response.get("data") or []) if isinstance(response.get("data"), list) else []
+            for row in page_rows:
+                if not isinstance(row, dict):
+                    continue
+                if cursor_configured and not _pocket_recording_is_newer_than_cursor(
+                    row,
+                    cursor_updated_at=scan_cursor_updated_at,
+                    cursor_recording_id=scan_cursor_recording_id,
+                ):
+                    cursor_reached = True
+                    break
+                rows.append(row)
+                if not cursor_configured and len(rows) >= bounded_limit:
+                    break
+            pagination = dict(response.get("pagination") or {}) if isinstance(response.get("pagination"), dict) else {}
+            has_more = bool(pagination.get("has_more"))
+            pages_scanned += 1
+            if cursor_reached or (not cursor_configured and len(rows) >= bounded_limit):
+                break
+            if not has_more or not page_rows:
+                break
+            page += 1
+        else:
+            scan_truncated = True
+        items: list[dict[str, object]] = []
+        suppressed_total = 0
+        failed_total = 0
+        failed_recording_ids: list[str] = []
+        staging_suppressed_total = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            recording_id = str(row.get("id") or "").strip()
+            state = str(row.get("state") or "").strip().lower()
+            if not recording_id:
+                continue
+            if state != "completed":
+                suppressed_total += 1
+                continue
+            try:
+                detail = self.get_pocket_recording_detail(recording_id=recording_id, include_audio=False)
+            except RuntimeError as exc:
+                failed_total += 1
+                failed_recording_ids.append(recording_id)
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="pocket_recording_sync_failed",
+                    payload={"recording_id": recording_id, "error": str(exc or "unknown_error")},
+                    source_id=f"pocket-recording:{recording_id}",
+                )
+                continue
+            transcript_text = str(detail.get("transcript_text") or "").strip()
+            summary_markdown = str(detail.get("summary_markdown") or "").strip()
+            title = str(detail.get("title") or "").strip() or f"Pocket recording {recording_id}"
+            tags = [str(value).strip() for value in list(detail.get("tags") or []) if str(value).strip()]
+            summary = compact_text(summary_markdown or transcript_text or title, fallback=title, limit=280)
+            text = _pocket_signal_text(title, summary_markdown=summary_markdown, transcript_text=transcript_text)
+            should_stage_commitments, staging_suppression_reason = _pocket_should_stage_commitments(
+                title=title,
+                summary_markdown=summary_markdown,
+                transcript_text=transcript_text,
+                tags=tags,
+            )
+            suppress_candidate_staging = not should_stage_commitments
+            if suppress_candidate_staging:
+                staging_suppressed_total += 1
+            items.append(
+                self.ingest_office_signal(
+                    principal_id=principal_id,
+                    signal_type="audio_recording",
+                    channel="pocket",
+                    title=title,
+                    summary=summary,
+                    text=text,
+                    source_ref=f"pocket-recording:{recording_id}",
+                    external_id=recording_id,
+                    counterparty="Pocket",
+                    payload={
+                        "recording_id": recording_id,
+                        "recording_state": str(detail.get("state") or "").strip(),
+                        "recording_at": str(detail.get("recording_at") or "").strip(),
+                        "recording_created_at": str(detail.get("created_at") or "").strip(),
+                        "recording_updated_at": str(detail.get("updated_at") or _pocket_recording_effective_updated_at(row)).strip(),
+                        "duration": detail.get("duration"),
+                        "language": str(detail.get("language") or "").strip(),
+                        "tags": tags,
+                        "summary_id": str(detail.get("summary_id") or "").strip(),
+                        "summary_markdown": summary_markdown,
+                        "transcript_excerpt": compact_text(transcript_text, fallback="", limit=4000),
+                        "transcript_segment_count": int(detail.get("transcript_segment_count") or 0),
+                        "suppress_candidate_staging": suppress_candidate_staging,
+                        "staging_suppression_reason": staging_suppression_reason if suppress_candidate_staging else "",
+                    },
+                    actor=actor,
+                )
+            )
+        deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
+        synced_total = len(items) - deduplicated_total
+        cursor_updated_at = previous_cursor_updated_at
+        cursor_recording_id = previous_cursor_recording_id
+        cursor_advanced = False
+        if persist_cursor and rows and failed_total == 0 and not scan_truncated:
+            newest_fresh_row = rows[0]
+            cursor_updated_at = _pocket_recording_effective_updated_at(newest_fresh_row)
+            cursor_recording_id = str(newest_fresh_row.get("id") or "").strip()
+            cursor_advanced = bool(cursor_updated_at or cursor_recording_id)
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type=completion_event_type,
+            payload={
+                "mode": mode,
+                "processed_total": len(items),
+                "recording_total": len(rows),
+                "synced_total": synced_total,
+                "deduplicated_total": deduplicated_total,
+                "suppressed_total": suppressed_total,
+                "failed_total": failed_total,
+                "failed_recording_ids": failed_recording_ids[:10],
+                "staging_suppressed_total": staging_suppressed_total,
+                "cursor_used": use_cursor,
+                "cursor_persisted": persist_cursor,
+                "cursor_updated_at": cursor_updated_at,
+                "cursor_recording_id": cursor_recording_id,
+                "cursor_advanced": cursor_advanced,
+                "previous_cursor_updated_at": previous_cursor_updated_at,
+                "previous_cursor_recording_id": previous_cursor_recording_id,
+                "scan_truncated": scan_truncated,
+                "pages_scanned": pages_scanned,
+            },
+            source_id="pocket",
+            dedupe_key=f"{principal_id}|pocket-sync|{int(limit or 5)}|{_now_iso()}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "mode": mode,
+            "items": items,
+            "total": len(items),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
+            "suppressed_total": suppressed_total,
+            "failed_total": failed_total,
+            "recording_total": len(rows),
+            "staging_suppressed_total": staging_suppressed_total,
+            "cursor_used": use_cursor,
+            "cursor_persisted": persist_cursor,
+            "cursor_updated_at": cursor_updated_at,
+            "cursor_recording_id": cursor_recording_id,
+            "cursor_advanced": cursor_advanced,
+            "scan_truncated": scan_truncated,
+        }
+
+    def sync_pocket_recordings(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 5,
+    ) -> dict[str, object]:
+        return self._run_pocket_recording_sync(
+            principal_id=principal_id,
+            actor=actor,
+            limit=limit,
+            use_cursor=True,
+            persist_cursor=True,
+            mode="incremental",
+            completion_event_type="pocket_recording_sync_completed",
+        )
+
+    def backfill_pocket_recordings(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 25,
+    ) -> dict[str, object]:
+        return self._run_pocket_recording_sync(
+            principal_id=principal_id,
+            actor=actor,
+            limit=limit,
+            use_cursor=False,
+            persist_cursor=False,
+            mode="backfill",
+            completion_event_type="pocket_recording_backfill_completed",
+        )
 
     def list_workspace_invitations(
         self,
@@ -6107,6 +7299,9 @@ class ProductService:
         google_sync_last_event = next((row for row in reversed(event_rows) if row.event_type == "google_workspace_signal_sync_completed"), None)
         google_sync_last_payload = dict(getattr(google_sync_last_event, "payload", {}) or {}) if google_sync_last_event is not None else {}
         google_sync_last_completed_at = str(getattr(google_sync_last_event, "created_at", "") or "").strip()
+        pocket_sync_last_event = next((row for row in reversed(event_rows) if row.event_type == "pocket_recording_sync_completed"), None)
+        pocket_sync_last_payload = dict(getattr(pocket_sync_last_event, "payload", {}) or {}) if pocket_sync_last_event is not None else {}
+        pocket_sync_last_completed_at = str(getattr(pocket_sync_last_event, "created_at", "") or "").strip()
         google_accounts = google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id)
         primary_google_account = google_accounts[0] if google_accounts else None
         google_connected = primary_google_account is not None or bool(str(google_sync_last_payload.get("account_email") or "").strip())
@@ -6125,6 +7320,15 @@ class ProductService:
                 )
             except Exception:
                 google_sync_age_seconds = None
+        pocket_sync_age_seconds: int | None = None
+        if pocket_sync_last_completed_at:
+            try:
+                pocket_sync_age_seconds = max(
+                    int((_utcnow() - datetime.fromisoformat(pocket_sync_last_completed_at.replace("Z", "+00:00"))).total_seconds()),
+                    0,
+                )
+            except Exception:
+                pocket_sync_age_seconds = None
         pending_candidate_rows = list(self.list_reviewable_commitment_candidates(principal_id=principal_id, limit=200))
         hidden_candidate_ids = self._pending_signal_draft_candidate_ids(principal_id=principal_id)
         covered_signal_candidates = sum(
@@ -6186,6 +7390,7 @@ class ProductService:
         access_session_opened_count = int(analytics_counts.get("workspace_access_session_opened") or 0)
         access_session_revoked_count = int(analytics_counts.get("workspace_access_session_revoked") or 0)
         google_sync_completed_count = int(analytics_counts.get("google_workspace_signal_sync_completed") or 0)
+        pocket_sync_completed_count = int(analytics_counts.get("pocket_recording_sync_completed") or 0)
         office_signal_ingested_count = int(analytics_counts.get("office_signal_ingested") or 0)
         active_access_sessions = len(self.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=500))
         registration_delivery_success_rate = (
@@ -6440,6 +7645,7 @@ class ProductService:
                 },
                 "sync": {
                     "google_sync_completed": google_sync_completed_count,
+                    "pocket_sync_completed": pocket_sync_completed_count,
                     "office_signal_ingested": office_signal_ingested_count,
                     "google_connected": google_connected,
                     "google_account_email": google_account_email,
@@ -6454,6 +7660,15 @@ class ProductService:
                     "google_sync_last_calendar_total": int(google_sync_last_payload.get("calendar_total") or 0),
                     "google_sync_age_seconds": google_sync_age_seconds,
                     "google_sync_freshness_state": google_sync_freshness_state,
+                    "pocket_sync_last_completed_at": pocket_sync_last_completed_at,
+                    "pocket_sync_last_synced_total": int(pocket_sync_last_payload.get("synced_total") or 0),
+                    "pocket_sync_last_deduplicated_total": int(pocket_sync_last_payload.get("deduplicated_total") or 0),
+                    "pocket_sync_last_suppressed_total": int(pocket_sync_last_payload.get("suppressed_total") or 0),
+                    "pocket_sync_last_failed_total": int(pocket_sync_last_payload.get("failed_total") or 0),
+                    "pocket_sync_last_staging_suppressed_total": int(pocket_sync_last_payload.get("staging_suppressed_total") or 0),
+                    "pocket_sync_cursor_updated_at": str(pocket_sync_last_payload.get("cursor_updated_at") or "").strip(),
+                    "pocket_sync_cursor_recording_id": str(pocket_sync_last_payload.get("cursor_recording_id") or "").strip(),
+                    "pocket_sync_age_seconds": pocket_sync_age_seconds,
                     "pending_commitment_candidates": pending_commitment_candidates,
                     "covered_signal_candidates": covered_signal_candidates,
                 },
@@ -6558,7 +7773,7 @@ class ProductService:
                 "state": "watch" if int(queue_health.get("waiting_on_principal") or 0) else "clear",
                 "count": int(queue_health.get("waiting_on_principal") or 0),
                 "detail": f"{int(queue_health.get('pending_approvals') or 0)} approvals · {int(counts.get('queue_opened') or 0)} queue opens",
-                "href": "/app/briefing",
+                "href": "/app/queue",
             },
             {
                 "key": "delivery",
@@ -6749,18 +7964,18 @@ class ProductService:
             clearable_action_value = ""
             clearable_action_method = ""
             if clearable.id.startswith("approval:"):
-                clearable_href = "/app/inbox"
+                clearable_href = "/app/queue"
                 clearable_action_href = f"/app/actions/drafts/{clearable.id}/approve"
                 clearable_action_label = "Approve"
                 clearable_action_method = "post"
             elif clearable.id.startswith(("commitment:", "follow_up:")):
-                clearable_href = "/app/follow-ups"
+                clearable_href = "/app/commitments"
                 clearable_action_href = f"/app/actions/queue/{clearable.id}/resolve"
                 clearable_action_label = "Close"
                 clearable_action_value = "close"
                 clearable_action_method = "post"
             elif clearable.id.startswith(("decision:", "deadline:")):
-                clearable_href = "/app/briefing"
+                clearable_href = "/app/queue"
                 clearable_action_href = f"/app/actions/queue/{clearable.id}/resolve"
                 clearable_action_label = "Resolve"
                 clearable_action_value = "resolve"
@@ -6822,7 +8037,7 @@ class ProductService:
                 {
                     "label": "Review staged commitments",
                     "detail": f"{int(sync.get('pending_commitment_candidates') or 0)} pending commitment candidates need review after sync.",
-                    "href": "/app/inbox",
+                    "href": "/app/queue",
                 }
             )
         if int(queue_health.get("waiting_on_principal") or 0):
@@ -6830,7 +8045,7 @@ class ProductService:
                 {
                     "label": "Clear principal approvals",
                     "detail": "Executive-gated work is still blocking the operator lane.",
-                    "href": "/app/briefing",
+                    "href": "/app/queue",
                 }
             )
         trimmed_next_actions = next_actions[:6]
@@ -7051,7 +8266,7 @@ class ProductService:
                     )
                     or "Draft is waiting for approval.",
                     "tag": "Draft",
-                    "href": "/app/inbox",
+                    "href": "/app/queue",
                     "action_href": self.channel_action_href(
                         principal_id=principal_id,
                         object_kind="draft",
@@ -7592,7 +8807,7 @@ class ProductService:
                     "action_label": "Confirm",
                     "action_method": "get",
                     "secondary_action_href": str(support_verification.get("access_url") or "").strip(),
-                    "secondary_action_label": "Open workspace" if str(support_verification.get("access_url") or "").strip() else "",
+                    "secondary_action_label": "Open access link" if str(support_verification.get("access_url") or "").strip() else "",
                     "secondary_action_method": "get",
                 }
             )
@@ -7678,7 +8893,7 @@ class ProductService:
                     )
                     or "Draft is waiting for approval.",
                     "tag": "Draft",
-                    "href": "/app/inbox",
+                    "href": "/app/queue",
                     "action_href": self.channel_action_href(
                         principal_id=principal_id,
                         object_kind="draft",
@@ -7783,15 +8998,15 @@ class ProductService:
         if operator_grounding:
             operator_action_label, operator_action_href, operator_action_method = first_get_action(
                 operator_grounding,
-                fallback_label="Open activity",
-                fallback_href="/app/activity",
+                fallback_label="Open office",
+                fallback_href="/admin/office",
             )
             operator_items.append(
                 {
                     "title": str(operator_grounding.get("title") or "Operator memo grounding"),
                     "detail": str(operator_grounding.get("summary") or "Operator memos should stay grounded in weekly product-control evidence."),
                     "tag": "Grounding",
-                    "href": "/app/activity",
+                    "href": "/admin/office",
                     "action_href": operator_action_href,
                     "action_label": operator_action_label,
                     "action_method": operator_action_method,

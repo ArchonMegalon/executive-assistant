@@ -56,6 +56,9 @@ Then open `http://localhost:8090/health`.
 
 ## Runtime Docs
 
+- EA design canon: [.codex-design/ea/START_HERE.md](/docker/EA/.codex-design/ea/START_HERE.md)
+- EA vision and surface system: [.codex-design/ea/VISION.md](/docker/EA/.codex-design/ea/VISION.md), [.codex-design/ea/SURFACE_DESIGN_SYSTEM.md](/docker/EA/.codex-design/ea/SURFACE_DESIGN_SYSTEM.md)
+- EA first-value journey and copy rules: [.codex-design/ea/FIRST_VALUE_JOURNEY.md](/docker/EA/.codex-design/ea/FIRST_VALUE_JOURNEY.md), [.codex-design/ea/COPY_PRINCIPLES.md](/docker/EA/.codex-design/ea/COPY_PRINCIPLES.md)
 - Operator runbook: [RUNBOOK.md](/docker/EA/RUNBOOK.md)
 - Architecture map: [ARCHITECTURE_MAP.md](/docker/EA/ARCHITECTURE_MAP.md)
 - Product brief v2: [PRODUCT_BRIEF_V2.md](/docker/EA/PRODUCT_BRIEF_V2.md)
@@ -72,6 +75,7 @@ Then open `http://localhost:8090/health`.
 - Workspace inventory and LTD notes: [LTDs.md](/docker/EA/LTDs.md)
 - BrowserAct content-template exporter: `python3 scripts/generate_browseract_content_templates.py` (includes 1min daily-bonus and billing/usage scaffold packets)
 - Release preflight now keys off the EA flagship truth plane, gate seed, generated release receipt, and weekly pulse; `MILESTONE.json` remains supporting delivery history.
+- The EA flagship gate also requires the EA product canon in `.codex-design/ea/*`, so product truth is not inferred from mirrored Chummer sources alone.
 - Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.

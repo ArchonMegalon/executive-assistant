@@ -2,7 +2,7 @@
   <div class="panel hero-copy">
     <div>
       <div class="kicker">Get started</div>
-      <h1>Get to the first memo, first draft approval, and first visible follow-up quickly.</h1>
+      <h1>Get to the first memo, first draft approval, and first visible commitment quickly.</h1>
       <p class="lead">Keep the first run personal and narrow. Connect Google, prove one useful loop, and only then add shared review, extra channels, or deeper rules.</p>
     </div>
     <div class="summary-strip">
@@ -19,7 +19,7 @@
         <strong>Review rules after first value</strong>
       </div>
     </div>
-    <p class="copy">The first activation goal is a useful memo, a visible queue, and one real follow-up. Everything else can wait.</p>
+    <p class="copy">The first activation goal is a useful memo, a visible queue, and one real commitment. Everything else can wait.</p>
   </div>
 
   <aside class="panel onboarding-side">
@@ -38,10 +38,10 @@
     </div>
     <div class="callout">
       <strong>Channels come after proof</strong>
-      Keep the first loop inside Gmail and Calendar until the brief, queue, and follow-ups are trustworthy.
+      Keep the first loop inside Gmail and Calendar until the brief, queue, and commitments are trustworthy.
     </div>
     <div class="callout">
-      <strong>What the first useful loop should reveal</strong>
+      <strong>What the first useful loop reveals</strong>
       {% if activation_preview.brief %}
       <div class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</div>
       {% else %}
@@ -55,7 +55,7 @@
       {% if activation_preview.commitments %}
       <div class="copy">Commitments: {{ activation_preview.commitments|join(' · ') }}</div>
       {% else %}
-      <div class="copy">Commitments: make one promise or follow-up visible before widening setup.</div>
+      <div class="copy">Commitments: make one promise visible before widening setup.</div>
       {% endif %}
     </div>
   </aside>

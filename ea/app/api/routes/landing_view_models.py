@@ -173,8 +173,8 @@ def app_section_payload(
         ("Connect Google Core to generate the first morning memo.",),
     )
     suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and request the first memo.",))
-    trust_notes = list_rows(preview.get("trust_notes"), ("Keep approvals and memory rules explicit.",))
-    contacts = list_rows(preview.get("top_contacts"), ("No contacts surfaced yet.",))
+    trust_notes = list_rows(preview.get("trust_notes"), ("Keep approvals and retention rules explicit.",))
+    people = list_rows(preview.get("top_contacts"), ("No people surfaced yet.",))
     themes = list_rows(preview.get("top_themes"), ("No themes surfaced yet.",))
     approvals_items = approval_rows(approvals)
     human_task_items = human_task_rows(human_tasks)
@@ -203,13 +203,18 @@ def app_section_payload(
     channel_items = [row_item(card["label"], card["detail"], card["status"]) for card in cards]
     identity_posture_items = [
         row_item(
-            "Connect Google first",
-            "Use Google as the first identity and context loop before widening channel setup.",
+            "Keep identity boring",
+            "Return through a secure email link, invite, or managed access layer before widening channel setup.",
             "Recommended",
         ),
         row_item(
+            "Connect Google for workspace context",
+            "Treat Google as the first data connection for memo, queue, and people context.",
+            "Linked",
+        ),
+        row_item(
             "Link messaging channels later",
-            "Treat Telegram and WhatsApp as optional linked channels, not the account core.",
+            "Treat Telegram and WhatsApp as optional linked channels, not the workspace core.",
             "Linked",
         ),
         row_item(
@@ -259,25 +264,25 @@ def app_section_payload(
                 {
                     "eyebrow": "Brief signal",
                     "title": "What is shaping the day",
-                    "body": "The memo stays narrative, but it should still point at work that exists.",
+                    "body": "The memo stays narrative, but it still points at work that exists.",
                     "items": string_rows(first_brief, ("No memo items yet.",), tag="Memo", detail="Use the memo to set the order of operations."),
                 },
                 {
                     "eyebrow": "Identity and channels",
                     "title": "Keep setup boring and useful",
-                    "body": "Identity should stay simple. Channels should widen coverage only after the first loop works.",
+                    "body": "Identity stays simple. Channels widen coverage only after the first loop works.",
                     "items": identity_posture_items,
                 },
             ],
         },
-        "briefing": {
+        "queue": {
             "title": "Decision Queue",
             "summary": str(preview.get("headline") or "Turn the day into decisions: approve, assign, defer, or close."),
             "cards": [
                 {
                     "eyebrow": "Decision pressure",
                     "title": "What changed",
-                    "body": "The queue should explain what changed, why it matters, and what decision belongs next.",
+                    "body": "The queue explains what changed, why it matters, and what decision belongs next.",
                     "items": string_rows(first_brief, ("No memo items yet.",), tag="Memo", detail="This is the current ranked memo item."),
                 },
                 {
@@ -288,36 +293,36 @@ def app_section_payload(
                 },
                 {
                     "eyebrow": "Live queue",
-                    "title": "What the queue should clear",
+                    "title": "What the queue clears",
                     "body": "A useful queue terminates in real approvals, assignments, or outbound actions.",
                     "items": live_queue
                     or string_rows(
                         suggested,
                         ("No live review items yet.",),
                         tag="Queue",
-                        detail="Once the office loop starts moving, the memo should point here.",
+                        detail="Once the office loop starts moving, the memo points here.",
                     ),
                 },
                 {
                     "eyebrow": "Stakeholders",
                     "title": "People affected by the queue",
                     "body": "Stakeholders only matter if they stay attached to the decisions and commitments in front of the team.",
-                    "items": string_rows(contacts, ("No contacts surfaced yet.",), tag="Person", detail="This person is active in the current memo."),
+                    "items": string_rows(people, ("No people surfaced yet.",), tag="Person", detail="This person is active in the current memo."),
                 },
             ],
         },
-        "inbox": {
+        "commitments": {
             "title": "Commitments",
             "summary": "Messages, meetings, and notes only matter when they update a commitment, create a decision, or close a loop.",
             "cards": [
                 {
                     "eyebrow": "Commitment pressure",
                     "title": "What is in motion",
-                    "body": "This surface should show which commitments are active, which decisions are waiting, and which drafts are holding things up.",
+                    "body": "This surface shows which commitments are active, which decisions are waiting, and which drafts are holding things up.",
                     "items": live_queue
                     or string_rows(
                         suggested,
-                        ("No live inbox queue yet.",),
+                        ("No live commitment queue yet.",),
                         tag="Draft",
                         detail="Once drafts or approvals exist, they will appear here.",
                     ),
@@ -331,7 +336,7 @@ def app_section_payload(
                         channel_lines,
                         ("No delivery queue yet.",),
                         tag="Ready",
-                        detail="Connected channels determine what the inbox can actually move.",
+                        detail="Connected channels determine what the queue can actually move.",
                     ),
                 },
                 {
@@ -342,59 +347,16 @@ def app_section_payload(
                 },
             ],
         },
-        "follow-ups": {
-            "title": "Handoffs",
-            "summary": "Make the office handoff explicit: what is waiting on the operator, what is waiting on the principal, and what is still open.",
-            "cards": [
-                {
-                    "eyebrow": "Handoff queue",
-                    "title": "What still needs movement",
-                    "body": "This page should stay attached to real pending tasks and approvals, not generic reminder copy.",
-                    "items": human_task_items
-                    or approvals_items
-                    or string_rows(
-                        suggested,
-                        ("No follow-up queue yet.",),
-                        tag="Open",
-                        detail="Once work is pending, it will stay here until it closes.",
-                    ),
-                },
-                {
-                    "eyebrow": "Pending delivery",
-                    "title": "What is still waiting to go out",
-                    "body": "Outbound items belong in the handoff loop when they are the next visible move.",
-                    "items": pending_delivery_items
-                    or string_rows(
-                        trust_notes,
-                        ("No queued follow-up delivery yet.",),
-                        tag="Context",
-                        detail="This is the posture the assistant is using for follow-up work.",
-                    ),
-                },
-                {
-                    "eyebrow": "Why it is still open",
-                    "title": "Context around the queue",
-                    "body": "A handoff should keep its reason visible so the team understands why it still exists.",
-                    "items": follow_up_context_items,
-                },
-                {
-                    "eyebrow": "Coverage",
-                    "title": "Where handoffs can start",
-                    "body": "Channels widen coverage, but they should not distract from the queue itself.",
-                    "items": channel_items,
-                },
-            ],
-        },
-        "memory": {
+        "people": {
             "title": "People Graph",
             "summary": "The product moat lives in the relationship system: people, recurring themes, open loops, and office pressure that survive beyond one session.",
             "cards": [
-                {"eyebrow": "Stakeholders", "title": "Who matters right now", "items": string_rows(contacts, ("No contacts surfaced yet.",), tag="Person", detail="These people are shaping the current office loop.")},
+                {"eyebrow": "Stakeholders", "title": "Who matters right now", "items": string_rows(people, ("No people surfaced yet.",), tag="Person", detail="These people are shaping the current office loop.")},
                 {"eyebrow": "Relationship themes", "title": "What keeps recurring", "items": string_rows(themes, ("No themes surfaced yet.",), tag="Theme", detail="Recurring pressure and themes stay durable in the workspace.")},
                 {"eyebrow": "Rules", "title": "What the office memory may keep", "items": string_rows(privacy_lines, ("No retention policy set yet.",), tag="Policy", detail="These rules bound what the workspace retains.")},
             ],
         },
-        "contacts": {
+        "evidence": {
             "title": "Evidence",
             "summary": "Evidence explains why something surfaced: which signal, which channel, which context, and which rule put it in front of the team.",
             "cards": [
@@ -405,7 +367,7 @@ def app_section_payload(
         },
         "channels": {
             "title": "Channels",
-            "summary": "Channels widen coverage. They should never redefine the product core or become the main story of the workspace.",
+            "summary": "Channels widen coverage. They never redefine the product core or become the main story of the workspace.",
             "cards": [
                 {"eyebrow": "Google", "title": cards[0]["label"], "items": [cards[0]["detail"], cards[0]["summary"] or "Google Core is the recommended first connection."]},
                 {"eyebrow": "Telegram", "title": cards[1]["label"], "items": [cards[1]["detail"], cards[1]["summary"] or "Personal identity and bot install stay distinct."]},
@@ -414,7 +376,7 @@ def app_section_payload(
         },
         "automations": {
             "title": "Policies",
-            "summary": "Policies should be understandable: what the assistant may read, draft, send, remember, and escalate.",
+            "summary": "Policies stay understandable: what the assistant may read, draft, send, remember, and escalate.",
             "cards": [
                 {"eyebrow": "Assistant posture", "title": "Current rules", "items": privacy_lines},
                 {"eyebrow": "Suggested changes", "title": "What to unlock next", "items": suggested},
@@ -423,7 +385,7 @@ def app_section_payload(
         },
         "activity": {
             "title": "Audit",
-            "summary": "Audit should explain what changed, what left the system, and which rule or review point allowed it.",
+            "summary": "Audit explains what changed, what left the system, and which rule or review point allowed it.",
             "cards": [
                 {"eyebrow": "Workspace", "title": "Current state", "items": string_rows([f"Status: {status_label}", f"Setup state: {status.get('onboarding_id') or 'not started'}", f"Next step: {status.get('next_step') or 'None'}"], ("No workspace state yet.",), tag="State", detail="This is the current workspace status.")},
                 {"eyebrow": "Channels", "title": "Recent changes", "items": channel_items},
@@ -432,7 +394,7 @@ def app_section_payload(
         },
         "settings": {
             "title": "Rules",
-            "summary": "Rules should stay boring and explicit once the first working loop already exists.",
+            "summary": "Rules stay boring and explicit once the first working loop already exists.",
             "cards": [
                 {"eyebrow": "Workspace", "title": "Current workspace posture", "items": string_rows([f"Name: {workspace.get('name') or 'Executive Assistant'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No workspace posture yet.",), tag="Workspace", detail="These are the current office defaults.")},
                 {"eyebrow": "Policy", "title": "Assistant behavior", "items": string_rows(privacy_lines, ("No privacy posture set yet.",), tag="Rule", detail="These controls shape what the assistant may do.")},
@@ -450,7 +412,7 @@ def admin_section_payload(section: str) -> dict[str, object]:
             "summary": "Operator-only controls for approval rules, task contracts, and promoted skills.",
             "cards": [
                 {"eyebrow": "Policy", "title": "Runtime policy endpoints", "items": ["/v1/policy", "/v1/tasks/contracts", "/v1/skills"]},
-                {"eyebrow": "Why it matters", "title": "Keep the product shell separate", "items": ["Buyers should see the assistant workflow.", "Admins should see the policy plane."]},
+                {"eyebrow": "Why it matters", "title": "Keep the product shell separate", "items": ["Buyers see the assistant workflow.", "Admins see the policy plane."]},
             ],
         },
         "providers": {

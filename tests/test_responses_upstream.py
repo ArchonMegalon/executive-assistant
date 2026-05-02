@@ -195,10 +195,12 @@ def test_fast_public_model_candidates_prefer_gemini_then_magicx_without_onemin(
         ("magixai", "x-ai/grok-code-fast-1"),
         ("magixai", "mistralai/codestral-2508"),
         ("magixai", "inception/mercury-coder"),
-        ("onemin", "gpt-5.4"),
-        ("onemin", "gpt-5"),
-        ("onemin", "gpt-4o"),
         ("onemin", "deepseek-chat"),
+        ("onemin", "gpt-4.1-nano"),
+        ("onemin", "gpt-4.1"),
+        ("onemin", "gpt-4o"),
+        ("onemin", "gpt-5"),
+        ("onemin", "gpt-5.4"),
     ]
 
 
@@ -324,17 +326,23 @@ def test_hard_public_model_candidates_keep_premium_order_when_live_slot_budget_s
     assert ("magixai", "claude-sonnet-4.5") in candidates
 
 
-def test_repair_gemini_public_model_uses_gemini_only_candidates(
+def test_repair_gemini_public_model_prefers_gemini_then_cheap_fallbacks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-repair")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_MODELS", "mx-best")
 
     candidates = [
         (config.provider_key, model)
         for config, model in upstream._provider_candidates(upstream.REPAIR_GEMINI_PUBLIC_MODEL)
     ]
 
-    assert candidates == [("gemini_vortex", "gemini-repair")]
+    assert candidates[:3] == [
+        ("gemini_vortex", "gemini-repair"),
+        ("magixai", "mx-best"),
+        ("magixai", "x-ai/grok-code-fast-1"),
+    ]
+    assert ("onemin", "gpt-5.4") in candidates
 
 
 def test_hard_lane_code_defaults_are_safe_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1601,7 +1609,78 @@ def test_call_onemin_stops_when_manager_reports_no_eligible_account(
     try:
         with pytest.raises(upstream.ResponsesUpstreamError) as excinfo:
             upstream.generate_text(prompt="big request", requested_model=upstream.ONEMIN_PUBLIC_MODEL)
-        assert "onemin_no_eligible_account" in str(excinfo.value)
+        assert "onemin_unavailable" in str(excinfo.value)
+    finally:
+        register_onemin_manager(None)
+
+
+def test_call_onemin_falls_back_to_provider_health_pick_when_manager_health_is_not_authoritative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.repositories.onemin_manager import InMemoryOneminManagerRepository
+    from app.services.onemin_manager import OneminManagerService, register_onemin_manager
+
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "deepseek-chat")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 345,
+                            "billing_remaining_credits": 4041342,
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 345 credits",
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_required_credits_for_selection",
+        lambda **_kwargs: (300, "test_estimate"),
+    )
+
+    manager = OneminManagerService(repo=InMemoryOneminManagerRepository())
+    monkeypatch.setattr(manager, "reserve_for_candidates", lambda **_kwargs: None)
+    monkeypatch.setattr(manager, "_provider_health_is_authoritative", lambda **_kwargs: False)
+    register_onemin_manager(manager)
+
+    def fake_post_json(**_: object) -> tuple[int, dict[str, object]]:
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "deepseek-chat",
+                    "aiRecordDetail": {
+                        "resultObject": {"text": "ok"},
+                    },
+                },
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+
+    try:
+        result = upstream.generate_text(prompt="small request", requested_model="onemin:deepseek-chat")
+        assert result.text == "ok"
+        assert result.provider_key == "onemin"
+        assert result.provider_account_name == "ONEMIN_AI_API_KEY"
     finally:
         register_onemin_manager(None)
 

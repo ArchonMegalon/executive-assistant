@@ -1,0 +1,174 @@
+{
+  "product": "executive-assistant",
+  "surface": "flagship_release_control",
+  "version": 1,
+  "kind": "release_receipt",
+  "generated_at": "2026-05-01T16:59:29Z",
+  "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
+  "status": "pass",
+  "operator_summary": "EA flagship release truth is published as a machine-readable receipt and currently green.",
+  "truth_plane": {
+    "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
+    "present": true,
+    "legacy_history": "MILESTONE.json"
+  },
+  "release_claim": {
+    "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
+    "required_conditions": [
+      "EA product canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
+      "browser workflow proof renders seeded browser workspace pages with durable EA product objects",
+      "browser workflow proof shows browser actions updating the live workspace without stale narration",
+      "real browser E2E covers activation, approval-safe review, and the memo-to-queue loop",
+      "release asset verification knows the EA flagship truth plane, EA product canon, and gate seed",
+      "release checklists cite the EA truth plane and EA canon instead of using MILESTONE green as the oracle"
+    ]
+  },
+  "ea_product_canon": {
+    "source_root": ".codex-design/ea",
+    "required_docs": [
+      ".codex-design/ea/README.md",
+      ".codex-design/ea/START_HERE.md",
+      ".codex-design/ea/VISION.md",
+      ".codex-design/ea/PUBLIC_NAVIGATION.yaml",
+      ".codex-design/ea/APP_NAVIGATION.yaml",
+      ".codex-design/ea/SURFACE_DESIGN_SYSTEM.md",
+      ".codex-design/ea/FIRST_VALUE_JOURNEY.md",
+      ".codex-design/ea/COPY_PRINCIPLES.md",
+      ".codex-design/ea/METRICS_AND_SLOS.yaml",
+      ".codex-design/ea/LTD_INTEGRATION_MAP.md"
+    ],
+    "docs_present": [
+      {
+        "path": ".codex-design/ea/README.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/START_HERE.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/VISION.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/PUBLIC_NAVIGATION.yaml",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/APP_NAVIGATION.yaml",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/SURFACE_DESIGN_SYSTEM.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/FIRST_VALUE_JOURNEY.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/COPY_PRINCIPLES.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/METRICS_AND_SLOS.yaml",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/LTD_INTEGRATION_MAP.md",
+        "present": true
+      }
+    ],
+    "all_required_docs_present": true
+  },
+  "browser_workflow_proof": {
+    "evidence_sources": [
+      {
+        "file": "tests/test_product_browser_journeys.py",
+        "cases": [
+          "test_workspace_pages_render_seeded_product_objects",
+          "test_browser_journey_updates_after_approval_and_commitment_closure",
+          "test_browser_action_routes_match_rendered_forms",
+          "test_browser_handoff_and_people_memory_actions_work"
+        ]
+      },
+      {
+        "file": "tests/e2e/test_product_workflows.py",
+        "cases": [
+          "test_activation_and_memo_flow_in_real_browser",
+          "test_draft_and_commitment_workflows_in_real_browser"
+        ]
+      }
+    ],
+    "source_files_present": [
+      {
+        "file": "tests/test_product_browser_journeys.py",
+        "present": true,
+        "cases": [
+          "test_workspace_pages_render_seeded_product_objects",
+          "test_browser_journey_updates_after_approval_and_commitment_closure",
+          "test_browser_action_routes_match_rendered_forms",
+          "test_browser_handoff_and_people_memory_actions_work"
+        ]
+      },
+      {
+        "file": "tests/e2e/test_product_workflows.py",
+        "present": true,
+        "cases": [
+          "test_activation_and_memo_flow_in_real_browser",
+          "test_draft_and_commitment_workflows_in_real_browser"
+        ]
+      }
+    ],
+    "published_receipt": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+    "published_receipt_present": true
+  },
+  "verification_binding": {
+    "primary_verifier": "scripts/verify_release_assets.sh",
+    "supporting_test": "tests/test_flagship_truth_plane.py",
+    "materializer": "scripts/materialize_ea_flagship_release_gate.py"
+  },
+  "documentation_refs": [
+    {
+      "path": "README.md",
+      "present": true
+    },
+    {
+      "path": "RUNBOOK.md",
+      "present": true
+    },
+    {
+      "path": "RELEASE_CHECKLIST.md",
+      "present": true
+    },
+    {
+      "path": "PRODUCT_RELEASE_CHECKLIST.md",
+      "present": true
+    }
+  ],
+  "release_docs": [
+    {
+      "path": "README.md",
+      "present": true
+    },
+    {
+      "path": "RUNBOOK.md",
+      "present": true
+    },
+    {
+      "path": "RELEASE_CHECKLIST.md",
+      "present": true
+    },
+    {
+      "path": "PRODUCT_RELEASE_CHECKLIST.md",
+      "present": true
+    }
+  ],
+  "blocking_reasons": [],
+  "current_limitations": [],
+  "release_truth": {
+    "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
+    "seed": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+    "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed."
+  }
+}

@@ -5,8 +5,10 @@
 `executive-assistant` is the private chief-of-staff system for one executive and one operator.
 Its product center of gravity is the daily command brief, decision queue, commitment ledger, approved-action workflow, and evidence-backed audit trail.
 
-Inside the Chummer estate, it is also the governed synthesis/runtime substrate adjacent to the release train.
-It exists to turn mirrored canon and bounded product signals into petitions, synthesis briefs, and operator aids without becoming a second product authority.
+Inside the broader estate, it is also the governed synthesis/runtime substrate adjacent to the release train.
+Within this repository, EA owns its own executive-assistant product canon under `.codex-design/ea/*`.
+That canon defines the public product story, navigation, first-value journey, copy rules, and LTD fit for Executive Assistant itself.
+EA still does not own Chummer canon, Fleet release authority, or cross-repo milestones.
 
 ## Governance posture
 
@@ -16,16 +18,18 @@ That means:
 
 * the designer and product-governor loop may observe EA runtime posture, mirror drift, synthesis seams, and operator aids as first-class control-plane input
 * EA is governance-adjacent and execution-relevant, not hidden sidecar cargo
+* EA may define its own product canon for the executive-assistant product it ships from this repository
 
 That does not mean:
 
-* EA owns canon
-* EA owns milestones, blockers, queue truth, or release authority
+* EA owns upstream Chummer canon
+* EA owns fleet milestones, blockers, queue truth, or release authority
 * EA becomes a substitute for Hub, Fleet, or `chummer6-design`
 
 ## Owns
 
 * morning-brief, decision-queue, commitment-ledger, and approved-action workflow posture for the EA product itself
+* EA-local product canon, surface language, and first-value journey for the executive-assistant product itself
 * provider-aware runtime substrate for governed assistant execution
 * petition-packet and design-synthesis helper flows downstream of mirrored canon
 * proactive horizon scans and signal briefs
@@ -36,7 +40,7 @@ That does not mean:
 
 ## Must not own
 
-* canonical product, queue, milestone, blocker, or contract truth
+* canonical product, queue, milestone, blocker, or contract truth for Hub, Fleet, Chummer, or other repos
 * raw support-case, user-account, group, reward, or entitlement truth
 * public landing, download, update, or help meaning
 * release-channel, install, or update-feed truth
@@ -45,6 +49,7 @@ That does not mean:
 
 ## Required inputs
 
+* `.codex-design/ea/*`
 * mirrored `.codex-design/product/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
@@ -58,7 +63,8 @@ That does not mean:
 
 * If mirrored canon is missing a seam, emit a petition packet instead of inventing local truth.
 * EA may summarize support, release, participation, or horizon signals, but Hub, Fleet, and design remain the owning truth planes.
-* Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.
+* EA public guides, copy, and navigation must compile from `.codex-design/ea/*` first rather than assistant-local prompt lore.
+* Mirrored design sources may inform governance-adjacent operations, but they must not replace the EA canon for the product shipped here.
 * Provider adapters and runtime telemetry may live here, but they must not redefine product semantics or repo boundaries.
 * Default provider or model changes must follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`; EA may generate challenger briefs, but it must not self-promote a new default.
 

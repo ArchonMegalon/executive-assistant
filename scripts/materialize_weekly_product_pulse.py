@@ -135,9 +135,14 @@ def build_pulse(
             "Executive Assistant has a green flagship receipt, but the fleet journey gate is "
             f"{journey_state}, and {blocked_count} journey(s) still block wider claims."
         )
-    else:
+    elif release_truth_state == "preview_only":
         summary = (
             "Executive Assistant remains in preview-only flagship posture: the machine-readable flagship receipt is "
+            f"{release_truth_state}, the fleet journey gate is {journey_state}, and {blocked_count} journey(s) still block wider claims."
+        )
+    else:
+        summary = (
+            "Executive Assistant is blocked on flagship release truth: the machine-readable flagship receipt is "
             f"{release_truth_state}, the fleet journey gate is {journey_state}, and {blocked_count} journey(s) still block wider claims."
         )
 
@@ -202,18 +207,22 @@ def build_pulse(
         "release_health": {
             "state": release_health_state,
             "reason": (
-                "The EA flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
-                if release_truth_state != "pass"
-                else "The EA flagship receipt is published and current."
+                "The EA flagship receipt is published and current."
+                if release_truth_state == "pass"
+                else "The EA flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
+                if release_truth_state == "preview_only"
+                else "The EA flagship receipt is blocked by the current browser workflow proof or release evidence."
             ),
             "flagship_receipt_status": release_truth_state,
         },
         "flagship_readiness": {
-            "state": "watch" if release_truth_state != "pass" else "clear",
+            "state": "clear" if release_truth_state == "pass" else "watch" if release_truth_state == "preview_only" else "blocked",
             "reason": (
-                "Browser execution proof is missing or incomplete, so the flagship receipt cannot yet claim pass status."
-                if release_truth_state != "pass"
-                else "Flagship receipt and browser proof are aligned."
+                "Flagship receipt and browser proof are aligned."
+                if release_truth_state == "pass"
+                else "Browser execution proof is missing or incomplete, so the flagship receipt cannot yet claim pass status."
+                if release_truth_state == "preview_only"
+                else "Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims."
             ),
         },
         "rule_environment_trust": {

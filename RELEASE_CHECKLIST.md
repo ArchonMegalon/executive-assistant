@@ -7,6 +7,7 @@
 - [ ] `EA_STORAGE_BACKEND=postgres` and `DATABASE_URL` are set.
 - [ ] `PRODUCT_RELEASE_CHECKLIST.md` is fully satisfied for the current product wedge.
 - [ ] `FLAGSHIP_CLOSEOUT_PLAN.md` blocker set is green enough to support the intended release claim.
+- [ ] `.codex-design/ea/START_HERE.md` and the linked EA canon docs still match the shipped public/app surface.
 - [ ] `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json` agree with the browser workflow proof.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] CI smoke workflow is green.
@@ -16,7 +17,7 @@
 - [ ] Optional local parity run including legacy migration smoke completed: `make ci-gates-postgres-legacy`.
 - [ ] Optional docs parity run completed: `make docs-verify`.
 - [ ] Optional docs+usage parity run completed: `make release-docs`.
-- [ ] Docs parity confirms the EA flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.
+- [ ] Docs parity confirms the EA canon, flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.
 
 ## Build & Deploy
 

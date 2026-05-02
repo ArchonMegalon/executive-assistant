@@ -768,6 +768,92 @@ class OfficeSignalResultOut(BaseModel):
     deduplicated: bool = False
 
 
+class SignalIngestEndpointCreateIn(BaseModel):
+    label: str = "Pocket signal ingest"
+    signal_type: str = "saved_link"
+    counterparty: str = "Pocket"
+
+
+class SignalIngestEndpointOut(BaseModel):
+    endpoint_id: str
+    label: str
+    channel: str = "pocket"
+    signal_type: str = "saved_link"
+    counterparty: str = ""
+    created_at: str = ""
+    upload_url: str
+    ingest_token: str = ""
+
+
+class PocketSignalImportIn(BaseModel):
+    path: str = Field(min_length=1)
+    counterparty: str = "Pocket"
+
+
+class PocketSignalImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    parsed_entry_total: int = 0
+
+
+class PocketSignalSyncOut(BaseModel):
+    generated_at: str
+    mode: str = "incremental"
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    failed_total: int = 0
+    recording_total: int = 0
+    staging_suppressed_total: int = 0
+    cursor_used: bool = True
+    cursor_persisted: bool = True
+    cursor_updated_at: str = ""
+    cursor_recording_id: str = ""
+    cursor_advanced: bool = False
+    scan_truncated: bool = False
+
+
+class PocketSignalCursorResetIn(BaseModel):
+    reason: str = ""
+
+
+class PocketSignalCursorResetOut(BaseModel):
+    generated_at: str
+    reset_at: str = ""
+    reason: str = ""
+    cursor_updated_at: str = ""
+    cursor_recording_id: str = ""
+    cursor_cleared: bool = True
+
+
+class PocketRecordingDetailOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    state: str = ""
+    duration: float | None = None
+    language: str = ""
+    recording_at: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    tags: list[str] = Field(default_factory=list)
+    transcript_text: str = ""
+    transcript_segment_count: int = 0
+    transcript_metadata: dict[str, object] = Field(default_factory=dict)
+    summary_markdown: str = ""
+    summary_id: str = ""
+    audio_download_url: str = ""
+    audio_expires_at: str = ""
+    audio_expires_in: int | None = None
+
+
 class GoogleSignalSyncOut(BaseModel):
     generated_at: str
     account_email: str = ""

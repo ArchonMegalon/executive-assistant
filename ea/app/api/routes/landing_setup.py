@@ -142,7 +142,7 @@ async def setup_finalize(
         auto_brief_recipient_email=_form_value(form_data, "auto_brief_recipient_email", ""),
         auto_brief_delivery_channel=_form_value(form_data, "auto_brief_delivery_channel", "email"),
     )
-    return RedirectResponse("/app/briefing", status_code=303)
+    return RedirectResponse("/app/today", status_code=303)
 
 
 @router.post("/google/connect", response_model=None)

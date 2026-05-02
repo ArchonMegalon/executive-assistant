@@ -4,7 +4,8 @@
 
 Executive Assistant needs its own release truth so flagship claims do not depend on the all-released `MILESTONE.json` plus checklist completion alone.
 
-This plane is EA-owned release evidence, not product canon. It sits below `IMPLEMENTATION_SCOPE.md` and above the release checklists.
+This plane is EA-owned release evidence that sits alongside the EA product canon in `.codex-design/ea/*`.
+It sits below `IMPLEMENTATION_SCOPE.md` and above the release checklists.
 
 `EA_FLAGSHIP_TRUTH_PLANE.md` is the human-readable form of this plane.
 `EA_FLAGSHIP_RELEASE_GATE.json` is the machine-readable seed that release verification consumes.
@@ -13,10 +14,11 @@ This plane is EA-owned release evidence, not product canon. It sits below `IMPLE
 
 A flagship claim for Executive Assistant must be supported by:
 
-1. the browser workflow proof that exercises seeded product objects and real workspace actions
-2. the machine-readable gate seed in `EA_FLAGSHIP_RELEASE_GATE.json`
-3. release asset verification that knows how to validate the gate seed
-4. release checklists that point at this plane instead of treating `MILESTONE.json` as the oracle
+1. the EA product canon in `.codex-design/ea/START_HERE.md` and its linked navigation, journey, copy, and LTD maps
+2. the browser workflow proof that exercises seeded product objects and real workspace actions
+3. the machine-readable gate seed in `EA_FLAGSHIP_RELEASE_GATE.json`
+4. release asset verification that knows how to validate the gate seed
+5. release checklists that point at this plane instead of treating `MILESTONE.json` as the oracle
 
 ## What does not count as truth
 
@@ -36,7 +38,7 @@ Those tests prove the workspace renders seeded objects, actions change live stat
 
 ## Release claim rule
 
-EA is flagship-grade only when the shipped workspace behaves like a real executive-office work system and the browser proof, gate seed, and release verification agree.
+EA is flagship-grade only when the shipped workspace behaves like a real executive-office work system described by the EA canon and the browser proof, gate seed, and release verification agree.
 
 If those three disagree, the safe answer is not flagship.
 

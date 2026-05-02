@@ -609,7 +609,7 @@
         {% endfor %}
       </nav>
       <div class="actions">
-        <a class="btn ghost" href="{% if access_identity %}/app{% else %}/sign-in{% endif %}">{% if access_identity %}Open workspace{% else %}Sign in{% endif %}</a>
+        <a class="btn ghost" href="{% if access_identity %}/app/today{% else %}/sign-in{% endif %}">{% if access_identity %}Open current session{% else %}Sign in{% endif %}</a>
         <a class="btn primary" href="/register">Create personal workspace</a>
       </div>
     </div>

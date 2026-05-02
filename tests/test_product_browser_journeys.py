@@ -17,38 +17,20 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Approve reply to Sofia N." in today.text
     assert "Sofia N." in today.text
 
-    briefing = client.get("/app/briefing")
-    assert briefing.status_code == 200
-    assert "Decision Queue" in briefing.text
-    assert "Choose board memo owner" in briefing.text
-    assert "Board memo delivery window" in briefing.text
+    queue = client.get("/app/queue")
+    assert queue.status_code == 200
+    assert "Queue" in queue.text
+    assert "Choose board memo owner" in queue.text
+    assert "Board memo delivery window" in queue.text
 
-    inbox = client.get("/app/inbox")
-    assert inbox.status_code == 200
-    assert "Draft Queue" in inbox.text
-    assert "Open commitments" in inbox.text
-    assert "Send board materials" in inbox.text
-    assert "sofia@example.com" in inbox.text
-
-    followups = client.get("/app/follow-ups")
-    assert followups.status_code == 200
-    assert "What is blocked outside the office loop" in followups.text
-    assert "Prepare board follow-up handoff" in followups.text
-    assert "Confirm investor meeting time" in followups.text
+    commitments = client.get("/app/commitments")
+    assert commitments.status_code == 200
+    assert "What is blocked outside the office loop" in commitments.text
+    assert "Prepare board follow-up handoff" in commitments.text
+    assert "Confirm investor meeting time" in commitments.text
+    assert "Send board materials" in commitments.text
+    assert "sofia@example.com" in commitments.text
     assert seeded["human_task_id"] in client.get("/app/api/handoffs").text
-
-    activity = client.get("/app/activity")
-    assert activity.status_code == 200
-    assert "Operator Queue" in activity.text
-    assert "Queue health" in activity.text
-    assert "Load score" in activity.text
-    assert "Provider posture" in activity.text
-    assert "Last Google sync" in activity.text
-    assert "Pending sync candidates" in activity.text
-    assert "Suggested next claims" in activity.text
-    assert "Clear before principal" in activity.text
-    assert "Exception queue" in activity.text
-    assert "Prepare board follow-up handoff" in activity.text
 
     settings = client.get("/app/settings")
     assert settings.status_code == 200
@@ -110,7 +92,7 @@ def test_browser_journey_updates_after_approval_and_commitment_closure() -> None
     )
     assert approved.status_code == 200
 
-    queue_after_approval = client.get("/app/briefing")
+    queue_after_approval = client.get("/app/queue")
     assert queue_after_approval.status_code == 200
     assert "Approve reply to Sofia N." not in queue_after_approval.text
 
@@ -120,21 +102,11 @@ def test_browser_journey_updates_after_approval_and_commitment_closure() -> None
     )
     assert closed.status_code == 200
 
-    inbox_after_close = client.get("/app/inbox")
-    assert inbox_after_close.status_code == 200
-    assert "Send board materials" not in inbox_after_close.text
-
-    followups = client.get("/app/follow-ups")
-    assert followups.status_code == 200
-    assert "What just moved through the loop" in followups.text
-    assert "Send board materials" in followups.text
-    assert "Reopen" in followups.text
-    assert "Prepare board follow-up handoff" in followups.text
-
-    activity_after_close = client.get("/app/activity")
-    assert activity_after_close.status_code == 200
-    assert "What just moved through the operator lane" in activity_after_close.text
-    assert "Send board materials" in activity_after_close.text
+    commitments_after_close = client.get("/app/commitments")
+    assert commitments_after_close.status_code == 200
+    assert "Send board materials" in commitments_after_close.text
+    assert "Reopen" in commitments_after_close.text
+    assert "Prepare board follow-up handoff" in commitments_after_close.text
 
     search_after_close = client.get("/app/search", params={"query": "board materials"})
     assert search_after_close.status_code == 200
@@ -155,34 +127,34 @@ def test_browser_action_routes_match_rendered_forms() -> None:
 
     approved = client.post(
         f"/app/actions/drafts/approval:{seeded['approval_id']}/approve",
-        data={"return_to": "/app/inbox"},
+        data={"return_to": "/app/queue"},
         follow_redirects=False,
     )
     assert approved.status_code == 303
-    assert approved.headers["location"] == "/app/inbox"
-    assert "Approve reply to Sofia N." not in client.get("/app/briefing").text
+    assert approved.headers["location"] == "/app/queue"
+    assert "Approve reply to Sofia N." not in client.get("/app/queue").text
 
     closed = client.post(
         f"/app/actions/queue/commitment:{seeded['commitment_id']}/resolve",
-        data={"action": "close", "return_to": "/app/inbox"},
+        data={"action": "close", "return_to": "/app/commitments"},
         follow_redirects=False,
     )
     assert closed.status_code == 303
-    assert closed.headers["location"] == "/app/inbox"
-    assert "Send board materials" not in client.get("/app/inbox").text
+    assert closed.headers["location"] == "/app/commitments"
+    assert "Send board materials" in client.get("/app/commitments").text
 
     reseeded_commitment = seed_product_state(client, principal_id=principal_id)
     deferred = client.post(
         f"/app/actions/queue/follow_up:{reseeded_commitment['follow_up_id']}/resolve",
-        data={"action": "defer", "return_to": "/app/follow-ups"},
+        data={"action": "defer", "return_to": "/app/commitments"},
         follow_redirects=False,
     )
     assert deferred.status_code == 303
-    assert deferred.headers["location"] == "/app/follow-ups"
-    deferred_followups = client.get("/app/follow-ups")
-    assert deferred_followups.status_code == 200
-    assert "Confirm investor meeting time" in deferred_followups.text
-    assert "Defer" in deferred_followups.text
+    assert deferred.headers["location"] == "/app/commitments"
+    deferred_commitments = client.get("/app/commitments")
+    assert deferred_commitments.status_code == 200
+    assert "Confirm investor meeting time" in deferred_commitments.text
+    assert "Defer" in deferred_commitments.text
 
     waiting = client.post(
         f"/app/actions/queue/follow_up:{reseeded_commitment['follow_up_id']}/resolve",
@@ -191,12 +163,12 @@ def test_browser_action_routes_match_rendered_forms() -> None:
             "reason_code": "waiting_on_external",
             "reason": "Investor needs to confirm availability.",
             "due_at": "2026-03-28T09:30:00+00:00",
-            "return_to": "/app/follow-ups",
+            "return_to": "/app/commitments",
         },
         follow_redirects=False,
     )
     assert waiting.status_code == 303
-    assert waiting.headers["location"] == "/app/follow-ups"
+    assert waiting.headers["location"] == "/app/commitments"
     waiting_detail = client.get(f"/app/api/commitments/follow_up:{reseeded_commitment['follow_up_id']}")
     assert waiting_detail.status_code == 200
     assert waiting_detail.json()["status"] == "waiting_on_external"
@@ -205,11 +177,11 @@ def test_browser_action_routes_match_rendered_forms() -> None:
 
     dropped = client.post(
         f"/app/actions/queue/follow_up:{seeded['follow_up_id']}/resolve",
-        data={"action": "drop", "return_to": "/app/follow-ups"},
+        data={"action": "drop", "return_to": "/app/commitments"},
         follow_redirects=False,
     )
     assert dropped.status_code == 303
-    assert dropped.headers["location"] == "/app/follow-ups"
+    assert dropped.headers["location"] == "/app/commitments"
     dropped_detail = client.get(f"/app/api/commitments/follow_up:{seeded['follow_up_id']}")
     assert dropped_detail.status_code == 200
     assert dropped_detail.json()["status"] == "dropped"
@@ -217,11 +189,11 @@ def test_browser_action_routes_match_rendered_forms() -> None:
     reseeded = seed_product_state(client, principal_id=principal_id)
     rejected = client.post(
         f"/app/actions/drafts/approval:{reseeded['approval_id']}/reject",
-        data={"return_to": "/app/inbox"},
+        data={"return_to": "/app/queue"},
         follow_redirects=False,
     )
     assert rejected.status_code == 303
-    assert rejected.headers["location"] == "/app/inbox"
+    assert rejected.headers["location"] == "/app/queue"
     assert f"approval:{reseeded['approval_id']}" not in client.get("/app/api/drafts").text
 
 
@@ -232,23 +204,23 @@ def test_browser_handoff_and_people_memory_actions_work() -> None:
 
     assigned = client.post(
         f"/app/actions/handoffs/human_task:{seeded['human_task_id']}/assign",
-        data={"return_to": "/app/follow-ups"},
+        data={"return_to": "/app/commitments"},
         follow_redirects=False,
     )
     assert assigned.status_code == 303
-    assert assigned.headers["location"] == "/app/follow-ups"
+    assert assigned.headers["location"] == "/app/commitments"
 
     completed = client.post(
         f"/app/actions/handoffs/human_task:{seeded['human_task_id']}/complete",
-        data={"return_to": "/app/follow-ups", "action": "completed"},
+        data={"return_to": "/app/commitments", "action": "completed"},
         follow_redirects=False,
     )
     assert completed.status_code == 303
-    assert completed.headers["location"] == "/app/follow-ups"
-    activity_page = client.get("/app/activity")
-    assert activity_page.status_code == 200
-    assert "Recently completed" in activity_page.text
-    assert "Prepare board follow-up handoff" in activity_page.text
+    assert completed.headers["location"] == "/app/commitments"
+    commitments_page = client.get("/app/commitments")
+    assert commitments_page.status_code == 200
+    assert "Recently closed" in commitments_page.text
+    assert "Prepare board follow-up handoff" in commitments_page.text
 
     corrected = client.post(
         f"/app/actions/people/{seeded['stakeholder_id']}/correct",
@@ -293,13 +265,13 @@ def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() ->
     )
     assert assigned.status_code == 200
 
-    followups_page = client.get("/app/follow-ups")
-    assert followups_page.status_code == 200
-    assert "Retry send" in followups_page.text
-    assert "Mark sent" in followups_page.text
-    assert "Needs reauth" in followups_page.text
-    assert "Waiting on principal" in followups_page.text
-    assert "Connect Google" in followups_page.text or "Reconnect Google" in followups_page.text
+    commitments_page = client.get("/app/commitments")
+    assert commitments_page.status_code == 200
+    assert "Retry send" in commitments_page.text
+    assert "Mark sent" in commitments_page.text
+    assert "Needs reauth" in commitments_page.text
+    assert "Waiting on principal" in commitments_page.text
+    assert "Connect Google" in commitments_page.text or "Reconnect Google" in commitments_page.text
 
     handoff_page = client.get(f"/app/handoffs/{followup['id']}")
     assert handoff_page.status_code == 200
@@ -410,7 +382,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     decisions = client.get("/app/api/decisions")
     assert decisions.status_code == 200
     decision_id = decisions.json()["items"][0]["id"]
-    assert f"/app/decisions/{decision_id}" in client.get("/app/briefing").text
+    assert f"/app/decisions/{decision_id}" in client.get("/app/queue").text
     decision_page = client.get(f"/app/decisions/{decision_id}")
     assert decision_page.status_code == 200
     assert "Choose board memo owner" in decision_page.text
@@ -422,7 +394,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Related threads" in decision_page.text
     assert "Update decision state" in decision_page.text
     deadline_ref = f"deadline:{seeded['deadline_window_id']}"
-    assert f"/app/deadlines/{deadline_ref}" in client.get("/app/briefing").text
+    assert f"/app/deadlines/{deadline_ref}" in client.get("/app/queue").text
     deadline_page = client.get(f"/app/deadlines/{deadline_ref}")
     assert deadline_page.status_code == 200
     assert "Board memo delivery window" in deadline_page.text
@@ -432,13 +404,13 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     threads = client.get("/app/api/threads")
     assert threads.status_code == 200
     thread_id = threads.json()["items"][0]["id"]
-    assert f"/app/threads/{thread_id}" in client.get("/app/inbox").text
+    assert f"/app/threads/{thread_id}" in client.get("/app/queue").text
     thread_page = client.get(f"/app/threads/{thread_id}")
     assert thread_page.status_code == 200
     assert "Conversation thread" in thread_page.text
     assert "sofia@example.com" in thread_page.text
 
-    assert f"/app/commitment-items/commitment:{seeded['commitment_id']}" in client.get("/app/follow-ups").text
+    assert f"/app/commitment-items/commitment:{seeded['commitment_id']}" in client.get("/app/commitments").text
     commitment_page = client.get(f"/app/commitment-items/commitment:{seeded['commitment_id']}")
     assert commitment_page.status_code == 200
     assert "Commitment ledger" in commitment_page.text
@@ -450,7 +422,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     handoffs = client.get("/app/api/handoffs")
     assert handoffs.status_code == 200
     handoff_id = handoffs.json()[0]["id"]
-    assert handoff_id in client.get("/app/activity").text
+    assert handoff_id in client.get("/app/commitments").text
     handoff_page = client.get(f"/app/handoffs/{handoff_id}")
     assert handoff_page.status_code == 200
     assert "Handoffs" in handoff_page.text
@@ -459,7 +431,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     evidence = client.get("/app/api/evidence")
     assert evidence.status_code == 200
     evidence_id = evidence.json()["items"][0]["id"]
-    assert f"/app/evidence/{evidence_id}" in client.get("/app/contacts").text
+    assert f"/app/evidence/{evidence_id}" in client.get("/app/evidence").text
     evidence_page = client.get(f"/app/evidence/{evidence_id}")
     assert evidence_page.status_code == 200
     assert "Evidence" in evidence_page.text
@@ -506,8 +478,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "What the office-loop release gate would say right now" in outcomes_page.text
     assert "Support fallout" in outcomes_page.text
     assert "Public guide freshness" in outcomes_page.text
-    assert "Blocked send follow-ups" in outcomes_page.text
-    assert "Send follow-ups closed" in outcomes_page.text
+    assert "Blocked delivery follow-ups" in outcomes_page.text
+    assert "Delivery follow-ups closed" in outcomes_page.text
 
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200
@@ -808,7 +780,7 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     assert "Reopen" in office.text
 
     redirected = client.get("/app/activity", follow_redirects=False)
-    assert redirected.status_code == 303
+    assert redirected.status_code == 307
     assert redirected.headers["location"] == "/admin/office"
 
 
@@ -951,7 +923,7 @@ def test_channel_loop_get_actions_work() -> None:
     closed = client.get(closed_href, follow_redirects=False)
     assert closed.status_code == 303
     assert closed.headers["location"] == "/app/channel-loop/memo"
-    assert "Send board materials" not in client.get("/app/inbox").text
+    assert "Send board materials" in client.get("/app/commitments").text
 
     refreshed_loop = client.get("/app/api/channel-loop")
     approvals_after_commitment = next(item for item in refreshed_loop.json()["digests"] if item["key"] == "approvals")
@@ -1074,29 +1046,29 @@ def test_browser_commitment_capture_actions_work() -> None:
             "counterparty": "Sofia N.",
             "kind": "follow_up",
             "stakeholder_id": seeded["stakeholder_id"],
-            "return_to": "/app/follow-ups",
+            "return_to": "/app/commitments",
         },
         follow_redirects=False,
     )
     assert created.status_code == 303
-    followups = client.get("/app/follow-ups")
-    assert followups.status_code == 200
-    assert "Confirm board dinner date" in followups.text
+    commitments = client.get("/app/commitments")
+    assert commitments.status_code == 200
+    assert "Confirm board dinner date" in commitments.text
 
     extracted = client.post(
         "/app/actions/commitments/extract",
         data={
             "source_text": "Please send the revised board packet to Sofia tomorrow morning.",
             "counterparty": "Sofia N.",
-            "return_to": "/app/inbox",
+            "return_to": "/app/queue",
         },
         follow_redirects=False,
     )
     assert extracted.status_code == 303
-    inbox = client.get("/app/inbox")
-    assert inbox.status_code == 200
-    assert "Accept" in inbox.text
-    assert "revised board packet" in inbox.text.lower()
+    queue = client.get("/app/queue")
+    assert queue.status_code == 200
+    assert "Accept" in queue.text
+    assert "revised board packet" in queue.text.lower()
 
 
 def test_browser_settings_access_and_invitation_pages_render_live_workspace_state() -> None:

@@ -2741,10 +2741,12 @@ def _onemin_models() -> tuple[str, ...]:
 def _onemin_code_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_CODE_MODELS"))
     defaults = (
-        "gpt-5.4",
-        "gpt-5",
-        "gpt-4o",
         "deepseek-chat",
+        "gpt-4.1-nano",
+        "gpt-4.1",
+        "gpt-4o",
+        "gpt-5",
+        "gpt-5.4",
     )
     return _merge_unique(configured, defaults)
 
@@ -4812,11 +4814,25 @@ def _provider_candidates(
         ]
 
     if normalized == REPAIR_GEMINI_PUBLIC_MODEL:
-        return [
-            (configs["gemini_vortex"], model_name)
-            for model_name in _provider_model_order_for_lane("gemini_vortex", lane, requested)
+        candidates: list[tuple[ProviderConfig, str]] = []
+        seen: set[tuple[str, str]] = set()
+        primary_model_names = (
+            _provider_model_order_for_lane("gemini_vortex", lane, requested)
             or _gemini_vortex_models()
-        ]
+        )
+        for model_name in primary_model_names:
+            key = ("gemini_vortex", model_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append((configs["gemini_vortex"], model_name))
+        for config, model_name in _provider_candidates(FAST_PUBLIC_MODEL, lane=lane):
+            key = (config.provider_key, model_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append((config, model_name))
+        return candidates
 
     if normalized == ONEMIN_PUBLIC_MODEL:
         model_names = _provider_model_order_for_lane("onemin", lane, requested) or _onemin_models()
@@ -6001,8 +6017,10 @@ def _call_onemin(
             api_key = str(manager_selection.get("api_key") or "")
             wait_until = 0.0
             manager_lease_id = str(manager_selection.get("lease_id") or "")
-        elif manager is not None and (
-            provider_health_pick is None or not manager_provider_health_authoritative
+        elif (
+            manager is not None
+            and provider_health_pick is None
+            and manager_provider_health_authoritative
         ):
             if not allow_reserve and len(all_key_names) > len(active_key_names):
                 allow_reserve = True

@@ -1,0 +1,18 @@
+surface: public
+primary_nav:
+  - label: Product
+    href: /
+    purpose: Explain the office loop in concrete daily terms.
+  - label: Security
+    href: /security
+    purpose: Show review posture, permissions, and durable workspace handling.
+  - label: Pricing
+    href: /pricing
+    purpose: Package the product by office shape and review needs.
+  - label: Sign in
+    href: /sign-in
+    purpose: Reopen an existing workspace without teaching the product from scratch.
+rules:
+  - Keep the front door narrow.
+  - Put docs, integrations, and API below the product story.
+  - Do not surface Chummer, community, or control-plane language on public routes.

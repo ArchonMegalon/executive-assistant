@@ -220,12 +220,12 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
 
     community = client.get("/admin/community")
     assert community.status_code == 200
-    assert "Organizer / Community" in community.text
-    assert "What participation and release currently look like" in community.text
+    assert "Access / Rollout" in community.text
+    assert "Workspace access and rollout posture" in community.text
     assert "operator-community@example.com" in community.text
     assert "principal-community@example.com" in community.text
     assert "community-access@example.com" in community.text
-    assert "Release and support" in community.text
+    assert "Rollout and support" in community.text
     assert "Launch readiness" in community.text
     assert "Support fallout" in community.text
     assert "Public guide freshness" in community.text
@@ -256,8 +256,8 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Public guide freshness" in diagnostics.text
     assert "Fix verification" in diagnostics.text
     assert "Channel receipt" in diagnostics.text
-    assert "Blocked send follow-ups" in diagnostics.text
-    assert "Send follow-ups closed" in diagnostics.text
+    assert "Blocked delivery follow-ups" in diagnostics.text
+    assert "Delivery follow-ups closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text
     assert "Open bundle" in diagnostics.text
     assert "Recent workspace events" in diagnostics.text

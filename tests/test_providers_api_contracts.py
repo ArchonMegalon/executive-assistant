@@ -459,7 +459,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     privacy = owner.get("/security")
     assert privacy.status_code == 200
     _assert_no_product_drift(privacy.text)
-    assert "Trust should show up in the product before it shows up on a policy page." in privacy.text
+    assert "See what Executive Assistant can do before you let it act." in privacy.text
 
     for path in ("/product", "/integrations", "/pricing", "/docs"):
         page = owner.get(path)
@@ -543,7 +543,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
 
     landing = owner.get("/")
     assert landing.status_code == 200
-    assert "Open workspace" in landing.text
+    assert "Open current session" in landing.text
     assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
     assert "browser@gmail.com" not in landing.text
 
@@ -593,14 +593,10 @@ def test_browser_shell_routes_and_nav_links_resolve() -> None:
 
     for path in (
         "/app/today",
-        "/app/briefing",
-        "/app/inbox",
-        "/app/follow-ups",
-        "/app/memory",
-        "/app/contacts",
-        "/app/channels",
-        "/app/automations",
-        "/app/activity",
+        "/app/queue",
+        "/app/commitments",
+        "/app/people",
+        "/app/evidence",
         "/app/settings",
     ):
         page = user.get(path)
@@ -609,6 +605,20 @@ def test_browser_shell_routes_and_nav_links_resolve() -> None:
         for href in _internal_links(page.text):
             resolved = user.get(href, follow_redirects=False)
             assert resolved.status_code in {200, 303, 307}, (path, href)
+
+    for path, target in (
+        ("/app/briefing", "/app/queue"),
+        ("/app/inbox", "/app/queue"),
+        ("/app/follow-ups", "/app/commitments"),
+        ("/app/memory", "/app/people"),
+        ("/app/contacts", "/app/evidence"),
+        ("/app/activity", "/admin/office"),
+        ("/app/channels", "/app/settings"),
+        ("/app/automations", "/app/settings"),
+    ):
+        page = user.get(path, follow_redirects=False)
+        assert page.status_code == 307
+        assert page.headers["location"] == target
 
     for path in (
         "/admin/office",
@@ -2544,9 +2554,9 @@ def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatc
     assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
 
     review_light = next(item for item in body["lanes"] if item["profile"] == "review_light")
-    assert review_light["backend"] == "chatplayground"
-    assert review_light["health_provider_key"] == "chatplayground"
-    assert review_light["providers"][0]["provider_key"] == "browseract"
+    assert review_light["backend"] == "gemini_vortex"
+    assert review_light["health_provider_key"] == "gemini_vortex"
+    assert review_light["providers"][0]["provider_key"] == "gemini_vortex"
 
 
 def test_media_stewardship_endpoint_exposes_scheduler_and_challenger_state(

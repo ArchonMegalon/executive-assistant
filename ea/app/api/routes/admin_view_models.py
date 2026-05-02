@@ -618,9 +618,9 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     analytics_rows = [
         _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
         _row("Drafts sent", str(analytics_counts.get("draft_sent") or 0), "Analytics"),
-        _row("Send follow-ups created", str(analytics_counts.get("draft_send_followup_created") or 0), "Analytics"),
-        _row("Send follow-ups closed", str(diagnostics_analytics.get("delivery_followup_closeout_count") or 0), "Analytics"),
-        _row("Blocked send follow-ups", str(diagnostics_analytics.get("delivery_followup_blocked_count") or 0), "Analytics"),
+        _row("Delivery follow-ups created", str(analytics_counts.get("draft_send_followup_created") or 0), "Analytics"),
+        _row("Delivery follow-ups closed", str(diagnostics_analytics.get("delivery_followup_closeout_count") or 0), "Analytics"),
+        _row("Blocked delivery follow-ups", str(diagnostics_analytics.get("delivery_followup_blocked_count") or 0), "Analytics"),
         _row("Needs reauth", str(analytics_counts.get("draft_send_reauth_needed") or 0), "Analytics"),
         _row("Waiting on principal", str(analytics_counts.get("draft_send_waiting_on_principal") or 0), "Analytics"),
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),
@@ -724,17 +724,17 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Google account", str(office_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
         _row("Google sync freshness", _humanize(str(office_sync.get("google_sync_freshness_state") or "watch")).title(), "Sync", href="/app/settings/google"),
         _row("Suppressed sync noise", str(office_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
-        _row("Pending sync candidates", str(office_sync.get("pending_commitment_candidates") or 0), "Queue", href="/app/inbox"),
-        _row("Sync candidates covered by drafts", str(office_sync.get("covered_signal_candidates") or 0), "Queue", href="/app/inbox"),
+        _row("Pending sync candidates", str(office_sync.get("pending_commitment_candidates") or 0), "Queue", href="/app/queue"),
+        _row("Sync candidates covered by drafts", str(office_sync.get("covered_signal_candidates") or 0), "Queue", href="/app/queue"),
     ]
     office_snapshot_rows = [
-        _row("Assigned handoffs", str(office_snapshot.get("assigned_handoffs") or 0), "Queue", href="/app/follow-ups"),
-        _row("Completed handoffs", str(office_snapshot.get("completed_handoffs") or 0), "Queue", href="/app/follow-ups"),
-        _row("Clearable queue items", str(office_snapshot.get("clearable_queue_items") or 0), "Queue", href="/app/briefing"),
+        _row("Assigned handoffs", str(office_snapshot.get("assigned_handoffs") or 0), "Queue", href="/app/commitments"),
+        _row("Completed handoffs", str(office_snapshot.get("completed_handoffs") or 0), "Queue", href="/app/commitments"),
+        _row("Clearable queue items", str(office_snapshot.get("clearable_queue_items") or 0), "Queue", href="/app/queue"),
         _row("Exception count", str(office_snapshot.get("exception_count") or 0), "Queue", href="/admin/office"),
-        _row("Open commitments", str(office_snapshot.get("open_commitments") or 0), "Commitments", href="/app/inbox"),
-        _row("Pending drafts", str(office_snapshot.get("pending_drafts") or 0), "Drafts", href="/app/inbox"),
-        _row("Open decisions", str(office_snapshot.get("open_decisions") or 0), "Decisions", href="/app/briefing"),
+        _row("Open commitments", str(office_snapshot.get("open_commitments") or 0), "Commitments", href="/app/commitments"),
+        _row("Pending drafts", str(office_snapshot.get("pending_drafts") or 0), "Drafts", href="/app/queue"),
+        _row("Open decisions", str(office_snapshot.get("open_decisions") or 0), "Decisions", href="/app/queue"),
         _row("People in play", str(office_snapshot.get("people_in_play") or 0), "People", href="/app/people"),
         _row("Queue state", str(office_queue.get("state") or "healthy"), "Queue", href="/admin/office"),
         _row("Load score", str(office_queue.get("load_score") or 0), "Queue", href="/admin/office"),
@@ -813,7 +813,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row(
             "Participation posture",
             f"{len(pending_invitations)} pending invites · {len(accepted_invitations)} accepted · {len(active_access_sessions)} active links",
-            "Community",
+            "Rollout",
             href="/app/settings/invitations",
         ),
         _row(
@@ -1026,12 +1026,12 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             ],
         },
         "community": {
-            "title": "Organizer / Community",
-            "summary": "Mirror participation, access, release, and support posture in one organizer-safe view without inventing community authority locally.",
+            "title": "Access / Rollout",
+            "summary": "Keep workspace access, rollout readiness, and support posture visible in one operator-safe view.",
             "cards": [
                 {
                     "eyebrow": "Current posture",
-                    "title": "What participation and release currently look like",
+                    "title": "Workspace access and rollout posture",
                     "items": community_overview_rows,
                 },
                 {
@@ -1047,8 +1047,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                     or [_row("No active access links", "Workspace access links will appear here after direct entry is issued.", "Clear", href="/app/settings/access")],
                 },
                 {
-                    "eyebrow": "Release and support",
-                    "title": "What could block broader participation confidence",
+                    "eyebrow": "Rollout and support",
+                    "title": "What could block wider workspace confidence",
                     "items": community_release_rows,
                 },
             ],
