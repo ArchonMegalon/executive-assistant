@@ -30,6 +30,7 @@ from chummer6_guide_canon import (
     load_page_registry,
     load_public_feature_registry,
     load_release_experience_canon,
+    load_screenshot_registry,
     load_trust_content_canon,
 )
 from chummer6_runtime_config import load_local_env, load_runtime_overrides
@@ -962,12 +963,30 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
 
 
 def assert_public_reader_safe(mapping: dict[str, object], *, context: str) -> None:
+    page_id = ""
+    context_parts = [part.strip() for part in str(context or "").split(":") if part.strip()]
+    if context_parts and context_parts[0] == "page" and len(context_parts) >= 2:
+        page_id = context_parts[1]
     for key, value in mapping.items():
         if not isinstance(value, str):
             continue
+        shape_issues = _public_copy_shape_issues(value)
+        if shape_issues:
+            raise ValueError(f"public-copy structure issue in {context}:{key}:{shape_issues[0]}")
         forbidden = _contains_forbidden_public_copy(value)
         if forbidden:
             raise ValueError(f"forbidden public-copy phrase in {context}:{key}:{forbidden}")
+    if page_id:
+        contract = page_contract_for_page(page_id)
+        combined = " ".join(
+            str(value).strip()
+            for value in mapping.values()
+            if isinstance(value, str) and str(value).strip()
+        ).lower()
+        for term in _string_list(contract.get("forbidden_terms")):
+            lowered_term = str(term).strip().lower()
+            if lowered_term and lowered_term in combined:
+                raise ValueError(f"page-class forbidden term in {context}:{lowered_term}")
     issues = _mechanics_boundary_issues(mapping, scope=context, receipt_refs=_mechanics_receipt_refs(mapping))
     if issues:
         first = issues[0]
@@ -1012,6 +1031,7 @@ HELP = load_help_canon()
 RELEASE = load_release_experience_canon()
 TRUST = load_trust_content_canon()
 PAGE_REGISTRY = load_page_registry()
+SCREENSHOT_REGISTRY = load_screenshot_registry()
 MEDIA_BRIEFS = load_media_briefs()
 PUBLIC_FEATURE_REGISTRY = load_public_feature_registry()
 GUIDE_ROOT = Path("/docker/chummercomplete/Chummer6")
@@ -1065,6 +1085,28 @@ PUBLIC_SIGNAL_TAG_HINTS: tuple[tuple[str, str], ...] = (
     ("world tick", "black_ledger_world_tick"),
     ("open run", "black_ledger_open_runs"),
 )
+PAGE_ID_TO_PAGE_TYPE: dict[str, str] = {
+    "readme": "root_story_github_readme",
+    "start_here": "root_story",
+    "what_chummer6_is": "root_story",
+    "faq": "faq_page",
+    "how_can_i_help": "help_page",
+    "where_to_go_deeper": "deep_source_trail",
+    "current_phase": "status_page",
+    "current_status": "status_page",
+    "public_surfaces": "status_page",
+    "parts_index": "part_page",
+    "horizons_index": "horizon_index",
+}
+EMPTY_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(\s*\)")
+UNRESOLVED_TEMPLATE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\{\{[^{}]+\}\}"),
+    re.compile(r"\$\{[^{}]+\}"),
+)
+DANGLING_PUBLIC_SENTENCE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(?:is|are|was|were)\s+\.", re.IGNORECASE),
+    re.compile(r":\s*\.\s*$", re.IGNORECASE | re.MULTILINE),
+)
 
 
 def _string_list(value: object) -> list[str]:
@@ -1085,6 +1127,45 @@ def _boolish(value: object, *, default: bool) -> bool:
     if cleaned in {"0", "false", "no", "off", "deny", "denied", "forbid", "forbidden"}:
         return False
     return default
+
+
+def page_type_for_page_id(page_id: str) -> str:
+    return PAGE_ID_TO_PAGE_TYPE.get(str(page_id or "").strip(), "")
+
+
+def page_contract_for_page(page_id: str) -> dict[str, object]:
+    page_types = PAGE_REGISTRY.get("page_types") if isinstance(PAGE_REGISTRY.get("page_types"), dict) else {}
+    page_type = page_type_for_page_id(page_id)
+    row = page_types.get(page_type) if page_type and isinstance(page_types, dict) else {}
+    return dict(row or {}) if isinstance(row, dict) else {}
+
+
+def screenshot_contract_for_page(page_id: str) -> dict[str, object]:
+    pages = SCREENSHOT_REGISTRY.get("pages") if isinstance(SCREENSHOT_REGISTRY.get("pages"), dict) else {}
+    page_key = {
+        "readme": "README.md",
+        "start_here": "START_HERE.md",
+        "what_chummer6_is": "WHAT_CHUMMER6_IS.md",
+        "where_to_go_deeper": "WHERE_TO_GO_DEEPER.md",
+        "faq": "FAQ.md",
+        "how_can_i_help": "HELP.md",
+    }.get(str(page_id or "").strip(), "")
+    row = pages.get(page_key) if page_key and isinstance(pages, dict) else {}
+    return dict(row or {}) if isinstance(row, dict) else {}
+
+
+def _public_copy_shape_issues(text: str) -> list[str]:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return []
+    issues: list[str] = []
+    if EMPTY_MARKDOWN_LINK_RE.search(cleaned):
+        issues.append("empty_markdown_link")
+    if any(pattern.search(cleaned) for pattern in UNRESOLVED_TEMPLATE_PATTERNS):
+        issues.append("unresolved_template_token")
+    if any(pattern.search(cleaned) for pattern in DANGLING_PUBLIC_SENTENCE_PATTERNS):
+        issues.append("dangling_public_clause")
+    return issues
 
 
 def visual_density_profile_name_for_target(target: str) -> str:
@@ -1747,28 +1828,28 @@ def page_supporting_context(page_id: str) -> list[str]:
     if not snippets and page in {"readme", "start_here", "what_chummer6_is", "current_phase", "current_status", "public_surfaces"}:
         curated_fallbacks = {
             "readme": [
-                "Start with the guide, not with assumptions about a working product.",
-                "If you find a proof shelf or rough artifact, treat it as a trace of the idea rather than support.",
+                "Start with the guide and current status before you judge the preview.",
+                "Use the download page, issue tracker, and visible routes instead of guessing what is current.",
             ],
             "start_here": [
-                "See what is real now before you trust any lucky trace.",
-                "Start with the guide and horizon shelf, not with a fantasy about a finished tool.",
+                "Use this page to choose the next useful route, not to decode project internals.",
+                "Start with the route that matches your problem tonight: download, status, rules, or future lanes.",
             ],
             "what_chummer6_is": [
-                "This is a product path for inspectable Shadowrun math with clear trust boundaries.",
-                "Visible artifacts and receipts are how the direction is judged in public.",
+                "This is Shadowrun tooling for character builds, rulings, prep, and session continuity.",
+                "The trust story only matters if the product can show its work when the table asks why a result changed.",
             ],
             "current_phase": [
                 "Trust work and visible reasoning still come before polish.",
-                "The work is still about making the idea inspectable before pretending the product is ready.",
+                "The work is still about making the product safer to trust before it asks for wider belief.",
             ],
             "current_status": [
-                "The reliable public story is the guide, status surfaces, horizons, and inspectable proof artifacts.",
-                "Use current boundaries and receipts to judge what is stable and what is still moving.",
+                "The public story starts with the guide, current status, downloads, and issue tracker.",
+                "Use current boundaries and visible receipts to judge what is stable and what is still moving.",
             ],
             "public_surfaces": [
-                "The guide, horizon shelf, and issue tracker are the deliberate public surfaces.",
-                "Additional artifacts are inspectable product evidence with explicit boundaries.",
+                "The guide, future-lane pages, and issue tracker are the deliberate public surfaces.",
+                "Additional artifacts should act as proof, not as a substitute for plain language.",
             ],
         }
         snippets = list(curated_fallbacks.get(page, []))
@@ -3105,7 +3186,7 @@ Rules:
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
 - treat `supporting_public_context` as the safe boundary for exact present-tense feature claims
 - use `global_ooda` only for tone, emphasis, and information order; do not treat it as permission to add narrower product facts
-- if a capability is not explicit in the page source or supporting_public_context, stay at the level of proof shelf, release shelf, current drop, public guide, horizon shelf, issue tracker, or local-first posture
+- if a capability is not explicit in the page source or supporting_public_context, stay at the level of the public guide, current status, download page, horizon pages, issue tracker, or clearly named public routes
 - do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload explicitly says them
 - do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
@@ -3170,7 +3251,7 @@ Rules:
 - if you recommend a public action, use the Chummer6 issue tracker, releases, or owning repos as appropriate
 - treat each page's `supporting_public_context` as the safe boundary for exact present-tense feature claims
 - use `global_ooda` only for tone, emphasis, and information order; do not treat it as permission to add narrower product facts
-- if a capability is not explicit in the page source or supporting_public_context, stay at the level of proof shelf, release shelf, current drop, public guide, horizon shelf, issue tracker, or local-first posture
+- if a capability is not explicit in the page source or supporting_public_context, stay at the level of the public guide, current status, download page, horizon pages, issue tracker, or clearly named public routes
 - do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload explicitly says them
 - do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
@@ -3995,6 +4076,17 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
     ).strip()
     lowered = combined.lower()
     findings: list[str] = []
+    shape_issues = {
+        issue
+        for key in COPY_KEYS_BY_SECTION.get(section_type, ())
+        for issue in _public_copy_shape_issues(str(row.get(key, "")).strip())
+    }
+    if "empty_markdown_link" in shape_issues:
+        findings.append("Do not ship empty markdown links or blank CTA routes in public copy.")
+    if "unresolved_template_token" in shape_issues:
+        findings.append("Replace unresolved template tokens or placeholders before publish.")
+    if "dangling_public_clause" in shape_issues:
+        findings.append("Remove dangling public sentences like `is .` or other empty route clauses.")
     truncated_fields = [
         key
         for key in COPY_KEYS_BY_SECTION.get(section_type, ())
@@ -4007,6 +4099,14 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             + "."
         )
     if section_type == "page":
+        contract = page_contract_for_page(name)
+        screenshot_contract = screenshot_contract_for_page(name)
+        forbidden_terms = [str(term).strip().lower() for term in _string_list(contract.get("forbidden_terms"))]
+        leaked_terms = [term for term in forbidden_terms if term and term in lowered]
+        if leaked_terms:
+            findings.append(
+                "Remove internal or utility-page-forbidden terms from this page: " + ", ".join(leaked_terms[:4]) + "."
+            )
         source_context = " ".join(
             [
                 str(item.get("source", "")).strip(),
@@ -4122,10 +4222,13 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
         ):
             findings.append("START_HERE should route the reader toward the next useful shelf or action instead of repeating README posture.")
         if name == "what_chummer6_is":
-            if not any(token in lowered for token in ("campaign os", "companion", "tooling", "system", "surface")):
-                findings.append("Explain WHAT_CHUMMER6_IS as a human-facing Shadowrun campaign OS or companion, not only as an abstract concept.")
+            if not any(token in lowered for token in ("companion", "tooling", "system", "surface", "character", "ruling", "prep")):
+                findings.append("Explain WHAT_CHUMMER6_IS as concrete Shadowrun tooling for characters, rulings, prep, or continuity, not only as an abstract concept.")
             if not any(token in lowered for token in ("receipt", "proof", "show the math", "visible math", "earn trust", "trust", "artifact", "spillover", "trace", "inspectable")):
                 findings.append("Tie WHAT_CHUMMER6_IS back to trust and receipts instead of leaving the trust story abstract.")
+        if str(screenshot_contract.get("preferred_image_type") or "").strip() == "screenshot" and name == "what_chummer6_is":
+            if not any(token in lowered for token in ("receipt", "example", "show", "compare", "why did", "result")):
+                findings.append("WHAT_CHUMMER6_IS should earn its trust story with at least one show-me proof cue, not only atmosphere language.")
         if name == "current_phase" and not any(
             token in lowered for token in ("trust", "receipt", "math", "before polish", "before the paint", "bounded", "proof", "recovery")
         ):
@@ -4405,14 +4508,14 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
         }
     if page_id == "start_here":
         return {
-            "intro": "If you only look once, use this page to choose the next shelf.",
-            "body": "Start with the short explanation if you want the pitch, Current Status if you want the honest public state, the future lanes if you want the ambition, and the issue tracker if you want to watch reality push back on the idea.",
-            "kicker": "Pick the shelf that matches your curiosity and move.",
+            "intro": "Use this page to choose the next useful route quickly.",
+            "body": "Start with the short explanation if you want the pitch, Current Status if you want the honest public state, the future lanes if you want the ambition, and the issue tracker if you want to see where reality is still pushing back.",
+            "kicker": "Pick the route that matches your problem and move.",
         }
     if page_id == "what_chummer6_is":
         return {
-            "intro": "Chummer6 is Shadowrun tooling for campaign-OS work: rulings, prep, and table state made inspectable instead of mystical.",
-            "body": "The promise is visible reasoning, receipts, grounded campaign artifacts, and table-facing trust under pressure. Judge it through the public guide, status surfaces, and proof lanes rather than opaque claims.",
+            "intro": "Chummer6 is Shadowrun tooling for character builds, rulings, prep, and session continuity.",
+            "body": "The promise is visible reasoning, readable receipts, and table-facing trust under pressure. Judge it through the public guide, current status, and proof lanes rather than opaque claims.",
             "kicker": "Judge by receipts and outcomes, not folklore.",
         }
     if page_id == "faq":

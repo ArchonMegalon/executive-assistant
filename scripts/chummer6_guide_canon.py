@@ -144,6 +144,10 @@ def load_image_curation() -> dict[str, object]:
     return _read_yaml(_source_path("public_guide_image_curation", "PUBLIC_GUIDE_IMAGE_CURATION.yaml"))
 
 
+def load_screenshot_registry() -> dict[str, object]:
+    return _read_yaml(_source_path("public_screenshot_registry", "PUBLIC_SCREENSHOT_REGISTRY.yaml"))
+
+
 def load_export_manifest() -> dict[str, object]:
     return _read_yaml(design_root() / "PUBLIC_GUIDE_EXPORT_MANIFEST.yaml")
 
@@ -504,10 +508,13 @@ def load_faq_canon() -> dict[str, dict[str, object]]:
 
 def load_help_canon() -> dict[str, object]:
     title, sections = _markdown_sections(_source_path("help_copy", "PUBLIC_HELP_COPY.md"))
+    guided_lane = sections.get("guided contribution lane", "").strip()
+    legacy_lane = sections.get("booster lane", "").strip()
     return {
         "title": title,
         "public_feedback_lane": sections.get("public feedback lane", "").strip(),
-        "booster_lane": sections.get("booster lane", "").strip(),
+        "guided_contribution_lane": guided_lane or legacy_lane,
+        "booster_lane": legacy_lane or guided_lane,
         "privacy_and_review_safety": _bullet_lines(sections.get("privacy and review safety", "")),
         "free_later_note": sections.get("free later note", "").strip(),
         "primary_ctas": _bullet_lines(sections.get("primary ctas", "")),

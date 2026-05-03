@@ -16,6 +16,7 @@ sources:
   participation_workflow: products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
   public_media_policy: products/chummer/PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md
   public_guide_image_curation: products/chummer/PUBLIC_GUIDE_IMAGE_CURATION.yaml
+  public_screenshot_registry: products/chummer/PUBLIC_SCREENSHOT_REGISTRY.yaml
   productlift_bridge: products/chummer/PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md
   katteb_public_guide_lane: products/chummer/KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md
   public_site_visibility_policy: products/chummer/PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md
@@ -34,6 +35,7 @@ rules:
 - FAQ/help pages must source required participation/privacy/free-later language from PUBLIC_FAQ_REGISTRY.yaml and PUBLIC_HELP_COPY.md.
 - Deep-source pages may link to repo scopes and implementation detail, but first-contact pages must not.
 - Downstream media lanes must treat PUBLIC_GUIDE_IMAGE_CURATION.yaml manual editorial-cover source overrides as the strongest local canon unless an explicit reopen path is requested.
+- Downstream guide and media lanes should treat PUBLIC_SCREENSHOT_REGISTRY.yaml as the page-class proof policy for when screenshots are preferred over atmosphere art.
 - ProductLift-backed `/feedback`, `/roadmap`, and `/changelog` pages are public projections only; they must keep first-party fallback paths and may not become support, release, or roadmap truth.
 - Katteb may audit or draft public guide and article improvements only from approved source packets; accepted suggestions must return to Chummer-owned source before generated guide output changes.
 - ClickRank may audit public guide and site visibility, metadata, schema, internal links, and AI-search readiness, but accepted recommendations must return to Chummer-owned source before generated guide or public site output changes.

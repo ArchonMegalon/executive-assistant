@@ -2,20 +2,20 @@
 
 ## Public feedback lane
 
-If you want to help without touching premium participation at all, use the public front door:
+If you want to help without touching the optional guided contribution path at all, use the normal public routes:
 
 * file a public bug
 * send lightweight product feedback
 * flag confusing public copy
 * suggest a future lane
 * point at a horizon that sounds more useful than the current list
-* suggest or vote on a public ProductLift idea when it is not support, account, install, crash, private campaign, or copyrighted rules text
+* suggest or vote on a public idea when it is not support, account, install, crash, private campaign, or copyrighted rules text
 
-That keeps feedback public and legible instead of making normal humans spelunk through design canon.
+That keeps feedback public and searchable instead of sending normal users into private side channels or project archaeology.
 
-ProductLift feedback is public. Do not post private logs, account data, campaign spoilers, copyrighted source text, crash dumps, or support requests there. Use Chummer Help for support.
+Public idea-board feedback is public. Do not post private logs, account data, campaign spoilers, copyrighted source text, crash dumps, or support requests there. Use Chummer Help for support.
 
-ProductLift roadmap and changelog pages are projections from Chummer-owned truth. They are not implementation priority, release authority, or support-case state.
+The public idea board is not the support queue, the release checklist, or the final roadmap authority.
 
 ## Private crash lane
 
@@ -100,5 +100,5 @@ When those lanes become cheaper and safer to operate broadly, the long-run inten
 * Open the public participation page
 * File a public issue
 * Send a private crash report from the recovery flow when Chummer closes unexpectedly
-* Link this copy to your account if you want fix-status follow-up and account-aware support history
+* Link this copy to your account if you want follow-up on fixes and account-aware support history
 * Read current status before promising yourself too much

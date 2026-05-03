@@ -1,0 +1,44 @@
+product: chummer
+version: 1
+purpose: Screenshot-first proof policy for public guide pages.
+pages:
+  README.md:
+    mandatory: false
+    preferred_image_type: concept_art
+    placement: below_scan_band
+    purpose: Keep the front door scannable before any hero art appears.
+  START_HERE.md:
+    mandatory: false
+    preferred_image_type: concept_art
+    placement: top_banner
+    purpose: Support orientation without outshouting the lane choices.
+  WHAT_CHUMMER6_IS.md:
+    mandatory: false
+    preferred_image_type: screenshot
+    placement: inline_proof
+    purpose: Show one real receipt, compare state, or explanation panel when available.
+  WHERE_TO_GO_DEEPER.md:
+    mandatory: false
+    preferred_image_type: none
+    placement: none
+    purpose: Keep the page list-first and route-focused.
+  DOWNLOAD.md:
+    mandatory: false
+    preferred_image_type: screenshot
+    placement: optional_inline
+    purpose: Prefer installer or app-shell proof over concept art.
+  HELP.md:
+    mandatory: false
+    preferred_image_type: screenshot
+    placement: optional_inline
+    purpose: Prefer support or recovery flow proof over atmosphere art.
+  FAQ.md:
+    mandatory: false
+    preferred_image_type: none
+    placement: none
+    purpose: Keep the FAQ fast unless one screenshot answers a repeated question better than text.
+  FROM_CHUMMER5A_TO_CHUMMER6.md:
+    mandatory: true
+    preferred_image_type: screenshot
+    placement: compare_blocks
+    purpose: Migration proof should show familiar surfaces and changed flows, not themed art.
