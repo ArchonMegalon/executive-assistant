@@ -4975,10 +4975,10 @@ def test_responses_upstream_idle_timeout_defaults_survival_lower_than_hard(
     monkeypatch.delenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_AUDIT_SECONDS", raising=False)
     monkeypatch.setenv("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_CORE_RESCUE_SECONDS", "900")
 
-    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-survival", codex_profile="survival") == 180.0
-    assert responses._responses_upstream_idle_timeout_seconds(model="ea-review-light", codex_profile="review_light") == 180.0
-    assert responses._responses_upstream_idle_timeout_seconds(model="ea-audit-jury", codex_profile="audit") == 180.0
-    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-hard", codex_profile="core") == 180.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-survival", codex_profile="survival") == 900.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-review-light", codex_profile="review_light") == 900.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-audit-jury", codex_profile="audit") == 900.0
+    assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-hard", codex_profile="core") == 900.0
     assert responses._responses_upstream_idle_timeout_seconds(model="ea-coder-hard-rescue", codex_profile="core_rescue") == 900.0
 
 

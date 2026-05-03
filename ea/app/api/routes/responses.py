@@ -342,33 +342,33 @@ def _responses_upstream_idle_timeout_seconds(
     normalized_model = str(model or "").strip().lower()
     normalized_profile = str(codex_profile or "").strip().lower()
     survival_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SURVIVAL_SECONDS") or "180"
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_SURVIVAL_SECONDS") or "900"
     ).strip()
     try:
         survival_parsed = float(survival_timeout_raw)
     except Exception:
-        survival_parsed = 180.0
+        survival_parsed = 900.0
     hard_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or "180"
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_HARD_SECONDS") or "900"
     ).strip()
     try:
         hard_parsed = float(hard_timeout_raw)
     except Exception:
-        hard_parsed = max(parsed, 2700.0)
+        hard_parsed = 900.0
     review_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_REVIEW_LIGHT_SECONDS") or "180"
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_REVIEW_LIGHT_SECONDS") or "900"
     ).strip()
     try:
         review_parsed = float(review_timeout_raw)
     except Exception:
-        review_parsed = 180.0
+        review_parsed = 900.0
     audit_timeout_raw = str(
-        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_AUDIT_SECONDS") or "180"
+        os.environ.get("EA_RESPONSES_UPSTREAM_IDLE_TIMEOUT_AUDIT_SECONDS") or "900"
     ).strip()
     try:
         audit_parsed = float(audit_timeout_raw)
     except Exception:
-        audit_parsed = 180.0
+        audit_parsed = 900.0
     hard_profiles = {
         "core",
         "core_authority",
