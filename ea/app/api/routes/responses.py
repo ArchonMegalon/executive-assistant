@@ -1496,6 +1496,7 @@ def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]
     )
     unavailable_slots = max(0, configured_slots - ready_slots - degraded_slots)
     live_ready_slot_count = _int_or_none(provider.get("live_ready_slot_count"))
+    live_dispatchable_slot_count = _int_or_none(provider.get("live_dispatchable_slot_count"))
     state = str(provider.get("state") or "").strip().lower()
     if not state:
         if (live_ready_slot_count or 0) > 0 or ready_slots:
@@ -1511,6 +1512,7 @@ def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]
         "configured_slots": configured_slots,
         "ready_slots": ready_slots,
         "live_ready_slot_count": live_ready_slot_count,
+        "live_dispatchable_slot_count": live_dispatchable_slot_count,
         "degraded_slots": degraded_slots,
         "unavailable_slots": unavailable_slots,
         "leased_slots": int(provider.get("active_lease_count") or 0),
@@ -1521,6 +1523,17 @@ def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]
         "live_remaining_credits_total": provider.get("live_remaining_credits_total"),
         "actual_remaining_credits_total": provider.get("actual_remaining_credits_total"),
         "live_positive_balance_slot_count": _int_or_none(provider.get("live_positive_balance_slot_count")),
+        "actual_positive_balance_slot_count": _int_or_none(provider.get("actual_positive_balance_slot_count")),
+        "fresh_actual_billing_slot_count": _int_or_none(provider.get("fresh_actual_billing_slot_count")),
+        "fresh_actual_billing_funded_slot_count": _int_or_none(provider.get("fresh_actual_billing_funded_slot_count")),
+        "stale_actual_billing_slot_count": _int_or_none(provider.get("stale_actual_billing_slot_count")),
+        "stale_actual_billing_funded_slot_count": _int_or_none(provider.get("stale_actual_billing_funded_slot_count")),
+        "stale_actual_billing_newest_age_seconds": provider.get("stale_actual_billing_newest_age_seconds"),
+        "stale_actual_billing_oldest_age_seconds": provider.get("stale_actual_billing_oldest_age_seconds"),
+        "billing_reconciliation_needed": provider.get("billing_reconciliation_needed") is True,
+        "billing_reconciliation_reason": str(provider.get("billing_reconciliation_reason") or "").strip(),
+        "hard_dispatchable_required_credits": _int_or_none(provider.get("hard_dispatchable_required_credits")),
+        "balance_basis_summary": str(provider.get("balance_basis_summary") or "").strip(),
         "slot_state_counts": slot_state_counts,
         "slot_owners": [],
         "lease_holders": [],

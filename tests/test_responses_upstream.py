@@ -3266,6 +3266,34 @@ def test_onemin_slot_counts_as_dispatchable_ignores_stale_actual_billing_hint(
     assert upstream._onemin_slot_counts_as_dispatchable(slot, required_credits=1726) is False
 
 
+def test_onemin_slot_stale_actual_billing_candidate_detects_aged_positive_actual_billing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 100000.0)
+    slot = {
+        "billing_remaining_credits": 20000,
+        "billing_basis": "actual_provider_api",
+        "last_billing_snapshot_at": "1970-01-01T05:30:00Z",
+    }
+
+    assert upstream._onemin_slot_stale_actual_billing_candidate(slot) is True
+
+
+def test_onemin_slot_stale_actual_billing_candidate_respects_required_credits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 100000.0)
+    slot = {
+        "billing_remaining_credits": 1200,
+        "billing_basis": "actual_provider_api",
+        "last_billing_snapshot_at": "1970-01-01T05:30:00Z",
+    }
+
+    assert upstream._onemin_slot_stale_actual_billing_candidate(slot, required_credits=1726) is False
+
+
 def test_probe_all_onemin_slots_maps_owner_fallbacks_by_slot_and_account(monkeypatch: pytest.MonkeyPatch) -> None:
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "probe-slot")

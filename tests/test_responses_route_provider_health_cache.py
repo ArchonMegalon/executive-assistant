@@ -239,17 +239,29 @@ def test_provider_capacity_summary_preserves_live_ready_slot_count_and_state_cou
             "configured_slots": 74,
             "ready_slot_count": 5,
             "live_ready_slot_count": 2,
+            "live_dispatchable_slot_count": 4,
             "slot_state_counts": {"ready": 5, "degraded": 69},
             "live_remaining_credits_total": 12663.0,
             "actual_remaining_credits_total": 118681415.0,
             "live_positive_balance_slot_count": 66,
+            "actual_positive_balance_slot_count": 69,
+            "fresh_actual_billing_funded_slot_count": 0,
+            "stale_actual_billing_funded_slot_count": 20,
+            "billing_reconciliation_needed": True,
+            "billing_reconciliation_reason": "stale_actual_billing_funded_slots_without_live_dispatchable_capacity",
+            "balance_basis_summary": "actual_provider_api,observed_error",
         }
     )
 
     assert summary["ready_slots"] == 5
     assert summary["live_ready_slot_count"] == 2
+    assert summary["live_dispatchable_slot_count"] == 4
     assert summary["slot_state_counts"] == {"ready": 5, "degraded": 69}
     assert summary["live_positive_balance_slot_count"] == 66
+    assert summary["actual_positive_balance_slot_count"] == 69
+    assert summary["stale_actual_billing_funded_slot_count"] == 20
+    assert summary["billing_reconciliation_needed"] is True
+    assert summary["balance_basis_summary"] == "actual_provider_api,observed_error"
 
 
 def test_prewarm_provider_health_snapshot_cache_populates_cache_when_missing(monkeypatch, tmp_path) -> None:

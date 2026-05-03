@@ -2988,6 +2988,21 @@ def _onemin_slot_positive_actual_billing(slot: dict[str, object]) -> bool:
     return billing_remaining > 0
 
 
+def _onemin_slot_actual_billing_age_seconds(
+    slot: dict[str, object],
+    *,
+    now: float | None = None,
+) -> float | None:
+    billing_basis = str(slot.get("billing_basis") or "").strip().lower()
+    if billing_basis not in {"actual_provider_api", "actual_billing_usage_page"}:
+        return None
+    observed_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
+    if observed_at <= 0.0:
+        return None
+    current_time = float(now) if now is not None else _now_epoch()
+    return max(0.0, current_time - observed_at)
+
+
 def _onemin_slot_upstream_reset_estimated_recovery_hint(
     slot: dict[str, object],
     *,
@@ -3028,6 +3043,26 @@ def _onemin_slot_fresh_actual_billing_hint(
     if normalized_required > 0 and billing_remaining < normalized_required:
         return None
     return billing_remaining
+
+
+def _onemin_slot_stale_actual_billing_candidate(
+    slot: dict[str, object],
+    *,
+    required_credits: int | None = None,
+    now: float | None = None,
+) -> bool:
+    if not _onemin_slot_positive_actual_billing(slot):
+        return False
+    age_seconds = _onemin_slot_actual_billing_age_seconds(slot, now=now)
+    if age_seconds is None:
+        return False
+    if age_seconds <= _onemin_billing_refresh_fresh_seconds():
+        return False
+    billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+    normalized_required = int(required_credits or 0)
+    if normalized_required > 0 and billing_remaining < normalized_required:
+        return False
+    return True
 
 
 def _onemin_slot_recent_billing_recovery(
@@ -8687,6 +8722,41 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
     )
     onemin_live_ready_slot_count = sum(1 for slot in onemin_slots if _onemin_slot_counts_as_live_ready(slot))
     onemin_hard_dispatchable_required_credits = _onemin_hard_dispatchable_required_credits()
+    onemin_fresh_actual_billing_slot_count = sum(
+        1
+        for slot in onemin_slots
+        if _onemin_slot_fresh_actual_billing_hint(slot, now=now) is not None
+    )
+    onemin_fresh_actual_billing_funded_slot_count = sum(
+        1
+        for slot in onemin_slots
+        if _onemin_slot_fresh_actual_billing_hint(
+            slot,
+            required_credits=onemin_hard_dispatchable_required_credits,
+            now=now,
+        )
+        is not None
+    )
+    stale_actual_billing_ages = [
+        age_seconds
+        for slot in onemin_slots
+        for age_seconds in [_onemin_slot_actual_billing_age_seconds(slot, now=now)]
+        if age_seconds is not None and age_seconds > _onemin_billing_refresh_fresh_seconds()
+    ]
+    onemin_stale_actual_billing_slot_count = sum(
+        1
+        for slot in onemin_slots
+        if _onemin_slot_stale_actual_billing_candidate(slot, now=now)
+    )
+    onemin_stale_actual_billing_funded_slot_count = sum(
+        1
+        for slot in onemin_slots
+        if _onemin_slot_stale_actual_billing_candidate(
+            slot,
+            required_credits=onemin_hard_dispatchable_required_credits,
+            now=now,
+        )
+    )
     onemin_live_dispatchable_slot_count = sum(
         1
         for slot in onemin_slots
@@ -8700,6 +8770,17 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
         for slot in onemin_slots
         if not bool(slot.get("billing_team_mismatch"))
         and float(slot.get("billing_remaining_credits") or 0.0) > 0.0
+    )
+    onemin_billing_reconciliation_needed = bool(
+        onemin_live_dispatchable_slot_count <= 0
+        and onemin_stale_actual_billing_funded_slot_count > 0
+        and onemin_actual_positive_balance_slot_count > 0
+        and onemin_actual_remaining_total > 0.0
+    )
+    onemin_billing_reconciliation_reason = (
+        "stale_actual_billing_funded_slots_without_live_dispatchable_capacity"
+        if onemin_billing_reconciliation_needed
+        else ""
     )
     actual_snapshots = [
         snapshot
@@ -8829,6 +8910,18 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
                 "live_dispatchable_slot_count": onemin_live_dispatchable_slot_count,
                 "hard_dispatchable_required_credits": onemin_hard_dispatchable_required_credits,
                 "actual_positive_balance_slot_count": onemin_actual_positive_balance_slot_count,
+                "fresh_actual_billing_slot_count": onemin_fresh_actual_billing_slot_count,
+                "fresh_actual_billing_funded_slot_count": onemin_fresh_actual_billing_funded_slot_count,
+                "stale_actual_billing_slot_count": onemin_stale_actual_billing_slot_count,
+                "stale_actual_billing_funded_slot_count": onemin_stale_actual_billing_funded_slot_count,
+                "stale_actual_billing_newest_age_seconds": (
+                    round(min(stale_actual_billing_ages), 3) if stale_actual_billing_ages else None
+                ),
+                "stale_actual_billing_oldest_age_seconds": (
+                    round(max(stale_actual_billing_ages), 3) if stale_actual_billing_ages else None
+                ),
+                "billing_reconciliation_needed": onemin_billing_reconciliation_needed,
+                "billing_reconciliation_reason": onemin_billing_reconciliation_reason,
                 "last_actual_balance_at": latest_actual_balance_at,
                 "last_probe_at": last_probe_at,
                 "owner_mapped_slots": owner_mapped_slots,

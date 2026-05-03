@@ -1087,6 +1087,28 @@ def _onemin_direct_api_batch_backoff_seconds() -> float:
     return max(0.0, value)
 
 
+def _onemin_direct_api_proxy_rotation_retry_limit() -> int:
+    raw = str(
+        upstream._env("EA_ONEMIN_DIRECT_API_PROXY_ROTATION_RETRY_LIMIT")  # type: ignore[attr-defined]
+        or upstream._env("EA_ONEMIN_BROWSERACT_PROXY_ROTATION_RETRY_LIMIT")  # type: ignore[attr-defined]
+        or ""
+    ).strip()
+    try:
+        value = int(raw) if raw else 1
+    except Exception:
+        value = 1
+    return max(0, min(value, 3))
+
+
+def _onemin_direct_api_uses_fastestvpn_proxy(*, account_name: str = "") -> bool:
+    proxy_url = str(
+        upstream._onemin_direct_api_proxy_url_for_subject(account_name)  # type: ignore[attr-defined]
+        or upstream._onemin_direct_api_proxy_url_for_subject("")  # type: ignore[attr-defined]
+        or ""
+    ).strip().lower()
+    return bool(proxy_url and "fastestvpn" in proxy_url)
+
+
 def _onemin_browseract_max_accounts_per_refresh() -> int:
     raw = str(upstream._env("ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH") or "").strip()  # type: ignore[attr-defined]
     try:
@@ -1340,6 +1362,12 @@ def _rotate_fastestvpn_proxy(*, reason: str) -> dict[str, object]:
             }
         )
     return event
+
+
+def _clear_onemin_direct_api_quarantine() -> None:
+    global _ONEMIN_DIRECT_API_QUARANTINED_UNTIL, _ONEMIN_DIRECT_API_QUARANTINE_REASON
+    _ONEMIN_DIRECT_API_QUARANTINED_UNTIL = 0.0
+    _ONEMIN_DIRECT_API_QUARANTINE_REASON = ""
 
 
 def _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
@@ -2215,6 +2243,7 @@ def _refresh_onemin_via_provider_api(
     batch_backoff_seconds = _onemin_direct_api_batch_backoff_seconds()
     attempted_count = 0
     rate_limited = False
+    proxy_rotation_attempts_remaining = _onemin_direct_api_proxy_rotation_retry_limit()
     quarantine_remaining, quarantine_reason = _onemin_direct_api_quarantine_remaining()
     if quarantine_remaining > 0:
         errors.append(
@@ -2243,48 +2272,79 @@ def _refresh_onemin_via_provider_api(
             if not account_name or not owner_email:
                 continue
             attempted_count += 1
-            try:
-                credentials = dict(login_credentials.get(account_name) or {})
-                refresh_kwargs = {
-                    "account_name": account_name,
-                    "owner_email": owner_email,
-                    "include_members": include_members,
-                    "timeout_seconds": timeout_seconds,
-                    "login_email": str(credentials.get("login_email") or owner_email).strip(),
-                    "login_password": str(credentials.get("login_password") or "").strip(),
-                }
-                preferred_team_id = str(credentials.get("team_id") or "").strip()
-                preferred_team_name = str(credentials.get("team_name") or "").strip()
-                if preferred_team_id:
-                    refresh_kwargs["preferred_team_id"] = preferred_team_id
-                if preferred_team_name:
-                    refresh_kwargs["preferred_team_name"] = preferred_team_name
-                billing_result, member_result = _refresh_onemin_api_account(**refresh_kwargs)
-                billing_results.append(billing_result)
-                if member_result is not None:
-                    member_results.append(member_result)
-            except Exception as exc:
-                error_text = str(exc or "onemin_api_refresh_failed")
+            credentials = dict(login_credentials.get(account_name) or {})
+            refresh_kwargs = {
+                "account_name": account_name,
+                "owner_email": owner_email,
+                "include_members": include_members,
+                "timeout_seconds": timeout_seconds,
+                "login_email": str(credentials.get("login_email") or owner_email).strip(),
+                "login_password": str(credentials.get("login_password") or "").strip(),
+            }
+            preferred_team_id = str(credentials.get("team_id") or "").strip()
+            preferred_team_name = str(credentials.get("team_name") or "").strip()
+            if preferred_team_id:
+                refresh_kwargs["preferred_team_id"] = preferred_team_id
+            if preferred_team_name:
+                refresh_kwargs["preferred_team_name"] = preferred_team_name
+
+            recovered_after_rotation = False
+            final_error_text = ""
+            while True:
+                try:
+                    billing_result, member_result = _refresh_onemin_api_account(**refresh_kwargs)
+                    billing_results.append(billing_result)
+                    if member_result is not None:
+                        member_results.append(member_result)
+                    break
+                except Exception as exc:
+                    error_text = str(exc or "onemin_api_refresh_failed")
+                    is_rate_limit_error = (
+                        "onemin_login_http_429" in error_text
+                        or "onemin_api_http_429" in error_text
+                        or "error code: 1010" in error_text
+                        or "error code: 1015" in error_text
+                    )
+                    if (
+                        is_rate_limit_error
+                        and proxy_rotation_attempts_remaining > 0
+                        and _onemin_direct_api_uses_fastestvpn_proxy(account_name=account_name)
+                    ):
+                        rate_limited = True
+                        batch_rate_limited = True
+                        proxy_rotation_attempts_remaining -= 1
+                        rotation_event = _rotate_fastestvpn_proxy(
+                            reason=f"onemin.api.billing_refresh:{account_name}"
+                        )
+                        if int(rotation_event.get("returncode") or 0) == 0:
+                            _clear_onemin_direct_api_quarantine()
+                            recovered_after_rotation = True
+                            continue
+                    final_error_text = error_text
+                    if is_rate_limit_error:
+                        rate_limited = True
+                        batch_rate_limited = True
+                        _quarantine_onemin_direct_api(error_text)
+                    break
+
+            if final_error_text:
                 errors.append(
                     {
                         "account_label": account_name,
                         "owner_email": owner_email,
                         "tool_name": "onemin.api.billing_refresh",
-                        "error": error_text,
+                        "error": final_error_text,
                     }
                 )
                 if (
-                    "onemin_login_http_429" in error_text
-                    or "onemin_api_http_429" in error_text
-                    or "error code: 1010" in error_text
-                    or "error code: 1015" in error_text
+                    ("onemin_login_http_429" in final_error_text or "onemin_api_http_429" in final_error_text or "error code: 1010" in final_error_text or "error code: 1015" in final_error_text)
+                    and not continue_on_rate_limit
                 ):
-                    rate_limited = True
-                    batch_rate_limited = True
-                    _quarantine_onemin_direct_api(error_text)
-                    if not continue_on_rate_limit:
-                        stop_processing = True
-                        break
+                    stop_processing = True
+                    break
+            elif recovered_after_rotation:
+                rate_limited = True
+                batch_rate_limited = True
         if stop_processing:
             break
         if batch_start + batch_size >= len(rows):

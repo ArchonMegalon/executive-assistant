@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+compose_available=0
+if docker compose version >/dev/null 2>&1; then
+  compose_available=1
+fi
+
 compose_cmd=(
   docker compose
   -f docker-compose.yml
@@ -16,7 +21,8 @@ wait_for_proxy_healthy() {
   start_ts="$(date +%s)"
   while true; do
     local health
-    health="$("${compose_cmd[@]}" ps --format json ea-fastestvpn-proxy 2>/dev/null | python3 -c '
+    if (( compose_available == 1 )); then
+      health="$("${compose_cmd[@]}" ps --format json ea-fastestvpn-proxy 2>/dev/null | python3 -c '
 import json, sys
 raw = sys.stdin.read().strip()
 if not raw:
@@ -43,12 +49,19 @@ for row in rows:
         break
 '
 )" || health=""
+    else
+      health="$(docker inspect ea-fastestvpn-proxy --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true)"
+    fi
     if [[ "${health,,}" == "healthy" ]]; then
       return 0
     fi
     if (( "$(date +%s)" - start_ts >= timeout_seconds )); then
       printf '[rotate-fastestvpn-proxy] proxy did not become healthy within %ss\n' "${timeout_seconds}" >&2
-      "${compose_cmd[@]}" ps ea-fastestvpn-proxy >&2 || true
+      if (( compose_available == 1 )); then
+        "${compose_cmd[@]}" ps ea-fastestvpn-proxy >&2 || true
+      else
+        docker ps --filter name=^/ea-fastestvpn-proxy$ >&2 || true
+      fi
       return 1
     fi
     sleep 2
@@ -78,7 +91,18 @@ else
   printf '[rotate-fastestvpn-proxy] selecting config via FASTESTVPN_CONFIG_SELECT_MODE=%s\n' "${FASTESTVPN_CONFIG_SELECT_MODE:-random}"
 fi
 
-"${compose_cmd[@]}" up -d --build --force-recreate --no-deps ea-fastestvpn-proxy
+if (( compose_available == 1 )); then
+  "${compose_cmd[@]}" up -d --build --force-recreate --no-deps ea-fastestvpn-proxy
+elif [[ -n "${FASTESTVPN_CONFIG_FILE:-}" ]]; then
+  printf '[rotate-fastestvpn-proxy] pinned config rotation requires docker compose support\n' >&2
+  exit 1
+else
+  docker restart ea-fastestvpn-proxy >/dev/null
+fi
 wait_for_proxy_healthy
 
-"${compose_cmd[@]}" ps ea-fastestvpn-proxy
+if (( compose_available == 1 )); then
+  "${compose_cmd[@]}" ps ea-fastestvpn-proxy
+else
+  docker ps --filter name=^/ea-fastestvpn-proxy$
+fi

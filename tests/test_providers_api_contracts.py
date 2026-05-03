@@ -2660,6 +2660,84 @@ def test_onemin_provider_api_refresh_batches_after_rate_limit(
     assert sleep_calls == [0.5]
 
 
+def test_onemin_provider_api_refresh_rotates_fastestvpn_proxy_and_recovers_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {"account_name": "ONEMIN_AI_API_KEY", "owner_email": "owner-1@example.com"},
+        ),
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_onemin_direct_api_proxy_url_for_subject",
+        lambda _subject="": "http://ea-fastestvpn-proxy:3128",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "_onemin_direct_api_quarantine_remaining",
+        lambda: (0.0, ""),
+    )
+    monkeypatch.setattr(providers_route.time, "sleep", lambda *_args, **_kwargs: None)
+
+    rotation_reasons: list[str] = []
+    call_count = {"value": 0}
+
+    def fake_refresh_account(
+        *,
+        account_name: str,
+        owner_email: str,
+        include_members: bool,
+        timeout_seconds: int,
+        login_email: str = "",
+        login_password: str = "",
+    ):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise RuntimeError("onemin_login_http_429")
+        billing_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        member_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        return billing_result, member_result if include_members else None
+
+    def fake_rotate_fastestvpn_proxy(*, reason: str):
+        rotation_reasons.append(reason)
+        return {"returncode": 0, "stdout": "rotated", "stderr": "", "duration_seconds": 0.1}
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_api_account", fake_refresh_account)
+    monkeypatch.setattr(providers_route, "_rotate_fastestvpn_proxy", fake_rotate_fastestvpn_proxy)
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_ROTATION_RETRY_LIMIT", "1")
+
+    billing_results, member_results, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
+        include_members=True,
+        timeout_seconds=180,
+        all_accounts=True,
+        continue_on_rate_limit=True,
+    )
+
+    assert attempted_count == 1
+    assert skipped_count == 0
+    assert rate_limited is True
+    assert errors == []
+    assert [row["account_label"] for row in billing_results] == ["ONEMIN_AI_API_KEY"]
+    assert [row["account_label"] for row in member_results] == ["ONEMIN_AI_API_KEY"]
+    assert rotation_reasons == ["onemin.api.billing_refresh:ONEMIN_AI_API_KEY"]
+
+
 def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actual_credits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
