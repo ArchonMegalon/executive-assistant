@@ -4569,7 +4569,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
     assert result.output_json["workflow_id"] is None
     assert result.output_json["requested_url"] == "crezlo://direct/workspace-crezlo-1"
-    assert result.output_json["editor_url"] == "https://crezlo.net/api/seller/tours/tour-crezlo-2?product_type=tours&workspace_id=workspace-crezlo-1"
+    assert result.output_json["editor_url"] == "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-2"
     structured = result.output_json["structured_output_json"]
     assert structured["tour_id"] == "tour-crezlo-2"
     assert structured["slug"] == "kahlenberg-variant-b"
@@ -4589,6 +4589,224 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
         {"name": created_files[2]["name"], "order": 2, "file_id": "file-3"},
     ]
     assert tool_runtime.get_tool("browseract.crezlo_property_tour") is not None
+
+
+def test_tool_execution_service_keeps_direct_crezlo_tour_when_followup_workflow_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="crezlo-workspace-2",
+        scope_json={},
+        auth_metadata_json={
+            "crezlo_workspace_id": "workspace-crezlo-2",
+            "crezlo_workspace_domain": "ea-property-tours-20260320.crezlotours.com",
+            "crezlo_workspace_base_url": "https://ea-property-tours-20260320.crezlotours.com",
+            "crezlo_property_tour_workflow_id": "wf-crezlo-followup-1",
+        },
+        status="enabled",
+    )
+
+    def _fake_direct_create(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+        requested_inputs: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        assert requested_inputs["tour_title"] == "Wahring Layout First"
+        return {
+            "tour_id": "tour-crezlo-3",
+            "slug": "wahring-layout-first",
+            "tour_title": "Wahring Layout First",
+            "tour_status": "published",
+            "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-layout-first",
+            "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-3",
+            "workspace_id": "workspace-crezlo-2",
+            "workspace_domain": "ea-property-tours-20260320.crezlotours.com",
+            "workspace_base_url": "https://ea-property-tours-20260320.crezlotours.com",
+            "scene_count": 3,
+            "creation_mode": "crezlo_api_remote_assets",
+        }
+
+    def _fake_run_workflow(self, *, workflow_id: str, input_values: dict[str, object]) -> dict[str, object]:
+        assert workflow_id == "wf-crezlo-followup-1"
+        assert input_values["editor_url"] == "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-3"
+        return {"task_id": "task-crezlo-followup-1"}
+
+    def _fake_wait(self, *, task_id: str, timeout_seconds: int, created_stall_seconds: int) -> dict[str, object]:
+        assert task_id == "task-crezlo-followup-1"
+        raise ToolExecutionError('browseract_task_failed:{"code": 5024, "message": "target element not found"}')
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_create_crezlo_property_tour_direct",
+        classmethod(_fake_direct_create),
+    )
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_run_browseract_workflow_task_with_inputs",
+        _fake_run_workflow,
+    )
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_wait_for_browseract_task",
+        _fake_wait,
+    )
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_publish_crezlo_public_tour_bundle",
+        classmethod(lambda cls, normalized: "https://myexternalbrain.com/tours/wahring-layout-first"),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-crezlo-tour-followup-1",
+            step_id="step-browseract-crezlo-tour-followup-1",
+            tool_name="browseract.crezlo_property_tour",
+            action_kind="property_tour.create",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "tour_title": "Wahring Layout First",
+                "property_url": "https://www.willhaben.at/listing/wahring-layout-first",
+                "media_urls_json": ["https://assets.example/photo-1.jpg"],
+                "login_email": "the.girscheles@gmail.com",
+                "login_password": "rangersofB5",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.output_json["tour_id"] == "tour-crezlo-3"
+    assert result.output_json["workflow_id"] == "wf-crezlo-followup-1"
+    assert result.output_json["public_url"] == "https://myexternalbrain.com/tours/wahring-layout-first"
+    assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-layout-first"
+    structured = result.output_json["structured_output_json"]
+    assert structured["workflow_followup_status"] == "failed"
+    assert "browseract_task_failed" in structured["workflow_followup_error"]
+    assert structured["direct_create_json"]["editor_url"] == "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-3"
+
+
+def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="crezlo-workspace-ui-1",
+        scope_json={},
+        auth_metadata_json={
+            "crezlo_workspace_id": "workspace-crezlo-ui-1",
+            "crezlo_workspace_domain": "ea-property-tours-20260320.crezlotours.com",
+            "crezlo_workspace_base_url": "https://ea-property-tours-20260320.crezlotours.com",
+        },
+        status="enabled",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_worker(cls, *, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        captured["packet"] = dict(packet)
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "creation_mode": "crezlo_ui_worker",
+            "tour_id": "tour-crezlo-ui-1",
+            "slug": "wahring-ui-worker",
+            "tour_title": "Wahring UI Worker",
+            "tour_status": "published",
+            "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-ui-1",
+            "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker",
+            "scene_count": 4,
+            "scenes_response_json": {
+                "data": {
+                    "data": [
+                        {
+                            "id": "scene-1",
+                            "order": 0,
+                            "name": "scene-1.jpg",
+                            "file": {
+                                "id": "file-1",
+                                "name": "scene-1.jpg",
+                                "path": "tours/2026-05-03/scene-1.jpg",
+                                "mime_type": "image/jpeg",
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_run_crezlo_property_tour_worker",
+        classmethod(_fake_worker),
+    )
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_publish_crezlo_public_tour_bundle",
+        classmethod(lambda cls, normalized: "https://myexternalbrain.com/tours/wahring-ui-worker"),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-crezlo-tour-ui-1",
+            step_id="step-browseract-crezlo-tour-ui-1",
+            tool_name="browseract.crezlo_property_tour",
+            action_kind="property_tour.create",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "force_ui_worker": True,
+                "tour_title": "Wahring UI Worker",
+                "property_url": "https://www.willhaben.at/listing/wahring-ui-worker",
+                "scene_strategy": "light_and_view",
+                "scene_selection_json": {"max_photos": 4},
+                "media_urls_json": [
+                    "https://assets.example/photo-1.jpg",
+                    "https://assets.example/photo-2.jpg",
+                ],
+                "floorplan_urls_json": [],
+                "login_email": "the.girscheles@gmail.com",
+                "login_password": "rangersofB5",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    packet = dict(captured["packet"] or {})
+    assert packet["workspace_id"] == "workspace-crezlo-ui-1"
+    assert packet["workspace_domain"] == "ea-property-tours-20260320.crezlotours.com"
+    assert "EA Property Tours" in packet["workspace_label_candidates"]
+    assert packet["tour_title"] == "Wahring UI Worker"
+    assert result.output_json["tour_id"] == "tour-crezlo-ui-1"
+    assert result.output_json["creation_mode"] == "crezlo_ui_worker_upload"
+    assert result.output_json["public_url"] == "https://myexternalbrain.com/tours/wahring-ui-worker"
+    assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
+    structured = dict(result.output_json["structured_output_json"] or {})
+    workflow_output = dict(structured.get("workflow_output_json") or {})
+    assert workflow_output["file_records_json"][0]["path"] == "https://media.crezlo.com/tours/2026-05-03/scene-1.jpg"
+    assert workflow_output["tour_detail_json"]["scenes"][0]["file"]["meta"]["source_url"] == "https://assets.example/photo-1.jpg"
 
 
 def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
@@ -4613,7 +4831,7 @@ def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
             "tour_id": "tour-crezlo-2",
             "slug": "kahlenberg-variant-b",
             "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b",
-            "editor_url": "https://crezlo.net/api/seller/tours/tour-crezlo-2?product_type=tours&workspace_id=workspace-crezlo-1",
+            "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-2",
             "structured_output_json": {
                 "requested_inputs": {
                     "tour_title": "Kahlenberg Variant B",
@@ -4676,6 +4894,84 @@ def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
     assert payload["scene_count"] == 2
     assert payload["brief"]["creative_brief"] == "Lead with the view and floorplan clarity."
     assert payload["scenes"][0]["asset_relpath"] == "scene-01.jpg"
+
+
+def test_crezlo_public_tour_bundle_writer_supports_ui_worker_scene_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://ea.example/tours")
+
+    def _fake_download(cls, url: str) -> tuple[bytes, str]:
+        return (f"asset:{url}".encode("utf-8"), "image/jpeg")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_crezlo_download_public_asset",
+        classmethod(_fake_download),
+    )
+
+    hosted_url = BrowserActToolAdapter._publish_crezlo_public_tour_bundle(
+        {
+            "tour_title": "Wahring UI Worker",
+            "tour_id": "tour-crezlo-ui-1",
+            "slug": "wahring-ui-worker",
+            "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker",
+            "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-ui-1",
+            "structured_output_json": {
+                "requested_inputs": {
+                    "tour_title": "Wahring UI Worker",
+                    "property_url": "https://www.willhaben.at/listing/wahring-ui-worker",
+                    "scene_strategy": "story_first",
+                    "scene_selection_json": {"max_photos": 2, "include_floorplans": False},
+                    "media_urls_json": [
+                        "https://assets.example/photo-1.jpg",
+                        "https://assets.example/photo-2.jpg",
+                    ],
+                },
+                "workflow_output_json": {
+                    "scenes_response_json": {
+                        "data": {
+                            "data": [
+                                {
+                                    "id": "scene-1",
+                                    "order": 0,
+                                    "name": "scene-1.jpg",
+                                    "file": {
+                                        "id": "file-1",
+                                        "name": "scene-1.jpg",
+                                        "path": "tours/2026-05-03/scene-1.jpg",
+                                        "mime_type": "image/jpeg",
+                                    },
+                                },
+                                {
+                                    "id": "scene-2",
+                                    "order": 1,
+                                    "name": "scene-2.jpg",
+                                    "file": {
+                                        "id": "file-2",
+                                        "name": "scene-2.jpg",
+                                        "path": "tours/2026-05-03/scene-2.jpg",
+                                        "mime_type": "image/jpeg",
+                                    },
+                                },
+                            ]
+                        }
+                    }
+                },
+            },
+        }
+    )
+
+    assert hosted_url == "https://ea.example/tours/wahring-ui-worker"
+    bundle_dir = tmp_path / "wahring-ui-worker"
+    assert (bundle_dir / "scene-01.jpg").read_bytes() == b"asset:https://media.crezlo.com/tours/2026-05-03/scene-1.jpg"
+    payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert payload["hosted_url"] == "https://ea.example/tours/wahring-ui-worker"
+    assert payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
+    assert payload["listing_url"] == "https://www.willhaben.at/listing/wahring-ui-worker"
+    assert payload["scene_count"] == 2
 
 
 def test_crezlo_worker_script_path_resolves_existing_worker() -> None:

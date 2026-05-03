@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable
 
@@ -2065,6 +2065,14 @@ def _onemin_background_refresh_timeout_seconds() -> int:
     )
 
 
+def _onemin_billing_refresh_fresh_seconds() -> float:
+    return _to_float(
+        _env("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600"),
+        21600.0,
+        minimum=300.0,
+    )
+
+
 def _onemin_background_refresh_enabled() -> bool:
     return _to_bool(_env("EA_RESPONSES_ONEMIN_BACKGROUND_REFRESH_ENABLED", "1"), True)
 
@@ -2466,6 +2474,9 @@ def _is_retryable_onemin_error(message: str) -> bool:
         "quota",
         "rate limit",
         "requires more credits",
+        "cloudflare",
+        "error code: 1010",
+        "error code: 1015",
     )
     return any(marker in lowered for marker in retry_markers)
 
@@ -2538,18 +2549,26 @@ def _pick_onemin_key(
         )
         if provider_health_pick is None:
             return None
-    candidates: list[tuple[str, int, int, int, int, int, float, float, int]] = []
+    candidates: list[tuple[str, int, int, int, int, int, int, float, float, int]] = []
     blocked: list[tuple[str, float, float]] = []
     available_candidate_count = 0
     known_insufficient_candidate_count = 0
     for index, api_key in enumerate(key_names):
         state = states.get(api_key) or OneminKeyState(key=api_key)
+        account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
+        slot_name = _onemin_key_slot(api_key, key_names=key_names)
+        slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
+        blocked_recovery_priority = 0
+        blocked_until = 0.0
         if now < state.quarantine_until:
-            blocked.append((api_key, state.quarantine_until, index))
-            continue
-        if now < state.cooldown_until:
-            blocked.append((api_key, state.cooldown_until, index))
-            continue
+            blocked_until = state.quarantine_until
+        elif now < state.cooldown_until:
+            blocked_until = state.cooldown_until
+        if blocked_until > 0.0:
+            if not _onemin_slot_recovery_override_available(slot_row, required_credits=required_credits):
+                blocked.append((api_key, blocked_until, index))
+                continue
+            blocked_recovery_priority = 1
         selection_priority = _onemin_key_selection_priority(
             api_key=api_key,
             state=state,
@@ -2559,11 +2578,12 @@ def _pick_onemin_key(
             index=index,
             now=now,
         )
-        account_name = _provider_account_name("onemin", key_names=key_names, key=api_key)
-        slot_name = _onemin_key_slot(api_key, key_names=key_names)
-        slot_row = slot_by_account.get(account_name) or slot_by_name.get(slot_name) or {}
         probe_result = str(slot_row.get("last_probe_result") or "").strip().lower()
         billing_recovery = _onemin_slot_recent_billing_recovery(
+            slot_row,
+            required_credits=required_credits,
+        )
+        upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(
             slot_row,
             required_credits=required_credits,
         )
@@ -2598,7 +2618,10 @@ def _pick_onemin_key(
             and observed_remaining is not None
             and observed_remaining < int(required_credits)
         ):
-            if not (billing_recovery and billing_hint >= int(required_credits)):
+            if not (
+                (billing_recovery and billing_hint >= int(required_credits))
+                or upstream_reset_estimated_recovery is not None
+            ):
                 known_insufficient_candidate_count += 1
                 continue
         probe_ok_priority = 1
@@ -2610,14 +2633,17 @@ def _pick_onemin_key(
             and required_credits > 0
             and selection_priority[0] == 4
             and probe_ok_priority != 0
-            and not (billing_recovery and billing_hint >= int(required_credits))
+            and not (
+                (billing_recovery and billing_hint >= int(required_credits))
+                or upstream_reset_estimated_recovery is not None
+            )
         ):
             known_insufficient_candidate_count += 1
             continue
-        candidates.append((api_key, probe_ok_priority, *selection_priority))
+        candidates.append((api_key, probe_ok_priority, blocked_recovery_priority, *selection_priority))
     if candidates:
-        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6], item[7], item[8]))
-        return candidates[0][0], 0.0, float(candidates[0][8])
+        candidates.sort(key=lambda item: (item[1], item[2], item[3], item[4], item[5], item[6], item[7], item[8], item[9]))
+        return candidates[0][0], 0.0, float(candidates[0][9])
     if required_credits is not None and required_credits > 0 and available_candidate_count > 0 and known_insufficient_candidate_count >= available_candidate_count:
         return None
     if required_credits is not None and required_credits > 0:
@@ -2742,7 +2768,6 @@ def _onemin_code_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_CODE_MODELS"))
     defaults = (
         "deepseek-chat",
-        "gpt-4.1-nano",
         "gpt-4.1",
         "gpt-4o",
         "gpt-5",
@@ -2757,6 +2782,8 @@ def _onemin_supported_models() -> tuple[str, ...]:
 
 def _onemin_model_supports_code(model: str) -> bool:
     wanted = str(model or "").strip().lower()
+    if wanted == "gpt-4.1-nano":
+        return False
     return wanted in {item.lower() for item in _onemin_code_models()}
 
 
@@ -2947,6 +2974,13 @@ def _onemin_slot_live_credit_hint(slot: dict[str, object]) -> int | None:
     return None
 
 
+def _onemin_slot_counts_as_live_ready(slot: dict[str, object]) -> bool:
+    if str(slot.get("state") or "").strip().lower() != "ready":
+        return False
+    live_hint = _onemin_slot_live_credit_hint(slot)
+    return live_hint is not None and live_hint > 0
+
+
 def _onemin_slot_positive_actual_billing(slot: dict[str, object]) -> bool:
     if bool(slot.get("billing_team_mismatch")):
         return False
@@ -2970,6 +3004,30 @@ def _onemin_slot_upstream_reset_estimated_recovery_hint(
     if normalized_required > 0 and estimated_remaining < normalized_required:
         return None
     return estimated_remaining
+
+
+def _onemin_slot_fresh_actual_billing_hint(
+    slot: dict[str, object],
+    *,
+    required_credits: int | None = None,
+    now: float | None = None,
+) -> int | None:
+    if not _onemin_slot_positive_actual_billing(slot):
+        return None
+    billing_basis = str(slot.get("billing_basis") or "").strip().lower()
+    if billing_basis not in {"actual_provider_api", "actual_billing_usage_page"}:
+        return None
+    observed_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
+    if observed_at <= 0.0:
+        return None
+    current_time = float(now) if now is not None else _now_epoch()
+    if current_time - observed_at > _onemin_billing_refresh_fresh_seconds():
+        return None
+    billing_remaining = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+    normalized_required = int(required_credits or 0)
+    if normalized_required > 0 and billing_remaining < normalized_required:
+        return None
+    return billing_remaining
 
 
 def _onemin_slot_recent_billing_recovery(
@@ -3004,6 +3062,8 @@ def _onemin_slot_recovery_evidence(slot: dict[str, object]) -> bool:
         return True
     if _onemin_slot_recent_billing_recovery(slot):
         return True
+    if _onemin_slot_fresh_actual_billing_hint(slot) is not None:
+        return True
     if _onemin_slot_upstream_reset_estimated_recovery_hint(slot) is not None:
         return True
     last_success_at = _to_float(slot.get("last_success_at"), 0.0, minimum=0.0)
@@ -3014,6 +3074,26 @@ def _onemin_slot_recovery_evidence(slot: dict[str, object]) -> bool:
     if last_billing_snapshot_at > 0.0 and last_failure_at > 0.0 and last_billing_snapshot_at >= last_failure_at:
         return True
     return False
+
+
+def _onemin_slot_recovery_override_available(
+    slot: dict[str, object],
+    *,
+    required_credits: int | None = None,
+) -> bool:
+    normalized_required = int(required_credits or 0)
+    live_hint = _onemin_slot_live_credit_hint(slot)
+    if normalized_required > 0 and live_hint is not None and live_hint >= normalized_required:
+        return True
+    if _onemin_slot_recent_billing_recovery(slot, required_credits=normalized_required):
+        return True
+    if _onemin_slot_fresh_actual_billing_hint(slot, required_credits=normalized_required) is not None:
+        return True
+    upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(
+        slot,
+        required_credits=normalized_required,
+    )
+    return upstream_reset_estimated_recovery is not None
 
 
 def _onemin_slot_effective_state(slot: dict[str, object], *, required_credits: int | None = None) -> str:
@@ -3039,6 +3119,65 @@ def _onemin_slot_effective_state(slot: dict[str, object], *, required_credits: i
     if live_hint is not None or billing_hint > 0:
         return "degraded"
     return state
+
+
+def _onemin_slot_counts_as_dispatchable(
+    slot: dict[str, object],
+    *,
+    required_credits: int | None = None,
+) -> bool:
+    state = _onemin_slot_effective_state(slot, required_credits=required_credits)
+    if state in {"blocked", "missing", "unavailable", "deleted"}:
+        return False
+    normalized_required = int(required_credits or 0)
+    probe_result = str(slot.get("last_probe_result") or "").strip().lower()
+    live_hint = _onemin_slot_live_credit_hint(slot)
+    if normalized_required > 0:
+        if live_hint is not None and live_hint >= normalized_required:
+            return True
+        if _onemin_slot_recent_billing_recovery(slot, required_credits=normalized_required):
+            billing_hint = _to_int(slot.get("billing_remaining_credits"), 0, minimum=0, maximum=1000000000)
+            if billing_hint >= normalized_required:
+                return True
+        fresh_actual_billing_hint = _onemin_slot_fresh_actual_billing_hint(
+            slot,
+            required_credits=normalized_required,
+        )
+        if fresh_actual_billing_hint is not None and fresh_actual_billing_hint >= normalized_required:
+            return True
+        upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(
+            slot,
+            required_credits=normalized_required,
+        )
+        if upstream_reset_estimated_recovery is not None and upstream_reset_estimated_recovery >= normalized_required:
+            return True
+        if probe_result == "ok" and str(slot.get("state") or "").strip().lower() == "ready":
+            return True
+        return False
+    if live_hint is not None and live_hint > 0:
+        return True
+    if _onemin_slot_recent_billing_recovery(slot):
+        return True
+    if _onemin_slot_upstream_reset_estimated_recovery_hint(slot) is not None:
+        return True
+    return probe_result == "ok"
+
+
+def _onemin_hard_dispatchable_required_credits() -> int | None:
+    requirements: list[int] = []
+    for model_name in _merge_unique(_onemin_hard_models(), _onemin_hard_fallback_models()):
+        required_credits, _basis = _onemin_required_credits_for_selection(
+            lane=_LANE_HARD,
+            model=model_name,
+        )
+        if required_credits is None:
+            continue
+        normalized_required = int(required_credits)
+        if normalized_required > 0:
+            requirements.append(normalized_required)
+    if not requirements:
+        return None
+    return min(requirements)
 
 
 def _onemin_provider_health_pick(
@@ -3102,6 +3241,10 @@ def _onemin_provider_health_pick(
             slot,
             required_credits=normalized_required,
         )
+        fresh_actual_billing_hint = _onemin_slot_fresh_actual_billing_hint(
+            slot,
+            required_credits=normalized_required,
+        )
         upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(
             slot,
             required_credits=normalized_required,
@@ -3126,7 +3269,7 @@ def _onemin_provider_health_pick(
             and observed_remaining is not None
             and observed_remaining < normalized_required
         ):
-            if not billing_recovery and upstream_reset_estimated_recovery is None:
+            if not billing_recovery and fresh_actual_billing_hint is None and upstream_reset_estimated_recovery is None:
                 continue
         if (
             normalized_required > 0
@@ -3134,6 +3277,7 @@ def _onemin_provider_health_pick(
             and actual_remaining < normalized_required
             and (live_hint is None or live_hint < normalized_required)
             and billing_hint < normalized_required
+            and fresh_actual_billing_hint is None
         ):
             continue
         preferred_match = _candidate_matches_preferred_onemin_label(
@@ -4328,6 +4472,104 @@ def _trim_error_payload(payload: Any) -> str:
     return raw[:400]
 
 
+def _proxy_url_with_optional_auth(*, server: str, username: str = "", password: str = "") -> str:
+    proxy_server = str(server or "").strip()
+    if not proxy_server or proxy_server.lower() in {"direct", "direct://", "none", "off", "disabled"}:
+        return ""
+    parsed = urlparse(proxy_server if "://" in proxy_server else f"http://{proxy_server}")
+    if "@" in parsed.netloc:
+        return urlunparse(parsed)
+    auth = quote(str(username or "").strip(), safe="")
+    proxy_password = str(password or "").strip()
+    if proxy_password:
+        auth = f"{auth}:{quote(proxy_password, safe='')}" if auth else quote(proxy_password, safe="")
+    netloc = f"{auth}@{parsed.netloc}" if auth else parsed.netloc
+    return urlunparse((parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+
+def _is_onemin_direct_api_url(url: str) -> bool:
+    parsed = urlparse(str(url or "").strip())
+    host = str(parsed.netloc or "").strip().lower()
+    path = str(parsed.path or "").strip().lower()
+    return host.endswith("1min.ai") and path.startswith("/api/")
+
+
+def _onemin_direct_api_proxy_url() -> str:
+    return _proxy_url_with_optional_auth(
+        server=_env("ONEMIN_DIRECT_API_PROXY_SERVER")
+        or _env("EA_ONEMIN_DIRECT_API_PROXY_SERVER")
+        or _env("EA_UI_BROWSER_PROXY_SERVER"),
+        username=_env("ONEMIN_DIRECT_API_PROXY_USERNAME")
+        or _env("EA_ONEMIN_DIRECT_API_PROXY_USERNAME")
+        or _env("EA_UI_BROWSER_PROXY_USERNAME"),
+        password=_env("ONEMIN_DIRECT_API_PROXY_PASSWORD")
+        or _env("EA_ONEMIN_DIRECT_API_PROXY_PASSWORD")
+        or _env("EA_UI_BROWSER_PROXY_PASSWORD"),
+    )
+
+
+def _onemin_direct_api_proxy_pool_urls() -> tuple[str, ...]:
+    values: list[str] = []
+    for env_name in (
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        "EA_ONEMIN_DIRECT_API_PROXY_POOL",
+        "EA_UI_BROWSER_PROXY_POOL",
+    ):
+        raw = str(_env(env_name) or "").strip()
+        if not raw:
+            continue
+        for part in raw.split(","):
+            proxy_url = _proxy_url_with_optional_auth(server=part.strip())
+            if proxy_url and proxy_url not in values:
+                values.append(proxy_url)
+    if values:
+        return tuple(values)
+    single = _onemin_direct_api_proxy_url()
+    return (single,) if single else ()
+
+
+def _onemin_direct_api_proxy_url_for_subject(subject: str = "") -> str:
+    proxy_urls = _onemin_direct_api_proxy_pool_urls()
+    if not proxy_urls:
+        return ""
+    normalized_subject = str(subject or "").strip()
+    if not normalized_subject or len(proxy_urls) == 1:
+        return proxy_urls[0]
+    digest = hashlib.sha256(normalized_subject.encode("utf-8", errors="ignore")).digest()
+    index = int.from_bytes(digest[:8], "big", signed=False) % len(proxy_urls)
+    return proxy_urls[index]
+
+
+def _onemin_direct_api_proxy_subject_for_request(request: urllib.request.Request) -> str:
+    headers = getattr(request, "headers", {}) or {}
+    normalized_headers = {
+        str(name or "").strip().lower(): str(value or "").strip()
+        for name, value in dict(headers).items()
+    }
+    for header_name in ("api-key", "x-api-key", "authorization"):
+        value = normalized_headers.get(header_name, "")
+        if value:
+            return value
+    return str(getattr(request, "full_url", "") or "")
+
+
+def _request_opener_for_request(request: urllib.request.Request) -> urllib.request.OpenerDirector | None:
+    url = str(getattr(request, "full_url", "") or "")
+    if not _is_onemin_direct_api_url(url):
+        return None
+    proxy_url = _onemin_direct_api_proxy_url_for_subject(_onemin_direct_api_proxy_subject_for_request(request))
+    if not proxy_url:
+        return None
+    return urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
+
+
+def _urlopen_with_optional_proxy(request: urllib.request.Request, *, timeout_seconds: int):
+    opener = _request_opener_for_request(request)
+    if opener is None:
+        return urllib.request.urlopen(request, timeout=timeout_seconds)
+    return opener.open(request, timeout=timeout_seconds)
+
+
 def _set_stream_timeout(stream: object, timeout_seconds: float) -> None:
     queue: list[object] = [stream]
     seen: set[int] = set()
@@ -4402,7 +4644,7 @@ def _post_json(
         data=data,
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with _urlopen_with_optional_proxy(request, timeout_seconds=timeout_seconds) as response:
             status = int(getattr(response, "status", 200))
             raw = _read_response_bytes(response, timeout_seconds=timeout_seconds).decode("utf-8", errors="replace")
     except (socket.timeout, TimeoutError) as exc:
@@ -4450,7 +4692,7 @@ def _post_sse(
         data=data,
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        with _urlopen_with_optional_proxy(request, timeout_seconds=timeout_seconds) as response:
             status = int(getattr(response, "status", 200))
             event_name = ""
             data_lines: list[str] = []
@@ -8113,23 +8355,39 @@ def _probe_onemin_slot(
     }
 
 
-def probe_all_onemin_slots(*, include_reserve: bool = True) -> dict[str, object]:
+def probe_all_onemin_slots(*, include_reserve: bool = True, account_labels: Iterable[str] | None = None) -> dict[str, object]:
     _load_provider_ledgers_once()
     key_names = _onemin_key_names()
     active_keys = _onemin_active_keys()
     reserve_keys = _onemin_reserve_keys()
     selected_keys = key_names if include_reserve else active_keys
+    requested_account_labels = {
+        str(value or "").strip()
+        for value in (account_labels or ())
+        if str(value or "").strip()
+    }
+    if requested_account_labels:
+        selected_keys = tuple(
+            api_key
+            for api_key in selected_keys
+            if _provider_account_name("onemin", key_names=key_names, key=api_key) in requested_account_labels
+        )
     if not selected_keys:
         return {
             "provider_key": "onemin",
             "slot_count": 0,
             "configured_slot_count": len(key_names),
             "include_reserve": include_reserve,
+            "requested_account_labels": sorted(requested_account_labels),
             "probe_model": _onemin_probe_model(),
             "result_counts": {},
             "owner_mapped_slots": 0,
             "slots": [],
-            "note": "No configured 1min slots were available to probe.",
+            "note": (
+                "No configured 1min slots matched the requested account labels."
+                if requested_account_labels
+                else "No configured 1min slots were available to probe."
+            ),
         }
     model = _onemin_probe_model()
     prompt = _onemin_probe_prompt()
@@ -8210,6 +8468,7 @@ def probe_all_onemin_slots(*, include_reserve: bool = True) -> dict[str, object]
         "slot_count": len(rows),
         "configured_slot_count": len(key_names),
         "include_reserve": include_reserve,
+        "requested_account_labels": sorted(requested_account_labels),
         "probe_model": model,
         "probe_prompt": prompt,
         "probe_timeout_seconds": timeout_seconds,
@@ -8426,11 +8685,15 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
     onemin_live_positive_balance_slot_count = sum(
         1 for slot in onemin_slots if int(slot.get("estimated_remaining_credits") or 0) > 0
     )
-    onemin_live_ready_slot_count = sum(
+    onemin_live_ready_slot_count = sum(1 for slot in onemin_slots if _onemin_slot_counts_as_live_ready(slot))
+    onemin_hard_dispatchable_required_credits = _onemin_hard_dispatchable_required_credits()
+    onemin_live_dispatchable_slot_count = sum(
         1
         for slot in onemin_slots
-        if str(slot.get("state") or "").strip().lower() == "ready"
-        and int(slot.get("estimated_remaining_credits") or 0) > 0
+        if _onemin_slot_counts_as_dispatchable(
+            slot,
+            required_credits=onemin_hard_dispatchable_required_credits,
+        )
     )
     onemin_actual_positive_balance_slot_count = sum(
         1
@@ -8458,7 +8721,10 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
     probe_result_counts: dict[str, int] = {}
     last_probe_at = None
     owner_mapped_slots = 0
+    onemin_slot_state_counts: dict[str, int] = {}
     for slot in onemin_slots:
+        state = str(slot.get("state") or "").strip().lower() or "unknown"
+        onemin_slot_state_counts[state] = onemin_slot_state_counts.get(state, 0) + 1
         if slot.get("owner_label") or slot.get("owner_name") or slot.get("owner_email"):
             owner_mapped_slots += 1
         probe_result = str(slot.get("last_probe_result") or "").strip()
@@ -8556,8 +8822,12 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
                 "max_credits_total": onemin_max_total,
                 "max_credits_per_key": _onemin_max_credits_per_key(),
                 "unknown_balance_slots": onemin_unknown_slots,
+                "slot_state_counts": onemin_slot_state_counts,
+                "ready_slot_count": onemin_slot_state_counts.get("ready", 0),
                 "live_positive_balance_slot_count": onemin_live_positive_balance_slot_count,
                 "live_ready_slot_count": onemin_live_ready_slot_count,
+                "live_dispatchable_slot_count": onemin_live_dispatchable_slot_count,
+                "hard_dispatchable_required_credits": onemin_hard_dispatchable_required_credits,
                 "actual_positive_balance_slot_count": onemin_actual_positive_balance_slot_count,
                 "last_actual_balance_at": latest_actual_balance_at,
                 "last_probe_at": last_probe_at,

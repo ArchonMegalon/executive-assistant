@@ -4,12 +4,12 @@
       <div class="eyebrow">Step 3</div>
       <h2>Review rules after first value, and add channels later.</h2>
     </div>
-    <p class="step-context">This final step should confirm the first loop: memo, queue, commitments, and review posture. Keep channels narrow until the Google-backed office loop is already useful.</p>
+    <p class="step-context">Use this final step to confirm the first loop: memo, queue, commitments, and review posture. Keep channels narrow until the Google-backed office loop is already useful.</p>
   </div>
 
   <div class="finish-grid">
     <div class="finish-card">
-      <strong>What the first useful loop should reveal</strong>
+      <strong>What the first useful loop reveals</strong>
       {% if activation_preview.brief %}
       <p class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</p>
       {% else %}
@@ -83,7 +83,7 @@
     {{ shared_browser_fields|safe }}
     <div class="check-grid">
       <label class="check-item"><input type="checkbox" name="allow_drafts" value="true" {% if privacy.allow_drafts %}checked{% endif %}><span><strong>Allow draft replies</strong>Prepare replies for review before anything is sent.</span></label>
-      <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow action suggestions</strong>Let the assistant surface next steps and follow-up recommendations.</span></label>
+      <label class="check-item"><input type="checkbox" name="allow_action_suggestions" value="true" {% if privacy.allow_action_suggestions %}checked{% endif %}><span><strong>Allow action suggestions</strong>Let the assistant surface next steps and commitment recommendations.</span></label>
       <label class="check-item"><input type="checkbox" name="allow_auto_briefs" value="true" {% if privacy.allow_auto_briefs %}checked{% endif %}><span><strong>Allow automatic memos</strong>Generate memos on a schedule when the workspace is stable enough.</span></label>
     </div>
     <input type="hidden" name="auto_brief_delivery_channel" value="{{ morning_memo.get('delivery_channel', 'email') }}">

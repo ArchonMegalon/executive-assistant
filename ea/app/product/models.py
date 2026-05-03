@@ -208,6 +208,16 @@ class HandoffNote:
     subject: str = ""
     delivery_reason: str = ""
     evidence_refs: tuple[EvidenceRef, ...] = ()
+    property_url: str = ""
+    listing_id: str = ""
+    variant_key: str = ""
+    blocked_reason: str = ""
+    tour_url: str = ""
+    connector_binding_id: str = ""
+    vendor_tour_url: str = ""
+    editor_url: str = ""
+    source_ref: str = ""
+    external_id: str = ""
 
 
 @dataclass(frozen=True)

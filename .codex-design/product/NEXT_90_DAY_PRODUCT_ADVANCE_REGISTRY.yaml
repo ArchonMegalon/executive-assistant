@@ -207,11 +207,11 @@ milestones:
           - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json carries matching verifier-bound desktopRouteTruth rows so the compatibility download shelf cannot drift from canonical release-channel truth.
           - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py fail-closes missing, blank, stale, or non-canonical promotion, fallback, rollback, revoke, update, and install-posture rationale.
           - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m101_registry_promotion_discipline.py fail-closes canonical registry, Fleet queue staging, release-channel, compatibility-shelf, pipeline-doc, closeout-doc, worklist, and standard verify wiring drift for this completed package.
-          - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.proof.yaml records the successor frontier id, landed commit, owned surfaces, allowed paths, exact six desktop route-truth tuples, guardrails, and do-not-reopen conditions.
+#           - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.proof.yaml records the successor frontier id, landed commit, owned surfaces, allowed paths, exact six desktop route-truth tuples, guardrails, and do-not-reopen conditions.
           - /docker/chummercomplete/chummer-hub-registry/docs/next90-m101-registry-promotion-discipline.closeout.md records the do-not-reopen rule and exact proof conditions for future shards.
-          - /docker/chummercomplete/chummer-hub-registry commit b404b36 tightens the package verifier so Fleet and design queue staging must both pin successor frontier 3017689961 for this completed package row.
+#           - /docker/chummercomplete/chummer-hub-registry commit b404b36 tightens the package verifier so Fleet and design queue staging must both pin successor frontier 3017689961 for this completed package row.
           - /docker/chummercomplete/chummer-hub-registry commit 5d948b1 pins the latest M101 tuple self-test proof floor into the verifier, proof receipt, and closeout note so future shards verify the closed package instead of repeating it.
-          - /docker/chummercomplete/chummer-hub-registry commit e91fe39 tightens the M101 self-test so completed queue proof fails on wrong successor frontier or non-complete package status.
+#           - /docker/chummercomplete/chummer-hub-registry commit e91fe39 tightens the M101 self-test so completed queue proof fails on wrong successor frontier or non-complete package status.
           - /docker/chummercomplete/chummer-hub-registry commit 1586dfc pins the M101 queue authority guard so future shards verify the completed package proof floor instead of repeating it.
           - /docker/chummercomplete/chummer-hub-registry commit f1d0763 pins the latest M101 queue authority proof so future shards verify the current completed-package floor instead of repeating it.
           - /docker/chummercomplete/chummer-hub-registry commit e88ac6c tightens the M101 guardrail commit self-test so future shards verify the current completed-package floor instead of repeating it.
@@ -255,7 +255,7 @@ milestones:
         evidence:
           - /docker/chummercomplete/chummer6-ui-finish commit c9c0d84f tightens the M101 closeout verifier to prove registry, queue, and release-channel authority together for the independent Avalonia primary route.
           - /docker/chummercomplete/chummer6-ui-finish commit da549ef8 tightens the completed queue proof-token guard for the already-closed M101 slice.
-          - /docker/chummercomplete/chummer6-ui-finish commit 5844ad03 pins successor frontier 2450443084 into the M101 verifier, generated receipt, and compliance guard so future shards do not repeat the closed package under a different frontier.
+#           - /docker/chummercomplete/chummer6-ui-finish commit 5844ad03 pins successor frontier 2450443084 into the M101 verifier, generated receipt, and compliance guard so future shards do not repeat the closed package under a different frontier.
           - /docker/chummercomplete/chummer6-ui-finish commit 2e87dce3 tightens the M101 verifier against design-owned queue source drift and refreshes the design-owned queue closeout row so the Fleet mirror cannot be the only closure proof.
           - /docker/chummercomplete/chummer6-ui-finish commit c61a8fb5 pins M101 design queue closure tokens into the verifier, generated receipt, and compliance guard so future shards validate the closed successor package instead of reopening it.
           - /docker/chummercomplete/chummer6-ui-finish commit 79760cc1 refreshes the M101 release train receipt after queue closure proof tightening.
@@ -546,7 +546,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 7be45a1b hardens M102 encoded hash separator secret redaction.
           - /docker/chummercomplete/chummer6-hub commit e054d2f1 pins the M102 encoded hash proof floor.
           - /docker/chummercomplete/chummer6-hub commit 43e273e9 hardens M102 native support secret redaction.
-          - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
+#           - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
           - /docker/chummercomplete/chummer6-hub commit aa318f30 tightens the M102 encoded proof marker guard.
           - /docker/chummercomplete/chummer6-hub commit 607139bc hardens M102 HTML hash separator redaction.
           - /docker/chummercomplete/chummer6-hub commit 0a007077 tightens M102 compressed helper proof guard.
@@ -739,7 +739,7 @@ milestones:
           - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json reports successor_wave_authority=passed and unresolved successor_wave_authority/oracle_suites/performance_budgets/release_commands/import_oracle_discipline all empty.
           - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json now requires the next90-m104-core-proof-pack queue row to retain allowed_paths src, tests, docs, and scripts.
           - /docker/chummercomplete/chummer6-core commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces and records queue_allowed_paths, queue_owned_surfaces, and empty unexpected drift arrays in ENGINE_PROOF_PACK.generated.json.
-          - /docker/chummercomplete/chummer6-core commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof so future shards verify this closed package instead of repeating it.
+#           - /docker/chummercomplete/chummer6-core commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof so future shards verify this closed package instead of repeating it.
           - /docker/chummercomplete/chummer6-core/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md records the package-local do-not-reopen rule and exact closed-scope verification commands for future shards.
           - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json now reports missing_queue_proof_anchors=[] after resolving the package proof anchors on disk.
           - /docker/chummercomplete/chummer6-core commit cfc465a5 adds a checked-in receipt reproducibility guard so ENGINE_PROOF_PACK.generated.json cannot drift from scripts/generate-engine-proof-pack.py except generated_at.
@@ -840,7 +840,7 @@ milestones:
           - /docker/chummercomplete/chummer6-ui-finish commit b0f5a122 tightens the successor queue proof so the completed M104 package fails closed if allowed_paths or owned_surfaces widen beyond the assigned slice.
           - /docker/chummercomplete/chummer6-ui-finish commit 0a2a321f tightens M104 explain receipt guard wiring so the compliance guard is part of the completed package proof chain.
           - /docker/chummercomplete/chummer6-ui-finish commit 2c29f1be tightens M104 explain receipt commit proof so the completed package remains bound to the landed implementation commit.
-          - /docker/chummercomplete/chummer6-ui-finish commit 1df92955 tightens M104 explain receipt frontier guard so the completed package remains bound to successor frontier 3352869062.
+#           - /docker/chummercomplete/chummer6-ui-finish commit 1df92955 tightens M104 explain receipt frontier guard so the completed package remains bound to successor frontier 3352869062.
           - /docker/chummercomplete/chummer6-ui-finish commit 7556a33b pins M104 explain receipt proof anchors.
           - /docker/chummercomplete/chummer6-ui-finish commit d9e5392d wires the M104 explain receipt guard into standard scripts/ai/verify.sh so closed-package proof runs with normal UI verification.
           - /docker/chummercomplete/chummer6-ui-finish commit d4d34e1c requires the standard-verify wiring commit as registry and queue proof for the completed M104 desktop explain receipt package.
@@ -1006,7 +1006,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 049e2938 pins the M105 campaign proof guard.
           - /docker/chummercomplete/chummer6-hub commit 58edeea6 tightens the M105 worker-context field guard so queue proof cannot cite task-local run context fields.
           - /docker/chummercomplete/chummer6-hub commit 586ad535 tightens the M105 successor handoff proof guard so completed-package proof cannot cite copied handoff-context run fields.
-          - /docker/chummercomplete/chummer6-hub commit 54d3756f tightens the M105 successor prompt proof guard so copied successor frontier id, assigned package, and execution-rule fields cannot close the completed workspace package.
+#           - /docker/chummercomplete/chummer6-hub commit 54d3756f tightens the M105 successor prompt proof guard so copied successor frontier id, assigned package, and execution-rule fields cannot close the completed workspace package.
           - /docker/chummercomplete/chummer6-hub commit c6f0439e pins the M105 successor handoff proof floor so future shards verify the latest closed-package guard.
           - /docker/chummercomplete/chummer6-hub commit db056eb5 pins the M105 successor prompt proof floor so future shards verify the latest closed-package guard.
           - /docker/chummercomplete/chummer6-hub commit 19536ab1 pins the M105 workspace proof floor so future shards verify the latest closed-package guard.
@@ -1045,7 +1045,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit ea99e70a wires the M105 queue identity guard into standard Hub verification so future shards verify the closed queue row instead of repeating the workspace continuity package.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignWorkspaceServerPlaneService.cs projects restore provenance and conflict receipts onto the workspace server plane with canonical workspace_restore and entitlement_sync surfaces.
           - /docker/chummercomplete/chummer6-hub/scripts/verify_workspace_restore_receipts.py fail-closes missing source/proof markers for workspace_restore:provenance and entitlement_sync:conflict_receipts.
-          - /docker/chummercomplete/chummer6-hub/scripts/verify_workspace_restore_queue_identity.py fail-closes copied queue rows that reuse the M105 title or successor frontier outside next90-m105-hub-workspace-continuity.
+#           - /docker/chummercomplete/chummer6-hub/scripts/verify_workspace_restore_queue_identity.py fail-closes copied queue rows that reuse the M105 title or successor frontier outside next90-m105-hub-workspace-continuity.
           - /docker/chummercomplete/chummer6-hub/tests/test_workspace_restore_queue_frontier_guard.py
           - /docker/chummercomplete/chummer6-hub/tests/test_workspace_restore_queue_identity.py
           - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py regenerates HUB_LOCAL_RELEASE_PROOF.generated.json with the closed M105 package metadata, workspace_restore:provenance receipt, and entitlement_sync:conflict_receipts receipt.
@@ -1277,7 +1277,7 @@ milestones:
         evidence:
           - /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml is task_proven for operator_packets:weekly_governor and reporter_followthrough:release_truth.
           - /docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml projects operator and reporter packet shapes from the same readiness, parity, support, and release-truth anchors.
-          - /docker/EA/docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml marks successor frontier 1758984842 ea_scope_complete for the closed EA-owned surfaces and names Fleet, Hub, Registry, and design sibling lanes as non-EA follow-up.
+#           - /docker/EA/docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml marks successor frontier 1758984842 ea_scope_complete for the closed EA-owned surfaces and names Fleet, Hub, Registry, and design sibling lanes as non-EA follow-up.
           - /docker/EA/tests/test_chummer_governor_packet_pack.py fail-closes queue, registry, source-anchor, reporter workflow, release-truth, runtime-safety, and stale queue proof-path drift.
           - /docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md records that no EA-owned work remains while Fleet, Hub, Registry, and design sibling lanes stay open.
           - /docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md records the repeat-prevention guard and direct proof runner result.
@@ -1371,7 +1371,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 700343bc pins M107 format scope proof floor.
           - /docker/chummercomplete/chummer6-hub commit 65484700 tightens M107 artifact factory source-pack family proof.
           - /docker/chummercomplete/chummer6-hub commit d5a4a61b tightens M107 artifact factory aggregate receipt and public proof shelf refs.
-          - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
+#           - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ArtifactFactoryOrchestrationService.cs rejects unapproved or provider-specific source packs and emits media-factory output bindings for preview, caption, packet, audio, and video formats.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/InternalArtifactFactoryController.cs and Chummer.Run.Api/ServiceCollectionBoundedContextExtensions.cs bind the recipe-backed job launcher to the internal authenticated Hub orchestration endpoint.
           - /docker/chummercomplete/chummer6-hub/Chummer.Tests/ArtifactFactoryOrchestrationServiceTests.cs proves release, support, fix, and publication bundles route through approved source-pack receipts.
@@ -3399,3 +3399,65 @@ milestones:
     - id: '144.4'
       owner: fleet
       title: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel tuple proof.
+  - id: 145
+    title: Explain every visible value with grounded follow-up and bounded presenter mode
+    wave: W28
+    owners:
+    - chummer6-core
+    - chummer6-ui
+    - chummer6-mobile
+    - chummer6-media-factory
+    - executive-assistant
+    - fleet
+    - chummer6-design
+    status: in_progress
+    dependencies:
+    - 104
+    - 109
+    - 114
+    exit_criteria:
+    - Promoted build, compare, import, and live-play routes expose packet-backed explain drawers for every visible computed
+      value, legality result, or warning in scope; missing coverage, silent fallback, or stale snapshot truth blocks closeout.
+    - Explanation packets carry ordered steps, applied and skipped modifiers, cap/floor/round/override operations,
+      rule-environment identity, source anchors, privacy posture, and bounded counterfactual support for `why`, `why not`,
+      and `what if` questions.
+    - Optional narration, voice, or presenter surfaces compile only from approved explanation packets or counterfactual packets
+      and fall back to first-party text when grounding, provider, or microphone posture is unavailable.
+    - Release proof fails closed when a new promoted visible value, warning, or delta ships without coverage-registry truth,
+      deterministic packet validation, source-anchor posture, or text-first fallback.
+    work_tasks:
+    - id: '145.1'
+      owner: chummer6-core
+      title: Emit explanation packets, coverage-registry truth, and bounded counterfactual packets for every visible mechanical result.
+    - id: '145.2'
+      owner: chummer6-ui
+      title: Wire the desktop explain drawer, source-anchor launch, stale-state handling, and text-first follow-up on promoted workbench routes.
+    - id: '145.3'
+      owner: chummer6-mobile
+      title: Bring quick explain, source-anchor context, and bounded follow-up to mobile and live-play shells.
+    - id: '145.4'
+      owner: executive-assistant
+      title: Compile grounded narration and follow-up packs strictly from explanation-packet and counterfactual truth.
+    - id: '145.5'
+      owner: chummer6-media-factory
+      title: Render optional audio or presenter siblings from approved explanation packets without becoming calculation authority.
+    - id: '145.6'
+      owner: fleet
+      title: Fail closeout when visible values, warnings, or bounded what-if answers ship without explain coverage and fallback proof.
+    - id: '145.7'
+      owner: chummer6-design
+      title: Canonize explain-every-value truth order, source-anchor linkage, and bounded follow-up or presenter posture.
+      status: in_progress
+      evidence:
+      - /docker/chummercomplete/chummer-design/products/chummer/EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md defines the
+        product promise, truth order, packet contract, coverage-registry floor, and release-gated explain-every-value posture.
+      - /docker/chummercomplete/chummer-design/products/chummer/SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md now promotes
+        explain-every-value plus source-anchor proof from a curated hook to a promoted-route coverage floor.
+      - /docker/chummercomplete/chummer-design/products/chummer/BUILD_LAB_PRODUCT_MODEL.md now treats visible compare values,
+        deltas, and bounded what-if questions as packet-backed explain truth instead of review-only prose.
+      - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_RELEASE_ACCEPTANCE.yaml now requires promoted workbench
+        routes to treat missing explain coverage for visible computed or warning states as release-blocking.
+      - /docker/chummercomplete/chummer-design/products/chummer/README.md and /docker/chummercomplete/chummer-design/products/chummer/sync/sync-manifest.yaml
+        now place the explain-every-value canon on the main read paths and repo-local mirror set.
+      - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh now checks the new canon doc and README reference so the
+        contract cannot quietly disappear from standard design verification.

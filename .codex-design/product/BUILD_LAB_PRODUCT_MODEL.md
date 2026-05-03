@@ -10,6 +10,7 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * intake starts from a runner idea, current dossier, or campaign need
 * variant generation, scoring, and projection stay grounded in engine-owned truth
 * compare, timeline, trap-choice, role-overlap, and active-effect views stay explainable rather than magical
+* every visible compare number, delta, warning, or trap-choice claim can answer `why`, `why not`, or bounded `what if` questions from the same explain truth instead of review-only prose
 * chosen variants can hand off into the living dossier, campaign continuity, or publication lanes without re-entering data by hand
 * conditional mechanics such as drugs, foci, sustained effects, acquisition timing, and reputation spends stay visible as first-class state rather than hidden side effects
 * the active ruleset, preset, and amend package set stay visible and diffable so build output never feels detached from the rule environment that produced it
@@ -21,6 +22,7 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * candidate variant
 * progression timeline
 * explain packet
+* counterfactual packet
 * export or handoff target
 * conditional-effect state rail
 * rule-environment receipt
@@ -37,6 +39,7 @@ It turns deterministic rules truth into comparable build ideas, tradeoff project
 * Build Lab consumes `Chummer.Engine.Contracts`; it does not become a second rules engine.
 * Build Lab outputs may seed a living dossier or campaign plan, but dossier identity and campaign continuity remain in `Chummer.Campaign.Contracts`.
 * Explain hooks must remain visible enough that "why this variant" can be audited without private operator folklore.
+* Build Lab explain surfaces must obey `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md`, including coverage-registry truth, counterfactual packet truth, and explicit stale-state handling when the underlying snapshot changes.
 * Any narrated, video, audio, or preview-card companion for Build Lab must stay subordinate to `BUILD_EXPLAIN_ARTIFACT_TRUTH_POLICY.md`, with the packet, receipt anchors, and approval record outranking the media layer.
 * Any companion artifact must preserve the exact packet revision, rule-environment identity, anchor scope, and approval scope it summarizes; otherwise the launch surface must fall back to the inspectable packet or localized text summary.
 * Build Lab must expose source-linked hints, grouped organizational state, and receipt-backed conditional toggles instead of hiding these behind freeform notes or silent modifiers.
@@ -53,6 +56,7 @@ Build Lab is not flagship grade until:
 * ruleset-specific differences are surfaced with authored terminology and UI where needed
 * the active rule environment is visible enough that a user can tell whether a package choice changed the outcome
 * a player can understand "why this variant" without leaving the product or trusting invisible operator knowledge
+* a player can ask bounded "why not?" and "what if I remove this?" questions without the product inventing counterfactual math
 * any companion artifact can always hand the user back to the exact inspectable packet and anchor set it summarized
 * companion launch chrome exposes the packet revision, approval posture, and rule-environment context instead of making the rendered media look self-authenticating
 

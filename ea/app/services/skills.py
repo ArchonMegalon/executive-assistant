@@ -378,6 +378,16 @@ class SkillCatalogService:
             for contract in self._task_contracts.list_policy_records(limit=fetch_limit)
         ]
         if normalized_provider_hint:
+            projected = [
+                self.policy_record_to_skill_record(self._task_contracts.contract_to_policy_record(contract))
+                for contract in self._task_contracts.list_projected_contracts(
+                    provider_hint=provider_hint,
+                    limit=fetch_limit,
+                )
+            ]
+            if projected:
+                rows.extend(projected)
+        if normalized_provider_hint:
             rows = [
                 row
                 for row in rows
@@ -386,7 +396,15 @@ class SkillCatalogService:
                     for candidate in _collect_string_values(row.provider_hints_json)
                 )
             ]
-        return rows[:limit]
+        deduped: list[SkillCatalogRecord] = []
+        seen: set[str] = set()
+        for row in rows:
+            key = str(row.skill_key or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            deduped.append(row)
+        return deduped[:limit]
 
     def list_skills(self, limit: int = 100, provider_hint: str = ""):
         return [self.record_to_skill(record) for record in self.list_skill_records(limit=limit, provider_hint=provider_hint)]

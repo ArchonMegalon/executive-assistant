@@ -54,17 +54,17 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "key": "personal",
         "label": "Personal",
-        "summary": "One private operator across your own mail, chats, memory, and daily brief.",
+        "summary": "One private operator across your own mail, chats, memory, and morning memo.",
     },
     {
         "key": "team",
-        "label": "Team / tenant",
-        "summary": "A shared workspace for handoffs, inbox triage, follow-ups, and tenant-safe memory.",
+        "label": "Shared workspace",
+        "summary": "A shared workspace for handoffs, inbox triage, commitments, and tenant-safe memory.",
     },
     {
         "key": "executive_ops",
-        "label": "Founder / chief of staff ops",
-        "summary": "Cross-channel executive operations with briefs, drafts, follow-ups, and durable memory.",
+        "label": "Executive support",
+        "summary": "Cross-channel executive operations with briefs, drafts, commitments, and durable memory.",
     },
 )
 
@@ -105,6 +105,25 @@ class OnboardingService(AssistantOnboardingService):
         )
         self._memory_runtime = memory_runtime
 
+    def _preferred_google_binding(self, *, principal_id: str):  # type: ignore[no-untyped-def]
+        google_binding = self._provider_registry.get_persisted_binding_record(
+            binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+            principal_id=principal_id,
+        )
+        if google_binding is not None:
+            status = str(getattr(google_binding, "status", "") or "").strip().lower()
+            token_status = str(dict(getattr(google_binding, "auth_metadata_json", {}) or {}).get("token_status") or "").strip().lower()
+            if status == "enabled" and token_status != "revoked":
+                return google_binding
+        for binding in self._provider_registry.list_persisted_binding_records(principal_id=principal_id, limit=100):
+            if str(getattr(binding, "provider_key", "") or "").strip().lower() != GOOGLE_PROVIDER_KEY:
+                continue
+            status = str(getattr(binding, "status", "") or "").strip().lower()
+            token_status = str(dict(getattr(binding, "auth_metadata_json", {}) or {}).get("token_status") or "").strip().lower()
+            if status == "enabled" and token_status != "revoked":
+                return binding
+        return google_binding
+
     def start_workspace(
         self,
         *,
@@ -144,6 +163,8 @@ class OnboardingService(AssistantOnboardingService):
         principal_id: str,
         scope_bundle: str,
         redirect_uri_override: str | None = None,
+        return_to: str | None = None,
+        browser_source: str | None = None,
     ) -> dict[str, object]:
         requested_bundle = str(scope_bundle or "core").strip().lower() or "core"
         if requested_bundle not in GOOGLE_ONBOARDING_BUNDLE_ALIASES:
@@ -159,6 +180,8 @@ class OnboardingService(AssistantOnboardingService):
                 principal_id=principal_id,
                 scope_bundle=oauth_bundle,
                 redirect_uri_override=redirect_uri_override,
+                return_to=return_to,
+                browser_source=browser_source,
             )
             google_pref["status"] = "ready_to_connect"
             google_pref["requested_scopes"] = list(packet.requested_scopes)
@@ -391,7 +414,7 @@ class OnboardingService(AssistantOnboardingService):
                 "ingestion_mode": "plan_confirmed",
                 "status": completion_status,
                 "last_imported_count": int(imported_message_count or 0),
-                "next_step": "Use next setup steps to finalize memory policy and generate the first brief.",
+                "next_step": "Use next setup steps to finalize memory policy and generate the first morning memo.",
             }
         )
         updated = self._replace_channel_pref(state, "whatsapp", whatsapp_pref, status="in_progress")
@@ -435,10 +458,7 @@ class OnboardingService(AssistantOnboardingService):
             "allow_action_suggestions": bool(allow_action_suggestions),
             "allow_auto_briefs": bool(allow_auto_briefs),
         }
-        google_binding = self._provider_registry.get_persisted_binding_record(
-            binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
-            principal_id=principal_id,
-        )
+        google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
         connectors = self._tool_runtime.list_connector_bindings(principal_id=principal_id, limit=100)
         channel_statuses = self._channel_statuses(
@@ -486,10 +506,7 @@ class OnboardingService(AssistantOnboardingService):
 
     def status(self, *, principal_id: str, state_override: OnboardingState | None = None) -> dict[str, object]:
         state = state_override or self._repo.get_for_principal(principal_id)
-        google_binding = self._provider_registry.get_persisted_binding_record(
-            binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
-            principal_id=principal_id,
-        )
+        google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
         connectors = self._tool_runtime.list_connector_bindings(principal_id=principal_id, limit=100)
         channel_statuses = self._channel_statuses(
@@ -781,7 +798,7 @@ class OnboardingService(AssistantOnboardingService):
                 else:
                     history_state.append("WhatsApp is selected but not configured yet.")
         if not selected_channels:
-            history_state.append("No channels are selected yet, so the first brief can only describe setup posture.")
+            history_state.append("No channels are selected yet, so the first morning memo can only describe setup posture.")
         normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
         top_themes = list(self._top_themes_for_mode(normalized_workspace_mode, selected_channels))
         if not top_contacts:
@@ -789,7 +806,7 @@ class OnboardingService(AssistantOnboardingService):
         first_brief_lines = [
             "Reply first: identify the highest-friction thread across connected channels.",
             "Calendar watch: surface the next real commitment and the people attached to it.",
-            "Follow-up memory: keep a ledger of promises, drafts, and pending replies with source traces.",
+            "Commitment ledger: keep promises, drafts, and pending replies visible with source traces.",
         ]
         if "telegram" in selected_channels:
             first_brief_lines.append("Telegram recap: distinguish DM urgency from group chatter instead of flattening them together.")
@@ -806,7 +823,7 @@ class OnboardingService(AssistantOnboardingService):
             "The assistant only claims history it can actually import or observe through supported channel paths.",
         ]
         return {
-            "headline": f"{workspace_name} wakes up with one cross-channel brief instead of three disconnected inboxes.",
+            "headline": f"{workspace_name} wakes up with one cross-channel morning memo instead of three disconnected inboxes.",
             "principal_id": principal_id,
             "workspace_mode": normalized_workspace_mode,
             "who_you_are": [
@@ -850,12 +867,12 @@ class OnboardingService(AssistantOnboardingService):
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
-            return "Finalize privacy and brief preferences so EA can build the first trustworthy brief."
+            return "Finalize privacy and morning memo preferences so EA can build the first trustworthy morning memo."
         if bool(dict(state.privacy_preferences_json).get("allow_auto_briefs")) and not bool(
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):
             return "Connect Google or set a delivery email so the morning memo can actually send."
-        return "Review the first brief, then keep connecting the next real channel or import path."
+        return "Review the first morning memo, then keep connecting the next real channel or import path."
 
     @staticmethod
     def _normalize_auto_brief_cadence(value: str) -> str:
@@ -1027,26 +1044,26 @@ class OnboardingService(AssistantOnboardingService):
             base = [
                 "Stakeholder replies that still need an owner",
                 "Meeting prep and recap across the channels already connected",
-                "Handoffs that should become durable memory instead of inbox drift",
+                "Handoffs that stay visible instead of sliding back into inbox drift",
             ]
         elif normalized_mode == "executive_ops":
             base = [
-                "Executive briefings that connect email, chat, calendar, and follow-up state",
-                "Durable relationship memory that should survive inbox and chat scrollback",
-                "Drafts, meeting prep, and operator notes with source traces",
+                "Morning memos that connect email, chat, calendar, and commitment state",
+                "Durable relationship memory that survives inbox and chat scrollback",
+                "Drafts, meeting prep, and operator notes with attached source traces",
             ]
         else:
             base = [
                 "Reply backlog across personal channels",
                 "Upcoming commitments and who they affect",
-                "Follow-ups that should not fall out of memory",
+                "Commitments that stay visible after the thread scrolls away",
             ]
         if "google" in selected_channels:
             base.append("Mail triage with calendar-aware context")
         if "telegram" in selected_channels:
             base.append("DM versus group urgency on Telegram")
         if "whatsapp" in selected_channels:
-            base.append("WhatsApp threads that need an explicit follow-up or import decision")
+            base.append("WhatsApp threads that need an explicit commitment or import decision")
         return tuple(base)
 
 

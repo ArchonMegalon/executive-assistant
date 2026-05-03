@@ -82,6 +82,23 @@ def test_onemin_browseract_failure_code_detects_onemin_auth_csp_block_as_challen
     ) == "challenge_required"
 
 
+def test_onemin_direct_api_opener_hashes_proxy_subject(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        "http://ea-fastestvpn-proxy-01:3128,http://ea-fastestvpn-proxy-02:3128",
+    )
+    from app.api.routes import providers as providers_route
+
+    opener = providers_route._onemin_direct_api_opener(proxy_subject="ONEMIN_AI_API_KEY_FALLBACK_68")
+    proxy_handler = next(
+        handler for handler in opener.handlers if isinstance(handler, providers_route.urllib.request.ProxyHandler)
+    )
+
+    assert proxy_handler.proxies["http"] == providers_route.upstream._onemin_direct_api_proxy_url_for_subject(  # type: ignore[attr-defined]
+        "ONEMIN_AI_API_KEY_FALLBACK_68"
+    )
+
+
 def test_provider_bindings_are_principal_scoped_and_support_probe_updates() -> None:
     owner = _client(principal_id="exec-1")
     created = owner.post(
@@ -185,6 +202,7 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     assert accounts.status_code == 200
     rows = accounts.json()
     assert len(rows) == 1
+    assert rows[0]["is_primary"] is True
     assert rows[0]["google_subject"] == "google-sub-123"
     assert rows[0]["granted_scopes"] == ["email", "https://www.googleapis.com/auth/gmail.send", "openid", "profile"]
 
@@ -215,6 +233,116 @@ def test_google_oauth_routes_create_and_disconnect_binding(monkeypatch: pytest.M
     disconnected_body = disconnected.json()
     assert disconnected_body["token_status"] == "revoked"
     assert disconnected_body["reauth_required_reason"] == "disconnected_by_operator"
+
+
+def test_google_oauth_routes_support_second_google_account_on_same_principal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-google-multi")
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+            "expires_in": 3600,
+        },
+    )
+
+    started_primary = owner.post("/v1/providers/google/oauth/start", json={"scope_bundle": "send"})
+    assert started_primary.status_code == 200
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-1",
+            "email": "tibor@girschele.com",
+            "hd": "girschele.com",
+        },
+    )
+    primary_callback = owner.get(
+        "/v1/providers/google/oauth/callback",
+        params={"code": "code-primary", "state": started_primary.json()["state"]},
+    )
+    assert primary_callback.status_code == 200
+    primary_body = primary_callback.json()
+    assert primary_body["binding_id"] == "exec-google-multi:google_gmail"
+
+    started_secondary = owner.post("/v1/providers/google/oauth/start", json={"scope_bundle": "core"})
+    assert started_secondary.status_code == 200
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-2",
+            "email": "office@girschele.com",
+            "hd": "girschele.com",
+        },
+    )
+    secondary_callback = owner.get(
+        "/v1/providers/google/oauth/callback",
+        params={"code": "code-secondary", "state": started_secondary.json()["state"]},
+    )
+    assert secondary_callback.status_code == 200
+    secondary_body = secondary_callback.json()
+    assert secondary_body["binding_id"] == "exec-google-multi:google_gmail:acct:google-sub-2"
+    assert secondary_body["google_email"] == "office@girschele.com"
+
+    accounts = owner.get("/v1/providers/google/accounts")
+    assert accounts.status_code == 200
+    rows = accounts.json()
+    assert [row["google_email"] for row in rows] == ["tibor@girschele.com", "office@girschele.com"]
+
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": f"fresh-{kwargs['refresh_token']}",
+            "expires_in": 3600,
+        },
+    )
+
+    captured: dict[str, str] = {}
+
+    def _fake_send(**kwargs):
+        captured["access_token"] = kwargs["access_token"]
+        return "gmail-message-200"
+
+    monkeypatch.setattr(google_service, "_gmail_send_message", _fake_send)
+
+    smoke = owner.post(
+        "/v1/providers/google/gmail/smoke-test",
+        json={"binding_id": "exec-google-multi:google_gmail:acct:google-sub-2"},
+    )
+    assert smoke.status_code == 200
+    smoke_body = smoke.json()
+    assert smoke_body["sender_email"] == "office@girschele.com"
+    assert captured["access_token"] == "fresh-refresh-token"
+
+    promoted = owner.post(
+        "/v1/providers/google/accounts/exec-google-multi:google_gmail:acct:google-sub-2/make-primary",
+        params={"principal_id": "exec-google-multi"},
+    )
+    assert promoted.status_code == 200
+    promoted_body = promoted.json()
+    assert promoted_body["binding_id"] == "exec-google-multi:google_gmail"
+    assert promoted_body["google_email"] == "office@girschele.com"
+    assert promoted_body["is_primary"] is True
+
+    accounts_after = owner.get("/v1/providers/google/accounts")
+    assert accounts_after.status_code == 200
+    rows_after = accounts_after.json()
+    assert [row["google_email"] for row in rows_after] == ["office@girschele.com", "tibor@girschele.com"]
+    assert rows_after[0]["is_primary"] is True
+    assert rows_after[1]["is_primary"] is False
 
 
 def test_onboarding_google_start_reports_missing_oauth_configuration(
@@ -426,13 +554,14 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
 
     owner = _client(principal_id="exec-browser")
 
     landing = owner.get("/")
     assert landing.status_code == 200
     _assert_no_product_drift(landing.text)
-    assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
+    assert "Wake up to a clear morning memo, not a wall of inbox noise." in landing.text
     assert "Create personal workspace" in landing.text
     assert "Nothing sends without your review." in landing.text
     for href in _internal_links(landing.text):
@@ -450,7 +579,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
     assert "Sign in if you already have workspace access." in sign_in.text
-    assert "New customers should create a personal workspace first." in sign_in.text
+    assert "New customers start with a personal workspace first." in sign_in.text
+    assert "Email me a sign-in link" in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
@@ -481,7 +611,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     parsed = urllib.parse.urlparse(location)
     query = urllib.parse.parse_qs(parsed.query)
     state = query["state"][0]
-    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
+    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
 
     from app.services import google_oauth as google_service
 
@@ -497,6 +627,16 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     )
     monkeypatch.setattr(
         google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": "fresh-access-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(google_service, "_gmail_messages_payload", lambda **kwargs: {})
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        google_service,
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-browser",
@@ -510,6 +650,8 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert "Google is connected. The next step is to use it." in callback.text
     assert "browser@gmail.example" in callback.text
     assert "gmail.send" in callback.text
+    assert 'href="/get-started"' in callback.text
+    assert "First signal sync finished." in callback.text
 
 
 def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -544,7 +686,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     landing = owner.get("/")
     assert landing.status_code == 200
     assert "Open current session" in landing.text
-    assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
+    assert "Wake up to a clear morning memo, not a wall of inbox noise." in landing.text
     assert "browser@gmail.com" not in landing.text
 
     started = owner.post(
@@ -555,7 +697,7 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert started.status_code == 303
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
+    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
     state = query["state"][0]
 
     from app.services import google_oauth as google_service
@@ -572,6 +714,16 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     )
     monkeypatch.setattr(
         google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": "fresh-access-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(google_service, "_gmail_messages_payload", lambda **kwargs: {})
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+    monkeypatch.setattr(
+        google_service,
         "_fetch_google_userinfo",
         lambda access_token: {
             "sub": "google-sub-browser",
@@ -585,6 +737,8 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert "Google is connected. The next step is to use it." in callback.text
     assert "browser@gmail.com" in callback.text
     assert "cf-email:browser@gmail.com" not in callback.text
+    assert 'href="/get-started"' in callback.text
+    assert "First signal sync finished." in callback.text
 
 
 def test_browser_shell_routes_and_nav_links_resolve() -> None:
@@ -1046,6 +1200,223 @@ def test_onemin_billing_refresh_forwards_full_provider_api_flags(
     assert observed["all_accounts"] is False
     assert observed["account_labels"] == {"ONEMIN_AI_API_KEY"}
     assert observed["continue_on_rate_limit"] is True
+
+
+def test_onemin_billing_refresh_targeted_global_provider_api_bypasses_browseract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY_FALLBACK_68",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "slotpass")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": [
+                    "ONEMIN_AI_API_KEY_FALLBACK_68",
+                ]
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    invoked: list[str] = []
+    observed: dict[str, object] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        invoked.append(str(kwargs.get("tool_name") or ""))
+        return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+
+    def fake_refresh(**kwargs):
+        observed.update(kwargs)
+        return (
+            [{"account_label": "ONEMIN_AI_API_KEY_FALLBACK_68", "refresh_backend": "onemin_api"}],
+            [],
+            [],
+            1,
+            0,
+            False,
+        )
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", fake_refresh)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={
+            "include_members": False,
+            "provider_api_all_accounts": True,
+            "account_labels": ["ONEMIN_AI_API_KEY_FALLBACK_68"],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert invoked == []
+    assert observed["all_accounts"] is False
+    assert observed["account_labels"] == {"ONEMIN_AI_API_KEY_FALLBACK_68"}
+    assert body["provider_api_target_labels"] == ["ONEMIN_AI_API_KEY_FALLBACK_68"]
+    assert body["api_account_attempted"] == 1
+    assert body["billing_results"][0]["refresh_backend"] == "onemin_api"
+
+
+def test_onemin_billing_refresh_invalidates_provider_health_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv(
+        "EA_RESPONSES_ONEMIN_OWNER_LEDGER_JSON",
+        json.dumps(
+            {
+                "slots": [
+                    {
+                        "account_name": "ONEMIN_AI_API_KEY",
+                        "owner_email": "owner@example.com",
+                    }
+                ]
+            }
+        ),
+    )
+
+    from app.api.routes import providers as providers_route
+
+    invalidations: list[object] = []
+    remembered: list[tuple[bool, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        providers_route,
+        "_refresh_onemin_via_provider_api",
+        lambda **_kwargs: ([{"account_label": "ONEMIN_AI_API_KEY", "refresh_backend": "onemin_api"}], [], [], 1, 0, False),
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "invalidate_provider_health_snapshot_cache",
+        lambda lightweight=None: invalidations.append(lightweight),
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "remember_provider_health_snapshot_cache",
+        lambda *, lightweight, payload: remembered.append((lightweight, dict(payload))),
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {"onemin": {"state": "ready", "configured_slots": 1}},
+            "provider_health_snapshot": {"lightweight": bool(lightweight)},
+        },
+    )
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": False, "provider_api_all_accounts": True},
+    )
+    assert response.status_code == 200
+    assert invalidations == [None]
+    assert remembered == [
+        (False, {"providers": {"onemin": {"state": "ready", "configured_slots": 1}}, "provider_health_snapshot": {"lightweight": False}}),
+        (True, {"providers": {"onemin": {"state": "ready", "configured_slots": 1}}, "provider_health_snapshot": {"lightweight": True}}),
+    ]
+
+
+def test_onemin_probe_all_invalidates_provider_health_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    from app.api.routes import providers as providers_route
+
+    invalidations: list[object] = []
+    remembered: list[tuple[bool, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        providers_route,
+        "probe_all_onemin_slots",
+        lambda **_kwargs: {"provider_key": "onemin", "slot_count": 1},
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "invalidate_provider_health_snapshot_cache",
+        lambda lightweight=None: invalidations.append(lightweight),
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "remember_provider_health_snapshot_cache",
+        lambda *, lightweight, payload: remembered.append((lightweight, dict(payload))),
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {"onemin": {"state": "ready", "configured_slots": 1}},
+            "provider_health_snapshot": {"lightweight": bool(lightweight)},
+        },
+    )
+
+    response = owner.post("/v1/providers/onemin/probe-all", json={"include_reserve": True})
+    assert response.status_code == 200
+    assert response.json()["provider_key"] == "onemin"
+    assert invalidations == [None]
+    assert remembered == [
+        (True, {"providers": {"onemin": {"state": "ready", "configured_slots": 1}}, "provider_health_snapshot": {"lightweight": True}}),
+    ]
+
+
+def test_onemin_probe_all_forwards_requested_account_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    from app.api.routes import providers as providers_route
+
+    observed: dict[str, object] = {}
+
+    def fake_probe_all_onemin_slots(*, include_reserve: bool, account_labels: list[str] | None = None):
+        observed["include_reserve"] = include_reserve
+        observed["account_labels"] = list(account_labels or [])
+        return {"provider_key": "onemin", "slot_count": len(account_labels or [])}
+
+    monkeypatch.setattr(providers_route, "probe_all_onemin_slots", fake_probe_all_onemin_slots)
+    monkeypatch.setattr(
+        providers_route,
+        "invalidate_provider_health_snapshot_cache",
+        lambda lightweight=None: None,
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "remember_provider_health_snapshot_cache",
+        lambda *, lightweight, payload: None,
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {"providers": {"onemin": {"state": "ready"}}},
+    )
+
+    response = owner.post(
+        "/v1/providers/onemin/probe-all",
+        json={"include_reserve": False, "account_labels": ["ACC_A", "ACC_B"]},
+    )
+
+    assert response.status_code == 200
+    assert observed == {"include_reserve": False, "account_labels": ["ACC_A", "ACC_B"]}
+    assert response.json()["slot_count"] == 2
 
 
 def test_onemin_billing_refresh_is_throttled_to_one_run_per_minute(
@@ -2680,6 +3051,8 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert page.status_code == 200
     assert "Property Tour" in page.text
     assert f"/tours/files/{slug}/scene-01.jpg" in page.text
+    page_head = client.head(f"/tours/{slug}", follow_redirects=False)
+    assert page_head.status_code == 200
 
     payload = client.get(f"/tours/{slug}.json")
     assert payload.status_code == 200
@@ -2728,7 +3101,11 @@ def test_public_results_no_longer_shadow_tour_routes(
 
     missing_tour = client.get("/tours/movie-demo")
     assert missing_tour.status_code == 404
-    assert missing_tour.json()["error"]["code"] == "tour_not_found"
+    assert "This tour link is no longer available." in missing_tour.text
+    assert "Request a fresh tour" in missing_tour.text
+    missing_tour_payload = client.get("/tours/movie-demo.json")
+    assert missing_tour_payload.status_code == 404
+    assert missing_tour_payload.json()["error"]["code"] == "tour_not_found"
 
 
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

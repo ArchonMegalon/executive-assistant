@@ -25,6 +25,8 @@ from app.api.routes.product_api_contracts import (
     PocketSignalSyncOut,
     SignalIngestEndpointCreateIn,
     SignalIngestEndpointOut,
+    WillhabenPropertyTourIn,
+    WillhabenPropertyTourOut,
     WebhookDeliveryOut,
     WebhookDeliveryResponse,
     WebhookOut,
@@ -93,6 +95,31 @@ def ingest_office_signal(
         actor=actor,
     )
     return OfficeSignalResultOut(**payload)
+
+
+@router.post("/signals/willhaben/property-tour", response_model=WillhabenPropertyTourOut)
+def create_willhaben_property_tour(
+    body: WillhabenPropertyTourIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WillhabenPropertyTourOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.create_willhaben_property_tour(
+            principal_id=context.principal_id,
+            property_url=body.property_url,
+            recipient_email=body.recipient_email,
+            variant_key=body.variant_key,
+            binding_id=body.binding_id,
+            source_ref=body.source_ref,
+            external_id=body.external_id,
+            auto_deliver=body.auto_deliver,
+            actor=actor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WillhabenPropertyTourOut(**payload)
 
 
 @router.post("/signals/pocket/upload-url", response_model=SignalIngestEndpointOut)

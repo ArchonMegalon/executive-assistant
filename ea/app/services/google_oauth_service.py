@@ -7,9 +7,18 @@ class GoogleOAuthService:
     def __init__(self) -> None:
         pass
 
-    def build_start(self, principal_id: str, scope_bundle: str, redirect_uri_override: str | None = None):
+    def build_start(
+        self,
+        principal_id: str,
+        scope_bundle: str,
+        redirect_uri_override: str | None = None,
+        return_to: str | None = None,
+        browser_source: str | None = None,
+    ):
         return build_google_oauth_start(
             principal_id=principal_id,
             scope_bundle=scope_bundle,
             redirect_uri_override=redirect_uri_override,
+            return_to=return_to,
+            browser_source=browser_source,
         )

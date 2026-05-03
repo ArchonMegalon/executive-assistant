@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import urllib.parse
 
+from app.services.google_oauth import read_google_oauth_state
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
@@ -42,9 +43,11 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Connect now" in settings.text
     assert "/app/settings/outcomes" in settings.text
     assert "/app/settings/google" in settings.text
-    assert "/app/settings/support" not in settings.text
-    assert "/app/settings/access" not in settings.text
-    assert "/app/settings/invitations" not in settings.text
+    assert "/app/settings/support" in settings.text
+    assert "/app/settings/access" in settings.text
+    assert "/app/settings/invitations" in settings.text
+    assert "Who can enter and who is waiting" in settings.text
+    assert "What needs support before the loop slips" in settings.text
 
     invitations = client.get("/app/settings/invitations")
     assert invitations.status_code == 200
@@ -241,7 +244,7 @@ def test_browser_handoff_and_people_memory_actions_work() -> None:
     assert "Recent threads" in person_page.text
     assert "sofia@example.com" in person_page.text
     assert "Recent relationship history" in person_page.text
-    assert "Memory Corrected" in person_page.text
+    assert "Relationship Updated" in person_page.text
 
 
 def test_delivery_followup_browser_actions_surface_send_and_reauth_controls() -> None:
@@ -329,7 +332,7 @@ def test_thread_detail_can_resume_blocked_delivery_followup() -> None:
 
     thread_page = client.get(f"/app/threads/{thread_id}")
     assert thread_page.status_code == 200
-    assert "Resume follow-up" in thread_page.text
+    assert "Resume handoff" in thread_page.text
     assert "Open handoff" in thread_page.text
 
     resumed = client.post(
@@ -371,7 +374,275 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
-    assert query["redirect_uri"][0] == "https://ea.example/v1/providers/google/oauth/callback"
+    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
+    assert read_google_oauth_state(query["state"][0])["return_to"] == "/app/settings/google"
+    blocked = client.get("/app/actions/google/connect", params={"return_to": "https://evil.example/phish"}, follow_redirects=False)
+    assert blocked.status_code == 303
+    blocked_query = urllib.parse.parse_qs(urllib.parse.urlparse(blocked.headers["location"]).query)
+    assert read_google_oauth_state(blocked_query["state"][0])["return_to"] == "/app/settings/google"
+    started_head = client.head("/app/actions/google/connect", params={"return_to": "/app/settings/google"}, follow_redirects=False)
+    assert started_head.status_code == 303
+    assert "https://accounts.google.com/o/oauth2/v2/auth" in started_head.headers["location"]
+
+
+def test_google_settings_surface_can_email_full_access_connect_link(monkeypatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    principal_id = "cf-email:browser.office@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    from app.product import service as product_service
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    observed: dict[str, object] = {}
+
+    def _fake_send_google_connect_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="google-connect-message-1",
+            accepted_at="2026-05-02T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_google_connect_email", _fake_send_google_connect_email)
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Email full-access link" in settings.text
+    assert "Ready to send a full-access Google link to browser.office@example.com" in settings.text
+
+    sent = client.post(
+        "/app/actions/google/email-connect-link?recipient_email=browser.office@example.com&scope_bundle=full_workspace",
+        data={"return_to": "https://evil.example/phish"},
+        follow_redirects=False,
+    )
+    assert sent.status_code == 303
+    assert sent.headers["location"].startswith("/app/settings/google?")
+    assert "email_link_status=sent" in sent.headers["location"]
+    sent_page = client.get(sent.headers["location"])
+    assert sent_page.status_code == 200
+    assert "Sent Google Full Workspace link to browser.office@example.com" in sent_page.text
+    assert observed["recipient_email"] == "browser.office@example.com"
+    assert observed["workspace_name"] == "Founder Office"
+    assert observed["scope_label"] == "Google Full Workspace"
+    assert str(observed["connect_url"]).startswith("https://myexternalbrain.com/workspace-access/")
+    parsed = urllib.parse.urlparse(str(observed["connect_url"]))
+    outer_query = urllib.parse.parse_qs(parsed.query)
+    nested_return_to = urllib.parse.unquote(str(outer_query["return_to"][0]))
+    nested_query = urllib.parse.parse_qs(urllib.parse.urlparse(nested_return_to).query)
+    assert nested_query["scope_bundle"] == ["full_workspace"]
+
+
+def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    principal_id = "exec-browser-google-multi"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile https://www.googleapis.com/auth/gmail.send",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": "fresh-access-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(google_service, "_gmail_messages_payload", lambda **kwargs: {})
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+
+    started_primary = client.get(
+        "/app/actions/google/connect",
+        params={"return_to": "/app/settings/google", "scope_bundle": "send"},
+        follow_redirects=False,
+    )
+    assert started_primary.status_code == 303
+    primary_query = urllib.parse.parse_qs(urllib.parse.urlparse(started_primary.headers["location"]).query)
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-1",
+            "email": "tibor@girschele.com",
+            "hd": "girschele.com",
+        },
+    )
+    primary_callback = client.get(
+        "/google/callback",
+        params={"code": "code-primary", "state": primary_query["state"][0]},
+        follow_redirects=False,
+    )
+    assert primary_callback.status_code == 303
+    assert "account_status=account_connected" in primary_callback.headers["location"]
+    assert "sync_status=completed" in primary_callback.headers["location"]
+    primary_connected = client.get(primary_callback.headers["location"])
+    assert primary_connected.status_code == 200
+    assert "Inbox connected." in primary_connected.text
+    assert "tibor@girschele.com" in primary_connected.text
+    assert "Last manual sync" in primary_connected.text
+    assert "Completed" in primary_connected.text
+
+    started_secondary = client.get(
+        "/app/actions/google/connect",
+        params={"return_to": "/app/settings/google", "scope_bundle": "core"},
+        follow_redirects=False,
+    )
+    assert started_secondary.status_code == 303
+    secondary_query = urllib.parse.parse_qs(urllib.parse.urlparse(started_secondary.headers["location"]).query)
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-2",
+            "email": "office@girschele.com",
+            "hd": "girschele.com",
+        },
+    )
+    secondary_callback = client.get(
+        "/google/callback",
+        params={"code": "code-secondary", "state": secondary_query["state"][0]},
+        follow_redirects=False,
+    )
+    assert secondary_callback.status_code == 303
+    assert "account_status=account_connected" in secondary_callback.headers["location"]
+    assert "sync_status=completed" in secondary_callback.headers["location"]
+    secondary_connected = client.get(secondary_callback.headers["location"])
+    assert secondary_connected.status_code == 200
+    assert "Inbox connected." in secondary_connected.text
+    assert "office@girschele.com" in secondary_connected.text
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": f"fresh-{kwargs['refresh_token']}",
+            "expires_in": 3600,
+        },
+    )
+    captured_send: dict[str, str] = {}
+
+    def _fake_send(**kwargs):
+        captured_send["access_token"] = str(kwargs["access_token"])
+        return "gmail-message-verify"
+
+    monkeypatch.setattr(google_service, "_gmail_send_message", _fake_send)
+
+    settings = client.get("/app/settings/google")
+    assert settings.status_code == 200
+    assert "Connected inboxes and send defaults" in settings.text
+    assert "tibor@girschele.com" in settings.text
+    assert "office@girschele.com" in settings.text
+    assert settings.text.index("tibor@girschele.com") < settings.text.index("office@girschele.com")
+    assert "Add inbox" in settings.text
+    assert "Make primary" in settings.text
+    assert "Verify send" in settings.text
+    assert "Inbox connected." in settings.text
+    assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-2/make-primary" in settings.text
+    assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send" in settings.text
+
+    verified = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert verified.status_code == 303
+    assert "verify_status=completed" in verified.headers["location"]
+    assert "verify_sender=tibor%40girschele.com" in verified.headers["location"]
+    assert captured_send["access_token"] == "fresh-refresh-token"
+    verified_page = client.get(verified.headers["location"])
+    assert verified_page.status_code == 200
+    assert "Last send verification" in verified_page.text
+    assert "Verified tibor@girschele.com" in verified_page.text
+    reloaded_settings = client.get("/app/settings/google")
+    assert reloaded_settings.status_code == 200
+    assert "Verified tibor@girschele.com" in reloaded_settings.text
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    sync = diagnostics.json()["analytics"]["sync"]
+    assert sync["google_send_verification_last_state"] == "completed"
+    assert sync["google_send_verification_last_sender_email"] == "tibor@girschele.com"
+    assert sync["google_send_verification_last_recipient_email"] == "tibor@girschele.com"
+    verified_accounts = {row["binding_id"]: row for row in sync["google_send_verification_accounts"]}
+    assert verified_accounts["exec-browser-google-multi:google_gmail"]["state"] == "completed"
+    assert verified_accounts["exec-browser-google-multi:google_gmail"]["sender_email"] == "tibor@girschele.com"
+    assert verified_accounts["exec-browser-google-multi:google_gmail:acct:google-sub-2"]["state"] == ""
+
+    promoted = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-2/make-primary",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert promoted.status_code == 303
+    assert "account_status=primary_updated" in promoted.headers["location"]
+    promoted_page = client.get(promoted.headers["location"])
+    assert promoted_page.status_code == 200
+    assert "Primary inbox updated." in promoted_page.text
+    assert promoted_page.text.index("office@girschele.com") < promoted_page.text.index("tibor@girschele.com")
+    assert "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/disconnect" in promoted_page.text
+    assert "send not yet verified" in promoted_page.text
+    reloaded_after_promote = client.get("/app/settings/google")
+    assert reloaded_after_promote.status_code == 200
+    assert "Primary inbox updated. office@girschele.com" in reloaded_after_promote.text
+
+    verified_primary_after_promotion = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail/verify-send",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert verified_primary_after_promotion.status_code == 303
+    promoted_verified_page = client.get(verified_primary_after_promotion.headers["location"])
+    assert promoted_verified_page.status_code == 200
+    assert "Verified office@girschele.com" in promoted_verified_page.text
+    diagnostics_after_promotion = client.get("/app/api/diagnostics")
+    assert diagnostics_after_promotion.status_code == 200
+    sync_after_promotion = diagnostics_after_promotion.json()["analytics"]["sync"]
+    verified_accounts_after_promotion = {
+        row["binding_id"]: row for row in sync_after_promotion["google_send_verification_accounts"]
+    }
+    assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail"]["sender_email"] == "office@girschele.com"
+    assert (
+        verified_accounts_after_promotion["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["sender_email"]
+        == "tibor@girschele.com"
+    )
+    assert verified_accounts_after_promotion["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["state"] == "completed"
+
+    disconnected = client.post(
+        "/app/actions/google/accounts/exec-browser-google-multi:google_gmail:acct:google-sub-1/disconnect",
+        data={"return_to": "/app/settings/google"},
+        follow_redirects=False,
+    )
+    assert disconnected.status_code == 303
+    assert "account_status=account_disconnected" in disconnected.headers["location"]
+    disconnected_page = client.get(disconnected.headers["location"])
+    assert disconnected_page.status_code == 200
+    assert "Inbox disconnected." in disconnected_page.text
+    assert "Reconnect" in disconnected_page.text
+    reloaded_after_disconnect = client.get("/app/settings/google")
+    assert reloaded_after_disconnect.status_code == 200
+    assert "Inbox disconnected. tibor@girschele.com" in reloaded_after_disconnect.text
+    diagnostics_after_disconnect = client.get("/app/api/diagnostics")
+    assert diagnostics_after_disconnect.status_code == 200
+    sync_after_disconnect = diagnostics_after_disconnect.json()["analytics"]["sync"]
+    assert sync_after_disconnect["google_account_change_last_state"] == "account_disconnected"
+    assert sync_after_disconnect["google_account_change_last_email"] == "tibor@girschele.com"
+    changed_accounts = {row["binding_id"]: row for row in sync_after_disconnect["google_account_change_accounts"]}
+    assert changed_accounts["exec-browser-google-multi:google_gmail"]["state"] == "account_primary_updated"
+    assert changed_accounts["exec-browser-google-multi:google_gmail:acct:google-sub-1"]["state"] == "account_disconnected"
 
 
 def test_object_detail_routes_render_core_product_objects() -> None:
@@ -468,6 +739,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Support fallout" in support_page.text
     assert "Public guide freshness" in support_page.text
     assert "Open bundle" in support_page.text
+    assert "Download JSON" in support_page.text
 
     outcomes_page = client.get("/app/settings/outcomes")
     assert outcomes_page.status_code == 200
@@ -478,8 +750,8 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "What the office-loop release gate would say right now" in outcomes_page.text
     assert "Support fallout" in outcomes_page.text
     assert "Public guide freshness" in outcomes_page.text
-    assert "Blocked delivery follow-ups" in outcomes_page.text
-    assert "Delivery follow-ups closed" in outcomes_page.text
+    assert "Blocked delivery handoffs" in outcomes_page.text
+    assert "Delivery handoffs closed" in outcomes_page.text
 
     trust_page = client.get("/app/settings/trust")
     assert trust_page.status_code == 200
@@ -712,7 +984,7 @@ def test_morning_memo_issue_surfaces_reason_and_fix_target() -> None:
     assert settings.status_code == 200
     assert "Last memo issue" in settings.text
     assert "Domain not verified" in settings.text
-    assert "/app/settings/support" not in settings.text
+    assert "/app/settings/support" in settings.text
 
     outcomes_page = client.get("/app/settings/outcomes")
     assert outcomes_page.status_code == 200
@@ -745,7 +1017,7 @@ def test_manual_memo_issue_surfaces_reason_and_fix_target_even_when_schedule_dis
     assert settings.status_code == 200
     assert "Last memo issue" in settings.text
     assert "Domain not verified" in settings.text
-    assert "/app/settings/support" not in settings.text
+    assert "/app/settings/support" in settings.text
 
     outcomes_page = client.get("/app/settings/outcomes")
     assert outcomes_page.status_code == 200
@@ -769,7 +1041,7 @@ def test_operator_admin_office_page_centers_the_operator_lane() -> None:
     assert office.status_code == 200
     assert "Office" in office.text
     assert "What the office control surface is carrying right now" in office.text
-    assert "What the operator should do next" in office.text
+    assert "What to clear next" in office.text
     assert "What already belongs to this operator lane" in office.text
     assert "What can be claimed next" in office.text
     assert "Access, delivery, and Google posture" in office.text
@@ -1077,16 +1349,28 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     start_workspace(client, mode="personal")
 
     invite = client.post(
-        "/app/api/invitations",
-        json={"email": "operator@example.com", "role": "operator", "display_name": "Operator One"},
+        "/app/actions/invitations/create",
+        data={"email": "operator@example.com", "role": "operator", "display_name": "Operator One", "return_to": "https://evil.example/phish"},
+        follow_redirects=False,
     )
-    assert invite.status_code == 200
+    assert invite.status_code == 303
+    assert invite.headers["location"].startswith("/app/settings/invitations?")
+    assert "invite_status=created" in invite.headers["location"]
+    invite_created_page = client.get(invite.headers["location"])
+    assert invite_created_page.status_code == 200
+    assert "Invitation created for operator@example.com" in invite_created_page.text
 
     access_session = client.post(
-        "/app/api/access-sessions",
-        json={"email": "principal@example.com", "role": "principal", "display_name": "Principal Access"},
+        "/app/actions/access-sessions/issue",
+        data={"email": "principal@example.com", "role": "principal", "display_name": "Principal Access", "return_to": "//evil.example/phish"},
+        follow_redirects=False,
     )
-    assert access_session.status_code == 200
+    assert access_session.status_code == 303
+    assert access_session.headers["location"].startswith("/app/settings/access?")
+    assert "issue_status=issued" in access_session.headers["location"]
+    access_created_page = client.get(access_session.headers["location"])
+    assert access_created_page.status_code == 200
+    assert "Access link issued for principal@example.com" in access_created_page.text
 
     invitations_page = client.get("/app/settings/invitations")
     assert invitations_page.status_code == 200
@@ -1099,6 +1383,57 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert "Workspace access" in access_page.text
     assert "Live workspace access links" in access_page.text
     assert "principal@example.com" in access_page.text
+
+    invitation_rows = client.get("/app/api/invitations")
+    assert invitation_rows.status_code == 200
+    invitation_items = invitation_rows.json()["items"]
+    assert invitation_items
+    invitation_id = invitation_items[0]["invitation_id"]
+    invite_url = invitation_items[0]["invite_url"]
+    assert invite_url.startswith("/workspace-invites/")
+    assert invite_url in invitations_page.text
+    invite_preview = client.get(invite_url)
+    assert invite_preview.status_code == 200
+    assert "operator@example.com" in invite_preview.text
+    revoked_invite = client.post(
+        f"/app/actions/invitations/{invitation_id}/revoke",
+        data={"return_to": "/app/settings/invitations"},
+        follow_redirects=False,
+    )
+    assert revoked_invite.status_code == 303
+    assert "invite_status=revoked" in revoked_invite.headers["location"]
+    revoked_invite_page = client.get(revoked_invite.headers["location"])
+    assert revoked_invite_page.status_code == 200
+    assert "Revoked invitation for operator@example.com" in revoked_invite_page.text
+
+    access_rows = client.get("/app/api/access-sessions")
+    assert access_rows.status_code == 200
+    access_items = access_rows.json()["items"]
+    assert access_items
+    session_id = access_items[0]["session_id"]
+    access_url = access_items[0]["access_url"]
+    assert access_url.startswith("/workspace-access/")
+    assert access_url in access_page.text
+    access_preview = client.get(access_url, follow_redirects=False)
+    assert access_preview.status_code == 303
+    assert access_preview.headers["location"] == "/app/today"
+    revoked_access = client.post(
+        f"/app/actions/access-sessions/{session_id}/revoke",
+        data={"return_to": "/app/settings/access"},
+        follow_redirects=False,
+    )
+    assert revoked_access.status_code == 303
+    assert "access_status=revoked" in revoked_access.headers["location"]
+    revoked_access_page = client.get(revoked_access.headers["location"])
+    assert revoked_access_page.status_code == 200
+    assert "Revoked principal@example.com" in revoked_access_page.text
+
+    settings_page = client.get("/app/settings")
+    assert settings_page.status_code == 200
+    assert "/app/settings/invitations" in settings_page.text
+    assert "/app/settings/access" in settings_page.text
+    assert "Pending invitations" in settings_page.text
+    assert "Active access sessions" in settings_page.text
 
 
 def test_browser_rules_page_can_update_morning_memo_schedule() -> None:
@@ -1157,8 +1492,8 @@ def test_browser_google_settings_page_and_run_now_action_work() -> None:
     sync_page = client.get("/app/settings/google")
     assert sync_page.status_code == 200
     assert "Google sync" in sync_page.text
-    assert "Latest sync run and queued follow-up work" in sync_page.text
+    assert "Latest sync run and queued commitment work" in sync_page.text
 
-    triggered = client.get("/app/actions/signals/google/sync?return_to=/app/settings/google", follow_redirects=False)
+    triggered = client.get("/app/actions/signals/google/sync?return_to=https://evil.example/phish", follow_redirects=False)
     assert triggered.status_code == 303
     assert triggered.headers["location"].startswith("/app/settings/google")

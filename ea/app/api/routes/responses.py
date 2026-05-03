@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from types import CodeType
 from typing import Any, Callable, Iterable
 
 import yaml
@@ -77,6 +78,8 @@ _RESPONSES_ROUTE_EXECUTOR = ThreadPoolExecutor(
 _PROVIDER_HEALTH_CACHE_LOCK = threading.Lock()
 _PROVIDER_HEALTH_CACHE: dict[bool, dict[str, object]] = {}
 _PROVIDER_HEALTH_REFRESH_IN_FLIGHT: dict[bool, bool] = {True: False, False: False}
+_PROVIDER_HEALTH_REFRESH_FUTURES: dict[bool, asyncio.Future[dict[str, object]] | None] = {True: None, False: None}
+_PROVIDER_HEALTH_CACHE_SCHEMA_VERSION = 1
 _SSE_KEEPALIVE_TEXT = "Trace: waiting on upstream reasoning.\n"
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
 _ENV_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
@@ -985,33 +988,153 @@ def _provider_health_cache_refresh_interval_seconds() -> float:
     return _float_env("EA_PROVIDER_HEALTH_CACHE_REFRESH_INTERVAL_SECONDS", 60.0, minimum=1.0, maximum=3600.0)
 
 
+def _provider_health_snapshot_stale_age_seconds() -> float:
+    return _provider_health_cache_refresh_interval_seconds()
+
+
+def _provider_health_startup_prewarm_timeout_seconds() -> float:
+    return _float_env("EA_PROVIDER_HEALTH_STARTUP_PREWARM_TIMEOUT_SECONDS", 2.0, minimum=0.1, maximum=15.0)
+
+
+def _provider_health_code_signature(code: CodeType) -> str:
+    digest = hashlib.sha256()
+
+    def update_const(value: object) -> None:
+        if isinstance(value, CodeType):
+            digest.update(b"<code>")
+            digest.update(str(value.co_name).encode("utf-8", errors="ignore"))
+            digest.update(b":")
+            digest.update(value.co_code)
+            for collection in (value.co_names, value.co_varnames, value.co_freevars, value.co_cellvars):
+                digest.update(repr(tuple(collection)).encode("utf-8", errors="ignore"))
+                digest.update(b"\n")
+            for item in value.co_consts:
+                update_const(item)
+            return
+        if isinstance(value, tuple):
+            digest.update(b"<tuple>")
+            for item in value:
+                update_const(item)
+            return
+        if isinstance(value, list):
+            digest.update(b"<list>")
+            for item in value:
+                update_const(item)
+            return
+        if isinstance(value, dict):
+            digest.update(b"<dict>")
+            for key, item in sorted(value.items(), key=lambda row: repr(row[0])):
+                update_const(key)
+                update_const(item)
+            return
+        digest.update(type(value).__name__.encode("utf-8", errors="ignore"))
+        digest.update(b":")
+        digest.update(repr(value).encode("utf-8", errors="ignore"))
+        digest.update(b"\n")
+
+    update_const(code)
+    return digest.hexdigest()
+
+
 def _provider_health_env_signature() -> str:
     prefixes = (
         "AI_MAGICX_",
-        "BROWSERACT_",
+        "BROWSERACT_API_KEY",
         "EA_GEMINI_VORTEX_",
-        "EA_PROVIDER_",
-        "EA_RESPONSES_",
         "GOOGLE_API_KEY",
         "ONEMIN_AI_API_KEY",
     )
-    digest = hashlib.sha256(str(id(_provider_health_report)).encode("ascii", errors="ignore"))
+    exact_names = {
+        "EA_RESPONSES_HARD_MAX_ACTIVE_REQUESTS",
+        "EA_RESPONSES_MAGICX_API_KEY",
+        "EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY",
+        "EA_RESPONSES_ONEMIN_ACTIVE_SLOTS",
+        "EA_RESPONSES_ONEMIN_API_KEY",
+        "EA_RESPONSES_ONEMIN_DIRECT_API_PROXY_URL",
+        "EA_RESPONSES_ONEMIN_DIRECT_API_PROXY_URLS",
+        "EA_RESPONSES_ONEMIN_HARD_MODELS",
+        "EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY",
+        "EA_RESPONSES_ONEMIN_PROBE_MODEL",
+        "EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS",
+        "EA_RESPONSES_ONEMIN_RESERVE_SLOTS",
+        "EA_RESPONSES_PROVIDER_ORDER",
+        "EA_RESPONSES_HARD_PROVIDER_ORDER",
+    }
+    digest = hashlib.sha256()
+    digest.update(str(getattr(_provider_health_report, "__module__", "")).encode("utf-8", errors="ignore"))
+    digest.update(b":")
+    digest.update(str(getattr(_provider_health_report, "__qualname__", "")).encode("utf-8", errors="ignore"))
+    code = getattr(_provider_health_report, "__code__", None)
+    if code is not None:
+        digest.update(_provider_health_code_signature(code).encode("ascii"))
+    else:
+        digest.update(repr(_provider_health_report).encode("utf-8", errors="ignore"))
     for name, value in sorted(os.environ.items()):
-        if not any(str(name or "").startswith(prefix) for prefix in prefixes):
+        normalized_name = str(name or "")
+        if normalized_name not in exact_names and not any(normalized_name.startswith(prefix) for prefix in prefixes):
             continue
-        digest.update(str(name or "").encode("utf-8", errors="ignore"))
+        digest.update(normalized_name.encode("utf-8", errors="ignore"))
         digest.update(b"=")
         digest.update(hashlib.sha256(str(value or "").encode("utf-8", errors="ignore")).hexdigest().encode("ascii"))
         digest.update(b"\n")
     return digest.hexdigest()
 
 
+def _provider_health_cache_file(*, lightweight: bool) -> Path:
+    configured = str(os.environ.get("EA_PROVIDER_HEALTH_CACHE_DIR") or "").strip()
+    if configured:
+        root = Path(configured)
+    else:
+        ledger_dir = str(os.environ.get("EA_RESPONSES_PROVIDER_LEDGER_DIR") or "/data/provider-ledger").strip()
+        root = Path(ledger_dir) / "provider-health-cache"
+    name = "lightweight.json" if lightweight else "full.json"
+    return root / name
+
+
+def _load_provider_health_cache_entry_from_disk(*, lightweight: bool) -> dict[str, object] | None:
+    path = _provider_health_cache_file(lightweight=lightweight)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if int(payload.get("schema_version") or 0) != _PROVIDER_HEALTH_CACHE_SCHEMA_VERSION:
+        return None
+    return payload
+
+
+def _write_provider_health_cache_entry_to_disk(*, lightweight: bool, entry: dict[str, object]) -> None:
+    path = _provider_health_cache_file(lightweight=lightweight)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        tmp_path.write_text(json.dumps(entry, ensure_ascii=True, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+    except Exception:
+        pass
+
+
 def _cached_provider_health_snapshot(*, lightweight: bool, allow_stale: bool = False) -> tuple[dict[str, object], float] | tuple[None, None]:
-    env_signature = _provider_health_env_signature()
+    current_env_signature = _provider_health_env_signature()
     with _PROVIDER_HEALTH_CACHE_LOCK:
         cached = dict(_PROVIDER_HEALTH_CACHE.get(bool(lightweight)) or {})
-    if str(cached.get("env_signature") or "") != env_signature:
-        return None, None
+    if (
+        int(cached.get("schema_version") or 0) != _PROVIDER_HEALTH_CACHE_SCHEMA_VERSION
+        or not isinstance(cached.get("payload"), dict)
+        or not cached.get("payload")
+        or str(cached.get("env_signature") or "") != current_env_signature
+    ):
+        cached = {}
+        disk_cached = _load_provider_health_cache_entry_from_disk(lightweight=lightweight) or {}
+        if (
+            isinstance(disk_cached.get("payload"), dict)
+            and disk_cached.get("payload")
+            and str(disk_cached.get("env_signature") or "") == current_env_signature
+        ):
+            cached = dict(disk_cached)
+            with _PROVIDER_HEALTH_CACHE_LOCK:
+                _PROVIDER_HEALTH_CACHE[bool(lightweight)] = dict(cached)
     payload = cached.get("payload")
     cached_at = float(cached.get("cached_at") or 0.0)
     if not isinstance(payload, dict) or not payload:
@@ -1025,12 +1148,31 @@ def _cached_provider_health_snapshot(*, lightweight: bool, allow_stale: bool = F
 def _remember_provider_health_snapshot(*, lightweight: bool, payload: dict[str, object]) -> None:
     if not isinstance(payload, dict) or not payload:
         return
+    entry = {
+        "cached_at": time.time(),
+        "schema_version": _PROVIDER_HEALTH_CACHE_SCHEMA_VERSION,
+        "env_signature": _provider_health_env_signature(),
+        "payload": dict(payload),
+    }
     with _PROVIDER_HEALTH_CACHE_LOCK:
-        _PROVIDER_HEALTH_CACHE[bool(lightweight)] = {
-            "cached_at": time.time(),
-            "env_signature": _provider_health_env_signature(),
-            "payload": dict(payload),
-        }
+        _PROVIDER_HEALTH_CACHE[bool(lightweight)] = dict(entry)
+    _write_provider_health_cache_entry_to_disk(lightweight=lightweight, entry=entry)
+
+
+def invalidate_provider_health_snapshot_cache(*, lightweight: bool | None = None) -> None:
+    with _PROVIDER_HEALTH_CACHE_LOCK:
+        if lightweight is None:
+            _PROVIDER_HEALTH_CACHE.clear()
+            _PROVIDER_HEALTH_REFRESH_IN_FLIGHT.clear()
+            _PROVIDER_HEALTH_REFRESH_FUTURES.clear()
+            return
+        _PROVIDER_HEALTH_CACHE.pop(bool(lightweight), None)
+        _PROVIDER_HEALTH_REFRESH_IN_FLIGHT.pop(bool(lightweight), None)
+        _PROVIDER_HEALTH_REFRESH_FUTURES.pop(bool(lightweight), None)
+
+
+def remember_provider_health_snapshot_cache(*, lightweight: bool, payload: dict[str, object]) -> None:
+    _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
 
 
 def _provider_env_slot_names(primary: str, fallback_prefix: str, *, max_slots: int = 128) -> list[str]:
@@ -1156,6 +1298,7 @@ def _mark_provider_health_snapshot(
     status: str,
     reason: str = "",
     age_seconds: float | None = None,
+    stale: bool | None = None,
     lightweight: bool,
 ) -> dict[str, object]:
     marked = dict(payload or {})
@@ -1170,6 +1313,8 @@ def _mark_provider_health_snapshot(
         metadata["reason"] = reason
     if age_seconds is not None:
         metadata["age_seconds"] = round(float(age_seconds), 3)
+    if stale is not None:
+        metadata["stale"] = bool(stale)
     marked["provider_health_snapshot"] = metadata
     return marked
 
@@ -1184,6 +1329,13 @@ def _finish_provider_health_refresh(lightweight: bool, future: asyncio.Future[di
     finally:
         with _PROVIDER_HEALTH_CACHE_LOCK:
             _PROVIDER_HEALTH_REFRESH_IN_FLIGHT[bool(lightweight)] = False
+            _PROVIDER_HEALTH_REFRESH_FUTURES[bool(lightweight)] = None
+
+
+def _current_provider_health_refresh_future(*, lightweight: bool) -> asyncio.Future[dict[str, object]] | None:
+    with _PROVIDER_HEALTH_CACHE_LOCK:
+        future = _PROVIDER_HEALTH_REFRESH_FUTURES.get(bool(lightweight))
+    return future if isinstance(future, asyncio.Future) else None
 
 
 def _start_provider_health_refresh(loop: asyncio.AbstractEventLoop, *, lightweight: bool) -> asyncio.Future[dict[str, object]] | None:
@@ -1195,21 +1347,58 @@ def _start_provider_health_refresh(loop: asyncio.AbstractEventLoop, *, lightweig
         _PROVIDER_HEALTH_EXECUTOR,
         lambda: _provider_health_snapshot(lightweight=lightweight),
     )
+    with _PROVIDER_HEALTH_CACHE_LOCK:
+        _PROVIDER_HEALTH_REFRESH_FUTURES[bool(lightweight)] = future
     future.add_done_callback(lambda done: _finish_provider_health_refresh(lightweight, done))
     return future
 
 
-async def _provider_health_snapshot_async(*, lightweight: bool) -> dict[str, object]:
+async def _provider_health_snapshot_async(*, lightweight: bool, wait_on_stale: bool = False) -> dict[str, object]:
     loop = asyncio.get_running_loop()
     cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight)
     if cached is not None:
-        if age_seconds is not None and age_seconds >= _provider_health_cache_refresh_interval_seconds():
-            _start_provider_health_refresh(loop, lightweight=lightweight)
+        stale = bool(
+            age_seconds is not None
+            and age_seconds >= _provider_health_snapshot_stale_age_seconds()
+        )
+        if stale:
+            future = _start_provider_health_refresh(loop, lightweight=lightweight)
+            refresh_started = future is not None
+            if future is None:
+                future = _current_provider_health_refresh_future(lightweight=lightweight)
+            if wait_on_stale and future is not None:
+                try:
+                    payload = await asyncio.wait_for(
+                        asyncio.shield(future),
+                        timeout=_provider_health_route_timeout_seconds(lightweight=lightweight),
+                    )
+                    if isinstance(payload, dict) and payload:
+                        _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
+                        return _mark_provider_health_snapshot(
+                            payload,
+                            status="live",
+                            reason="waited for stale provider-health refresh",
+                            stale=False,
+                            lightweight=lightweight,
+                        )
+                except asyncio.TimeoutError:
+                    reason = "stale provider-health cache; waited for refresh but it timed out"
+                except Exception as exc:
+                    reason = f"stale provider-health cache; waited for refresh but it failed: {type(exc).__name__}"
+                else:
+                    reason = "stale provider-health cache; background refresh started"
+            elif refresh_started:
+                reason = "stale provider-health cache; background refresh started"
+            else:
+                reason = "stale provider-health cache; background refresh already in flight"
+        else:
+            reason = "fresh provider-health cache"
         return _mark_provider_health_snapshot(
             cached,
             status="cached",
-            reason="fresh provider-health cache",
+            reason=reason,
             age_seconds=age_seconds,
+            stale=stale,
             lightweight=lightweight,
         )
 
@@ -1222,6 +1411,7 @@ async def _provider_health_snapshot_async(*, lightweight: bool) -> dict[str, obj
                 status="cached",
                 reason="live refresh already in flight",
                 age_seconds=age_seconds,
+                stale=True if age_seconds is not None else None,
                 lightweight=lightweight,
             )
         return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live refresh already in flight")
@@ -1238,6 +1428,7 @@ async def _provider_health_snapshot_async(*, lightweight: bool) -> dict[str, obj
                 status="cached",
                 reason="live provider-health refresh timed out",
                 age_seconds=age_seconds,
+                stale=True if age_seconds is not None else None,
                 lightweight=lightweight,
             )
         return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live provider-health refresh timed out")
@@ -1249,6 +1440,7 @@ async def _provider_health_snapshot_async(*, lightweight: bool) -> dict[str, obj
                 status="cached",
                 reason=f"live provider-health refresh failed: {type(exc).__name__}",
                 age_seconds=age_seconds,
+                stale=True if age_seconds is not None else None,
                 lightweight=lightweight,
             )
         return _minimal_provider_health_snapshot(
@@ -1258,16 +1450,55 @@ async def _provider_health_snapshot_async(*, lightweight: bool) -> dict[str, obj
     return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live provider-health returned empty payload")
 
 
+async def prewarm_provider_health_snapshot_cache(*, lightweight: bool = True, timeout_seconds: float | None = None) -> None:
+    loop = asyncio.get_running_loop()
+    future = _start_provider_health_refresh(loop, lightweight=lightweight)
+    if future is None:
+        return
+    effective_timeout = (
+        _provider_health_startup_prewarm_timeout_seconds()
+        if timeout_seconds is None
+        else max(0.1, float(timeout_seconds))
+    )
+    try:
+        payload = await asyncio.wait_for(asyncio.shield(future), timeout=effective_timeout)
+    except Exception:
+        return
+    if isinstance(payload, dict) and payload:
+        _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
+
+
 def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]:
+    def _int_or_none(value: object) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     slots = [dict(item) for item in (provider.get("slots") or []) if isinstance(item, dict)]
     configured_slots = int(provider.get("configured_slots") or len(slots) or 0)
     slot_states = [str(slot.get("state") or "").strip().lower() or "unknown" for slot in slots if bool(slot.get("configured", True))]
-    ready_slots = sum(1 for state in slot_states if state == "ready")
-    degraded_slots = sum(1 for state in slot_states if state in {"degraded", "cooldown", "unknown"})
+    slot_state_counts = {
+        str(key or "").strip().lower() or "unknown": int(value or 0)
+        for key, value in dict(provider.get("slot_state_counts") or {}).items()
+    }
+    if not slot_state_counts:
+        for state in slot_states:
+            slot_state_counts[state] = slot_state_counts.get(state, 0) + 1
+    ready_slots = _int_or_none(provider.get("ready_slot_count"))
+    if ready_slots is None:
+        ready_slots = int(slot_state_counts.get("ready") or 0)
+    degraded_slots = sum(
+        int(slot_state_counts.get(state) or 0)
+        for state in ("degraded", "cooldown", "unknown")
+    )
     unavailable_slots = max(0, configured_slots - ready_slots - degraded_slots)
+    live_ready_slot_count = _int_or_none(provider.get("live_ready_slot_count"))
     state = str(provider.get("state") or "").strip().lower()
     if not state:
-        if ready_slots:
+        if (live_ready_slot_count or 0) > 0 or ready_slots:
             state = "ready"
         elif degraded_slots:
             state = "degraded"
@@ -1279,11 +1510,18 @@ def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]
         "state": state,
         "configured_slots": configured_slots,
         "ready_slots": ready_slots,
+        "live_ready_slot_count": live_ready_slot_count,
         "degraded_slots": degraded_slots,
         "unavailable_slots": unavailable_slots,
         "leased_slots": int(provider.get("active_lease_count") or 0),
         "remaining_percent_of_max": provider.get("remaining_percent_of_max"),
+        "live_remaining_percent_of_max": provider.get("live_remaining_percent_of_max"),
+        "actual_remaining_percent_of_max": provider.get("actual_remaining_percent_of_max"),
         "estimated_remaining_credits_total": provider.get("estimated_remaining_credits_total"),
+        "live_remaining_credits_total": provider.get("live_remaining_credits_total"),
+        "actual_remaining_credits_total": provider.get("actual_remaining_credits_total"),
+        "live_positive_balance_slot_count": _int_or_none(provider.get("live_positive_balance_slot_count")),
+        "slot_state_counts": slot_state_counts,
         "slot_owners": [],
         "lease_holders": [],
         "last_used_principal_id": "",
@@ -9300,9 +9538,10 @@ async def get_provider_health(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     lightweight: bool = Query(default=False),
+    wait_on_stale: bool = Query(default=False),
 ) -> Response:
     include_sensitive = is_operator_context(context)
-    provider_health = await _provider_health_snapshot_async(lightweight=lightweight)
+    provider_health = await _provider_health_snapshot_async(lightweight=lightweight, wait_on_stale=wait_on_stale)
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
     provider_registry = await _provider_registry_payload_async(
         container=container,

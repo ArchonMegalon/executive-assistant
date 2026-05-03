@@ -257,6 +257,162 @@ def send_workspace_invitation_email(
     )
 
 
+def send_workspace_access_email(
+    *,
+    recipient_email: str,
+    workspace_name: str,
+    access_url: str,
+    role: str,
+    display_name: str = "",
+    expires_at: str = "",
+) -> RegistrationEmailReceipt:
+    minutes = _minutes_until(expires_at_iso=expires_at)
+    role_label = str(role or "principal").strip().replace("_", " ").title() or "Principal"
+    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    display = str(display_name or "").strip()
+    body = [
+        "Hello,",
+        "",
+        f"Open this secure link to return to {workspace_label}:",
+        "",
+        access_url,
+        "",
+        f"This link expires in about {minutes} minutes.",
+    ]
+    if display:
+        body.extend(["", f"This link opens your {role_label.lower()} access as {display}."])
+    else:
+        body.extend(["", f"This link opens your {role_label.lower()} access to the workspace."])
+    body.extend(
+        [
+            "",
+            "Google is connected later as a workspace data source. It is not your app login.",
+        ]
+    )
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=f"Your access link for {workspace_label}",
+        text="\n".join(body).strip() + "\n",
+        kind="ea_workspace_access_session",
+        meta={
+            "access_ref": _meta_ref(access_url),
+            "workspace_name": workspace_label,
+            "role": str(role or "").strip().lower(),
+        },
+    )
+
+
+def send_google_connect_email(
+    *,
+    recipient_email: str,
+    workspace_name: str,
+    connect_url: str,
+    scope_label: str,
+    scope_summary: str,
+    primary_google_email: str = "",
+    connected_account_total: int = 0,
+    expires_at: str = "",
+) -> RegistrationEmailReceipt:
+    minutes = _minutes_until(expires_at_iso=expires_at)
+    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    label = str(scope_label or "Google Full Workspace").strip() or "Google Full Workspace"
+    summary = str(scope_summary or "").strip()
+    primary_email = str(primary_google_email or "").strip().lower()
+    body = [
+        "Hello,",
+        "",
+        f"Open this secure link to connect a Google inbox to {workspace_label}:",
+        "",
+        connect_url,
+        "",
+        f"This link expires in about {minutes} minutes.",
+        "",
+        "The link signs you into the workspace first, then starts Google consent.",
+        f"Requested bundle: {label}.",
+    ]
+    if summary:
+        body.extend(["", summary])
+    if connected_account_total <= 0:
+        body.extend(["", "No Google inbox is connected in this workspace yet, so this link will attach the first one."])
+    elif primary_email:
+        body.extend(["", f"The current primary inbox stays {primary_email}. This link adds another inbox to the same workspace."])
+    else:
+        body.extend(["", "This link adds another Google inbox to the same workspace."])
+    body.extend(
+        [
+            "",
+            "Google is used here as workspace data and action consent. It is not your app login.",
+        ]
+    )
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=f"Connect Google to {workspace_label}",
+        text="\n".join(body).strip() + "\n",
+        kind="ea_google_connect_link",
+        sender_email=str(os.environ.get("EA_EMAIL_DEFAULT_FROM") or "").strip(),
+        sender_name=str(os.environ.get("EA_EMAIL_DEFAULT_NAME") or "").strip(),
+        meta={
+            "connect_ref": _meta_ref(connect_url),
+            "workspace_name": workspace_label,
+            "scope_label": label,
+        },
+    )
+
+
+def send_property_tour_email(
+    *,
+    recipient_email: str,
+    property_title: str,
+    property_url: str,
+    tour_url: str,
+    variant_key: str = "",
+    listing_id: str = "",
+    area_label: str = "",
+    rooms_label: str = "",
+    price_label: str = "",
+    sender_email: str = "",
+    sender_name: str = "",
+) -> RegistrationEmailReceipt:
+    title = str(property_title or "Apartment tour").strip() or "Apartment tour"
+    variant_label = str(variant_key or "").strip().replace("_", " ")
+    subject = f"Apartment tour ready: {title}"
+    if variant_label:
+        subject = f"{subject} · {variant_label}"
+    body = [
+        "Hello,",
+        "",
+        f"EA prepared a tour for {title}:",
+        "",
+        tour_url,
+        "",
+        f"Listing: {property_url}",
+    ]
+    if listing_id:
+        body.append(f"Listing ID: {listing_id}")
+    facts = [value for value in (area_label, rooms_label, price_label) if str(value or "").strip()]
+    if facts:
+        body.extend(["", "Quick facts:", *facts])
+    body.extend(
+        [
+            "",
+            "Open the tour link to review the space directly.",
+        ]
+    )
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=subject[:220],
+        text="\n".join(body).strip() + "\n",
+        kind="ea_property_tour_delivery",
+        meta={
+            "tour_ref": _meta_ref(tour_url),
+            "listing_ref": _meta_ref(property_url),
+            "variant_key": str(variant_key or "").strip(),
+        },
+        sender_email=sender_email,
+        sender_name=sender_name,
+    )
+
+
 def send_channel_digest_email(
     *,
     recipient_email: str,

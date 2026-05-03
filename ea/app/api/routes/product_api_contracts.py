@@ -158,6 +158,16 @@ class HandoffNoteOut(BaseModel):
     recipient_email: str = ""
     subject: str = ""
     delivery_reason: str = ""
+    property_url: str = ""
+    listing_id: str = ""
+    variant_key: str = ""
+    blocked_reason: str = ""
+    tour_url: str = ""
+    vendor_tour_url: str = ""
+    editor_url: str = ""
+    connector_binding_id: str = ""
+    source_ref: str = ""
+    external_id: str = ""
     evidence_refs: list[EvidenceRefOut]
 
 
@@ -766,6 +776,38 @@ class OfficeSignalResultOut(BaseModel):
     staged_count: int = 0
     draft_count: int = 0
     deduplicated: bool = False
+    ooda_loop: dict[str, object] = Field(default_factory=dict)
+
+
+class WillhabenPropertyTourIn(BaseModel):
+    property_url: str = Field(min_length=1)
+    recipient_email: str = ""
+    variant_key: str = "layout_first"
+    binding_id: str = ""
+    source_ref: str = ""
+    external_id: str = ""
+    auto_deliver: bool = True
+
+
+class WillhabenPropertyTourOut(BaseModel):
+    generated_at: str
+    status: str
+    property_url: str
+    title: str = ""
+    listing_id: str = ""
+    variant_key: str = ""
+    artifact_id: str = ""
+    execution_session_id: str = ""
+    connector_binding_id: str = ""
+    tour_url: str = ""
+    vendor_tour_url: str = ""
+    editor_url: str = ""
+    delivery_email: str = ""
+    delivery_status: str = ""
+    blocked_reason: str = ""
+    human_task_id: str = ""
+    source_ref: str = ""
+    external_id: str = ""
 
 
 class SignalIngestEndpointCreateIn(BaseModel):
@@ -857,6 +899,7 @@ class PocketRecordingDetailOut(BaseModel):
 class GoogleSignalSyncOut(BaseModel):
     generated_at: str
     account_email: str = ""
+    account_emails: list[str] = Field(default_factory=list)
     granted_scopes: list[str] = Field(default_factory=list)
     items: list[OfficeSignalResultOut] = Field(default_factory=list)
     total: int = 0
@@ -869,6 +912,7 @@ class GoogleSignalSyncStatusOut(BaseModel):
     generated_at: str
     connected: bool = False
     account_email: str = ""
+    account_emails: list[str] = Field(default_factory=list)
     token_status: str = "missing"
     last_refresh_at: str = ""
     reauth_required_reason: str = ""
@@ -882,8 +926,14 @@ class GoogleSignalSyncStatusOut(BaseModel):
     last_calendar_total: int = 0
     age_seconds: int | None = None
     freshness_state: str = "watch"
+    account_sync_accounts: list[dict[str, object]] = Field(default_factory=list)
     pending_commitment_candidates: int = 0
     covered_signal_candidates: int = 0
+    last_account_change_at: str = ""
+    last_account_change_state: str = ""
+    last_account_change_binding_id: str = ""
+    last_account_change_email: str = ""
+    account_change_accounts: list[dict[str, object]] = Field(default_factory=list)
 
 
 class WebhookRegisterIn(BaseModel):
@@ -1065,6 +1115,16 @@ def handoff_out(value: HandoffNote) -> HandoffNoteOut:
         recipient_email=value.recipient_email,
         subject=value.subject,
         delivery_reason=value.delivery_reason,
+        property_url=value.property_url,
+        listing_id=value.listing_id,
+        variant_key=value.variant_key,
+        blocked_reason=value.blocked_reason,
+        tour_url=value.tour_url,
+        vendor_tour_url=value.vendor_tour_url,
+        editor_url=value.editor_url,
+        connector_binding_id=value.connector_binding_id,
+        source_ref=value.source_ref,
+        external_id=value.external_id,
         evidence_refs=evidence_out(value.evidence_refs),
     )
 

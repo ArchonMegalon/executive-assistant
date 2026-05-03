@@ -1,0 +1,106 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .link-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+    gap: 18px;
+  }
+  .link-panel,
+  .link-detail {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255,255,255,0.03);
+    box-shadow: var(--shadow);
+    padding: 24px;
+  }
+  .link-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .link-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .link-row {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  .link-row:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .link-row .label {
+    display: block;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .link-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  @media (max-width: 1080px) {
+    .link-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="link-grid">
+  <section class="link-panel">
+    <div class="kicker">{{ link_kicker }}</div>
+    <h1>{{ link_title }}</h1>
+    <p class="lead">{{ link_summary }}</p>
+    <div class="link-actions">
+      {% if primary_action_href %}
+      {% if (primary_action_method or 'get')|lower == 'post' %}
+      <form method="post" action="{{ primary_action_href }}">
+        {% for key, value in (primary_action_fields or {}).items() %}
+        <input type="hidden" name="{{ key }}" value="{{ value }}">
+        {% endfor %}
+        <button class="btn primary" type="submit">{{ primary_action_label }}</button>
+      </form>
+      {% else %}
+      <a class="btn primary" href="{{ primary_action_href }}">{{ primary_action_label }}</a>
+      {% endif %}
+      {% endif %}
+      {% if secondary_action_href %}
+      <a class="btn" href="{{ secondary_action_href }}">{{ secondary_action_label }}</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="link-detail">
+    <div class="kicker">Secure link status</div>
+    <h2>{{ link_detail_title }}</h2>
+    <div class="link-status">{{ link_status_label }}</div>
+    <div class="link-list">
+      {% for row in link_rows %}
+      <section class="link-row">
+        <span class="label">{{ row.label }}</span>
+        <strong>{{ row.value }}</strong>
+        {% if row.detail %}
+        <p class="copy">{{ row.detail }}</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

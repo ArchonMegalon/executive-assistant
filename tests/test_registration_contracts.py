@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.product_test_helpers import start_workspace
 
 
 def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
@@ -90,6 +93,71 @@ def test_register_start_reports_email_delivery_failure_without_aborting_flow(
     assert len(body["verification_code"]) == 6
 
 
+def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    issued = client.post(
+        "/app/api/access-sessions",
+        json={"email": "founder@example.com", "role": "principal", "display_name": "Founder Office"},
+    )
+    assert issued.status_code == 200
+
+    from app.product import service as product_service
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    observed: dict[str, object] = {}
+
+    def _fake_send_workspace_access_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="access-message-1",
+            accepted_at="2026-03-26T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_workspace_access_email", _fake_send_workspace_access_email)
+
+    response = client.post(
+        "/sign-in/email-link",
+        data={"email": "Founder@Example.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "link_status=sent" in response.headers["location"]
+    assert "link_count=1" in response.headers["location"]
+    followup = client.get(response.headers["location"])
+    assert followup.status_code == 200
+    assert "Secure access links sent." in followup.text
+    assert "founder@example.com" in followup.text
+    assert observed["recipient_email"] == "founder@example.com"
+    assert observed["workspace_name"] == "Founder Office"
+    assert str(observed["access_url"]).startswith("https://myexternalbrain.com/workspace-access/")
+
+
+def test_sign_in_email_link_reports_missing_workspace_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+
+    response = client.post(
+        "/sign-in/email-link",
+        data={"email": "unknown@example.com"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "link_status=not_found" in response.headers["location"]
+    followup = client.get(response.headers["location"])
+    assert followup.status_code == 200
+    assert "No existing workspace matched that email." in followup.text
+
+
 def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
@@ -133,6 +201,112 @@ def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch)
     assert google_start["ready"] is True
     assert google_start["auth_url"].startswith("https://accounts.google.com/o/oauth2/v2/auth")
     assert google_start["start_url"] == google_start["auth_url"]
+
+
+def test_register_verify_uses_browser_google_callback_even_when_api_callback_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://myexternalbrain.com/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    started = client.post("/v1/register/start", json={"email": "browser-callback@example.com"})
+    assert started.status_code == 200
+    body = started.json()
+
+    verified = client.post(
+        "/v1/register/verify",
+        json={
+            "verification_token": body["verification_token"],
+            "verification_code": body["verification_code"],
+            "workspace_name": "Browser Callback",
+            "timezone": "Europe/Vienna",
+            "language": "en",
+        },
+    )
+    assert verified.status_code == 200
+    google_start = dict(verified.json()["google_start"])
+    parsed = urllib.parse.urlparse(str(google_start["auth_url"]))
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["redirect_uri"][0] == "https://myexternalbrain.com/google/callback"
+
+
+def test_register_google_callback_page_signals_original_registration_tab(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://myexternalbrain.com/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    started = client.post("/v1/register/start", json={"email": "callback-signal@example.com"})
+    assert started.status_code == 200
+    body = started.json()
+
+    verified = client.post(
+        "/v1/register/verify",
+        json={
+            "verification_token": body["verification_token"],
+            "verification_code": body["verification_code"],
+            "workspace_name": "Callback Signal",
+            "timezone": "Europe/Vienna",
+            "language": "en",
+        },
+    )
+    assert verified.status_code == 200
+    google_start = dict(verified.json()["google_start"])
+    parsed = urllib.parse.urlparse(str(google_start["auth_url"]))
+    query = urllib.parse.parse_qs(parsed.query)
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": (
+                "openid email profile "
+                "https://www.googleapis.com/auth/gmail.send "
+                "https://www.googleapis.com/auth/gmail.metadata "
+                "https://www.googleapis.com/auth/calendar.readonly"
+            ),
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-register",
+            "email": "callback-signal@example.com",
+            "hd": "example.com",
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {
+            "access_token": "fresh-access-token",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(google_service, "_gmail_messages_payload", lambda **kwargs: {})
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+
+    callback = client.get("/google/callback", params={"code": "code-123", "state": query["state"][0]})
+
+    assert callback.status_code == 200
+    assert "Return to registration" in callback.text
+    assert "ea-register-google-connected" in callback.text
+    assert "window.location.replace" in callback.text
+    assert "google_connected" in callback.text
 
 
 def test_register_verify_reports_google_oauth_configuration_hint_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -265,6 +439,53 @@ def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.M
     assert payload["meta"]["delivery_ref"]
     assert "delivery_url" not in payload["meta"]
     assert receipt.message_id == "emailit-digest-1"
+
+
+def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@girschele.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "Kleinhirn")
+    monkeypatch.setenv("EA_EMAIL_DEFAULT_FROM", "sprachenzentrum@girschele.com")
+    monkeypatch.setenv("EA_EMAIL_DEFAULT_NAME", "Sprachenzentrum")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-google-connect-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_google_connect_email(
+        recipient_email="tibor.girschele@gmail.com",
+        workspace_name="Executive Workspace",
+        connect_url="https://myexternalbrain.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect",
+        scope_label="Google Full Workspace",
+        scope_summary="Broader assistant context: inbox actions plus richer calendar and Drive index context.",
+        primary_google_email="",
+        connected_account_total=0,
+        expires_at="2026-05-05T16:57:54+00:00",
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "Sprachenzentrum <sprachenzentrum@girschele.com>"
+    assert payload["subject"] == "Connect Google to Executive Workspace"
+    assert "No Google inbox is connected in this workspace yet" in payload["text"]
+    assert "https://myexternalbrain.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect" in payload["text"]
+    assert receipt.message_id == "emailit-google-connect-1"
 
 
 def test_plaintext_digest_email_payload_uses_full_text(monkeypatch: pytest.MonkeyPatch) -> None:

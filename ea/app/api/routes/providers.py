@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context as shared_is_operator_context, resolve_principal_id
+from app.api.routes.responses import invalidate_provider_health_snapshot_cache, remember_provider_health_snapshot_cache
 from app.container import AppContainer
 from app.domain.models import OneminAccount, OneminCredential, ProviderBindingRecord, ProviderBindingState, ToolInvocationRequest
 from app.services import responses_upstream as upstream
@@ -54,6 +55,7 @@ class ProviderBindingProbeIn(BaseModel):
 
 class OneminProbeAllIn(BaseModel):
     include_reserve: bool = Field(default=True)
+    account_labels: list[str] = Field(default_factory=list)
 
 
 class OneminBillingRefreshIn(BaseModel):
@@ -489,7 +491,14 @@ def probe_all_onemin(
     if not _is_operator_context(context):
         raise HTTPException(status_code=403, detail="operator_scope_required")
     include_reserve = True if body is None else bool(body.include_reserve)
-    return probe_all_onemin_slots(include_reserve=include_reserve)
+    account_labels = [] if body is None else list(body.account_labels)
+    result = probe_all_onemin_slots(include_reserve=include_reserve, account_labels=account_labels)
+    invalidate_provider_health_snapshot_cache()
+    remember_provider_health_snapshot_cache(
+        lightweight=True,
+        payload=upstream._provider_health_report(lightweight=True),
+    )
+    return result
 
 
 _ONEMIN_SLOT_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY(?:_FALLBACK_\d+)?$")
@@ -1869,17 +1878,26 @@ def _onemin_direct_api_proxy_url() -> str:
     return _proxy_url_with_optional_auth(server=server, username=username, password=password)
 
 
-def _onemin_direct_api_opener() -> urllib.request.OpenerDirector:
-    proxy_url = _onemin_direct_api_proxy_url()
+def _onemin_direct_api_opener(*, proxy_subject: str = "") -> urllib.request.OpenerDirector:
+    proxy_url = (
+        upstream._onemin_direct_api_proxy_url_for_subject(proxy_subject)  # type: ignore[attr-defined]
+        or _onemin_direct_api_proxy_url()
+    )
     if not proxy_url:
         return urllib.request.build_opener()
     return urllib.request.build_opener(urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url}))
 
 
-def _onemin_api_get_json(*, url: str, headers: dict[str, str], timeout_seconds: int) -> dict[str, object]:
+def _onemin_api_get_json(
+    *,
+    url: str,
+    headers: dict[str, str],
+    timeout_seconds: int,
+    proxy_subject: str = "",
+) -> dict[str, object]:
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with _onemin_direct_api_opener().open(request, timeout=timeout_seconds) as response:
+        with _onemin_direct_api_opener(proxy_subject=proxy_subject).open(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -1891,7 +1909,13 @@ def _onemin_api_get_json(*, url: str, headers: dict[str, str], timeout_seconds: 
     return payload
 
 
-def _onemin_api_login(*, login_email: str, login_password: str, timeout_seconds: int) -> dict[str, object]:
+def _onemin_api_login(
+    *,
+    login_email: str,
+    login_password: str,
+    timeout_seconds: int,
+    proxy_subject: str = "",
+) -> dict[str, object]:
     email = str(login_email or "").strip()
     password = str(login_password or "").strip()
     if not email:
@@ -1905,7 +1929,7 @@ def _onemin_api_login(*, login_email: str, login_password: str, timeout_seconds:
         method="POST",
     )
     try:
-        with _onemin_direct_api_opener().open(request, timeout=timeout_seconds) as response:
+        with _onemin_direct_api_opener(proxy_subject=proxy_subject or email).open(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -2001,6 +2025,7 @@ def _refresh_onemin_api_account(
         login_email=str(login_email or owner_email).strip(),
         login_password=str(login_password or _onemin_password()).strip(),
         timeout_seconds=timeout_seconds,
+        proxy_subject=account_name,
     )
     teams = user.get("teams") if isinstance(user.get("teams"), list) else []
     if not teams:
@@ -2020,16 +2045,19 @@ def _refresh_onemin_api_account(
         url=f"{_onemin_rest_host()}/teams/{team_id}/topups",
         headers=headers,
         timeout_seconds=timeout_seconds,
+        proxy_subject=account_name,
     )
     usages_payload = _onemin_api_get_json(
         url=f"{_onemin_rest_host()}/teams/{team_id}/usages",
         headers=headers,
         timeout_seconds=timeout_seconds,
+        proxy_subject=account_name,
     )
     invoices_payload = _onemin_api_get_json(
         url=f"{_onemin_rest_host()}/billings/teams/{team_id}/invoices",
         headers=headers,
         timeout_seconds=timeout_seconds,
+        proxy_subject=account_name,
     )
     topups = [dict(row) for row in (topups_payload.get("topupList") or []) if isinstance(row, dict)]
     usages = [dict(row) for row in (usages_payload.get("usageList") or []) if isinstance(row, dict)]
@@ -2086,6 +2114,7 @@ def _refresh_onemin_api_account(
         url=_onemin_members_url(team_id=team_id),
         headers=headers,
         timeout_seconds=timeout_seconds,
+        proxy_subject=account_name,
     )
     members = []
     for row in members_payload.get("members") or []:
@@ -2290,6 +2319,9 @@ def refresh_onemin_billing(
     requested_account_labels = {str(account_label or "").strip() for account_label in payload.account_labels if str(account_label or "").strip()}
     operator_allowed = _is_operator_context(context)
     allow_global_provider_api = bool(payload.provider_api_all_accounts) and operator_allowed
+    force_provider_api_targeted_refresh = bool(
+        allow_global_provider_api and requested_account_labels and payload.include_provider_api
+    )
     all_api_account_rows = _normalized_onemin_owner_rows(account_labels=requested_account_labels or None)
     principal_browseract_bindings = _enabled_browseract_bindings(container, context.principal_id)
     use_all_browseract_bindings = bool(
@@ -2464,7 +2496,8 @@ def refresh_onemin_billing(
         billing_job_errors: list[dict[str, object]] = []
         member_job_results: list[dict[str, object]] = []
         member_job_errors: list[dict[str, object]] = []
-        if refresh_allowed:
+        run_browseract_refresh = refresh_allowed and not force_provider_api_targeted_refresh
+        if run_browseract_refresh:
             if browseract_scope == "bound_accounts_only":
                 for job in binding_jobs:
                     binding = job["binding"]
@@ -2559,7 +2592,7 @@ def refresh_onemin_billing(
                         }
                     )
 
-        if refresh_allowed and browseract_billing_jobs:
+        if run_browseract_refresh and browseract_billing_jobs:
             effective_browseract_parallelism = 1 if browseract_scope != "bound_accounts_only" else max(
                 1,
                 min(
@@ -2649,7 +2682,7 @@ def refresh_onemin_billing(
                 if str(row.get("account_label") or "").strip()
             }
 
-        if refresh_allowed and payload.include_members:
+        if run_browseract_refresh and payload.include_members:
             for job in browseract_billing_jobs:
                 account_label = str(job.get("account_label") or "").strip()
                 if not account_label or account_label not in browseract_billing_result_labels:
@@ -2663,7 +2696,7 @@ def refresh_onemin_billing(
                 browseract_member_attempted_labels.add(account_label)
                 browseract_member_jobs.append(dict(job))
 
-        if refresh_allowed and browseract_member_jobs:
+        if run_browseract_refresh and browseract_member_jobs:
             effective_member_parallelism = 1 if browseract_scope != "bound_accounts_only" else max(
                 1,
                 min(
@@ -2768,7 +2801,15 @@ def refresh_onemin_billing(
         if effective_include_provider_api and not allow_global_provider_api and not browseract_target_labels:
             effective_include_provider_api = False
         if effective_include_provider_api:
-            if browseract_failed_labels:
+            if force_provider_api_targeted_refresh:
+                provider_api_target_labels = set(requested_account_labels) & refresh_needed_label_set
+                if provider_api_target_labels:
+                    provider_api_recovery_mode = "operator_targeted_provider_api"
+                else:
+                    effective_include_provider_api = False
+                    provider_api_skip_reason = "fresh_actual_billing"
+                    api_skipped_count = len(requested_account_labels)
+            elif browseract_failed_labels:
                 provider_api_target_labels = set(browseract_failed_labels | browseract_gap_labels) & refresh_needed_label_set
                 if provider_api_target_labels:
                     provider_api_recovery_mode = "browseract_failure_recovery"
@@ -2849,6 +2890,7 @@ def refresh_onemin_billing(
         errors.extend(api_errors)
 
         provider_health = upstream._provider_health_report()
+        lightweight_provider_health = upstream._provider_health_report(lightweight=True)
         principal_binding_rows = _enabled_browseract_bindings(container, context.principal_id)
         aggregate_snapshot = container.onemin_manager.aggregate_snapshot(
             provider_health=provider_health,
@@ -2948,7 +2990,7 @@ def refresh_onemin_billing(
             )
             note = f"{note} {rotation_summary}".strip() if note else rotation_summary
 
-        return {
+        response = {
             "provider_key": "onemin",
             "principal_id": context.principal_id,
             "connector_binding_count": len(bindings),
@@ -2985,6 +3027,10 @@ def refresh_onemin_billing(
             "global_aggregate_snapshot": global_aggregate_snapshot,
             "note": note,
         }
+        invalidate_provider_health_snapshot_cache()
+        remember_provider_health_snapshot_cache(lightweight=False, payload=provider_health)
+        remember_provider_health_snapshot_cache(lightweight=True, payload=lightweight_provider_health)
+        return response
     finally:
         if refresh_allowed:
             container.onemin_manager.finish_billing_refresh()

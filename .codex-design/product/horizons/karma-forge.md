@@ -1002,7 +1002,3 @@ Where BLACK LEDGER’s world consequences become playable rewards and threats.
 Where Chummer5a’s custom-data legacy becomes a safer future.
 
 **KARMA FORGE is the forge where tables shape their own Shadowrun — without burning down the campaign.**
-
-([GitHub][1])
-
-[1]: https://raw.githubusercontent.com/ArchonMegalon/chummer6-design/main/products/chummer/horizons/karma-forge.md "raw.githubusercontent.com"

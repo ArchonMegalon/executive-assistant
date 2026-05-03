@@ -74,7 +74,10 @@ def approval_rows(values: object) -> list[dict[str, str]]:
 def human_task_rows(values: object) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for value in values if isinstance(values, (list, tuple)) else []:
-        title = str(getattr(value, "brief", "") or "").strip() or humanize(str(getattr(value, "task_type", "") or "follow_up")).capitalize()
+        raw_title = str(getattr(value, "brief", "") or "").strip()
+        task_type = str(getattr(value, "task_type", "") or "follow_up")
+        fallback_title = "Commitment" if task_type == "follow_up" else humanize(task_type).capitalize()
+        title = raw_title or fallback_title
         priority = humanize(str(getattr(value, "priority", "") or "open"))
         role_required = humanize(str(getattr(value, "role_required", "") or "review"))
         why_human = str(getattr(value, "why_human", "") or "").strip()
@@ -204,7 +207,7 @@ def app_section_payload(
     identity_posture_items = [
         row_item(
             "Keep identity boring",
-            "Return through a secure email link, invite, or managed access layer before widening channel setup.",
+            "Return through a secure email link, invite, or SSO before widening channel setup.",
             "Recommended",
         ),
         row_item(
@@ -219,7 +222,7 @@ def app_section_payload(
         ),
         row_item(
             "Keep work bounded",
-            "Approvals, human tasks, and queued delivery should stay explicit instead of hiding behind automation copy.",
+            "Approvals, human tasks, and queued delivery stay explicit instead of hiding behind automation copy.",
             "Guardrail",
         ),
     ]
@@ -425,23 +428,23 @@ def admin_section_payload(section: str) -> dict[str, object]:
         },
         "audit-trail": {
             "title": "Audit Trail",
-            "summary": "Evidence, telemetry, and delivery state should be visible to admins without leaking into the public product story.",
+            "summary": "Evidence, telemetry, and delivery state stay visible to admins without leaking into the public product story.",
             "cards": [
                 {"eyebrow": "Audit", "title": "Trace surfaces", "items": ["/v1/runtime/lanes/telemetry", "/v1/evidence", "/v1/delivery/pending"]},
                 {"eyebrow": "Goal", "title": "What this surface needs", "items": ["Receipts", "Execution state", "Delivery confirmations"]},
             ],
         },
         "operators": {
-            "title": "Team / Operators",
+            "title": "Operators",
             "summary": "Admin identity, backlog, and approval work stay in the admin surface.",
             "cards": [
                 {"eyebrow": "Human runtime", "title": "Admin endpoints", "items": ["/v1/human/operators", "/v1/human/tasks"]},
-                {"eyebrow": "Trust boundary", "title": "Why this is separate", "items": ["Admin identity is not a customer-facing product setting.", "Audit trails depend on trusted admin records."]},
+                {"eyebrow": "Trust boundary", "title": "Why this is separate", "items": ["Admin identity is separate from the customer workspace surface.", "Audit trails depend on trusted admin records."]},
             ],
         },
         "api": {
-            "title": "API",
-            "summary": "The control-plane contract is part of the admin surface, not the buyer homepage.",
+            "title": "Runtime",
+            "summary": "The operator-center contract belongs in the admin surface, not on the public product pages.",
             "cards": [
                 {"eyebrow": "OpenAPI", "title": "Schemas and runtime entrypoints", "items": ["/openapi.json", "/v1/plans/compile", "/v1/rewrite", "/v1/responses"]},
                 {"eyebrow": "Docs", "title": "Reference material", "items": ["README", "ARCHITECTURE_MAP", "CI smoke suite"]},
@@ -454,7 +457,7 @@ def admin_section_payload(section: str) -> dict[str, object]:
             {"label": "Surface", "value": "admin"},
             {"label": "Access", "value": "admin-only"},
             {"label": "Audience", "value": "admins"},
-            {"label": "Goal", "value": "control plane"},
+            {"label": "Goal", "value": "operator center"},
         ],
         **payload,
     }

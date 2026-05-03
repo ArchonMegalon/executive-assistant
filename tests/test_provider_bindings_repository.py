@@ -52,3 +52,35 @@ def test_inmemory_provider_binding_repo_upsert_reuses_binding_id_for_same_princi
     assert updated.binding_id == created.binding_id
     assert updated.status == "disabled"
     assert len(repo.list_for_principal("exec-1")) == 1
+
+
+def test_inmemory_provider_binding_repo_supports_account_scoped_google_binding_ids() -> None:
+    repo = InMemoryProviderBindingRepository()
+
+    primary = repo.upsert(
+        principal_id="exec-1",
+        provider_key="google_gmail",
+        status="enabled",
+    )
+    secondary = repo.upsert(
+        binding_id="exec-1:google_gmail:acct:google-sub-2",
+        principal_id="exec-1",
+        provider_key="google_gmail",
+        status="enabled",
+    )
+
+    rows = repo.list_for_principal("exec-1")
+
+    assert primary.binding_id == "exec-1:google_gmail"
+    assert secondary.binding_id == "exec-1:google_gmail:acct:google-sub-2"
+    assert len([row for row in rows if row.provider_key == "google_gmail"]) == 2
+
+
+def test_inmemory_provider_binding_repo_delete_removes_binding() -> None:
+    repo = InMemoryProviderBindingRepository()
+    created = repo.upsert(principal_id="exec-1", provider_key="google_gmail", status="enabled")
+
+    deleted = repo.delete(created.binding_id)
+
+    assert deleted is not None
+    assert repo.get(created.binding_id) is None

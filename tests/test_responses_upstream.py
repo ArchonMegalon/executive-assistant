@@ -112,6 +112,96 @@ def test_onemin_account_login_credentials_reads_team_hints_from_env(monkeypatch:
     }
 
 
+def test_onemin_direct_api_proxy_pool_hashes_subjects_stably(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        ",".join(
+            [
+                "http://ea-fastestvpn-proxy-01:3128",
+                "http://ea-fastestvpn-proxy-02:3128",
+                "http://ea-fastestvpn-proxy-03:3128",
+            ]
+        ),
+    )
+
+    first = upstream._onemin_direct_api_proxy_url_for_subject("ONEMIN_AI_API_KEY_FALLBACK_20")
+    second = upstream._onemin_direct_api_proxy_url_for_subject("ONEMIN_AI_API_KEY_FALLBACK_20")
+    third = upstream._onemin_direct_api_proxy_url_for_subject("ONEMIN_AI_API_KEY_FALLBACK_21")
+
+    assert first == second
+    assert first in {
+        "http://ea-fastestvpn-proxy-01:3128",
+        "http://ea-fastestvpn-proxy-02:3128",
+        "http://ea-fastestvpn-proxy-03:3128",
+    }
+    assert third in {
+        "http://ea-fastestvpn-proxy-01:3128",
+        "http://ea-fastestvpn-proxy-02:3128",
+        "http://ea-fastestvpn-proxy-03:3128",
+    }
+
+
+def test_request_opener_for_request_uses_api_key_subject_for_onemin_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        "http://ea-fastestvpn-proxy-01:3128,http://ea-fastestvpn-proxy-02:3128",
+    )
+
+    request = upstream.urllib.request.Request(
+        upstream._onemin_chat_url(),
+        headers={"API-KEY": "slot-key-2"},
+        method="POST",
+    )
+    opener = upstream._request_opener_for_request(request)
+
+    assert opener is not None
+    proxy_handler = next(
+        handler for handler in opener.handlers if isinstance(handler, upstream.urllib.request.ProxyHandler)
+    )
+    assert proxy_handler.proxies["http"] == upstream._onemin_direct_api_proxy_url_for_subject("slot-key-2")
+
+
+def test_probe_all_onemin_slots_filters_requested_account_labels(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: ("key-a", "key-b", "key-c"))
+    monkeypatch.setattr(upstream, "_onemin_active_keys", lambda: ("key-a", "key-b", "key-c"))
+    monkeypatch.setattr(upstream, "_onemin_reserve_keys", lambda: ())
+    monkeypatch.setattr(upstream, "_onemin_probe_model", lambda: "gpt-5.4")
+    monkeypatch.setattr(upstream, "_onemin_probe_prompt", lambda: "Reply with exactly OK.")
+    monkeypatch.setattr(upstream, "_onemin_probe_timeout_seconds", lambda: 15)
+    monkeypatch.setattr(upstream, "_onemin_probe_parallelism", lambda: 1)
+    monkeypatch.setattr(
+        upstream,
+        "_provider_account_name",
+        lambda _provider_key, key_names, key: {
+            "key-a": "ACC_A",
+            "key-b": "ACC_B",
+            "key-c": "ACC_C",
+        }[key],
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_probe_onemin_slot",
+        lambda **kwargs: {
+            "slot": kwargs["api_key"],
+            "account_name": {
+                "key-a": "ACC_A",
+                "key-b": "ACC_B",
+                "key-c": "ACC_C",
+            }[kwargs["api_key"]],
+            "result": "ok",
+            "state": "ready",
+            "detail": "OK",
+        },
+    )
+
+    result = upstream.probe_all_onemin_slots(include_reserve=True, account_labels=["ACC_B", "ACC_C"])
+
+    assert result["slot_count"] == 2
+    assert result["requested_account_labels"] == ["ACC_B", "ACC_C"]
+    assert [row["account_name"] for row in result["slots"]] == ["ACC_B", "ACC_C"]
+
+
 def test_default_core_profile_auto_demotes_to_fast_when_onemin_health_is_stale(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_RESPONSES_DEFAULT_PROFILE", "core")
     monkeypatch.setattr(
@@ -830,6 +920,63 @@ def test_pick_onemin_key_returns_none_when_only_blocked_keys_remain_for_credit_b
     )
 
     assert pick is None
+
+
+def test_pick_onemin_key_allows_recoverable_quarantined_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    keys = ("recoverable",)
+
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 1000.0)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: keys)
+    monkeypatch.setattr(
+        upstream,
+        "_onemin_states_snapshot",
+        lambda _keys: {
+            "recoverable": upstream.OneminKeyState(key="recoverable", quarantine_until=1300.0),
+        },
+    )
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: "account-recoverable")
+    monkeypatch.setattr(upstream, "_onemin_key_slot", lambda key, key_names: "slot-recoverable")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda **_kwargs: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "account-recoverable",
+                            "slot": "slot-recoverable",
+                            "state": "quarantine",
+                            "last_probe_result": "depleted",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 20000,
+                            "billing_remaining_credits": 20000,
+                            "upstream_reset_unknown": True,
+                            "configured": True,
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(upstream, "_onemin_credit_snapshot_state", lambda **_kwargs: (0, "observed_error", False, 0.0, 0.0))
+    monkeypatch.setattr(upstream, "_onemin_recent_success_evidence", lambda **_kwargs: (0.0, 0.0, 0.0, 0, 0))
+    monkeypatch.setattr(upstream, "_latest_provider_billing_snapshot", lambda **_kwargs: object())
+    monkeypatch.setattr(upstream, "_actual_onemin_billing_snapshot_is_positive", lambda _snapshot: True)
+    monkeypatch.setattr(upstream, "_onemin_billing_snapshot_matches_credit_subject", lambda **_kwargs: True)
+
+    pick = upstream._pick_onemin_key(
+        allow_reserve=True,
+        key_names=keys,
+        lane=upstream._LANE_HARD,
+        model="gpt-5.4",
+        required_credits=1726,
+    )
+
+    assert pick is not None
+    assert pick[0] == "recoverable"
 
 
 def test_pick_onemin_key_respects_complete_provider_health_exhaustion_over_stale_state(
@@ -1746,6 +1893,66 @@ def test_call_onemin_provider_health_bypasses_stale_known_exhaustion_precheck(
     assert result.provider_account_name == "ONEMIN_AI_API_KEY"
 
 
+def test_call_onemin_nano_uses_chat_only_when_code_generation_is_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream._test_reset_onemin_states()
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "healthy-key")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CHAT_URL", "https://api.1min.ai/api/chat-with-ai")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_CODE_URL", "https://api.1min.ai/api/features")
+    monkeypatch.setenv("EA_RESPONSES_ONEMIN_MODELS", "gpt-4.1-nano")
+    monkeypatch.setattr(
+        upstream,
+        "_provider_health_report",
+        lambda lightweight=False: {
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "ready",
+                            "slot_role": "active",
+                            "estimated_remaining_credits": 4200,
+                            "billing_remaining_credits": 4200,
+                            "last_probe_result": "ok",
+                            "last_probe_detail": "OK",
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    requested_urls: list[str] = []
+
+    def fake_post_json(**kwargs: object) -> tuple[int, dict[str, object]]:
+        requested_urls.append(str(kwargs.get("url") or ""))
+        return (
+            200,
+            {
+                "aiRecord": {
+                    "model": "gpt-4.1-nano",
+                    "aiRecordDetail": {
+                        "resultObject": ["ok"],
+                    },
+                },
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                },
+            },
+        )
+
+    monkeypatch.setattr(upstream, "_post_json", fake_post_json)
+    result = upstream.generate_text(prompt="Reply with exactly ok.", requested_model="onemin:gpt-4.1-nano")
+
+    assert result.text == "ok"
+    assert requested_urls == ["https://api.1min.ai/api/chat-with-ai"]
+
+
 def test_call_onemin_uses_lightweight_provider_health_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1902,6 +2109,25 @@ def test_onemin_slot_effective_state_recovers_quarantined_slot_with_positive_est
 
     assert upstream._onemin_slot_effective_state(slot) == "degraded"
     assert upstream._onemin_slot_effective_state(slot, required_credits=900) == "degraded"
+
+
+def test_onemin_slot_counts_as_live_ready_uses_billing_hint_for_ready_slots() -> None:
+    assert upstream._onemin_slot_counts_as_live_ready(
+        {
+            "state": "ready",
+            "estimated_remaining_credits": 0,
+            "billing_remaining_credits": 15025,
+            "last_probe_result": "ok",
+        }
+    )
+    assert not upstream._onemin_slot_counts_as_live_ready(
+        {
+            "state": "ready",
+            "estimated_remaining_credits": 0,
+            "billing_remaining_credits": 0,
+            "last_probe_result": "ok",
+        }
+    )
 
 
 def test_onemin_provider_health_pick_accepts_quarantined_slot_with_upstream_reset_unknown_and_positive_estimated_hint(
@@ -2106,6 +2332,47 @@ def test_onemin_provider_health_pick_accepts_fresh_actual_billing_newer_than_dep
                             "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 0 credits",
                             "last_probe_at": 1000.0,
                             "last_billing_snapshot_at": "2026-04-30T14:23:21Z",
+                        },
+                    ]
+                }
+            }
+        },
+        required_credits=1726,
+        preferred_onemin_labels=("default",),
+    )
+
+    assert pick is not None
+    assert pick[0] == "fresh-key"
+
+
+def test_onemin_provider_health_pick_accepts_recent_actual_billing_with_zero_observed_remaining(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "fresh-key")
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 20000.0)
+
+    pick = upstream._onemin_provider_health_pick(
+        key_names=upstream._onemin_key_names(),
+        provider_health={
+            "providers": {
+                "onemin": {
+                    "slots": [
+                        {
+                            "account_name": "ONEMIN_AI_API_KEY",
+                            "slot_env_name": "ONEMIN_AI_API_KEY",
+                            "slot": "primary",
+                            "slot_name": "primary",
+                            "credential_id": "primary",
+                            "state": "quarantine",
+                            "remaining_credits": 0,
+                            "estimated_remaining_credits": 0,
+                            "billing_remaining_credits": 4_255_550,
+                            "billing_basis": "actual_provider_api",
+                            "last_billing_snapshot_at": "1970-01-01T05:30:00Z",
+                            "last_probe_result": "depleted",
+                            "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 0 credits",
+                            "last_probe_at": 19_900.0,
                         },
                     ]
                 }
@@ -2941,11 +3208,62 @@ def test_probe_all_onemin_slots_maps_owner_hashes_and_classifies_results(monkeyp
     health_primary = next(slot for slot in onemin["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
     health_deleted = next(slot for slot in onemin["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY_FALLBACK_1")
     assert onemin["owner_mapped_slots"] == 1
+    assert onemin["slot_state_counts"] == {"ready": 1, "deleted": 1}
+    assert onemin["ready_slot_count"] == 1
     assert onemin["probe_result_counts"] == {"ok": 1, "revoked": 1}
     assert health_primary["owner_email"] == "owner@example.com"
     assert health_primary["last_probe_result"] == "ok"
     assert health_deleted["last_probe_result"] == "revoked"
     assert health_deleted["state"] == "deleted"
+
+
+def test_onemin_slot_counts_as_dispatchable_uses_upstream_reset_recovery_hint() -> None:
+    slot = {
+        "state": "quarantine",
+        "last_probe_result": "depleted",
+        "remaining_credits": 0,
+        "estimated_remaining_credits": 20000,
+        "billing_remaining_credits": 20000,
+        "upstream_reset_unknown": True,
+    }
+
+    assert upstream._onemin_slot_counts_as_dispatchable(slot, required_credits=1726) is True
+
+
+def test_onemin_slot_counts_as_dispatchable_uses_recent_actual_billing_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 20000.0)
+    slot = {
+        "state": "quarantine",
+        "last_probe_result": "depleted",
+        "remaining_credits": 0,
+        "estimated_remaining_credits": 0,
+        "billing_remaining_credits": 20000,
+        "billing_basis": "actual_provider_api",
+        "last_billing_snapshot_at": "1970-01-01T05:30:00Z",
+    }
+
+    assert upstream._onemin_slot_counts_as_dispatchable(slot, required_credits=1726) is True
+
+
+def test_onemin_slot_counts_as_dispatchable_ignores_stale_actual_billing_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 100000.0)
+    slot = {
+        "state": "quarantine",
+        "last_probe_result": "depleted",
+        "remaining_credits": 0,
+        "estimated_remaining_credits": 0,
+        "billing_remaining_credits": 20000,
+        "billing_basis": "actual_provider_api",
+        "last_billing_snapshot_at": "1970-01-01T05:30:00Z",
+    }
+
+    assert upstream._onemin_slot_counts_as_dispatchable(slot, required_credits=1726) is False
 
 
 def test_probe_all_onemin_slots_maps_owner_fallbacks_by_slot_and_account(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3318,6 +3636,89 @@ def test_post_json_enforces_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) 
         )
 
     assert response.timeouts[:2] == pytest.approx([45.0, 15.0])
+
+
+def test_post_json_uses_proxy_opener_for_onemin_direct_api_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_SERVER", "proxy.example:3128")
+    response = _SlowUrlopenResponse(body_chunks=[b'{"ok": true}'])
+    captured: dict[str, object] = {}
+
+    class _FakeOpener:
+        def open(self, request, timeout):  # noqa: ANN001
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return response
+
+    def fake_build_opener(*handlers):  # noqa: ANN001
+        captured["handlers"] = handlers
+        return _FakeOpener()
+
+    monkeypatch.setattr(upstream.urllib.request, "build_opener", fake_build_opener)
+    monkeypatch.setattr(
+        upstream.urllib.request,
+        "urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(AssertionError("plain urlopen should not be used")),
+    )
+
+    status, payload = upstream._post_json(
+        url="https://api.1min.ai/api/features",
+        headers={"API-KEY": "onemin-key"},
+        payload={"ping": "pong"},
+        timeout_seconds=15,
+    )
+
+    assert status == 200
+    assert payload == {"ok": True}
+    assert captured["url"] == "https://api.1min.ai/api/features"
+    assert captured["timeout"] == 15
+    handlers = tuple(captured["handlers"])
+    assert len(handlers) == 1
+    assert handlers[0].proxies == {"http": "http://proxy.example:3128", "https": "http://proxy.example:3128"}
+
+
+def test_post_sse_uses_proxy_opener_for_onemin_direct_api_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_SERVER", "proxy.example:3128")
+    response = _SlowUrlopenResponse(line_chunks=[b"event: content\n", b"data: ok\n", b"\n"])
+    captured: dict[str, object] = {}
+    events: list[tuple[str, str]] = []
+
+    class _FakeOpener:
+        def open(self, request, timeout):  # noqa: ANN001
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return response
+
+    def fake_build_opener(*handlers):  # noqa: ANN001
+        captured["handlers"] = handlers
+        return _FakeOpener()
+
+    monkeypatch.setattr(upstream.urllib.request, "build_opener", fake_build_opener)
+    monkeypatch.setattr(
+        upstream.urllib.request,
+        "urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(AssertionError("plain urlopen should not be used")),
+    )
+
+    status, trailing = upstream._post_sse(
+        url="https://api.1min.ai/api/features",
+        headers={"API-KEY": "onemin-key"},
+        payload={"ping": "pong"},
+        timeout_seconds=15,
+        on_event=lambda event, data: events.append((event, data)),
+    )
+
+    assert status == 200
+    assert trailing is None
+    assert events == [("content", "ok")]
+    handlers = tuple(captured["handlers"])
+    assert len(handlers) == 1
+    assert handlers[0].proxies == {"http": "http://proxy.example:3128", "https": "http://proxy.example:3128"}
+
+
+def test_retryable_onemin_error_recognizes_cloudflare_edge_blocks() -> None:
+    assert upstream._is_retryable_onemin_error("http_403:error code: 1010") is True
+    assert upstream._is_retryable_onemin_error("http_403:cloudflare challenge") is True
+    assert upstream._is_retryable_onemin_error("http_403:error code: 1015") is True
 
 
 def test_post_sse_enforces_wall_clock_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

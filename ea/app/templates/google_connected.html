@@ -61,7 +61,7 @@
 <section class="section panel google-hero">
   <div class="kicker">Google connected</div>
   <h1>Google is connected. The next step is to use it.</h1>
-  <p class="lead">This connection is now ready to support your first brief, your first reviewed drafts, and the people context that helps the assistant make better decisions.</p>
+  <p class="lead">This connection is now ready to support your first morning memo, your first reviewed drafts, and the people context that helps the assistant make better decisions.</p>
 </section>
 
 <section class="section google-step-grid">
@@ -70,8 +70,8 @@
     You approved Google access for this workspace. The assistant can now use the granted capabilities below instead of waiting on manual setup.
   </section>
   <section class="google-step">
-    <strong>What to do next</strong>
-    Open Today first. That is usually the fastest way to confirm the connection is already producing a useful result.
+    <strong>What the workspace checked next</strong>
+    {{ sync_detail or 'Open Today first. That is usually the fastest way to confirm the connection is already producing a useful result.' }}
   </section>
 </section>
 
@@ -81,7 +81,7 @@
     <ul class="muted-list">
       {% if granted.send %}<li>Prepare and send reviewed replies from the connected Gmail account.</li>{% endif %}
       {% if granted.verify %}<li>Use Gmail metadata to help verify drafts and delivery state.</li>{% endif %}
-      {% if granted.calendar %}<li>Use calendar context to improve timing, scheduling awareness, and the morning brief.</li>{% endif %}
+      {% if granted.calendar %}<li>Use calendar context to improve timing, scheduling awareness, and the morning memo.</li>{% endif %}
       {% if granted.contacts %}<li>Use contacts to attach people context and reduce repeated lookups.</li>{% endif %}
       {% if granted.mailbox %}<li>Use deeper mailbox context where the workspace explicitly needs it.</li>{% endif %}
       {% if granted.drive %}<li>Use Drive metadata when broader workspace context is enabled.</li>{% endif %}
@@ -94,7 +94,7 @@
       <li>Email: {{ account.google_email }}</li>
       <li>Consent stage: {{ account.consent_stage }}</li>
       <li>Token status: {{ account.token_status }}</li>
-      <li>Workspace mode: {{ account.workspace_mode }}</li>
+      <li>Workspace mode: {{ account.workspace_mode|replace('_', ' ')|title }}</li>
       <li>Connector binding: {{ account.connector_binding.binding_id if account.connector_binding else '' }}</li>
     </ul>
   </section>
@@ -102,9 +102,10 @@
 
 <section class="section panel google-actions">
   <div class="cta-row">
-    <a class="btn primary" href="/app/today">Open Today</a>
+    {% if return_to %}<a class="btn primary" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
+    <a class="btn{% if not return_to %} primary{% endif %}" href="/app/today">Open Today</a>
     <a class="btn" href="/app/queue">Open Queue</a>
-    <a class="btn ghost" href="/get-started">Back to setup</a>
+    <a class="btn ghost" href="{{ return_to or '/get-started' }}">{{ return_label or 'Back to setup' }}</a>
   </div>
   <details class="scope-details">
     <summary>Show raw Google OAuth scopes</summary>
@@ -114,4 +115,29 @@
     </ul>
   </details>
 </section>
+{% if register_signal_payload %}
+<script>
+(() => {
+  const payload = {{ register_signal_payload|tojson }};
+  const target = String(payload.return_to || '/register?ready=1').trim() || '/register?ready=1';
+  const separator = target.includes('?') ? '&' : '?';
+  const query = new URLSearchParams();
+  query.set('google_connected', '1');
+  if (payload.sync_status) query.set('sync_status', String(payload.sync_status));
+  if (payload.sync_processed_total) query.set('sync_processed_total', String(payload.sync_processed_total));
+  if (payload.sync_synced_total) query.set('sync_synced_total', String(payload.sync_synced_total));
+  if (payload.sync_deduplicated_total) query.set('sync_deduplicated_total', String(payload.sync_deduplicated_total));
+  if (payload.sync_suppressed_total) query.set('sync_suppressed_total', String(payload.sync_suppressed_total));
+  if (payload.sync_error) query.set('sync_error', String(payload.sync_error));
+  try {
+    window.localStorage.setItem('ea-register-google-connected', JSON.stringify(payload));
+  } catch (_error) {
+    // Ignore local storage failures and keep the redirect behavior.
+  }
+  window.setTimeout(() => {
+    window.location.replace(`${target}${separator}${query.toString()}`);
+  }, 1200);
+})();
+</script>
+{% endif %}
 {% endblock %}

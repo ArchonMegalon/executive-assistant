@@ -67,6 +67,21 @@ def test_provider_registry_routes_capability_with_provider_hints() -> None:
     assert route.executable is True
 
 
+def test_provider_registry_slot_pool_summary_keeps_live_ready_slots_separate_from_state_ready_slots() -> None:
+    summary = ProviderRegistryService._slot_pool_summary(
+        {
+            "configured_slots": 74,
+            "ready_slot_count": 6,
+            "live_ready_slot_count": 5,
+            "slot_state_counts": {"ready": 6, "degraded": 27, "quarantine": 41},
+        }
+    )
+
+    assert summary["ready_slots"] == 6
+    assert summary["live_ready_slot_count"] == 5
+    assert summary["slot_state_counts"] == {"ready": 6, "degraded": 27, "quarantine": 41}
+
+
 def test_provider_registry_routes_gemini_vortex_structured_generate_with_alias_hints() -> None:
     registry = ProviderRegistryService()
     route = registry.route_tool_by_capability(

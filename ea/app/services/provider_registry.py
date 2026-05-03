@@ -726,6 +726,10 @@ class ProviderRegistryService:
         if not normalized_provider:
             return None
         try:
+            canonical_binding_id = f"{normalized_principal}:{normalized_provider}"
+            canonical = self._provider_binding_repo.get(canonical_binding_id)
+            if canonical is not None:
+                return canonical
             return self._provider_binding_repo.get_for_provider(
                 principal_id=normalized_principal,
                 provider_key=normalized_provider,
@@ -753,6 +757,7 @@ class ProviderRegistryService:
     def upsert_binding_record(
         self,
         *,
+        binding_id: str | None = None,
         principal_id: str,
         provider_key: str,
         status: str = "enabled",
@@ -771,6 +776,7 @@ class ProviderRegistryService:
         if not provider:
             raise ToolExecutionError("provider_key_required")
         return self._provider_binding_repo.upsert(
+            binding_id=str(binding_id or "").strip() or None,
             principal_id=principal,
             provider_key=provider,
             status=str(status or "enabled").strip().lower() or "enabled",
@@ -812,6 +818,22 @@ class ProviderRegistryService:
         if principal_id and self._normalize_principal_id(principal_id) != record.principal_id:
             return None
         return record
+
+    def delete_persisted_binding_record(
+        self,
+        *,
+        binding_id: str,
+        principal_id: str | None = None,
+    ) -> ProviderBindingRecord | None:
+        if self._provider_binding_repo is None:
+            return None
+        record = self.get_persisted_binding_record(binding_id=binding_id, principal_id=principal_id)
+        if record is None:
+            return None
+        try:
+            return self._provider_binding_repo.delete(record.binding_id)
+        except Exception:
+            return None
 
     def set_persisted_binding_status(
         self,
@@ -1198,7 +1220,14 @@ class ProviderRegistryService:
     @staticmethod
     def _slot_pool_summary(provider_payload: dict[str, object]) -> dict[str, object]:
         slots = [dict(item) for item in provider_payload.get("slots") or [] if isinstance(item, dict)]
-        states = Counter(str(item.get("state") or "unknown").strip().lower() or "unknown" for item in slots)
+        published_state_counts = {
+            str(key or "").strip().lower() or "unknown": int(value or 0)
+            for key, value in dict(provider_payload.get("slot_state_counts") or {}).items()
+        }
+        if published_state_counts:
+            states = Counter(published_state_counts)
+        else:
+            states = Counter(str(item.get("state") or "unknown").strip().lower() or "unknown" for item in slots)
         owners = list(
             dict.fromkeys(
                 str(item.get("slot_owner") or item.get("owner_label") or item.get("owner_name") or "").strip()
@@ -1226,7 +1255,7 @@ class ProviderRegistryService:
             or ""
         ).strip()
         configured_slots = int(provider_payload.get("configured_slots") or len(slots))
-        ready_slots = int(states.get("ready", 0))
+        ready_slots = int(provider_payload.get("ready_slot_count") or states.get("ready", 0))
         degraded_slots = sum(int(states.get(name, 0)) for name in ("degraded", "cooldown", "maintenance"))
         unavailable_slots = max(configured_slots - ready_slots - degraded_slots, 0)
         return {

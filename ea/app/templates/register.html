@@ -157,14 +157,14 @@
     <section class="register-hero">
       <div class="kicker">Personal workspace</div>
       <h1>Start a workspace that shows the first useful loop.</h1>
-      <p class="lead">Connect Google, surface the first brief, and keep the first week narrow until the office loop is already useful.</p>
+      <p class="lead">Connect Google, surface the first morning memo, and keep the first week narrow until the office loop is already useful.</p>
       <div class="register-note">
         We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.
       </div>
       <div class="summary-strip">
         <div class="summary">
           <div class="label">First goal</div>
-          <strong>One useful brief</strong>
+          <strong>One useful morning memo</strong>
         </div>
         <div class="summary">
           <div class="label">Recommended connection</div>
@@ -209,7 +209,7 @@
         <div>
           <div class="kicker">Step 2</div>
           <h2>Workspace shape</h2>
-          <p class="copy">Keep the first workspace personal until the loop proves it is useful. No plan, tenant, or operator decisions yet.</p>
+          <p class="copy">Keep the first workspace personal until the loop proves it is useful. No plan or team decisions yet.</p>
         </div>
         <form class="register-form" data-form="verify">
           <div class="register-grid">
@@ -246,7 +246,7 @@
         </div>
         <div class="register-choice">
           <strong>Google Core</strong>
-          <p class="copy">Recommended for the first brief, queue, calendar pressure, and visible commitments.</p>
+          <p class="copy">Recommended for the first morning memo, queue, calendar pressure, and visible commitments.</p>
         </div>
         <details class="register-note">
           <summary>Advanced options</summary>
@@ -256,14 +256,14 @@
         <div class="register-error" data-google-error></div>
         <div class="cta-row">
           <button class="btn primary" type="button" data-action="google-consent">Open Google consent</button>
-          <button class="btn" type="button" data-action="build-brief">Build first brief</button>
+          <button class="btn" type="button" data-action="build-brief">Build first morning memo</button>
         </div>
       </section>
 
       <section class="register-step" data-step="4">
         <div>
           <div class="kicker">Step 4</div>
-          <h2>Build first brief</h2>
+          <h2>Build first morning memo</h2>
           <p class="copy">Show progress clearly so the first useful workspace feels like a product moment, not a setup blur.</p>
         </div>
         <div class="register-milestones">
@@ -279,11 +279,11 @@
         <div>
           <div class="kicker">Step 5</div>
           <h2>Your personal workspace is ready.</h2>
-          <p class="copy">Start with the first brief, the first queue, and the first visible commitment loop. Shared review can come later.</p>
+          <p class="copy">Start with the first morning memo, the first queue, and the first visible commitment loop. Shared review can come later.</p>
         </div>
         <div class="register-preview-grid">
           <section class="register-preview">
-            <strong>First brief items</strong>
+            <strong>First morning memo items</strong>
             <ul data-preview-brief></ul>
           </section>
           <section class="register-preview">
@@ -307,6 +307,7 @@
 
   const params = new URLSearchParams(window.location.search);
   const storageKey = 'ea-register-state';
+  const googleConnectStorageKey = 'ea-register-google-connected';
   const saved = (() => {
     try {
       return JSON.parse(window.localStorage.getItem(storageKey) || 'null') || {};
@@ -344,6 +345,7 @@
   const buildInline = document.querySelector('[data-build-inline]');
   const briefList = document.querySelector('[data-preview-brief]');
   const queueList = document.querySelector('[data-preview-queue]');
+  let buildInFlight = false;
 
   const setState = () => {
     window.localStorage.setItem(storageKey, JSON.stringify({
@@ -404,7 +406,7 @@
       return;
     }
     if (state.preview.brief.length || state.preview.queue.length) {
-      setList(briefList, state.preview.brief, ['Your first brief items will appear here.']);
+      setList(briefList, state.preview.brief, ['Your first morning memo items will appear here.']);
       setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
       setStep(5);
       return;
@@ -483,12 +485,14 @@
       googleError.textContent = errorMessage;
       return;
     }
-    googleInline.textContent = 'Google consent opened in a new tab. Return here when you are ready to build the first brief.';
+    googleInline.textContent = 'Google consent opened in a new tab. Return here when you are ready to build the first morning memo.';
     window.open(startUrl, '_blank', 'noopener');
   });
 
-  document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
-    buildInline.textContent = 'Building your first brief…';
+  const buildFirstMorningMemo = async (intro = 'Building your first morning memo…') => {
+    if (buildInFlight) return;
+    buildInFlight = true;
+    buildInline.textContent = intro;
     setStep(4);
     await markMilestones();
     try {
@@ -501,28 +505,110 @@
       const briefItems = (briefBody.items || []).map((row) => row.title).filter(Boolean);
       const queueItems = (queueBody.items || []).map((row) => row.title).filter(Boolean);
       state.preview = {
-        brief: briefItems.length ? briefItems : ['Your morning brief will start with the first live signals from Google.'],
+        brief: briefItems.length ? briefItems : ['Your morning memo will start with the first live signals from Google.'],
         queue: queueItems.length ? queueItems : ['Your queue will show decisions, drafts, and commitments as they become visible.'],
       };
       setState();
-      setList(briefList, state.preview.brief, ['Your morning brief will appear here.']);
+      setList(briefList, state.preview.brief, ['Your morning memo will appear here.']);
       setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
-      buildInline.textContent = 'First brief ready.';
+      buildInline.textContent = 'First morning memo ready.';
       setStep(5);
     } catch (_error) {
       state.preview = {
-        brief: ['Your morning brief will appear after Google signals are available.'],
+        brief: ['Your morning memo will appear after Google signals are available.'],
         queue: ['Your queue will show decisions, drafts, and commitments in one review surface.'],
       };
       setState();
-      setList(briefList, state.preview.brief, ['Your morning brief will appear here.']);
+      setList(briefList, state.preview.brief, ['Your morning memo will appear here.']);
       setList(queueList, state.preview.queue, ['Your first queue items will appear here.']);
       buildInline.textContent = 'Workspace ready. Open the app to continue the first loop.';
       setStep(5);
+    } finally {
+      buildInFlight = false;
     }
+  };
+
+  const googleSyncSummary = (payload) => {
+    if (!payload || String(payload.sync_status || '').trim().toLowerCase() !== 'completed') {
+      const error = String((payload && payload.sync_error) || '').trim();
+      return error ? `Google connected, but the first sync needs attention: ${error}.` : 'Google connected.';
+    }
+    const processed = Number(payload.sync_processed_total || 0);
+    const synced = Number(payload.sync_synced_total || 0);
+    const deduplicated = Number(payload.sync_deduplicated_total || 0);
+    const suppressed = Number(payload.sync_suppressed_total || 0);
+    if (processed || suppressed) {
+      return `Google connected. First sync processed ${processed}, staged ${synced}, deduplicated ${deduplicated}, and suppressed ${suppressed}.`;
+    }
+    return 'Google connected. First sync finished, but there were no recent Gmail or Calendar signals to stage yet.';
+  };
+
+  const consumeGoogleConnectPayload = async (rawPayload) => {
+    if (!state.verified) return;
+    let payload = rawPayload;
+    if (typeof payload === 'string') {
+      try {
+        payload = JSON.parse(payload);
+      } catch (_error) {
+        payload = null;
+      }
+    }
+    if (!payload || !payload.google_connected) return;
+    googleError.textContent = '';
+    googleInline.textContent = googleSyncSummary(payload);
+    if (!state.preview.brief.length && !state.preview.queue.length) {
+      await buildFirstMorningMemo('Google connected. Building your first morning memo…');
+    }
+  };
+
+  const consumeStoredGoogleConnectPayload = async () => {
+    let raw = '';
+    try {
+      raw = window.localStorage.getItem(googleConnectStorageKey) || '';
+    } catch (_error) {
+      raw = '';
+    }
+    if (!raw) return;
+    try {
+      await consumeGoogleConnectPayload(raw);
+    } finally {
+      try {
+        window.localStorage.removeItem(googleConnectStorageKey);
+      } catch (_error) {
+        // Ignore local storage cleanup failures.
+      }
+    }
+  };
+
+  document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
+    await buildFirstMorningMemo('Building your first morning memo…');
+  });
+
+  window.addEventListener('storage', (event) => {
+    if (event.key !== googleConnectStorageKey || !event.newValue) return;
+    void consumeGoogleConnectPayload(event.newValue);
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    void consumeStoredGoogleConnectPayload();
   });
 
   syncStep();
+
+  if (params.get('google_connected') === '1') {
+    void consumeGoogleConnectPayload({
+      google_connected: true,
+      sync_status: params.get('sync_status') || '',
+      sync_processed_total: params.get('sync_processed_total') || '0',
+      sync_synced_total: params.get('sync_synced_total') || '0',
+      sync_deduplicated_total: params.get('sync_deduplicated_total') || '0',
+      sync_suppressed_total: params.get('sync_suppressed_total') || '0',
+      sync_error: params.get('sync_error') || '',
+    });
+  } else {
+    void consumeStoredGoogleConnectPayload();
+  }
 })();
 </script>
 {% endblock %}

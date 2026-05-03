@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import urllib.parse
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -8,6 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.landing import (
     _console_shell_context,
+    _form_value,
+    _normalize_browser_return_to,
     _object_detail_row,
     _render_console_object_detail,
     _render_public_template,
@@ -15,6 +18,7 @@ from app.api.routes.landing import (
 from app.api.routes.landing_content import APP_NAV_GROUPS
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services import google_oauth as google_oauth_service
 
 router = APIRouter(tags=["landing"])
 
@@ -50,6 +54,194 @@ def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/se
         "href": f"/app/actions/signals/google/sync?return_to={return_to}",
         "method": "get",
     }
+
+
+def _google_connect_email_recipient(*, principal_id: str, access_email: str = "", primary_email: str = "") -> str:
+    candidate = str(access_email or "").strip().lower()
+    if "@" in candidate:
+        return candidate
+    normalized_principal = str(principal_id or "").strip()
+    if normalized_principal.startswith("cf-email:"):
+        principal_email = normalized_principal.partition(":")[2].strip().lower()
+        if "@" in principal_email:
+            return principal_email
+    fallback = str(primary_email or "").strip().lower()
+    if "@" in fallback:
+        return fallback
+    return ""
+
+
+def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/settings/google", scope_bundle: str = "full_workspace") -> str:
+    return "/app/actions/google/email-connect-link?" + urllib.parse.urlencode(
+        {
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "return_to": return_to,
+            "scope_bundle": scope_bundle,
+        }
+    )
+
+
+def _public_app_base_url(request: Request) -> str:
+    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    redirect_uri = str(os.environ.get("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if redirect_uri:
+        parsed = urllib.parse.urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
+    if forwarded:
+        return f"{forwarded_proto}://{forwarded}"
+    return str(request.base_url).rstrip("/")
+
+
+def _google_account_status_detail(raw_status: str) -> str:
+    normalized = str(raw_status or "").strip().lower()
+    if normalized == "account_connected":
+        return "Inbox connected."
+    if normalized in {"primary_updated", "account_primary_updated"}:
+        return "Primary inbox updated."
+    if normalized == "account_disconnected":
+        return "Inbox disconnected."
+    if normalized == "account_reconnected":
+        return "Inbox reconnected."
+    return normalized.replace("_", " ") if normalized else "Not recorded"
+
+
+def _google_scope_label(consent_stage: str) -> str:
+    details = google_oauth_service.google_scope_bundle_details(consent_stage)
+    return str(details.get("label") or "Google").strip() or "Google"
+
+
+def _google_account_verification_detail(verification: dict[str, object] | None) -> str:
+    payload = dict(verification or {})
+    state = str(payload.get("state") or "").strip().lower()
+    error = str(payload.get("error") or "").strip()
+    verified_at = str(payload.get("verified_at") or "").strip()
+    if error:
+        return error
+    if state == "completed":
+        return f"send verified {verified_at[:19]}" if verified_at else "send verified"
+    if state == "failed":
+        return f"send check failed {verified_at[:19]}" if verified_at else "send check failed"
+    return "send not yet verified"
+
+
+def _google_account_sync_detail(sync_row: dict[str, object] | None) -> str:
+    payload = dict(sync_row or {})
+    gmail_total = int(payload.get("gmail_total") or 0)
+    calendar_total = int(payload.get("calendar_total") or 0)
+    processed_total = int(payload.get("processed_total") or 0)
+    synced_total = int(payload.get("synced_total") or 0)
+    deduplicated_total = int(payload.get("deduplicated_total") or 0)
+    suppressed_total = int(payload.get("suppressed_total") or 0)
+    if not (gmail_total or calendar_total or processed_total or synced_total or deduplicated_total or suppressed_total):
+        return "sync not yet run"
+    return (
+        f"sync gmail {gmail_total} · calendar {calendar_total} · "
+        f"processed {processed_total} · synced {synced_total} · "
+        f"deduplicated {deduplicated_total} · suppressed {suppressed_total}"
+    )
+
+
+def _google_account_change_detail(change_row: dict[str, object] | None) -> str:
+    payload = dict(change_row or {})
+    state = str(payload.get("state") or "").strip()
+    changed_at = str(payload.get("changed_at") or "").strip()
+    if not state:
+        return "account action not yet recorded"
+    detail = _google_account_status_detail(state)
+    if changed_at:
+        return f"{detail[:-1]} {changed_at[:19]}." if detail.endswith(".") else f"{detail} {changed_at[:19]}"
+    return detail
+
+
+def _google_account_row(
+    account: google_oauth_service.GoogleOAuthAccount,
+    *,
+    return_to: str,
+    verification: dict[str, object] | None = None,
+    sync_row: dict[str, object] | None = None,
+    change_row: dict[str, object] | None = None,
+) -> dict[str, str]:
+    binding = account.binding
+    binding_id = str(binding.binding_id or "").strip()
+    primary_binding_id = f"{binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}"
+    is_primary = binding_id == primary_binding_id
+    enabled = str(binding.status or "").strip().lower() == "enabled"
+    token_status = str(account.token_status or "unknown").strip().lower() or "unknown"
+    active = enabled and token_status != "revoked"
+    scope_label = _google_scope_label(account.consent_stage)
+    detail_parts = [
+        "Primary inbox" if is_primary else "Additional inbox",
+        scope_label,
+        f"token {token_status.replace('_', ' ')}",
+    ]
+    if account.google_hosted_domain:
+        detail_parts.append(account.google_hosted_domain)
+    if account.last_refresh_at:
+        detail_parts.append(f"refreshed {str(account.last_refresh_at)[:19]}")
+    if account.reauth_required_reason:
+        detail_parts.append(str(account.reauth_required_reason).replace("_", " "))
+    detail_parts.append(_google_account_sync_detail(sync_row))
+    detail_parts.append(_google_account_verification_detail(verification))
+    detail_parts.append(_google_account_change_detail(change_row))
+
+    encoded_binding_id = urllib.parse.quote(binding_id, safe=":@")
+    encoded_return_to = urllib.parse.quote(return_to, safe="/?:=&")
+    reconnect_href = (
+        f"/app/actions/google/connect?return_to={encoded_return_to}"
+        f"&scope_bundle={urllib.parse.quote(str(account.consent_stage or 'core'), safe='')}"
+    )
+    verify_href = f"/app/actions/google/accounts/{encoded_binding_id}/verify-send"
+    verify_label = "Verify again" if str(dict(verification or {}).get("state") or "").strip().lower() == "completed" else "Verify send"
+
+    if active and not is_primary:
+        return _object_detail_row(
+            str(account.google_email or binding_id),
+            " · ".join(part for part in detail_parts if part),
+            "Connected",
+            action_href=f"/app/actions/google/accounts/{encoded_binding_id}/make-primary",
+            action_label="Make primary",
+            action_method="post",
+            return_to=return_to,
+            secondary_action_href=verify_href,
+            secondary_action_label=verify_label,
+            secondary_action_method="post",
+            secondary_return_to=return_to,
+            tertiary_action_href=f"/app/actions/google/accounts/{encoded_binding_id}/disconnect",
+            tertiary_action_label="Disconnect",
+            tertiary_action_method="post",
+            tertiary_return_to=return_to,
+        )
+    if active:
+        return _object_detail_row(
+            str(account.google_email or binding_id),
+            " · ".join(part for part in detail_parts if part),
+            "Primary",
+            action_href=verify_href,
+            action_label=verify_label,
+            action_method="post",
+            return_to=return_to,
+            secondary_action_href=f"/app/actions/google/accounts/{encoded_binding_id}/disconnect",
+            secondary_action_label="Disconnect",
+            secondary_action_method="post",
+            secondary_return_to=return_to,
+        )
+    return _object_detail_row(
+        str(account.google_email or binding_id),
+        " · ".join(part for part in detail_parts if part),
+        "Reconnect",
+        action_href=reconnect_href,
+        action_label="Reconnect",
+        action_method="get",
+        secondary_action_href=f"/app/actions/google/accounts/{encoded_binding_id}/disconnect",
+        secondary_action_label="Disconnect",
+        secondary_action_method="post",
+        secondary_return_to=return_to,
+    )
 
 
 @router.get("/app/settings/plan", response_class=HTMLResponse)
@@ -95,7 +287,7 @@ def settings_plan_detail(
             {"label": "Seats remaining", "value": str(operators.get("seats_remaining") or 0)},
         ],
         object_sidebar_title="Why this boundary matters",
-        object_sidebar_copy="Commercial scope should explain what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
+        object_sidebar_copy="Commercial scope explains what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
         object_sidebar_rows=[
             _object_detail_row("Channels", ", ".join(selected_channels) or "Google-first path", "Channels"),
             _object_detail_row("Messaging scope", "Included" if entitlements.get("messaging_channels_enabled") else "Upgrade required for messaging channels", "Entitlement"),
@@ -173,7 +365,7 @@ def settings_usage_detail(
         page_title="Executive Assistant Workspace usage",
         current_nav="settings",
         console_title="Usage and activation",
-        console_summary="Queue pressure, memo activity, operator load, and time-to-value should stay visible while shaping rules and support posture.",
+        console_summary="Queue pressure, memo activity, operator load, and time-to-value stay visible while shaping rules and support posture.",
         object_kind="Usage state",
         object_title="Current office loop",
         object_summary=f"{usage.get('queue_items', 0)} queue items · {usage.get('commitments', 0)} commitments · {usage.get('handoffs', 0)} handoffs",
@@ -301,7 +493,7 @@ def settings_support_detail(
         page_title="Executive Assistant Workspace support",
         current_nav="settings",
         console_title="Support and recovery",
-        console_summary="Support posture should explain what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
+        console_summary="Support posture explains what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
         object_kind="Support bundle",
         object_title=str(billing.get("support_tier") or "standard").title(),
         object_summary=str(billing.get("contract_note") or "Support posture is available for export."),
@@ -311,8 +503,8 @@ def settings_support_detail(
             {"label": "Pending delivery", "value": str(len(pending_delivery))},
             {"label": "Providers", "value": str(providers.get("provider_count") or 0)},
         ],
-        object_sidebar_title="What support should answer",
-        object_sidebar_copy="A customer-grade support surface should answer what was blocked, what still needs human review, which providers are in play, and what bundle may be exported without reading raw logs.",
+        object_sidebar_title="What support answers",
+        object_sidebar_copy="This support surface answers what was blocked, what still needs human review, which providers are in play, and what bundle can be exported without reading raw logs.",
         object_sidebar_rows=[
             _object_detail_row("Support tier", str(billing.get("support_tier") or "standard"), "Support"),
             _object_detail_row("Billing state", str(billing.get("billing_state") or "unknown"), "Billing"),
@@ -342,11 +534,14 @@ def settings_support_detail(
             ),
             _object_detail_row(
                 "Export bundle",
-                "Open the support-ready workspace bundle from Settings or the workspace review export.",
+                "Open the support-ready workspace bundle in the browser or download the JSON artifact directly.",
                 "Bundle",
                 action_href="/app/api/diagnostics/export",
                 action_label="Open bundle",
                 action_method="get",
+                secondary_action_href="/app/api/diagnostics/export?download=1",
+                secondary_action_label="Download JSON",
+                secondary_action_method="get",
             ),
         ],
         object_sections=[
@@ -389,7 +584,7 @@ def settings_support_detail(
                     [
                         _object_detail_row(
                             "Summary",
-                            str(support_grounding.get("summary") or "Support posture should stay connected to mirrored trust and scorecard truth."),
+                            str(support_grounding.get("summary") or "Support posture stays connected to mirrored trust and scorecard truth."),
                             "Grounding",
                         )
                     ]
@@ -512,7 +707,7 @@ def settings_support_detail(
             },
             {
                 "eyebrow": "Commercial escalation",
-                "title": "Billing path, upgrade path, and customer-facing blockers",
+                "title": "Billing path, upgrade path, and workspace blockers",
                 "items": [
                     _object_detail_row("Billing portal", str(billing.get("billing_portal_state") or "guided").replace("_", " "), "Billing"),
                     _object_detail_row("Invoice window", str(billing.get("invoice_window_label") or "Not recorded"), "Billing"),
@@ -616,7 +811,7 @@ def settings_outcomes_detail(
         page_title="Executive Assistant Workspace outcomes",
         current_nav="settings",
         console_title="Workspace outcomes",
-        console_summary="First value, review activity, commitment closure, and correction signals should explain whether this office is actually getting value.",
+        console_summary="First value, review activity, commitment closure, and correction signals explain whether this office is actually getting value.",
         object_kind="Outcome posture",
         object_title=str(outcomes.get("success_summary") or "Workspace outcomes"),
         object_summary=(
@@ -632,7 +827,7 @@ def settings_outcomes_detail(
             {"label": "Proof state", "value": str(office_loop_proof.get("state") or "watch").replace("_", " ")},
             {"label": "Churn risk", "value": str(outcomes.get("churn_risk") or "watch").replace("_", " ")},
         ],
-        object_sidebar_title="What a healthy loop should show",
+        object_sidebar_title="What a healthy loop shows",
         object_sidebar_copy="A healthy office loop reaches first value quickly, gets the memo opened, turns approvals into actions, and closes commitments at a visible rate.",
         object_sidebar_rows=[
             _object_detail_row("Success summary", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
@@ -757,9 +952,9 @@ def settings_outcomes_detail(
                 "items": [
                     _object_detail_row("Draft approvals granted", str(counts.get("draft_approved") or 0), "Drafts"),
                     _object_detail_row("Draft sent", str(counts.get("draft_sent") or 0), "Drafts"),
-                    _object_detail_row("Delivery follow-ups created", str(counts.get("draft_send_followup_created") or 0), "Drafts"),
-                    _object_detail_row("Delivery follow-ups closed", str(outcomes.get("delivery_followup_closeout_count") or 0), "Drafts"),
-                    _object_detail_row("Blocked delivery follow-ups", str(outcomes.get("delivery_followup_blocked_count") or 0), "Drafts"),
+                    _object_detail_row("Delivery handoffs created", str(counts.get("draft_send_followup_created") or 0), "Drafts"),
+                    _object_detail_row("Delivery handoffs closed", str(outcomes.get("delivery_followup_closeout_count") or 0), "Drafts"),
+                    _object_detail_row("Blocked delivery handoffs", str(outcomes.get("delivery_followup_blocked_count") or 0), "Drafts"),
                     _object_detail_row("Commitment created", str(counts.get("commitment_created") or 0), "Commitments"),
                     _object_detail_row("Commitment closed", str(counts.get("commitment_closed") or 0), "Commitments"),
                     _object_detail_row("Handoff completed", str(counts.get("handoff_completed") or 0), "Handoffs"),
@@ -789,12 +984,146 @@ def settings_google_detail(
     sync = product.google_signal_sync_status(principal_id=context.principal_id)
     sync_error = str(request.query_params.get("sync_error") or "").strip()
     sync_status = str(request.query_params.get("sync_status") or "").strip()
+    sync_processed_total = int(request.query_params.get("sync_processed_total") or 0)
+    sync_synced_total = int(request.query_params.get("sync_synced_total") or 0)
+    sync_deduplicated_total = int(request.query_params.get("sync_deduplicated_total") or 0)
+    sync_suppressed_total = int(request.query_params.get("sync_suppressed_total") or 0)
     google_error = str(request.query_params.get("google_error") or "").strip()
+    account_status = str(request.query_params.get("account_status") or "").strip()
+    verify_status = str(request.query_params.get("verify_status") or "").strip()
+    verify_error = str(request.query_params.get("verify_error") or "").strip()
+    verify_sender = str(request.query_params.get("verify_sender") or "").strip()
+    verify_recipient = str(request.query_params.get("verify_recipient") or "").strip()
+    email_link_status = str(request.query_params.get("email_link_status") or "").strip()
+    email_link_email = str(request.query_params.get("email_link_email") or "").strip()
+    email_link_bundle = str(request.query_params.get("email_link_bundle") or "").strip()
+    email_link_error = str(request.query_params.get("email_link_error") or "").strip()
+    google_accounts = sorted(
+        google_oauth_service.list_google_accounts(container=container, principal_id=context.principal_id),
+        key=lambda account: (
+            account.binding.binding_id != f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}",
+            str(account.google_email or "").strip().lower(),
+            str(account.binding.binding_id or "").strip(),
+        ),
+    )
+    primary_account = next(
+        (
+            account
+            for account in google_accounts
+            if str(account.binding.binding_id or "").strip()
+            == f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}"
+        ),
+        google_accounts[0] if google_accounts else None,
+    )
+    active_account_total = sum(
+        1
+        for account in google_accounts
+        if str(account.binding.status or "").strip().lower() == "enabled"
+        and str(account.token_status or "").strip().lower() != "revoked"
+    )
+    connected_account_total = len(google_accounts)
+    primary_email = str(
+        getattr(primary_account, "google_email", "") or sync.get("account_email") or ""
+    ).strip()
+    connect_another_href = (
+        "/app/actions/google/connect?"
+        + urllib.parse.urlencode({"return_to": "/app/settings/google", "scope_bundle": "core"})
+    )
+    email_connect_recipient = _google_connect_email_recipient(
+        principal_id=context.principal_id,
+        access_email=str(context.access_email or ""),
+        primary_email=primary_email,
+    )
+    email_connect_href = (
+        _google_connect_email_href(
+            recipient_email=email_connect_recipient,
+            return_to="/app/settings/google",
+            scope_bundle="full_workspace",
+        )
+        if email_connect_recipient
+        else ""
+    )
     covered_sync_candidates = int(sync.get("covered_signal_candidates") or 0)
     action = _google_connect_action(sync, return_to="/app/settings/google")
-    sync_summary = f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · {int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
+    resolved_verify_state = verify_status or str(sync.get("last_send_verification_state") or "").strip()
+    resolved_verify_sender = verify_sender or str(sync.get("last_send_verification_sender_email") or "").strip()
+    resolved_verify_recipient = verify_recipient or str(sync.get("last_send_verification_recipient_email") or "").strip()
+    resolved_verify_error = verify_error or str(sync.get("last_send_verification_error") or "").strip()
+    verification_rows = [
+        dict(value)
+        for value in list(sync.get("send_verification_accounts") or [])
+        if isinstance(value, dict)
+    ]
+    account_sync_rows = [
+        dict(value)
+        for value in list(sync.get("account_sync_accounts") or [])
+        if isinstance(value, dict)
+    ]
+    account_sync_by_email = {
+        str(row.get("account_email") or "").strip().lower(): row
+        for row in account_sync_rows
+        if str(row.get("account_email") or "").strip()
+    }
+    account_change_rows = [
+        dict(value)
+        for value in list(sync.get("account_change_accounts") or [])
+        if isinstance(value, dict)
+    ]
+    account_change_by_binding = {
+        str(row.get("binding_id") or "").strip(): row
+        for row in account_change_rows
+        if str(row.get("binding_id") or "").strip()
+    }
+    verification_by_binding = {
+        str(row.get("binding_id") or "").strip(): row
+        for row in verification_rows
+        if str(row.get("binding_id") or "").strip()
+    }
+    resolved_account_change_state = account_status or str(sync.get("last_account_change_state") or "").strip()
+    resolved_account_change_email = str(sync.get("last_account_change_email") or "").strip()
+    resolved_account_change_at = str(sync.get("last_account_change_at") or "").strip()
+    verify_detail = resolved_verify_error or (
+        f"Verified {resolved_verify_sender} -> {resolved_verify_recipient or resolved_verify_sender}"
+        if resolved_verify_state == "completed" and resolved_verify_sender
+        else "Not recorded"
+    )
+    account_change_detail = _google_account_status_detail(resolved_account_change_state)
+    if resolved_account_change_email and resolved_account_change_at:
+        account_change_detail = f"{account_change_detail} {resolved_account_change_email} · {resolved_account_change_at[:19]}"
+    elif resolved_account_change_email:
+        account_change_detail = f"{account_change_detail} {resolved_account_change_email}"
+    elif resolved_account_change_at and resolved_account_change_state:
+        account_change_detail = f"{account_change_detail} {resolved_account_change_at[:19]}"
+    if email_link_error:
+        email_link_detail = email_link_error
+    elif email_link_status == "sent" and email_link_email:
+        bundle_label = str(google_oauth_service.google_scope_bundle_details(email_link_bundle or "full_workspace").get("label") or "Google Full Workspace")
+        email_link_detail = f"Sent {bundle_label} link to {email_link_email}"
+    elif email_connect_recipient:
+        email_link_detail = f"Ready to send a full-access Google link to {email_connect_recipient}"
+    else:
+        email_link_detail = "No workspace email is available for this action yet."
+    sync_summary = (
+        f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
+        f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · "
+        f"{int(sync.get('pending_commitment_candidates') or 0)} pending candidates"
+    )
     if covered_sync_candidates:
         sync_summary = f"{sync_summary} · {covered_sync_candidates} covered by drafts"
+    if sync_error:
+        last_manual_sync_detail = sync_error
+    elif google_error:
+        last_manual_sync_detail = google_error
+    elif sync_status == "completed":
+        if sync_processed_total or sync_suppressed_total:
+            last_manual_sync_detail = (
+                f"Completed · processed {sync_processed_total} · staged {sync_synced_total} · "
+                f"deduplicated {sync_deduplicated_total} · suppressed {sync_suppressed_total}"
+            )
+        else:
+            last_manual_sync_detail = "Completed · no recent Gmail or Calendar signals were staged"
+    else:
+        last_manual_sync_detail = "Not recorded"
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -802,24 +1131,39 @@ def settings_google_detail(
         page_title="Executive Assistant Google sync",
         current_nav="settings",
         console_title="Google sync",
-        console_summary="Google signal sync should be visible in product language: connection state, freshness, staged work, and whether the office needs reauth before the next loop.",
+        console_summary="Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop.",
         object_kind="Sync posture",
-        object_title=str(sync.get("account_email") or "Google not connected"),
+        object_title=primary_email or "Google not connected",
         object_summary=sync_summary,
         object_meta=[
-            {"label": "Connected", "value": "Yes" if sync.get("connected") else "No"},
+            {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
+            {"label": "Connected inboxes", "value": str(connected_account_total)},
+            {"label": "Active inboxes", "value": str(active_account_total)},
+            {"label": "Primary inbox", "value": primary_email or "Not connected"},
             {"label": "Token status", "value": str(sync.get("token_status") or "missing").replace("_", " ")},
-            {"label": "Freshness", "value": str(sync.get("freshness_state") or "watch").replace("_", " ")},
             {"label": "Sync runs", "value": str(sync.get("sync_completed") or 0)},
         ],
-        object_sidebar_title="What this should answer",
-        object_sidebar_copy="A workspace should be able to see whether Google is connected, when the last sync completed, what signal volume it produced, and whether a reauth is needed before the next office loop.",
+        object_sidebar_title="What this view answers",
+        object_sidebar_copy="This view shows which inbox is primary, what additional Google inboxes are attached to the same workspace, when the last sync completed, and whether the office needs reauth before the next loop.",
         object_sidebar_rows=[
-            _object_detail_row("Account email", str(sync.get("account_email") or "Not connected"), "Google"),
+            _object_detail_row(
+                "Connected inboxes",
+                f"{connected_account_total} inbox{'es' if connected_account_total != 1 else ''} attached to this workspace.",
+                "Google",
+                action_href=connect_another_href,
+                action_label="Add inbox",
+                action_method="get",
+                secondary_action_href=email_connect_href,
+                secondary_action_label="Email full-access link" if email_connect_href else "",
+                secondary_action_method="post" if email_connect_href else "",
+                secondary_return_to="/app/settings/google" if email_connect_href else "",
+            ),
+            _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
             _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
             _object_detail_row("Pending commitment candidates", str(sync.get("pending_commitment_candidates") or 0), "Queue"),
             _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
             _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
+            _object_detail_row("Last send verification", verify_detail, "Verify"),
             _object_detail_row(
                 "Next Google action",
                 action["detail"],
@@ -829,19 +1173,29 @@ def settings_google_detail(
                 action_label=action["label"],
                 action_method=action["method"],
                 return_to="/app/settings/google",
+                secondary_action_href=email_connect_href,
+                secondary_action_label="Email full-access link" if email_connect_href else "",
+                secondary_action_method="post" if email_connect_href else "",
+                secondary_return_to="/app/settings/google" if email_connect_href else "",
             ),
-            _object_detail_row("Last manual sync", sync_error or google_error or ("Completed" if sync_status == "completed" else "Not recorded"), "Action"),
+            _object_detail_row("Last manual sync", last_manual_sync_detail, "Action"),
+            _object_detail_row("Last account change", account_change_detail, "Accounts"),
+            _object_detail_row("Last emailed connect link", email_link_detail, "Email"),
         ],
         object_sections=[
             {
                 "eyebrow": "Connection",
                 "title": "Google binding and token posture",
                 "items": [
-                    _object_detail_row("Connected", "Yes" if sync.get("connected") else "No", "Google"),
-                    _object_detail_row("Account email", str(sync.get("account_email") or "Not connected"), "Google"),
+                    _object_detail_row("Connected", "Yes" if connected_account_total else "No", "Google"),
+                    _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
+                    _object_detail_row("Connected inboxes", str(connected_account_total), "Google"),
+                    _object_detail_row("Active inboxes", str(active_account_total), "Google"),
                     _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
+                    _object_detail_row("Last send verification", verify_detail, "Verify"),
+                    _object_detail_row("Last emailed connect link", email_link_detail, "Email"),
                     _object_detail_row(
                         action["label"],
                         action["detail"],
@@ -851,12 +1205,44 @@ def settings_google_detail(
                         action_label=action["label"],
                         action_method=action["method"],
                         return_to="/app/settings/google",
+                        secondary_action_href=email_connect_href,
+                        secondary_action_label="Email full-access link" if email_connect_href else "",
+                        secondary_action_method="post" if email_connect_href else "",
+                        secondary_return_to="/app/settings/google" if email_connect_href else "",
                     ),
                 ],
             },
             {
+                "eyebrow": "Accounts",
+                "title": "Connected inboxes and send defaults",
+                "items": [
+                    _google_account_row(
+                        account,
+                        return_to="/app/settings/google",
+                        verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
+                        sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
+                        change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
+                    )
+                    for account in google_accounts
+                ]
+                or [
+                    _object_detail_row(
+                        "No connected inboxes",
+                        "Attach a Google inbox before the memo, queue, and approval loop can use live workspace signals.",
+                        "Empty",
+                        action_href=connect_another_href,
+                        action_label="Connect inbox",
+                        action_method="get",
+                        secondary_action_href=email_connect_href,
+                        secondary_action_label="Email full-access link" if email_connect_href else "",
+                        secondary_action_method="post" if email_connect_href else "",
+                        secondary_return_to="/app/settings/google" if email_connect_href else "",
+                    )
+                ],
+            },
+            {
                 "eyebrow": "Freshness",
-                "title": "Latest sync run and queued follow-up work",
+                "title": "Latest sync run and queued commitment work",
                 "items": [
                     _object_detail_row("Freshness", str(sync.get("freshness_state") or "watch").replace("_", " "), "Sync"),
                     _object_detail_row("Last completed", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
@@ -910,7 +1296,7 @@ def settings_trust_detail(
         page_title="Executive Assistant Workspace trust",
         current_nav="settings",
         console_title="Workspace trust",
-        console_summary="Evidence, rules, readiness, provider posture, and recent product events should make the assistant legible when the office asks why something happened.",
+        console_summary="Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened.",
         object_kind="Trust posture",
         object_title=str(trust.get("workspace_summary") or "Workspace trust posture"),
         object_summary=f"Health score {trust.get('health_score') or 0} · {trust.get('evidence_count') or 0} evidence items · {trust.get('rule_count') or 0} rules",
@@ -920,7 +1306,7 @@ def settings_trust_detail(
             {"label": "Evidence linked", "value": str(trust.get("evidence_count") or 0)},
             {"label": "Rules", "value": str(trust.get("rule_count") or 0)},
         ],
-        object_sidebar_title="What should make this trustworthy",
+        object_sidebar_title="What makes this trustworthy",
         object_sidebar_copy="Trust is the product of clear readiness, understandable provider posture, reliable delivery, visible rules, and recent evidence of what the system actually did.",
         object_sidebar_rows=[
             _object_detail_row("Workspace summary", str(trust.get("workspace_summary") or "No trust summary yet."), "Summary"),
@@ -961,7 +1347,7 @@ def settings_trust_detail(
                     [
                         _object_detail_row(
                             "Summary",
-                            str(public_help_grounding.get("summary") or "Help posture should compile from mirrored trust and release canon."),
+                            str(public_help_grounding.get("summary") or "Help posture compiles from mirrored trust and release canon."),
                             "Grounding",
                         )
                     ]
@@ -1029,6 +1415,19 @@ def settings_access_detail(
         for item in product.list_office_events(principal_id=context.principal_id, limit=200)
         if str(item.get("event_type") or "").strip() == "workspace_access_session_opened"
     )
+    issue_status = str(request.query_params.get("issue_status") or "").strip()
+    issue_email = str(request.query_params.get("issue_email") or "").strip()
+    issue_error = str(request.query_params.get("issue_error") or "").strip()
+    access_status = str(request.query_params.get("access_status") or "").strip()
+    access_email = str(request.query_params.get("access_email") or "").strip()
+    access_detail = (
+        issue_error
+        or (
+            f"Access link issued for {issue_email}"
+            if issue_status == "issued" and issue_email
+            else "Issue and revoke workspace access links from this page."
+        )
+    )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1036,7 +1435,7 @@ def settings_access_detail(
         page_title="Executive Assistant Workspace access",
         current_nav="settings",
         console_title="Workspace access",
-        console_summary="Active access sessions should be visible and revocable from the browser, not buried in API payloads or support tooling.",
+        console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
         object_kind="Access posture",
         object_title=f"{len(active_sessions)} active sessions",
         object_summary=f"{total_opens} access opens recorded · {len(revoked_sessions)} revoked sessions",
@@ -1046,14 +1445,20 @@ def settings_access_detail(
             {"label": "Revoked sessions", "value": str(len(revoked_sessions))},
             {"label": "Role mix", "value": ", ".join(sorted({str(item.get('role') or 'principal') for item in active_sessions} or {'principal'}))},
         ],
-        object_sidebar_title="What this should make easy",
-        object_sidebar_copy="Access should be reviewable in product language: who still has a live link, where it lands, and whether an old session has been revoked cleanly.",
+        object_sidebar_title="What this makes easy",
+        object_sidebar_copy="Access stays reviewable in product language: who still has a live link, where it lands, and whether an old session has been revoked cleanly.",
         object_sidebar_rows=[
             _object_detail_row("Active sessions", str(len(active_sessions)), "Access"),
             _object_detail_row("Access opens", str(total_opens), "Telemetry"),
             _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
             _object_detail_row("Default operator target", "/admin/office", "Operators"),
             _object_detail_row("Default principal target", "/app/today", "Principal"),
+            _object_detail_row("Latest access action", access_detail, "Access"),
+            _object_detail_row(
+                "Latest revocation",
+                f"Revoked {access_email}" if access_status == "revoked" and access_email else "No access revocation recorded from this view.",
+                "Access",
+            ),
         ],
         object_sections=[
             {
@@ -1064,6 +1469,13 @@ def settings_access_detail(
                         str(item.get("email") or "unknown"),
                         f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/today')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
                         str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
+                        action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
+                        action_label="Revoke",
+                        action_method="post",
+                        return_to="/app/settings/access",
+                        secondary_action_href=str(item.get("access_url") or "").strip(),
+                        secondary_action_label="Open link" if str(item.get("access_url") or "").strip() else "",
+                        secondary_action_method="get",
                     )
                     for item in active_sessions[:12]
                 ] or [_object_detail_row("No active access sessions", "Issue a workspace access link when someone needs direct entry into the workspace.", "Clear")],
@@ -1081,6 +1493,29 @@ def settings_access_detail(
                 ] or [_object_detail_row("No revoked sessions", "Revoked links and sessions will appear here when access is withdrawn.", "History")],
             },
         ],
+        object_sidebar_form={
+            "action": "/app/actions/access-sessions/issue",
+            "method": "post",
+            "eyebrow": "Issue access",
+            "title": "Create a workspace access link",
+            "copy": "Issue a direct principal or operator access link without dropping into the API.",
+            "submit_label": "Issue access link",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": "/app/settings/access"},
+                {"label": "Email", "name": "email", "type": "email", "value": issue_email, "placeholder": "principal@example.com"},
+                {
+                    "label": "Role",
+                    "name": "role",
+                    "type": "select",
+                    "value": "principal",
+                    "options": [
+                        {"label": "Principal", "value": "principal", "selected": True},
+                        {"label": "Operator", "value": "operator"},
+                    ],
+                },
+                {"label": "Display name", "name": "display_name", "type": "text", "value": "", "placeholder": "Workspace entry"},
+            ],
+        },
     )
 
 
@@ -1105,6 +1540,18 @@ def settings_invitations_detail(
     delivery_rows = [*pending, *accepted, *revoked]
     delivery_failed = sum(1 for item in delivery_rows if str(item.get("email_delivery_status") or "").strip() == "failed")
     delivery_sent = sum(1 for item in delivery_rows if str(item.get("email_delivery_status") or "").strip() == "sent")
+    invite_status = str(request.query_params.get("invite_status") or "").strip()
+    invite_email = str(request.query_params.get("invite_email") or "").strip()
+    invite_error = str(request.query_params.get("invite_error") or "").strip()
+    invite_action_detail = (
+        invite_error
+        or (
+            f"Invitation created for {invite_email}"
+            if invite_status == "created" and invite_email
+            else "Create and revoke workspace invitations from this page."
+        )
+    )
+    revoked_email = str(request.query_params.get("revoked_email") or "").strip()
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1112,7 +1559,7 @@ def settings_invitations_detail(
         page_title="Executive Assistant Workspace invitations",
         current_nav="settings",
         console_title="Workspace invitations",
-        console_summary="Pending invites, accepted roles, and revoked access should be visible where the workspace decides who joins the office loop.",
+        console_summary="Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop.",
         object_kind="Invitation posture",
         object_title=f"{len(pending)} pending invitations",
         object_summary=f"{len(accepted)} accepted · {len(revoked)} revoked",
@@ -1122,8 +1569,8 @@ def settings_invitations_detail(
             {"label": "Revoked", "value": str(len(revoked))},
             {"label": "Delivery failures", "value": str(delivery_failed)},
         ],
-        object_sidebar_title="What invitation control should answer",
-        object_sidebar_copy="Invitation control should answer who is waiting to join, which role they will enter with, and whether an old invite still needs to be withdrawn.",
+        object_sidebar_title="What invitation control answers",
+        object_sidebar_copy="Invitation control shows who is waiting to join, which role they will enter with, and whether an old invite still needs to be withdrawn.",
         object_sidebar_rows=[
             _object_detail_row("Pending invitations", str(len(pending)), "Invites"),
             _object_detail_row("Accepted invitations", str(len(accepted)), "Access"),
@@ -1131,6 +1578,12 @@ def settings_invitations_detail(
             _object_detail_row("Invite emails sent", str(delivery_sent), "Delivery"),
             _object_detail_row("Invite email failures", str(delivery_failed), "Delivery"),
             _object_detail_row("Operator seat policy", "Operator seats are enforced at acceptance time.", "Seats"),
+            _object_detail_row("Latest invite action", invite_action_detail, "Invites"),
+            _object_detail_row(
+                "Latest revoke action",
+                f"Revoked invitation for {revoked_email}" if invite_status == "revoked" and revoked_email else "No invite revocation recorded from this view.",
+                "Invites",
+            ),
         ],
         object_sections=[
             {
@@ -1149,6 +1602,13 @@ def settings_invitations_detail(
                             if part
                         ),
                         "Pending",
+                        action_href=f"/app/actions/invitations/{urllib.parse.quote(str(item.get('invitation_id') or '').strip(), safe='')}/revoke",
+                        action_label="Revoke",
+                        action_method="post",
+                        return_to="/app/settings/invitations",
+                        secondary_action_href=str(item.get("invite_url") or "").strip(),
+                        secondary_action_label="Open invite" if str(item.get("invite_url") or "").strip() else "",
+                        secondary_action_method="get",
                     )
                     for item in pending[:12]
                 ] or [_object_detail_row("No pending invitations", "Create an invite when the workspace needs another reviewer or operator.", "Clear")],
@@ -1194,6 +1654,187 @@ def settings_invitations_detail(
                 ] or [_object_detail_row("No revoked invitations", "Revoked invitations will appear here when a pending invite is withdrawn.", "History")],
             },
         ],
+        object_sidebar_form={
+            "action": "/app/actions/invitations/create",
+            "method": "post",
+            "eyebrow": "Create invite",
+            "title": "Invite another person into the workspace",
+            "copy": "Create a principal or operator invitation without leaving the product surface.",
+            "submit_label": "Create invitation",
+            "fields": [
+                {"type": "hidden", "name": "return_to", "value": "/app/settings/invitations"},
+                {"label": "Email", "name": "email", "type": "email", "value": invite_email, "placeholder": "operator@example.com"},
+                {
+                    "label": "Role",
+                    "name": "role",
+                    "type": "select",
+                    "value": "operator",
+                    "options": [
+                        {"label": "Operator", "value": "operator", "selected": True},
+                        {"label": "Principal", "value": "principal"},
+                    ],
+                },
+                {"label": "Display name", "name": "display_name", "type": "text", "value": "", "placeholder": "Operator One"},
+            ],
+        },
+    )
+
+
+@router.post("/app/actions/invitations/create")
+async def app_create_workspace_invitation(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/invitations"), default="/app/settings/invitations")
+    separator = "&" if "?" in return_to else "?"
+    email = str(_form_value(body, "email", "")).strip().lower()
+    role = str(_form_value(body, "role", "operator")).strip().lower() or "operator"
+    display_name = str(_form_value(body, "display_name", "")).strip()
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        product.create_workspace_invitation(
+            principal_id=context.principal_id,
+            email=email,
+            role=role,
+            display_name=display_name,
+            invited_by=actor,
+        )
+    except Exception as exc:
+        error_value = urllib.parse.quote(str(exc or "workspace_invitation_create_failed"), safe="")
+        return RedirectResponse(
+            f"{return_to}{separator}invite_error={error_value}&invite_email={urllib.parse.quote(email, safe='')}",
+            status_code=303,
+        )
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="workspace_invitation_requested",
+        surface="settings_invitations",
+        actor=actor,
+        metadata={"email": email, "role": role},
+    )
+    return RedirectResponse(
+        f"{return_to}{separator}invite_status=created&invite_email={urllib.parse.quote(email, safe='')}",
+        status_code=303,
+    )
+
+
+@router.post("/app/actions/invitations/{invitation_id}/revoke")
+async def app_revoke_workspace_invitation(
+    invitation_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/invitations"), default="/app/settings/invitations")
+    separator = "&" if "?" in return_to else "?"
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    current = product.get_workspace_invitation(principal_id=context.principal_id, invitation_id=invitation_id)
+    if current is None:
+        error_value = urllib.parse.quote("workspace_invitation_not_found", safe="")
+        return RedirectResponse(f"{return_to}{separator}invite_error={error_value}", status_code=303)
+    revoked = product.revoke_workspace_invitation(
+        principal_id=context.principal_id,
+        invitation_id=invitation_id,
+        actor=actor,
+    )
+    if revoked is None:
+        error_value = urllib.parse.quote("workspace_invitation_not_found", safe="")
+        return RedirectResponse(f"{return_to}{separator}invite_error={error_value}", status_code=303)
+    email = urllib.parse.quote(str(revoked.get("email") or current.get("email") or "").strip().lower(), safe="")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="workspace_invitation_revocation_requested",
+        surface="settings_invitations",
+        actor=actor,
+        metadata={"invitation_id": invitation_id, "email": str(revoked.get("email") or current.get("email") or "").strip().lower()},
+    )
+    return RedirectResponse(
+        f"{return_to}{separator}invite_status=revoked&revoked_email={email}",
+        status_code=303,
+    )
+
+
+@router.post("/app/actions/access-sessions/issue")
+async def app_issue_workspace_access_session(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/access"), default="/app/settings/access")
+    separator = "&" if "?" in return_to else "?"
+    email = str(_form_value(body, "email", "")).strip().lower()
+    role = str(_form_value(body, "role", "principal")).strip().lower() or "principal"
+    display_name = str(_form_value(body, "display_name", "")).strip()
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        product.issue_workspace_access_session(
+            principal_id=context.principal_id,
+            email=email,
+            role=role,
+            display_name=display_name,
+            source_kind="settings_access",
+        )
+    except Exception as exc:
+        error_value = urllib.parse.quote(str(exc or "workspace_access_issue_failed"), safe="")
+        return RedirectResponse(
+            f"{return_to}{separator}issue_error={error_value}&issue_email={urllib.parse.quote(email, safe='')}",
+            status_code=303,
+        )
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="workspace_access_requested",
+        surface="settings_access",
+        actor=actor,
+        metadata={"email": email, "role": role},
+    )
+    return RedirectResponse(
+        f"{return_to}{separator}issue_status=issued&issue_email={urllib.parse.quote(email, safe='')}",
+        status_code=303,
+    )
+
+
+@router.post("/app/actions/access-sessions/{session_id}/revoke")
+async def app_revoke_workspace_access_session(
+    session_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/access"), default="/app/settings/access")
+    separator = "&" if "?" in return_to else "?"
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    current = product.get_workspace_access_session(principal_id=context.principal_id, session_id=session_id)
+    if current is None:
+        error_value = urllib.parse.quote("workspace_access_session_not_found", safe="")
+        return RedirectResponse(f"{return_to}{separator}issue_error={error_value}", status_code=303)
+    revoked = product.revoke_workspace_access_session(
+        principal_id=context.principal_id,
+        session_id=session_id,
+        actor=actor,
+    )
+    if revoked is None:
+        error_value = urllib.parse.quote("workspace_access_session_not_found", safe="")
+        return RedirectResponse(f"{return_to}{separator}issue_error={error_value}", status_code=303)
+    email = urllib.parse.quote(str(revoked.get("email") or current.get("email") or "").strip().lower(), safe="")
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="workspace_access_revocation_requested",
+        surface="settings_access",
+        actor=actor,
+        metadata={"session_id": session_id, "email": str(revoked.get("email") or current.get("email") or "").strip().lower()},
+    )
+    return RedirectResponse(
+        f"{return_to}{separator}access_status=revoked&access_email={email}",
+        status_code=303,
     )
 
 
@@ -1205,7 +1846,7 @@ def app_google_signal_sync(
 ) -> RedirectResponse:
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
-    return_to = str(request.query_params.get("return_to") or "/app/settings/google").strip() or "/app/settings/google"
+    return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
     separator = "&" if "?" in return_to else "?"
     try:
         product.sync_google_workspace_signals(
@@ -1220,17 +1861,23 @@ def app_google_signal_sync(
     return RedirectResponse(f"{return_to}{separator}sync_status=completed", status_code=303)
 
 
-@router.get("/app/actions/google/connect")
+@router.api_route("/app/actions/google/connect", methods=["GET", "HEAD"], include_in_schema=False)
 def app_google_connect(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
-    return_to = str(request.query_params.get("return_to") or "/app/settings/google").strip() or "/app/settings/google"
+    return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
     scope_bundle = str(request.query_params.get("scope_bundle") or "core").strip() or "core"
     separator = "&" if "?" in return_to else "?"
     try:
-        started = container.onboarding.start_google(principal_id=context.principal_id, scope_bundle=scope_bundle)
+        started = container.onboarding.start_google(
+            principal_id=context.principal_id,
+            scope_bundle=scope_bundle,
+            redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
+            return_to=return_to,
+            browser_source="settings_google",
+        )
     except RuntimeError as exc:
         error_value = urllib.parse.quote(str(exc or "google_connect_failed"), safe="")
         return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
@@ -1240,6 +1887,172 @@ def app_google_connect(
         return RedirectResponse(auth_url, status_code=303)
     detail = urllib.parse.quote(str(google_start.get("detail") or "google_oauth_not_ready"), safe="")
     return RedirectResponse(f"{return_to}{separator}google_error={detail}", status_code=303)
+
+
+@router.post("/app/actions/google/email-connect-link")
+async def app_google_email_connect_link(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    query = request.query_params
+    return_to = _normalize_browser_return_to(
+        _form_value(body, "return_to", str(query.get("return_to") or "/app/settings/google")),
+        default="/app/settings/google",
+    )
+    separator = "&" if "?" in return_to else "?"
+    recipient_email = (
+        _form_value(body, "recipient_email", "")
+        or str(query.get("recipient_email") or "").strip()
+        or _google_connect_email_recipient(
+            principal_id=context.principal_id,
+            access_email=str(context.access_email or ""),
+        )
+    )
+    scope_bundle = _form_value(body, "scope_bundle", str(query.get("scope_bundle") or "full_workspace"))
+    product = build_product_service(container)
+    try:
+        result = product.send_google_connect_email_link(
+            principal_id=context.principal_id,
+            recipient_email=recipient_email,
+            scope_bundle=scope_bundle,
+            base_url=_public_app_base_url(request),
+        )
+    except (RuntimeError, ValueError) as exc:
+        error_value = urllib.parse.quote(str(exc or "google_connect_email_failed"), safe="")
+        return RedirectResponse(
+            f"{return_to}{separator}email_link_error={error_value}&email_link_email={urllib.parse.quote(str(recipient_email or '').strip().lower(), safe='')}",
+            status_code=303,
+        )
+    return RedirectResponse(
+        f"{return_to}{separator}email_link_status=sent&email_link_email={urllib.parse.quote(str(result.get('recipient_email') or '').strip().lower(), safe='')}&email_link_bundle={urllib.parse.quote(str(result.get('scope_bundle') or '').strip(), safe='')}",
+        status_code=303,
+    )
+
+
+@router.post("/app/actions/google/accounts/{binding_id:path}/make-primary")
+async def app_google_make_primary(
+    binding_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/google"), default="/app/settings/google")
+    separator = "&" if "?" in return_to else "?"
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        account = google_oauth_service.promote_google_account(
+            container=container,
+            principal_id=context.principal_id,
+            binding_id=binding_id,
+        )
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "google_account_promotion_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="google_account_primary_updated",
+        surface="settings_google",
+        actor=actor,
+        metadata={
+            "binding_id": str(account.binding.binding_id or "").strip(),
+            "google_email": str(account.google_email or "").strip(),
+            "google_subject": str(account.google_subject or "").strip(),
+        },
+    )
+    return RedirectResponse(f"{return_to}{separator}account_status=primary_updated", status_code=303)
+
+
+@router.post("/app/actions/google/accounts/{binding_id:path}/disconnect")
+async def app_google_disconnect_account(
+    binding_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/google"), default="/app/settings/google")
+    separator = "&" if "?" in return_to else "?"
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        binding = google_oauth_service.disconnect_google_account(
+            container=container,
+            principal_id=context.principal_id,
+            binding_id=binding_id,
+        )
+    except RuntimeError as exc:
+        error_value = urllib.parse.quote(str(exc or "google_account_disconnect_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}google_error={error_value}", status_code=303)
+    metadata = dict(binding.auth_metadata_json or {})
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="google_account_disconnected",
+        surface="settings_google",
+        actor=actor,
+        metadata={
+            "binding_id": str(binding.binding_id or "").strip(),
+            "google_email": str(metadata.get("google_email") or "").strip(),
+            "google_subject": str(metadata.get("google_subject") or "").strip(),
+        },
+    )
+    return RedirectResponse(f"{return_to}{separator}account_status=account_disconnected", status_code=303)
+
+
+@router.post("/app/actions/google/accounts/{binding_id:path}/verify-send")
+async def app_google_verify_send(
+    binding_id: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/app/settings/google"), default="/app/settings/google")
+    separator = "&" if "?" in return_to else "?"
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        result = google_oauth_service.run_google_gmail_smoke_test(
+            container=container,
+            principal_id=context.principal_id,
+            binding_id=binding_id,
+        )
+    except RuntimeError as exc:
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="google_send_verification_failed",
+            surface="settings_google",
+            actor=actor,
+            metadata={
+                "binding_id": binding_id,
+                "error": str(exc or "google_send_verification_failed").strip(),
+            },
+        )
+        error_value = urllib.parse.quote(str(exc or "google_send_verification_failed"), safe="")
+        return RedirectResponse(f"{return_to}{separator}verify_error={error_value}", status_code=303)
+    product.record_surface_event(
+        principal_id=context.principal_id,
+        event_type="google_send_verification_completed",
+        surface="settings_google",
+        actor=actor,
+        metadata={
+            "binding_id": str(result.binding.binding_id or "").strip(),
+            "sender_email": str(result.sender_email or "").strip(),
+            "recipient_email": str(result.recipient_email or "").strip(),
+            "google_email": str(dict(result.binding.auth_metadata_json or {}).get("google_email") or result.sender_email or "").strip(),
+            "google_subject": str(dict(result.binding.auth_metadata_json or {}).get("google_subject") or "").strip(),
+            "gmail_message_id": str(result.gmail_message_id or "").strip(),
+        },
+    )
+    sender = urllib.parse.quote(str(result.sender_email or "").strip(), safe="")
+    recipient = urllib.parse.quote(str(result.recipient_email or "").strip(), safe="")
+    return RedirectResponse(
+        f"{return_to}{separator}verify_status=completed&verify_sender={sender}&verify_recipient={recipient}",
+        status_code=303,
+    )
 
 
 @router.get("/app/search", response_class=HTMLResponse)
@@ -1317,8 +2130,8 @@ def app_search(
         },
         {
             "eyebrow": "How to use it",
-            "title": "Search should collapse navigation, not add to it",
-            "body": "Use a concrete name, topic, or object label. The first lane gets you to the object; the action button should finish the next step without another hunt.",
+            "title": "Search collapses navigation instead of adding to it",
+            "body": "Use a concrete name, topic, or object label. The first lane gets you to the object, and the action button finishes the next step without another hunt.",
             "items": (
                 [
                     {
@@ -1331,7 +2144,7 @@ def app_search(
                 if normalized_query
                 else [
                     {"title": "People", "detail": "Search names, roles, themes, or relationship signals.", "tag": "Kind"},
-                    {"title": "Decisions, deadlines, and commitments", "detail": "Search a board item, follow-up, due obligation, or review object directly.", "tag": "Kind"},
+                    {"title": "Decisions, deadlines, and commitments", "detail": "Search a board item, commitment, due obligation, or review object directly.", "tag": "Kind"},
                     {"title": "Evidence and rules", "detail": "Search the explanation layer when you need to answer why something happened.", "tag": "Kind"},
                 ]
             ),
@@ -1359,7 +2172,7 @@ def app_search(
             current_nav="settings",
             context=context,
             console_title="Workspace search",
-            console_summary="Search should be the fastest way to jump across the office object model and execute the next obvious action.",
+            console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
             nav_groups=APP_NAV_GROUPS,
             workspace_label=str(workspace.get("name") or "Executive Workspace"),
             cards=cards,

@@ -121,3 +121,29 @@ def test_runtime_lane_telemetry_endpoint_surfaces_codex_status(monkeypatch: pyte
     assert body["lane_telemetry"]["selected_window"]["lanes"]["fast"]["p50_latency_ms"] == 120
     assert body["onemin_aggregate"]["current_pace_burn_credits_per_hour"] == 1200.0
     assert body["avoided_credits"]["selected_window"]["easy_lane"]["avoided_credits"] == 300
+
+
+def test_database_restart_errors_return_service_unavailable_envelope() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
+    os.environ["EA_API_TOKEN"] = ""
+
+    from app.api.app import create_app
+    from psycopg.errors import AdminShutdown
+
+    app = create_app()
+
+    @app.get("/_test/admin-shutdown")
+    def _admin_shutdown() -> None:
+        raise AdminShutdown("db restarting")
+
+    client = TestClient(app)
+    response = client.get("/_test/admin-shutdown", headers={"X-EA-Principal-ID": "exec-db-error"})
+    assert response.status_code == 503
+    body = response.json()
+    assert body["error"]["code"] == "database_unavailable"
+    assert body["error"]["message"] == "temporary service interruption"
+    assert body["error"]["details"] == "database_temporarily_unavailable"
+    assert body["error"]["correlation_id"]
+    assert response.headers["retry-after"] == "5"

@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS provider_bindings (
     updated_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_bindings_principal_provider
-ON provider_bindings(principal_id, provider_key);
+CREATE INDEX IF NOT EXISTS idx_provider_bindings_principal_provider
+ON provider_bindings(principal_id, provider_key, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_provider_bindings_principal_updated
 ON provider_bindings(principal_id, updated_at DESC);

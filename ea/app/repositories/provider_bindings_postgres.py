@@ -53,8 +53,13 @@ class PostgresProviderBindingRepository:
                 )
                 cur.execute(
                     """
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_bindings_principal_provider
-                    ON provider_bindings(principal_id, provider_key)
+                    DROP INDEX IF EXISTS idx_provider_bindings_principal_provider
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_provider_bindings_principal_provider
+                    ON provider_bindings(principal_id, provider_key, updated_at DESC)
                     """
                 )
                 cur.execute(
@@ -160,6 +165,7 @@ class PostgresProviderBindingRepository:
     def upsert(
         self,
         *,
+        binding_id: str | None = None,
         principal_id: str,
         provider_key: str,
         status: str,
@@ -176,7 +182,10 @@ class PostgresProviderBindingRepository:
         if not normalized_provider:
             raise ValueError("provider_key_required")
         timestamp = now_utc_iso()
-        binding_id = self._binding_id(principal_id=normalized_principal, provider_key=normalized_provider)
+        normalized_binding_id = str(binding_id or "").strip() or self._binding_id(
+            principal_id=normalized_principal,
+            provider_key=normalized_provider,
+        )
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -194,7 +203,7 @@ class PostgresProviderBindingRepository:
                         created_at,
                         updated_at
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (principal_id, provider_key) DO UPDATE SET
+                    ON CONFLICT (binding_id) DO UPDATE SET
                         status = EXCLUDED.status,
                         priority = EXCLUDED.priority,
                         probe_state = EXCLUDED.probe_state,
@@ -206,7 +215,7 @@ class PostgresProviderBindingRepository:
                               probe_details_json, scope_json, auth_metadata_json, created_at, updated_at
                     """,
                     (
-                        binding_id,
+                        normalized_binding_id,
                         normalized_principal,
                         normalized_provider,
                         str(status or "enabled").strip().lower() or "enabled",
@@ -277,6 +286,26 @@ class PostgresProviderBindingRepository:
                         now_utc_iso(),
                         normalized_binding_id,
                     ),
+                )
+                row = cur.fetchone()
+        if row is None:
+            return None
+        return self._from_row(row)
+
+    def delete(self, binding_id: str) -> ProviderBindingRecord | None:
+        normalized_binding_id = str(binding_id or "").strip()
+        if not normalized_binding_id:
+            return None
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM provider_bindings
+                    WHERE binding_id = %s
+                    RETURNING binding_id, principal_id, provider_key, status, priority, probe_state,
+                              probe_details_json, scope_json, auth_metadata_json, created_at, updated_at
+                    """,
+                    (normalized_binding_id,),
                 )
                 row = cur.fetchone()
         if row is None:

@@ -3901,6 +3901,133 @@ items:
   - scripts
   owned_surfaces:
   - wire_mobile_localization_offline_degraded:mobile
+- title: Emit explanation packets, coverage-registry truth, and bounded counterfactual packets for every visible mechanical
+    result.
+  task: Emit first-party explanation packets, coverage-registry rows, and deterministic counterfactual packets for promoted
+    visible mechanical results, legality states, warnings, and before-after deltas.
+  package_id: next90-m145-core-explain-every-value-packets
+  work_task_id: '145.1'
+  frontier_id: 1451045101
+  milestone_id: 145
+  status: not_started
+  wave: W28
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - explain_every_value_packets
+  - counterfactual_explain:core
+- title: Wire the desktop explain drawer, source-anchor launch, stale-state handling, and text-first follow-up on promoted
+    workbench routes.
+  task: Wire packet-backed desktop explain drawers, source-anchor affordances, stale snapshot handling, and text-first bounded
+    follow-up across promoted workbench routes.
+  package_id: next90-m145-ui-desktop-explain-drawer-and-follow-up
+  work_task_id: '145.2'
+  frontier_id: 1452045202
+  milestone_id: 145
+  status: not_started
+  wave: W28
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - explain_every_value_drawer:ui
+  - grounded_follow_up:desktop
+- title: Bring quick explain, source-anchor context, and bounded follow-up to mobile and live-play shells.
+  task: Bring packet-backed quick explain, source-anchor context, stale-state posture, and bounded text-first follow-up to
+    mobile and live-play shells.
+  package_id: next90-m145-mobile-quick-explain-and-follow-up
+  work_task_id: '145.3'
+  frontier_id: 1453045303
+  milestone_id: 145
+  status: not_started
+  wave: W28
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - quick_explain:mobile
+  - grounded_follow_up:mobile
+- title: Compile grounded narration and follow-up packs strictly from explanation-packet and counterfactual truth.
+  task: Compile optional narration and grounded follow-up packs strictly from approved explanation-packet and counterfactual
+    truth without inventing rules or arithmetic authority.
+  package_id: next90-m145-ea-grounded-explain-narration-packs
+  work_task_id: '145.4'
+  frontier_id: 1454045404
+  milestone_id: 145
+  status: not_started
+  wave: W28
+  repo: executive-assistant
+  allowed_paths:
+  - skills
+  - tests
+  - feedback
+  - docs
+  owned_surfaces:
+  - explain_packet_narration:ea
+  - grounded_follow_up_compile:ea
+- title: Render optional audio or presenter siblings from approved explanation packets without becoming calculation authority.
+  task: Render optional audio or presenter siblings from approved explanation packets while preserving packet identity,
+    grounding scope, and first-party text fallback.
+  package_id: next90-m145-media-factory-explain-presenter-siblings
+  work_task_id: '145.5'
+  frontier_id: 1455045505
+  milestone_id: 145
+  status: not_started
+  wave: W28
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - explain_presenter_siblings:media_factory
+  - explain_audio_video:media_factory
+- title: Fail closeout when visible values, warnings, or bounded what-if answers ship without explain coverage and fallback
+    proof.
+  task: Fail closeout when promoted visible values, warnings, or bounded what-if answers ship without coverage-registry truth,
+    deterministic packet proof, source-anchor posture, or text-first fallback.
+  package_id: next90-m145-fleet-explain-coverage-gate
+  work_task_id: '145.6'
+  frontier_id: 1456045606
+  milestone_id: 145
+  status: not_started
+  wave: W28
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - explain_coverage_gate:fleet
+  - explain_fallback_truth:fleet
+- title: Canonize explain-every-value truth order, source-anchor linkage, and bounded follow-up or presenter posture.
+  task: Canonize explain-every-value truth order, source-anchor linkage, coverage-registry floor, and bounded follow-up or
+    presenter posture in canonical design.
+  package_id: next90-m145-design-explain-every-value-canon
+  work_task_id: '145.7'
+  frontier_id: 1457045707
+  milestone_id: 145
+  status: in_progress
+  wave: W28
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - explain_every_value_canon:design
 - title: Implement privacy-bounded support, crash, feedback, telemetry rollups, retention clocks, and case-status followthrough.
   task: Implement privacy-bounded support, crash, feedback, telemetry rollups, retention clocks, and case-status followthrough.
   package_id: next90-m128-hub-implement-privacy-bounded-support-crash-feedback-telemet

@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+try:
+    from psycopg import InterfaceError as PsycopgInterfaceError
+    from psycopg import OperationalError as PsycopgOperationalError
+except Exception:  # pragma: no cover - psycopg is optional in some test modes
+    PsycopgInterfaceError = None
+    PsycopgOperationalError = None
+
+
+_LOG = logging.getLogger(__name__)
 
 
 def _correlation_id(request: Request) -> str:
@@ -91,6 +102,29 @@ def install_error_handlers(app: FastAPI) -> None:
             message=detail,
             details=detail,
         )
+
+    async def _database_unavailable_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
+        correlation_id = _correlation_id(request)
+        _LOG.warning(
+            "database_unavailable correlation_id=%s error_type=%s detail=%s",
+            correlation_id,
+            exc.__class__.__name__,
+            str(exc or "").strip(),
+        )
+        response = _error_payload(
+            request=request,
+            status_code=503,
+            code="database_unavailable",
+            message="temporary service interruption",
+            details="database_temporarily_unavailable",
+        )
+        response.headers["Retry-After"] = "5"
+        return response
+
+    if PsycopgOperationalError is not None:
+        app.add_exception_handler(PsycopgOperationalError, _database_unavailable_handler)
+    if PsycopgInterfaceError is not None:
+        app.add_exception_handler(PsycopgInterfaceError, _database_unavailable_handler)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]

@@ -694,7 +694,7 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics", href="/app/settings/usage"),
         _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics", href="/app/settings/usage"),
         _row(
-            "Blocked delivery follow-ups",
+            "Blocked delivery handoffs",
             str(analytics.get("delivery_followup_blocked_count") or 0),
             "Analytics",
             href="/app/settings/outcomes",
@@ -723,6 +723,10 @@ def _diagnostic_rows(diagnostics: dict[str, object], *, return_to: str) -> list[
             action_label="Open bundle",
             action_method="get",
             return_to=return_to,
+            secondary_action_href="/app/api/diagnostics/export?download=1",
+            secondary_action_label="Download JSON",
+            secondary_action_method="get",
+            secondary_return_to=return_to,
         ),
     ]
 
@@ -746,7 +750,9 @@ def workspace_section_payload(
     analytics = dict(diagnostics.get("analytics") or {})
     analytics_delivery = dict(analytics.get("delivery") or {})
     analytics_access = dict(analytics.get("access") or {})
+    analytics_invitations = dict(analytics.get("invitations") or {})
     analytics_sync = dict(analytics.get("sync") or {})
+    support_verification = dict(diagnostics.get("support_verification") or {})
     journey_gate = dict(product_control.get("journey_gate_health") or {})
     journey_freshness = dict(product_control.get("journey_gate_freshness") or {})
     support_fallout = dict(product_control.get("support_fallout") or {})
@@ -907,7 +913,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Calendar pressure",
                     "title": "What gets tight first",
-                    "body": "Decision and deadline windows should read as day pressure, not buried metadata.",
+                    "body": "Decision and deadline windows read as day pressure, not buried metadata.",
                     "items": _calendar_pressure_rows(snapshot.queue_items),
                 },
                 {
@@ -953,14 +959,14 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Unresolved promises",
                     "title": "What still needs a close or defer",
-                    "body": "Open promises should stay clear even when the queue is noisy.",
+                    "body": "Open promises stay clear even when the queue is noisy.",
                     "items": _commitment_rows(open_commitments[:8], return_to="/app/commitments")
                     or [_row("No unresolved promises", "The commitment lane does not currently have open promises.", "Clear")],
                 },
                 {
                     "eyebrow": "Stale work",
                     "title": "What has drifted too long",
-                    "body": "Overdue or untouched commitments should be obvious instead of hiding in the ledger.",
+                    "body": "Overdue or untouched commitments are obvious instead of hiding in the ledger.",
                     "items": _commitment_rows(stale_commitments[:8], return_to="/app/commitments")
                     or [_row("No stale commitments", "Open commitments are still moving inside an acceptable window.", "Clear")],
                 },
@@ -1002,14 +1008,14 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Office pressure",
                     "title": "Which people are shaping the queue",
-                    "body": "The queue should stay attached to the people who make it matter.",
+                    "body": "The queue stays attached to the people who make it matter.",
                     "items": _queue_rows(snapshot.queue_items[:6]),
                 },
             ],
         },
         "evidence": {
             "title": "Evidence",
-            "summary": "Evidence should explain why something surfaced, what supports it, and what action it is driving.",
+            "summary": "Evidence explains why something surfaced, what supports it, and what action it is driving.",
             "cards": [
                 {
                     "eyebrow": "Evidence refs",
@@ -1033,12 +1039,12 @@ def workspace_section_payload(
         },
         "activity": {
             "title": "Operator Queue",
-            "summary": "Assignments, follow-up handoffs, and principal waiting items stay visible as a real operating lane.",
+            "summary": "Assignments, open handoffs, and principal waiting items stay visible as a real operating lane.",
             "cards": [
                 {
                     "eyebrow": "Queue health",
                     "title": "Queue health",
-                    "body": "SLA breaches, unclaimed work, approvals, and delivery backlog should stay visible in one operational view.",
+                    "body": "SLA breaches, unclaimed work, approvals, and delivery backlog stay visible in one operational view.",
                     "items": [
                         _row("Queue state", str(queue_health.get("state") or "healthy").title(), str(queue_health.get("state") or "healthy").title()),
                         _row("SLA breaches", str(queue_health.get("sla_breaches") or 0), "Queue"),
@@ -1076,7 +1082,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Delivery and access",
                     "title": "Registration, invite, and digest delivery",
-                    "body": "The operator lane should surface whether people can actually enter the workspace and receive the compact loop.",
+                    "body": "The operator lane shows whether people can actually enter the workspace and receive the compact loop.",
                     "items": [
                         _row("Registration emails sent", str(analytics_delivery.get("registration_sent") or 0), "Email", href="/app/settings/usage"),
                         _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
@@ -1127,20 +1133,20 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Assigned to me",
                     "title": "What already belongs to this operator lane",
-                    "body": "Assigned work should stay separate from the claimable backlog.",
+                    "body": "Assigned work stays separate from the claimable backlog.",
                     "items": _handoff_rows(assigned_handoffs[:8], operator_id=operator_key, return_to="/admin/office"),
                 },
                 {
                     "eyebrow": "Unclaimed handoffs",
                     "title": "What can be claimed next",
-                    "body": "Operator work should be explicit, claimable, and closable from the same queue.",
+                    "body": "Operator work stays explicit, claimable, and closable from the same queue.",
                     "items": _handoff_rows(remaining_unclaimed_handoffs[:8], operator_id=operator_key, return_to="/admin/office")
                     or [_row("No unclaimed handoffs", "Suggested claims already cover the current claimable backlog.", "Clear")],
                 },
                 {
                     "eyebrow": "Waiting on principal",
                     "title": "What still needs executive clearance",
-                    "body": "Approval-backed drafts and decision windows should not disappear into admin surfaces.",
+                    "body": "Approval-backed drafts and decision windows do not disappear into admin surfaces.",
                     "items": _queue_rows(tuple(row for row in snapshot.queue_items if row.requires_principal)[:8]),
                 },
                 {
@@ -1153,7 +1159,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Recently completed",
                     "title": "What just moved through the operator lane",
-                    "body": "Returned handoffs and recently closed commitments should stay visible long enough to confirm the office loop actually closed.",
+                    "body": "Returned handoffs and recently closed commitments stay visible long enough to confirm the office loop actually closed.",
                     "items": (
                         _commitment_rows(snapshot.recently_closed_commitments[:6], return_to="/admin/office")
                         + _handoff_rows(snapshot.completed_handoffs[:6], actionable=False)
@@ -1168,7 +1174,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Affected stakeholders",
                     "title": "Who the office control surface is serving",
-                    "body": "The operator lane should stay tied to the people and relationships it serves.",
+                    "body": "The operator lane stays tied to the people and relationships it serves.",
                     "items": _people_rows(snapshot.people[:6]),
                 },
                 {
@@ -1195,7 +1201,7 @@ def workspace_section_payload(
         },
         "settings": {
             "title": "Rules",
-            "summary": "Keep the memo loop, capture rules, and proof of value visible without dragging the operator control plane into the principal workspace.",
+            "summary": "Keep the memo loop, capture rules, and proof of value visible without dragging the operator center into the principal workspace.",
             "console_form": {
                 "action": "/app/actions/settings/morning-memo",
                 "method": "post",
@@ -1273,7 +1279,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Morning memo",
                     "title": "Morning memo delivery",
-                    "body": "The scheduled memo should stay legible: when it lands, who it lands to, and whether it is producing a useful daily loop.",
+                    "body": "The scheduled memo stays legible: when it lands, who it lands to, and whether it is producing a useful daily loop.",
                     "items": [
                         _row("Memo state", str(memo_loop.get("state") or "watch").replace("_", " ").title(), "Memo", href="/app/settings/outcomes"),
                         _row("Enabled", "Yes" if memo_loop.get("enabled") else "No", "Memo", href="/app/settings/outcomes"),
@@ -1300,7 +1306,7 @@ def workspace_section_payload(
                 {
                     "eyebrow": "Google signal loop",
                     "title": "What is feeding the office loop",
-                    "body": "Gmail and Calendar should explain whether fresh signals are entering the queue and whether staged work is ready for review.",
+                    "body": "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review.",
                     "items": [
                         _google_settings_action_row(analytics_sync, return_to="/app/settings/google"),
                         _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
@@ -1322,32 +1328,54 @@ def workspace_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Workspace rules",
-                    "title": "What this office currently allows",
-                    "body": "Rules should explain the review-first posture, channel boundary, and durable controls behind the current loop.",
-                    "items": _rule_rows(snapshot.rules[:8]),
+                    "eyebrow": "Workspace entry",
+                    "title": "Who can enter and who is waiting",
+                    "body": "Access links, pending invitations, and delivery outcomes belong on the main settings surface instead of hiding in support-only routes.",
+                    "items": [
+                        _row("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
+                        _row("Access links opened", str(analytics_access.get("opened") or 0), "Access", href="/app/settings/access"),
+                        _row("Access sessions revoked", str(analytics_access.get("revoked") or 0), "Access", href="/app/settings/access"),
+                        _row("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
+                        _row("Accepted invitations", str(analytics_invitations.get("accepted") or 0), "Invites", href="/app/settings/invitations"),
+                        _row("Revoked invitations", str(analytics_invitations.get("revoked") or 0), "Invites", href="/app/settings/invitations"),
+                        _row("Invite emails sent", str(analytics_delivery.get("invite_sent") or 0), "Email", href="/app/settings/invitations"),
+                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/invitations"),
+                    ],
                 },
                 {
-                    "eyebrow": "Product control",
-                    "title": "What the release proof says right now",
-                    "body": "This surface should mirror the weekly product pulse and published journey-gate truth without turning the assistant into a second roadmap owner.",
+                    "eyebrow": "Support and delivery",
+                    "title": "What needs support before the loop slips",
+                    "body": "Delivery failures, blocked actions, and support verification stay visible before they turn into executive surprise.",
                     "items": [
-                        _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave", href="/app/settings/outcomes"),
-                        _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
-                        _row("Journey gate action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate", href="/app/settings/outcomes"),
-                        _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/outcomes"),
-                        _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
-                        _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
-                        _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
-                        _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
-                        _row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof", href="/app/settings/outcomes"),
-                        _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/outcomes"),
+                        _row(
+                            "Support state",
+                            str(support_verification.get("summary") or support_verification.get("state") or "No support issue is active."),
+                            "Support",
+                            href="/app/settings/support",
+                        ),
+                        _row(
+                            "Support action",
+                            str(support_verification.get("recommended_action") or "Open support diagnostics when something stalls."),
+                            "Support",
+                            href="/app/settings/support",
+                        ),
+                        _row("Blocked actions", str(len(blocked_actions)), "Support", href="/app/settings/support"),
+                        _row("Warnings", str(len(warning_messages)), "Support", href="/app/settings/support"),
+                        _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
+                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/support"),
+                        _row("Digest email failures", str(analytics_delivery.get("digest_failed") or 0), "Email", href="/app/settings/support"),
                     ],
+                },
+                {
+                    "eyebrow": "Workspace rules",
+                    "title": "What this office currently allows",
+                    "body": "Rules explain the review-first posture, channel boundary, and durable controls behind the current loop.",
+                    "items": _rule_rows(snapshot.rules[:8]),
                 },
                 {
                     "eyebrow": "Office-loop proof",
                     "title": "How the daily office loop is proving itself",
-                    "body": "The principal surface should say plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
+                    "body": "The principal surface says plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
                     "items": [
                         _row("Gate state", str(office_loop_proof.get("state") or "watch").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
                         _row(
@@ -1398,6 +1426,23 @@ def workspace_section_payload(
                             )
                             for item in proof_checks[:4]
                         ],
+                    ],
+                },
+                {
+                    "eyebrow": "Product control",
+                    "title": "What the release proof says right now",
+                    "body": "This surface mirrors the weekly product pulse and published journey-gate truth without turning the assistant into a second roadmap owner.",
+                    "items": [
+                        _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave", href="/app/settings/outcomes"),
+                        _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
+                        _row("Journey gate action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate", href="/app/settings/outcomes"),
+                        _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/outcomes"),
+                        _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
+                        _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
+                        _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
+                        _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
+                        _row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof", href="/app/settings/outcomes"),
+                        _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/outcomes"),
                     ],
                 },
             ],

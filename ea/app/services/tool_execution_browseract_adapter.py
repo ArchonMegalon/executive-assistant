@@ -2429,7 +2429,7 @@ class BrowserActToolAdapter:
 
     @staticmethod
     def _crezlo_api_base() -> str:
-        return str(os.getenv("EA_CREZLO_API_BASE") or "https://crezlo.net/api/seller").strip().rstrip("/")
+        return str(os.getenv("EA_CREZLO_API_BASE") or "https://api.caliqik.com/api/seller").strip().rstrip("/")
 
     @staticmethod
     def _crezlo_default_workspace_id() -> str:
@@ -2483,6 +2483,68 @@ class BrowserActToolAdapter:
             "workspace_domain": workspace_domain,
             "workspace_base_url": workspace_base_url,
             "workspace_tours_url": workspace_tours_url,
+        }
+
+    @staticmethod
+    def _crezlo_workspace_label(value: object) -> str:
+        domain = str(value or "").strip().split(".", 1)[0]
+        if not domain:
+            return ""
+        normalized = re.sub(r"-\d{6,}$", "", domain)
+        parts = [part for part in normalized.split("-") if part]
+        if not parts:
+            return ""
+        return " ".join(part.upper() if len(part) <= 2 else (part[:1].upper() + part[1:]) for part in parts)
+
+    @classmethod
+    def _build_crezlo_property_tour_worker_packet(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+        requested_inputs: dict[str, object],
+        workspace: dict[str, str],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        workspace_label_candidates: list[str] = []
+        for candidate in (
+            payload.get("workspace_name"),
+            payload.get("workspace_label"),
+            binding_metadata.get("crezlo_workspace_name"),
+            binding_metadata.get("browseract_crezlo_workspace_name"),
+            cls._crezlo_workspace_label(workspace.get("workspace_domain")),
+        ):
+            text = str(candidate or "").strip()
+            if text and text not in workspace_label_candidates:
+                workspace_label_candidates.append(text)
+        return {
+            "login_email": str(
+                payload.get("login_email")
+                or payload.get("crezlo_login_email")
+                or binding_metadata.get("crezlo_login_email")
+                or binding_metadata.get("login_email")
+                or ""
+            ).strip(),
+            "login_password": str(
+                payload.get("login_password")
+                or payload.get("crezlo_login_password")
+                or binding_metadata.get("crezlo_login_password")
+                or binding_metadata.get("login_password")
+                or ""
+            ).strip(),
+            "tour_title": str(requested_inputs.get("tour_title") or payload.get("tour_title") or "").strip(),
+            "workspace_id": str(workspace.get("workspace_id") or "").strip(),
+            "workspace_domain": str(workspace.get("workspace_domain") or "").strip(),
+            "workspace_base_url": str(workspace.get("workspace_base_url") or "").strip(),
+            "workspace_tours_url": str(workspace.get("workspace_tours_url") or "").strip(),
+            "workspace_label": workspace_label_candidates[0] if workspace_label_candidates else "",
+            "workspace_name": str(payload.get("workspace_name") or binding_metadata.get("crezlo_workspace_name") or "").strip(),
+            "workspace_label_candidates": workspace_label_candidates,
+            "media_urls_json": cls._crezlo_normalize_url_list(payload.get("media_urls_json")),
+            "floorplan_urls_json": cls._crezlo_normalize_url_list(payload.get("floorplan_urls_json")),
+            "scene_strategy": str(payload.get("scene_strategy") or "compact").strip().lower() or "compact",
+            "scene_selection_json": dict(payload.get("scene_selection_json") or {}),
+            "timeout_seconds": timeout_seconds,
         }
 
     @classmethod
@@ -2790,6 +2852,15 @@ class BrowserActToolAdapter:
         return lowered or "tour"
 
     @staticmethod
+    def _crezlo_public_asset_url(value: object) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if text.lower().startswith(("http://", "https://")):
+            return text
+        return f"https://media.crezlo.com/{text.lstrip('/')}"
+
+    @staticmethod
     def _crezlo_json_dict(value: object) -> dict[str, object]:
         if isinstance(value, dict):
             return dict(value)
@@ -2812,6 +2883,7 @@ class BrowserActToolAdapter:
     @classmethod
     def _crezlo_public_asset_rows(cls, normalized: dict[str, object]) -> list[dict[str, object]]:
         structured = cls._crezlo_json_dict(normalized.get("structured_output_json"))
+        requested_inputs = cls._crezlo_json_dict(structured.get("requested_inputs"))
         workflow_output = cls._crezlo_json_dict(structured.get("workflow_output_json"))
         detail = cls._crezlo_json_dict(
             workflow_output.get("tour_detail_json") or structured.get("tour_detail_json")
@@ -2840,6 +2912,8 @@ class BrowserActToolAdapter:
             meta = cls._crezlo_json_dict(file_record.get("meta") or file_payload.get("meta"))
             image_url = cls._crezlo_maybe_url(file_record.get("path") or file_payload.get("path"))
             if not image_url:
+                image_url = cls._crezlo_public_asset_url(file_record.get("path") or file_payload.get("path"))
+            if not image_url:
                 continue
             rows.append(
                 {
@@ -2859,6 +2933,8 @@ class BrowserActToolAdapter:
             meta = cls._crezlo_json_dict(file_record.get("meta"))
             image_url = cls._crezlo_maybe_url(file_record.get("path"))
             if not image_url:
+                image_url = cls._crezlo_public_asset_url(file_record.get("path"))
+            if not image_url:
                 continue
             rows.append(
                 {
@@ -2871,7 +2947,88 @@ class BrowserActToolAdapter:
                     "mime_type": str(file_record.get("mime_type") or "").strip(),
                 }
             )
+        if rows:
+            return rows
+        ui_worker_output = cls._crezlo_ui_worker_publishable_output(
+            result=workflow_output,
+            requested_inputs=requested_inputs,
+        )
+        if not ui_worker_output:
+            return []
+        enriched_structured = dict(structured)
+        enriched_workflow_output = dict(workflow_output)
+        enriched_workflow_output.update(ui_worker_output)
+        enriched_structured["workflow_output_json"] = enriched_workflow_output
+        return cls._crezlo_public_asset_rows({"structured_output_json": enriched_structured})
         return rows
+
+    @classmethod
+    def _crezlo_ui_worker_publishable_output(
+        cls,
+        *,
+        result: dict[str, object],
+        requested_inputs: dict[str, object],
+    ) -> dict[str, object]:
+        scenes_response = cls._crezlo_json_dict(result.get("scenes_response_json"))
+        scenes_root = cls._crezlo_json_dict(scenes_response.get("data"))
+        raw_scenes = [
+            cls._crezlo_json_dict(entry)
+            for entry in cls._crezlo_json_list(scenes_root.get("data"))
+            if isinstance(entry, dict)
+        ]
+        if not raw_scenes:
+            return {}
+        selected_assets = cls._crezlo_select_asset_urls(
+            media_urls=cls._crezlo_normalize_url_list(requested_inputs.get("media_urls_json")),
+            floorplan_urls=cls._crezlo_normalize_url_list(requested_inputs.get("floorplan_urls_json")),
+            scene_strategy=str(requested_inputs.get("scene_strategy") or "compact").strip().lower() or "compact",
+            scene_selection_json=cls._crezlo_json_dict(requested_inputs.get("scene_selection_json")),
+        )
+        property_url = str(requested_inputs.get("property_url") or "").strip()
+        file_records: list[dict[str, object]] = []
+        scenes: list[dict[str, object]] = []
+        for ordinal, scene in enumerate(
+            sorted(
+                raw_scenes,
+                key=lambda entry: int(entry.get("order") or 0),
+            ),
+            start=1,
+        ):
+            file_payload = cls._crezlo_json_dict(scene.get("file"))
+            relative_path = str(file_payload.get("path") or "").strip()
+            image_url = cls._crezlo_public_asset_url(relative_path)
+            if not image_url:
+                continue
+            selection_index = ordinal - 1
+            role = "photo"
+            source_url = image_url
+            if 0 <= selection_index < len(selected_assets):
+                role, source_url = selected_assets[selection_index]
+            meta = {
+                "role": role,
+                "source_url": source_url,
+                "property_url": property_url,
+            }
+            file_record = dict(file_payload)
+            file_record["path"] = image_url
+            file_record["meta"] = meta
+            file_records.append(file_record)
+            scene_row = dict(scene)
+            scene_row["file"] = file_record
+            scenes.append(scene_row)
+        if not file_records:
+            return {}
+        detail_json = {
+            "id": str(result.get("tour_id") or "").strip(),
+            "slug": str(result.get("slug") or "").strip(),
+            "title": str(result.get("tour_title") or requested_inputs.get("tour_title") or "").strip(),
+            "status": str(result.get("tour_status") or "").strip() or "published",
+            "scenes": scenes,
+        }
+        return {
+            "file_records_json": file_records,
+            "tour_detail_json": detail_json,
+        }
 
     @classmethod
     def _crezlo_download_public_asset(cls, url: str) -> tuple[bytes, str]:
@@ -3359,6 +3516,10 @@ class BrowserActToolAdapter:
                 if text:
                     values.append(text)
             return values
+        if isinstance(value, str) and value.strip().startswith("["):
+            loaded = _load_jsonish(value)
+            if isinstance(loaded, list):
+                return cls._crezlo_normalize_url_list(loaded)
         text = str(value or "").strip()
         return [text] if text else []
 
@@ -3652,10 +3813,7 @@ class BrowserActToolAdapter:
         slug = str(detail_json.get("slug") or slug or "").strip()
         tour_status = str(detail_json.get("status") or created_tour.get("status") or "published").strip() or "published"
         share_url = ""
-        editor_url = (
-            f"{cls._crezlo_api_base().rstrip('/')}/tours/{tour_id}"
-            f"?product_type=tours&workspace_id={workspace['workspace_id']}"
-        )
+        editor_url = f"{workspace['workspace_base_url'].rstrip('/')}/admin/tours/{tour_id}" if workspace["workspace_base_url"] else ""
         public_url = cls._crezlo_candidate_public_url(
             workspace_domain=workspace["workspace_domain"],
             slug=slug,
@@ -3688,6 +3846,45 @@ class BrowserActToolAdapter:
             "tour_detail_json": detail_json,
             "update_error": "",
         }
+
+    @classmethod
+    def _create_crezlo_property_tour_via_ui_worker(
+        cls,
+        *,
+        payload: dict[str, object],
+        binding_metadata: dict[str, object],
+        requested_inputs: dict[str, object],
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        workspace = cls._resolve_crezlo_workspace(payload=payload, binding_metadata=binding_metadata)
+        packet = cls._build_crezlo_property_tour_worker_packet(
+            payload=payload,
+            binding_metadata=binding_metadata,
+            requested_inputs=requested_inputs,
+            workspace=workspace,
+            timeout_seconds=timeout_seconds,
+        )
+        result = cls._run_crezlo_property_tour_worker(packet=packet, timeout_seconds=timeout_seconds)
+        if not isinstance(result, dict):
+            raise ToolExecutionError("crezlo_worker_invalid_output")
+        normalized = dict(result)
+        slug = str(normalized.get("slug") or "").strip()
+        if slug and not str(normalized.get("public_url") or "").strip():
+            normalized["public_url"] = cls._crezlo_candidate_public_url(
+                workspace_domain=workspace["workspace_domain"],
+                slug=slug,
+            )
+        normalized.update(
+            cls._crezlo_ui_worker_publishable_output(
+                result=normalized,
+                requested_inputs=requested_inputs,
+            )
+        )
+        normalized.setdefault("workspace_id", workspace["workspace_id"])
+        normalized.setdefault("workspace_domain", workspace["workspace_domain"])
+        normalized.setdefault("workspace_base_url", workspace["workspace_base_url"])
+        normalized["creation_mode"] = "crezlo_ui_worker_upload"
+        return normalized
 
     @classmethod
     def _build_crezlo_property_tour_inputs(
@@ -3978,6 +4175,8 @@ class BrowserActToolAdapter:
         workspace = self._resolve_crezlo_workspace(payload=payload, binding_metadata=binding_metadata)
         callback = getattr(self, "_crezlo_property_tour", None)
         direct_normalized: dict[str, object] | None = None
+        workflow_followup_error = ""
+        force_ui_worker = bool(payload.get("force_ui_worker"))
         requested_url = (
             run_url or f"browseract://workflow/{workflow_id}"
             if (run_url or workflow_id)
@@ -4023,12 +4222,20 @@ class BrowserActToolAdapter:
                     timeout_seconds=timeout_seconds,
                 )
         else:
-            direct_result = self._create_crezlo_property_tour_direct(
-                payload=payload,
-                binding_metadata=binding_metadata,
-                requested_inputs=requested_inputs,
-                timeout_seconds=timeout_seconds,
-            )
+            if force_ui_worker:
+                direct_result = self._create_crezlo_property_tour_via_ui_worker(
+                    payload=payload,
+                    binding_metadata=binding_metadata,
+                    requested_inputs=requested_inputs,
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                direct_result = self._create_crezlo_property_tour_direct(
+                    payload=payload,
+                    binding_metadata=binding_metadata,
+                    requested_inputs=requested_inputs,
+                    timeout_seconds=timeout_seconds,
+                )
             response = {"status": "completed", "output": {"result": direct_result}}
             direct_normalized = self._normalize_crezlo_property_tour_payload(
                 response=response,
@@ -4051,23 +4258,27 @@ class BrowserActToolAdapter:
                     value = direct_result.get(key)
                     if value not in {None, ""}:
                         workflow_inputs[key] = self._browseract_safe_input_value(value)
-                if workflow_id and not run_url:
-                    started = self._run_browseract_workflow_task_with_inputs(
-                        workflow_id=workflow_id,
-                        input_values=workflow_inputs,
-                    )
-                    response = self._wait_for_browseract_task(
-                        task_id=self._browseract_task_id(started),
-                        timeout_seconds=timeout_seconds,
-                        created_stall_seconds=min(180, timeout_seconds),
-                    )
-                else:
-                    response = self._post_browseract_json(
-                        run_url=run_url,
-                        request_payload=dict(workflow_inputs),
-                        timeout_seconds=timeout_seconds,
-                    )
-                    requested_inputs = workflow_inputs
+                requested_inputs = workflow_inputs
+                try:
+                    if workflow_id and not run_url:
+                        started = self._run_browseract_workflow_task_with_inputs(
+                            workflow_id=workflow_id,
+                            input_values=workflow_inputs,
+                        )
+                        response = self._wait_for_browseract_task(
+                            task_id=self._browseract_task_id(started),
+                            timeout_seconds=timeout_seconds,
+                            created_stall_seconds=min(180, timeout_seconds),
+                        )
+                    else:
+                        response = self._post_browseract_json(
+                            run_url=run_url,
+                            request_payload=dict(workflow_inputs),
+                            timeout_seconds=timeout_seconds,
+                        )
+                except ToolExecutionError as exc:
+                    workflow_followup_error = str(exc).strip()
+                    response = {"status": "completed", "output": {"result": direct_result}}
         normalized = self._normalize_crezlo_property_tour_payload(
             response=response,
             workflow_id=workflow_id,
@@ -4087,6 +4298,15 @@ class BrowserActToolAdapter:
                 normalized["normalized_text"] = direct_normalized.get("normalized_text")
                 normalized["preview_text"] = direct_normalized.get("preview_text")
             normalized["structured_output_json"] = merged_structured
+        if workflow_followup_error:
+            structured = dict(normalized.get("structured_output_json") or {})
+            structured["workflow_followup_error"] = workflow_followup_error
+            structured["workflow_followup_status"] = "failed"
+            normalized["structured_output_json"] = structured
+            base_text = str(normalized.get("normalized_text") or "").strip()
+            if base_text:
+                normalized["normalized_text"] = f"{base_text}\nWorkflow follow-up error: {workflow_followup_error}"
+                normalized["preview_text"] = artifact_preview_text(normalized["normalized_text"])
         hosted_url = ""
         if payload.get("proxy_result", True):
             mirror_error = ""

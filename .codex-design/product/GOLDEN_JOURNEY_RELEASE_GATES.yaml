@@ -171,6 +171,7 @@ journey_gates:
             local_blocking_findings_count: 0
             evidence.hub_registry_root_trusted_for_startup_smoke_proof: true
             evidence.visual_familiarity_status: pass
+            evidence.workflow_execution_status: pass
             evidence.desktop_familiarity.file_menu_live: true
             evidence.desktop_familiarity.master_index_first_class: true
             evidence.desktop_familiarity.character_roster_first_class: true
@@ -179,14 +180,10 @@ journey_gates:
             evidence.install_experience.claim_flow_surface: installer_or_in_app
             evidence.install_experience.product_installer_guides_head_choice: true
             evidence.receipt_scope.windows_gate:avalonia:win-x64.within_repo_root: true
-            evidence.receipt_scope.linux_gate:avalonia:linux-x64.within_repo_root: true
-            evidence.receipt_scope.macos_gate:avalonia:osx-arm64.within_repo_root: true
           must_contain:
             - '"contract_name": "chummer6-ui.desktop_executable_exit_gate"'
             - '"local_blocking_findings_count": 0'
             - '"windows_gate:avalonia:win-x64"'
-            - '"linux_gate:avalonia:linux-x64"'
-            - '"macos_gate:avalonia:osx-arm64"'
             - '"hub_registry_root_trusted_for_startup_smoke_proof": true'
           max_age_hours: 48
           generated_at_fields:

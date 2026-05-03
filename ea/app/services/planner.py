@@ -39,6 +39,12 @@ def _tool_authority_class(tool_name: str) -> str:
         return "draft"
     if normalized == "provider.gemini_vortex.structured_generate":
         return "draft"
+    if normalized == "provider.magixai.structured_generate":
+        return "draft"
+    if normalized == "provider.onemin.code_generate":
+        return "draft"
+    if normalized in {"provider.onemin.image_generate", "provider.onemin.media_transform"}:
+        return "draft"
     if normalized == "provider.brain_router.structured_generate":
         return "draft"
     if normalized == "provider.brain_router.reasoned_patch_review":
@@ -514,14 +520,40 @@ class PlannerService:
                 contract=contract,
                 principal_id=principal_id,
                 depends_on=depends_on,
-                tool_name="provider.brain_router.structured_generate",
+                tool_name=route.tool_name,
+                route=route,
+            )
+        if capability == "code_generate":
+            return self._build_code_generate_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+                route=route,
+            )
+        if capability == "image_generate":
+            return self._build_image_generate_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+                route=route,
+            )
+        if capability == "media_transform":
+            return self._build_media_transform_step(
+                contract=contract,
+                principal_id=principal_id,
+                depends_on=depends_on,
+                tool_name=route.tool_name,
+                route=route,
             )
         if capability == "reasoned_patch_review":
             return self._build_reasoned_patch_review_step(
                 contract=contract,
                 principal_id=principal_id,
                 depends_on=depends_on,
-                tool_name="provider.brain_router.reasoned_patch_review",
+                tool_name=route.tool_name,
+                route=route,
                 profile_name=self._brain_router.contract_brain_decision(contract, principal_id=principal_id or None).profile,
             )
         raise PlanValidationError(f"unsupported_pre_artifact_capability:{capability or '<empty>'}")
@@ -536,6 +568,9 @@ class PlannerService:
             "workflow_spec_build",
             "workflow_spec_repair",
             "crezlo_property_tour",
+            "code_generate",
+            "image_generate",
+            "media_transform",
             "structured_generate",
             "reasoned_patch_review",
         }:
@@ -755,9 +790,114 @@ class PlannerService:
             max_attempts=max_attempts,
             retry_backoff_seconds=retry_backoff_seconds,
             depends_on=depends_on,
-            input_keys=("normalized_text",),
+            input_keys=("source_text",),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
             desired_output_json=self._structured_generate_desired_output_json(contract),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
+        )
+
+    def _build_code_generate_step(
+        self,
+        *,
+        contract: TaskContract,
+        principal_id: str,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+        route: CapabilityRoute | None = None,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="artifact",
+        )
+        return PlanStepSpec(
+            step_key="step_code_generate",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="code_generation_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=180,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=("source_text",),
+            output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
+        )
+
+    def _build_image_generate_step(
+        self,
+        *,
+        contract: TaskContract,
+        principal_id: str,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+        route: CapabilityRoute | None = None,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="artifact",
+        )
+        return PlanStepSpec(
+            step_key="step_image_generate",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="image_generation_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=180,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=("source_text",),
+            output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type", "asset_urls"),
+            **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
+        )
+
+    def _build_media_transform_step(
+        self,
+        *,
+        contract: TaskContract,
+        principal_id: str,
+        depends_on: tuple[str, ...],
+        tool_name: str,
+        route: CapabilityRoute | None = None,
+    ) -> PlanStepSpec:
+        failure_strategy, max_attempts, retry_backoff_seconds = self._step_retry_policy(
+            contract,
+            prefix="artifact",
+        )
+        return PlanStepSpec(
+            step_key="step_media_transform",
+            step_kind="tool_call",
+            tool_name=tool_name,
+            evidence_required=(),
+            approval_required=False,
+            reversible=False,
+            expected_artifact="media_transform_packet",
+            fallback="request_human_intervention",
+            owner="tool",
+            authority_class=_tool_authority_class(tool_name),
+            review_class="none",
+            failure_strategy=failure_strategy,
+            timeout_budget_seconds=180,
+            max_attempts=max_attempts,
+            retry_backoff_seconds=retry_backoff_seconds,
+            depends_on=depends_on,
+            input_keys=("feature_type",),
+            output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type", "asset_urls"),
             **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
         )
 
@@ -872,6 +1012,21 @@ class PlannerService:
             return ("evidence_object_id", "citation_handle")
         return ()
 
+    def _prepare_input_keys_for_pre_artifact_capability(
+        self,
+        capability_key: str,
+        *,
+        default_input_keys: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        normalized = str(capability_key or "").strip()
+        if normalized in {"structured_generate", "code_generate"}:
+            return ("source_text",)
+        if normalized == "image_generate":
+            return ("source_text",)
+        if normalized == "media_transform":
+            return ("feature_type",)
+        return default_input_keys
+
     def _build_pre_artifact_tool_then_artifact_steps(
         self,
         intent: IntentSpecV3,
@@ -893,9 +1048,13 @@ class PlannerService:
             route=route,
             depends_on=("step_input_prepare",),
         )
+        prepare_input_keys = self._prepare_input_keys_for_pre_artifact_capability(
+            route.capability_key,
+            default_input_keys=tuple(tool_step.input_keys or ("source_text",)),
+        )
         prepare_output_keys, prepare_desired_output_json = self._prepare_step_artifact_envelope(contract)
         prepare_step = self._build_prepare_step(
-            input_keys=tuple(tool_step.input_keys or ("source_text",)),
+            input_keys=prepare_input_keys,
             output_keys=prepare_output_keys,
             desired_output_json=prepare_desired_output_json,
         )

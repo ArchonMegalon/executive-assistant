@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import hmac
 import json
 import os
+import re
 import secrets
 import subprocess
 import time
@@ -140,6 +142,10 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         ),
     },
 }
+_GMAIL_SIGNAL_SCAN_MULTIPLIER = 20
+_GMAIL_SIGNAL_SCAN_MIN_RESULTS = 500
+_GMAIL_SIGNAL_SCAN_MAX_RESULTS = 500
+_GMAIL_SIGNAL_PAGE_SIZE = 100
 
 
 def google_scope_bundle_details(bundle: str | None) -> dict[str, object]:
@@ -148,6 +154,69 @@ def google_scope_bundle_details(bundle: str | None) -> dict[str, object]:
     metadata["bundle"] = normalized
     metadata["scopes"] = list(SCOPE_BUNDLES[normalized])
     return metadata
+
+
+def _primary_google_binding_id(principal_id: str) -> str:
+    return f"{str(principal_id or '').strip()}:{GOOGLE_PROVIDER_KEY}"
+
+
+def _google_account_binding_id(principal_id: str, google_subject: str) -> str:
+    return f"{_primary_google_binding_id(principal_id)}:acct:{str(google_subject or '').strip()}"
+
+
+def _google_binding_identity(metadata: dict[str, Any], *, binding_id: str = "") -> str:
+    return (
+        str(metadata.get("google_subject") or "").strip()
+        or str(metadata.get("google_email") or "").strip().lower()
+        or str(binding_id or "").strip()
+    )
+
+
+def _google_binding_matches_account(
+    binding: ProviderBindingRecord | None,
+    *,
+    google_subject: str,
+    google_email: str,
+) -> bool:
+    if binding is None:
+        return False
+    metadata = dict(binding.auth_metadata_json or {})
+    return _google_binding_identity(metadata, binding_id=binding.binding_id) == (
+        str(google_subject or "").strip() or str(google_email or "").strip().lower()
+    )
+
+
+def _google_connector_lookup_keys(*, google_email: str, google_hosted_domain: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for raw in (google_email, google_hosted_domain):
+        normalized = str(raw or "").strip().lower()
+        if normalized and normalized not in values:
+            values.append(normalized)
+    return tuple(values)
+
+
+def _list_google_binding_records(*, container: AppContainer, principal_id: str) -> list[ProviderBindingRecord]:
+    primary_binding_id = _primary_google_binding_id(principal_id)
+    primary: list[ProviderBindingRecord] = []
+    others: list[ProviderBindingRecord] = []
+    for row in container.provider_registry.list_persisted_binding_records(principal_id=principal_id, limit=100):
+        if row.provider_key != GOOGLE_PROVIDER_KEY:
+            continue
+        if row.binding_id == primary_binding_id:
+            primary.append(row)
+        else:
+            others.append(row)
+    primary.sort(key=lambda row: (str(row.updated_at or ""), row.binding_id), reverse=True)
+    others.sort(key=lambda row: (str(row.updated_at or ""), row.binding_id), reverse=True)
+    seen: set[str] = set()
+    unique: list[ProviderBindingRecord] = []
+    for row in [*primary, *others]:
+        identity = _google_binding_identity(dict(row.auth_metadata_json or {}), binding_id=row.binding_id)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(row)
+    return unique
 
 
 @dataclass(frozen=True)
@@ -224,6 +293,7 @@ class GoogleWorkspaceSignalSync:
     account_email: str
     granted_scopes: tuple[str, ...]
     signals: tuple[GoogleWorkspaceSignal, ...]
+    account_emails: tuple[str, ...] = ()
 
 
 def load_google_oauth_config() -> GoogleOAuthConfig:
@@ -263,21 +333,27 @@ def build_google_oauth_start(
     principal_id: str,
     scope_bundle: str,
     redirect_uri_override: str | None = None,
+    return_to: str | None = None,
+    browser_source: str | None = None,
 ) -> GoogleOAuthStartPacket:
     config = load_google_oauth_config()
     normalized_bundle = normalize_scope_bundle(scope_bundle)
     requested_scopes = SCOPE_BUNDLES[normalized_bundle]
     redirect_uri = str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri
-    state = _encode_signed_state(
-        {
-            "principal_id": principal_id,
-            "scope_bundle": normalized_bundle,
-            "redirect_uri": redirect_uri,
-            "nonce": secrets.token_urlsafe(12),
-            "issued_at": int(time.time()),
-        },
-        secret=config.state_secret,
-    )
+    state_payload: dict[str, Any] = {
+        "principal_id": principal_id,
+        "scope_bundle": normalized_bundle,
+        "redirect_uri": redirect_uri,
+        "nonce": secrets.token_urlsafe(12),
+        "issued_at": int(time.time()),
+    }
+    normalized_return_to = str(return_to or "").strip()
+    if normalized_return_to:
+        state_payload["return_to"] = normalized_return_to
+    normalized_browser_source = str(browser_source or "").strip()
+    if normalized_browser_source:
+        state_payload["browser_source"] = normalized_browser_source
+    state = _encode_signed_state(state_payload, secret=config.state_secret)
     query = urllib.parse.urlencode(
         {
             "response_type": "code",
@@ -298,6 +374,11 @@ def build_google_oauth_start(
         auth_url=f"{GOOGLE_AUTH_ENDPOINT}?{query}",
         redirect_uri=redirect_uri,
     )
+
+
+def read_google_oauth_state(state: str) -> dict[str, Any]:
+    config = load_google_oauth_config()
+    return _decode_signed_state(state, secret=config.state_secret)
 
 
 def complete_google_oauth_callback(
@@ -335,13 +416,27 @@ def complete_google_oauth_callback(
         )
     ) or SCOPE_BUNDLES[scope_bundle]
     consent_stage = "verify" if GOOGLE_SCOPE_METADATA in granted_scopes else "send"
-    encrypted_refresh = ""
     refresh_token = str(token_payload.get("refresh_token") or "").strip()
-    existing = container.provider_registry.get_persisted_binding_record(
-        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+    primary_binding_id = _primary_google_binding_id(principal_id)
+    existing_primary = container.provider_registry.get_persisted_binding_record(
+        binding_id=primary_binding_id,
         principal_id=principal_id,
     )
-    existing_metadata = dict(existing.auth_metadata_json or {}) if existing is not None else {}
+    primary_matches_current = _google_binding_matches_account(
+        existing_primary,
+        google_subject=google_subject,
+        google_email=google_email,
+    )
+    target_binding_id = (
+        primary_binding_id
+        if existing_primary is None or primary_matches_current
+        else _google_account_binding_id(principal_id, google_subject)
+    )
+    existing_target = container.provider_registry.get_persisted_binding_record(
+        binding_id=target_binding_id,
+        principal_id=principal_id,
+    )
+    existing_metadata = dict(existing_target.auth_metadata_json or {}) if existing_target is not None else {}
     if refresh_token:
         encrypted_refresh = _encrypt_secret(refresh_token, key=config.provider_secret_key)
     else:
@@ -375,6 +470,7 @@ def complete_google_oauth_callback(
         "workspace_mode": "user_oauth",
     }
     binding = container.provider_registry.upsert_binding_record(
+        binding_id=target_binding_id,
         principal_id=principal_id,
         provider_key=GOOGLE_PROVIDER_KEY,
         status="enabled",
@@ -387,13 +483,21 @@ def complete_google_oauth_callback(
     connector_binding = container.tool_runtime.upsert_connector_binding(
         principal_id=principal_id,
         connector_name=GOOGLE_CONNECTOR_NAME,
-        external_account_ref=str(userinfo.get("hd") or google_email),
+        external_account_ref=google_email,
         scope_json={"scopes": list(granted_scopes), "bundle": scope_bundle},
         auth_metadata_json={
             "google_email": google_email,
             "google_subject": google_subject,
             "google_hosted_domain": str(userinfo.get("hd") or "").strip(),
             "workspace_mode": "user_oauth",
+            "granted_scopes": list(granted_scopes),
+            "consent_stage": consent_stage,
+            "refresh_token_ref": encrypted_refresh,
+            "access_token_expires_at": access_token_expires_at,
+            "token_status": "active",
+            "last_successful_api_call_at": auth_metadata_json["last_successful_api_call_at"],
+            "last_refresh_at": auth_metadata_json["last_refresh_at"],
+            "reauth_required_reason": "",
         },
         status="enabled",
     )
@@ -420,13 +524,86 @@ def upgrade_google_oauth_scope(
     return build_google_oauth_start(principal_id=principal_id, scope_bundle=scope_bundle)
 
 
+def promote_google_account(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str,
+) -> GoogleOAuthAccount:
+    target_binding_id = str(binding_id or "").strip()
+    if not target_binding_id:
+        raise RuntimeError("google_oauth_binding_not_found")
+    primary_binding_id = _primary_google_binding_id(principal_id)
+    target = container.provider_registry.get_persisted_binding_record(
+        binding_id=target_binding_id,
+        principal_id=principal_id,
+    )
+    if target is None or target.provider_key != GOOGLE_PROVIDER_KEY:
+        raise RuntimeError("google_oauth_binding_not_found")
+    if target.binding_id == primary_binding_id:
+        for account in list_google_accounts(container=container, principal_id=principal_id):
+            if account.binding.binding_id == target.binding_id:
+                return account
+        raise RuntimeError("google_oauth_binding_not_found")
+
+    current_primary = container.provider_registry.get_persisted_binding_record(
+        binding_id=primary_binding_id,
+        principal_id=principal_id,
+    )
+    target_metadata = dict(target.auth_metadata_json or {})
+    target_scope = dict(target.scope_json or {})
+    target_probe = dict(target.probe_details_json or {})
+    promoted = container.provider_registry.upsert_binding_record(
+        binding_id=primary_binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=target.status,
+        priority=target.priority,
+        probe_state=target.probe_state,
+        probe_details_json=target_probe,
+        scope_json=target_scope,
+        auth_metadata_json=target_metadata,
+    )
+    if current_primary is not None and not _google_binding_matches_account(
+        current_primary,
+        google_subject=str(target_metadata.get("google_subject") or "").strip(),
+        google_email=str(target_metadata.get("google_email") or "").strip().lower(),
+    ):
+        primary_metadata = dict(current_primary.auth_metadata_json or {})
+        demoted_binding_id = _google_account_binding_id(
+            principal_id,
+            str(primary_metadata.get("google_subject") or "").strip() or str(primary_metadata.get("google_email") or "").strip().lower(),
+        )
+        container.provider_registry.upsert_binding_record(
+            binding_id=demoted_binding_id,
+            principal_id=principal_id,
+            provider_key=GOOGLE_PROVIDER_KEY,
+            status=current_primary.status,
+            priority=current_primary.priority,
+            probe_state=current_primary.probe_state,
+            probe_details_json=dict(current_primary.probe_details_json or {}),
+            scope_json=dict(current_primary.scope_json or {}),
+            auth_metadata_json=primary_metadata,
+        )
+    container.provider_registry.delete_persisted_binding_record(
+        binding_id=target.binding_id,
+        principal_id=principal_id,
+    )
+    for account in list_google_accounts(container=container, principal_id=principal_id):
+        if account.binding.binding_id == promoted.binding_id:
+            return account
+    raise RuntimeError("google_oauth_binding_not_found")
+
+
 def disconnect_google_account(
     *,
     container: AppContainer,
     principal_id: str,
+    binding_id: str = "",
 ) -> ProviderBindingRecord:
+    resolved_binding_id = str(binding_id or "").strip() or _primary_google_binding_id(principal_id)
     binding = container.provider_registry.get_persisted_binding_record(
-        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+        binding_id=resolved_binding_id,
         principal_id=principal_id,
     )
     if binding is None:
@@ -436,6 +613,7 @@ def disconnect_google_account(
     auth_metadata_json["reauth_required_reason"] = "disconnected_by_operator"
     auth_metadata_json["refresh_token_ref"] = ""
     updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
         principal_id=principal_id,
         provider_key=GOOGLE_PROVIDER_KEY,
         status="disabled",
@@ -453,10 +631,12 @@ def run_google_gmail_smoke_test(
     container: AppContainer,
     principal_id: str,
     recipient_email: str | None = None,
+    binding_id: str = "",
 ) -> GoogleGmailSmokeResult:
     binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
         container=container,
         principal_id=principal_id,
+        binding_id=binding_id,
     )
     to_email = str(recipient_email or sender_email).strip().lower() or sender_email
     rfc822_message_id = f"<ea-smoke-{secrets.token_hex(8)}@ea.local>"
@@ -472,6 +652,7 @@ def run_google_gmail_smoke_test(
     updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
     updated_metadata["token_status"] = "active"
     updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
         principal_id=principal_id,
         provider_key=GOOGLE_PROVIDER_KEY,
         status=binding.status,
@@ -502,10 +683,12 @@ def send_google_gmail_message(
     message_id: str | None = None,
     reply_to_message_id: str | None = None,
     references: str | None = None,
+    binding_id: str = "",
 ) -> GoogleGmailSendResult:
     binding, metadata, token_payload, access_token, sender_email = _load_google_send_context(
         container=container,
         principal_id=principal_id,
+        binding_id=binding_id,
     )
     to_email = str(recipient_email or "").strip().lower()
     if not to_email:
@@ -541,6 +724,7 @@ def send_google_gmail_message(
     updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
     updated_metadata["token_status"] = "active"
     updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
         principal_id=principal_id,
         provider_key=GOOGLE_PROVIDER_KEY,
         status=binding.status,
@@ -565,15 +749,24 @@ def list_google_accounts(*, container: AppContainer, principal_id: str) -> list[
     connector_by_ref: dict[str, ConnectorBinding] = {}
     for connector in container.tool_runtime.list_connector_bindings(principal_id=principal_id, limit=100):
         if connector.connector_name == GOOGLE_CONNECTOR_NAME:
-            connector_by_ref[connector.external_account_ref] = connector
+            metadata = dict(connector.auth_metadata_json or {})
+            for key in (
+                str(connector.external_account_ref or "").strip().lower(),
+                str(metadata.get("google_email") or "").strip().lower(),
+                str(metadata.get("google_hosted_domain") or "").strip().lower(),
+            ):
+                if key:
+                    connector_by_ref[key] = connector
     accounts: list[GoogleOAuthAccount] = []
-    for binding in container.provider_registry.list_persisted_binding_records(principal_id=principal_id, limit=100):
-        if binding.provider_key != GOOGLE_PROVIDER_KEY:
-            continue
+    for binding in _list_google_binding_records(container=container, principal_id=principal_id):
         metadata = dict(binding.auth_metadata_json or {})
         google_email = str(metadata.get("google_email") or "").strip().lower()
         google_hosted_domain = str(metadata.get("google_hosted_domain") or "").strip()
-        connector = connector_by_ref.get(google_hosted_domain or google_email)
+        connector = None
+        for key in _google_connector_lookup_keys(google_email=google_email, google_hosted_domain=google_hosted_domain):
+            connector = connector_by_ref.get(key)
+            if connector is not None:
+                break
         accounts.append(
             GoogleOAuthAccount(
                 binding=binding,
@@ -600,68 +793,94 @@ def list_recent_workspace_signals(
     principal_id: str,
     email_limit: int = 5,
     calendar_limit: int = 5,
+    seen_source_refs: set[str] | None = None,
+    seen_external_ids: set[str] | None = None,
 ) -> GoogleWorkspaceSignalSync:
     config = load_google_oauth_config()
-    binding = container.provider_registry.get_persisted_binding_record(
-        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
-        principal_id=principal_id,
-    )
-    if binding is None:
+    bindings = [
+        row
+        for row in _list_google_binding_records(container=container, principal_id=principal_id)
+        if str(row.status or "").strip().lower() == "enabled"
+    ]
+    if not bindings:
         raise RuntimeError("google_oauth_binding_not_found")
-    metadata = dict(binding.auth_metadata_json or {})
-    granted_scopes = tuple(
-        sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
-    )
-    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
-    if not refresh_token_ref:
-        raise RuntimeError("google_gmail_refresh_token_missing")
-    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
-    token_payload = _refresh_google_access_token(
-        refresh_token=refresh_token,
-        client_id=config.client_id,
-        client_secret=config.client_secret,
-    )
-    access_token = str(token_payload.get("access_token") or "").strip()
-    if not access_token:
-        raise RuntimeError("google_oauth_access_token_missing")
-    granted_scope_set = set(granted_scopes)
+    granted_scope_union: set[str] = set()
     signals: list[GoogleWorkspaceSignal] = []
+    account_emails: list[str] = []
     normalized_email_limit = max(int(email_limit), 0)
     normalized_calendar_limit = max(int(calendar_limit), 0)
-    account_email = str(metadata.get("google_email") or "").strip().lower()
-    if normalized_email_limit > 0 and (
-        GOOGLE_SCOPE_METADATA in granted_scope_set or GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set
-    ):
-        signals.extend(_list_recent_gmail_signals(access_token=access_token, max_results=normalized_email_limit))
-    if normalized_calendar_limit > 0 and (
-        GOOGLE_SCOPE_CALENDAR_READONLY in granted_scope_set or GOOGLE_SCOPE_CALENDAR in granted_scope_set
-    ):
-        signals.extend(
-            _list_recent_calendar_signals(
-                access_token=access_token,
-                max_results=normalized_calendar_limit,
-                account_email=account_email,
-            )
+    first_error = ""
+    for binding in bindings:
+        metadata = dict(binding.auth_metadata_json or {})
+        granted_scopes = tuple(
+            sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
         )
-    updated_metadata = dict(metadata)
-    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
-    updated_metadata["last_refresh_at"] = _utc_iso_now()
-    if signals:
-        updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
-    updated_metadata["token_status"] = "active"
-    container.provider_registry.upsert_binding_record(
-        principal_id=principal_id,
-        provider_key=GOOGLE_PROVIDER_KEY,
-        status=binding.status,
-        priority=binding.priority,
-        probe_state="ready",
-        probe_details_json=dict(binding.probe_details_json or {}),
-        scope_json=dict(binding.scope_json or {}),
-        auth_metadata_json=updated_metadata,
-    )
+        granted_scope_set = set(granted_scopes)
+        refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+        if not refresh_token_ref:
+            first_error = first_error or "google_gmail_refresh_token_missing"
+            continue
+        refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+        access_token = str(token_payload.get("access_token") or "").strip()
+        if not access_token:
+            first_error = first_error or "google_oauth_access_token_missing"
+            continue
+        account_email = str(metadata.get("google_email") or "").strip().lower()
+        if account_email and account_email not in account_emails:
+            account_emails.append(account_email)
+        granted_scope_union.update(granted_scope_set)
+        prior_signal_count = len(signals)
+        if normalized_email_limit > 0 and (
+            GOOGLE_SCOPE_METADATA in granted_scope_set or GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set
+        ):
+            signals.extend(
+                _list_recent_gmail_signals(
+                    access_token=access_token,
+                    max_results=normalized_email_limit,
+                    include_message_body=GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set,
+                    account_email=account_email,
+                    seen_source_refs=seen_source_refs,
+                    seen_external_ids=seen_external_ids,
+                )
+            )
+        if normalized_calendar_limit > 0 and (
+            GOOGLE_SCOPE_CALENDAR_READONLY in granted_scope_set or GOOGLE_SCOPE_CALENDAR in granted_scope_set
+        ):
+            signals.extend(
+                _list_recent_calendar_signals(
+                    access_token=access_token,
+                    max_results=normalized_calendar_limit,
+                    account_email=account_email,
+                )
+            )
+        updated_metadata = dict(metadata)
+        updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+        updated_metadata["last_refresh_at"] = _utc_iso_now()
+        if len(signals) > prior_signal_count:
+            updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+        updated_metadata["token_status"] = "active"
+        container.provider_registry.upsert_binding_record(
+            binding_id=binding.binding_id,
+            principal_id=principal_id,
+            provider_key=GOOGLE_PROVIDER_KEY,
+            status=binding.status,
+            priority=binding.priority,
+            probe_state="ready",
+            probe_details_json=dict(binding.probe_details_json or {}),
+            scope_json=dict(binding.scope_json or {}),
+            auth_metadata_json=updated_metadata,
+        )
+    if not account_emails and first_error:
+        raise RuntimeError(first_error)
     return GoogleWorkspaceSignalSync(
-        account_email=str(metadata.get("google_email") or "").strip().lower(),
-        granted_scopes=granted_scopes,
+        account_email=account_emails[0] if account_emails else "",
+        account_emails=tuple(account_emails),
+        granted_scopes=tuple(sorted(granted_scope_union)),
         signals=tuple(signals),
     )
 
@@ -686,76 +905,172 @@ def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret
         return json.loads(response.read().decode("utf-8"))
 
 
-def _list_recent_gmail_signals(*, access_token: str, max_results: int) -> list[GoogleWorkspaceSignal]:
+def _list_recent_gmail_signals(
+    *,
+    access_token: str,
+    max_results: int,
+    include_message_body: bool = False,
+    account_email: str = "",
+    seen_source_refs: set[str] | None = None,
+    seen_external_ids: set[str] | None = None,
+) -> list[GoogleWorkspaceSignal]:
     if max_results <= 0:
         return []
-    payload = _gmail_messages_payload(access_token=access_token, max_results=max_results)
+    payloads = _gmail_messages_payload_pages(access_token=access_token, max_results=max_results)
     rows: list[GoogleWorkspaceSignal] = []
-    for item in list(payload.get("messages") or []):
-        message_id = str(item.get("id") or "").strip()
-        if not message_id:
-            continue
-        details = _gmail_message_metadata(access_token=access_token, message_id=message_id)
-        thread_id = str(details.get("threadId") or item.get("threadId") or message_id).strip()
-        headers = {
-            str(row.get("name") or "").strip().lower(): str(row.get("value") or "").strip()
-            for row in list((details.get("payload") or {}).get("headers") or [])
-            if isinstance(row, dict)
-        }
-        subject = headers.get("subject") or "Inbox activity"
-        from_raw = headers.get("from") or ""
-        sender_name, sender_email = parseaddr(from_raw)
-        counterparty = (sender_name or sender_email).strip()
-        snippet = str(details.get("snippet") or "").strip()
-        summary = snippet or f"Recent mail from {counterparty or 'a contact'}."
-        text = " ".join(part for part in (subject, snippet) if part).strip() or subject
-        rows.append(
-            GoogleWorkspaceSignal(
-                signal_type="email_thread",
-                channel="gmail",
-                title=subject[:160],
-                summary=summary[:280],
-                text=text[:1000],
-                source_ref=f"gmail-thread:{thread_id}",
-                external_id=f"gmail-message:{message_id}",
-                counterparty=counterparty[:120],
-                due_at=None,
-                payload={
-                    "thread_id": thread_id,
-                    "message_id": message_id,
-                    "rfc822_message_id": headers.get("message-id") or "",
-                    "in_reply_to": headers.get("in-reply-to") or "",
-                    "references": headers.get("references") or headers.get("message-id") or "",
-                    "received_at": headers.get("date") or "",
-                    "from_email": sender_email.strip().lower(),
-                    "from_name": sender_name.strip(),
-                    "list_unsubscribe": headers.get("list-unsubscribe") or "",
-                    "auto_submitted": headers.get("auto-submitted") or "",
-                    "precedence": headers.get("precedence") or "",
-                    "labels": list(details.get("labelIds") or []),
-                    "snippet": snippet,
-                },
+    normalized_account_email = str(account_email or "").strip().lower()
+    normalized_seen_source_refs = {str(value or "").strip() for value in (seen_source_refs or set()) if str(value or "").strip()}
+    normalized_seen_external_ids = {str(value or "").strip() for value in (seen_external_ids or set()) if str(value or "").strip()}
+    for payload in payloads:
+        for item in list(payload.get("messages") or []):
+            message_id = str(item.get("id") or "").strip()
+            if not message_id:
+                continue
+            predicted_thread_id = str(item.get("threadId") or message_id).strip()
+            predicted_source_ref = (
+                f"gmail-thread:{normalized_account_email}:{predicted_thread_id}"
+                if normalized_account_email
+                else f"gmail-thread:{predicted_thread_id}"
             )
-        )
+            predicted_external_id = (
+                f"gmail-message:{normalized_account_email}:{message_id}"
+                if normalized_account_email
+                else f"gmail-message:{message_id}"
+            )
+            if predicted_source_ref in normalized_seen_source_refs or predicted_external_id in normalized_seen_external_ids:
+                continue
+            details = _gmail_message_details(
+                access_token=access_token,
+                message_id=message_id,
+                include_message_body=include_message_body,
+            )
+            thread_id = str(details.get("threadId") or item.get("threadId") or message_id).strip()
+            headers = {
+                str(row.get("name") or "").strip().lower(): str(row.get("value") or "").strip()
+                for row in list((details.get("payload") or {}).get("headers") or [])
+                if isinstance(row, dict)
+            }
+            subject = headers.get("subject") or "Inbox activity"
+            from_raw = headers.get("from") or ""
+            sender_name, sender_email = parseaddr(from_raw)
+            counterparty = (sender_name or sender_email).strip()
+            snippet = str(details.get("snippet") or "").strip()
+            body_text = _gmail_message_body_text(details)
+            body_excerpt = body_text[:4000]
+            summary = body_excerpt[:280] or snippet or f"Recent mail from {counterparty or 'a contact'}."
+            text = " ".join(part for part in (subject, body_excerpt or snippet) if part).strip() or subject
+            source_ref = f"gmail-thread:{normalized_account_email}:{thread_id}" if normalized_account_email else f"gmail-thread:{thread_id}"
+            external_id = (
+                f"gmail-message:{normalized_account_email}:{message_id}"
+                if normalized_account_email
+                else f"gmail-message:{message_id}"
+            )
+            rows.append(
+                GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title=subject[:160],
+                    summary=summary[:280],
+                    text=text[:1000],
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    counterparty=counterparty[:120],
+                    due_at=None,
+                    payload={
+                        "thread_id": thread_id,
+                        "message_id": message_id,
+                        "rfc822_message_id": headers.get("message-id") or "",
+                        "in_reply_to": headers.get("in-reply-to") or "",
+                        "references": headers.get("references") or headers.get("message-id") or "",
+                        "received_at": headers.get("date") or "",
+                        "from_email": sender_email.strip().lower(),
+                        "from_name": sender_name.strip(),
+                        "list_unsubscribe": headers.get("list-unsubscribe") or "",
+                        "auto_submitted": headers.get("auto-submitted") or "",
+                        "precedence": headers.get("precedence") or "",
+                        "labels": list(details.get("labelIds") or []),
+                        "snippet": snippet,
+                        "body_text_excerpt": body_excerpt,
+                        "body_source": "gmail_full" if body_excerpt else "snippet",
+                        "body_available": bool(body_excerpt),
+                        "account_email": normalized_account_email,
+                    },
+                )
+            )
+            if len(rows) >= max_results:
+                return rows
     return rows
 
 
-def _gmail_messages_payload(*, access_token: str, max_results: int) -> dict[str, Any]:
+def _gmail_messages_payload_pages(*, access_token: str, max_results: int) -> tuple[dict[str, Any], ...]:
+    if max_results <= 0:
+        return ()
+    scan_goal = min(
+        max(
+            max(int(max_results), 1) * _GMAIL_SIGNAL_SCAN_MULTIPLIER,
+            _GMAIL_SIGNAL_SCAN_MIN_RESULTS,
+        ),
+        _GMAIL_SIGNAL_SCAN_MAX_RESULTS,
+    )
+    page_size = min(max(scan_goal, int(max_results)), _GMAIL_SIGNAL_PAGE_SIZE)
     try:
-        return _gmail_messages_payload_request(
+        return _gmail_messages_payload_pages_request(
             access_token=access_token,
-            max_results=max_results,
+            max_results=page_size,
+            scan_goal=scan_goal,
             apply_recent_filter=True,
         )
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         if exc.code == 403 and "Metadata scope does not support 'q' parameter" in body:
-            return _gmail_messages_payload_request(
+            return _gmail_messages_payload_pages_request(
                 access_token=access_token,
-                max_results=max_results,
+                max_results=page_size,
+                scan_goal=scan_goal,
                 apply_recent_filter=False,
             )
         raise
+
+
+def _gmail_messages_payload_pages_request(
+    *,
+    access_token: str,
+    max_results: int,
+    scan_goal: int,
+    apply_recent_filter: bool,
+) -> tuple[dict[str, Any], ...]:
+    rows: list[dict[str, Any]] = []
+    page_token = ""
+    scanned = 0
+    while scanned < max(int(scan_goal), 1):
+        payload = _gmail_messages_payload(
+            access_token=access_token,
+            max_results=max_results,
+            apply_recent_filter=apply_recent_filter,
+            page_token=page_token,
+        )
+        rows.append(payload)
+        messages = list(payload.get("messages") or [])
+        scanned += len(messages)
+        page_token = str(payload.get("nextPageToken") or "").strip()
+        if not page_token or not messages:
+            break
+    return tuple(rows)
+
+
+def _gmail_messages_payload(
+    *,
+    access_token: str,
+    max_results: int,
+    apply_recent_filter: bool = True,
+    page_token: str = "",
+) -> dict[str, Any]:
+    return _gmail_messages_payload_request(
+        access_token=access_token,
+        max_results=max_results,
+        apply_recent_filter=apply_recent_filter,
+        page_token=page_token,
+    )
 
 
 def _gmail_messages_payload_request(
@@ -763,10 +1078,14 @@ def _gmail_messages_payload_request(
     access_token: str,
     max_results: int,
     apply_recent_filter: bool,
+    page_token: str = "",
 ) -> dict[str, Any]:
     query_items: list[tuple[str, str]] = [("maxResults", str(max_results)), ("labelIds", "INBOX")]
     if apply_recent_filter:
         query_items.append(("q", "newer_than:7d"))
+    normalized_page_token = str(page_token or "").strip()
+    if normalized_page_token:
+        query_items.append(("pageToken", normalized_page_token))
     query = urllib.parse.urlencode(query_items)
     request = urllib.request.Request(
         f"https://gmail.googleapis.com/gmail/v1/users/me/messages?{query}",
@@ -777,21 +1096,23 @@ def _gmail_messages_payload_request(
         return json.loads(response.read().decode("utf-8"))
 
 
-def _gmail_message_metadata(*, access_token: str, message_id: str) -> dict[str, Any]:
-    query = urllib.parse.urlencode(
-        [
-            ("format", "metadata"),
-            ("metadataHeaders", "Subject"),
-            ("metadataHeaders", "From"),
-            ("metadataHeaders", "Date"),
-            ("metadataHeaders", "Message-ID"),
-            ("metadataHeaders", "In-Reply-To"),
-            ("metadataHeaders", "References"),
-            ("metadataHeaders", "List-Unsubscribe"),
-            ("metadataHeaders", "Auto-Submitted"),
-            ("metadataHeaders", "Precedence"),
-        ]
-    )
+def _gmail_message_details(*, access_token: str, message_id: str, include_message_body: bool) -> dict[str, Any]:
+    query_items: list[tuple[str, str]] = [("format", "full" if include_message_body else "metadata")]
+    if not include_message_body:
+        query_items.extend(
+            [
+                ("metadataHeaders", "Subject"),
+                ("metadataHeaders", "From"),
+                ("metadataHeaders", "Date"),
+                ("metadataHeaders", "Message-ID"),
+                ("metadataHeaders", "In-Reply-To"),
+                ("metadataHeaders", "References"),
+                ("metadataHeaders", "List-Unsubscribe"),
+                ("metadataHeaders", "Auto-Submitted"),
+                ("metadataHeaders", "Precedence"),
+            ]
+        )
+    query = urllib.parse.urlencode(query_items)
     request = urllib.request.Request(
         f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{urllib.parse.quote(message_id)}?{query}",
         headers={"Authorization": f"Bearer {access_token}"},
@@ -799,6 +1120,64 @@ def _gmail_message_metadata(*, access_token: str, message_id: str) -> dict[str, 
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _gmail_message_body_text(details: dict[str, Any]) -> str:
+    payload = details.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    _collect_gmail_body_text(payload, plain_parts=plain_parts, html_parts=html_parts)
+    if plain_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in plain_parts if part))
+    if html_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in html_parts if part))
+    return ""
+
+
+def _collect_gmail_body_text(
+    payload: dict[str, Any],
+    *,
+    plain_parts: list[str],
+    html_parts: list[str],
+) -> None:
+    mime_type = str(payload.get("mimeType") or "").strip().lower()
+    body = payload.get("body")
+    if isinstance(body, dict):
+        decoded = _decode_gmail_body_data(body.get("data"))
+        if decoded:
+            if mime_type == "text/plain":
+                plain_parts.append(decoded)
+            elif mime_type == "text/html":
+                html_parts.append(_html_to_text(decoded))
+    for item in list(payload.get("parts") or []):
+        if isinstance(item, dict):
+            _collect_gmail_body_text(item, plain_parts=plain_parts, html_parts=html_parts)
+
+
+def _decode_gmail_body_data(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    padding = "=" * (-len(normalized) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(f"{normalized}{padding}".encode("ascii"))
+    except Exception:
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def _html_to_text(value: str) -> str:
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", value)
+    normalized = re.sub(r"(?i)</(p|div|li|tr|table|h[1-6])>", "\n", normalized)
+    normalized = re.sub(r"<[^>]+>", " ", normalized)
+    return html.unescape(normalized)
+
+
+def _normalize_gmail_body_text(value: str) -> str:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in str(value or "").splitlines()]
+    return "\n".join(line for line in lines if line).strip()
 
 
 def _list_recent_calendar_signals(*, access_token: str, max_results: int, account_email: str = "") -> list[GoogleWorkspaceSignal]:
@@ -873,8 +1252,16 @@ def _list_recent_calendar_signals(*, access_token: str, max_results: int, accoun
                 title=title[:160],
                 summary=summary[:280],
                 text=" ".join(part for part in text_parts if part).strip()[:1000] or title,
-                source_ref=f"calendar-event:{event_id}",
-                external_id=f"calendar-event:{event_id}",
+                source_ref=(
+                    f"calendar-event:{normalized_account_email}:{event_id}"
+                    if normalized_account_email
+                    else f"calendar-event:{event_id}"
+                ),
+                external_id=(
+                    f"calendar-event:{normalized_account_email}:{event_id}"
+                    if normalized_account_email
+                    else f"calendar-event:{event_id}"
+                ),
                 counterparty=counterparty[:120],
                 due_at=start_at or None,
                 payload={
@@ -1085,10 +1472,12 @@ def _load_google_send_context(
     *,
     container: AppContainer,
     principal_id: str,
+    binding_id: str = "",
 ) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str, str]:
     config = load_google_oauth_config()
+    resolved_binding_id = str(binding_id or "").strip() or _primary_google_binding_id(principal_id)
     binding = container.provider_registry.get_persisted_binding_record(
-        binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",
+        binding_id=resolved_binding_id,
         principal_id=principal_id,
     )
     if binding is None:

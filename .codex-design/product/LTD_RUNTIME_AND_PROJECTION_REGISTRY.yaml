@@ -75,12 +75,17 @@ product_systems:
   discovery_system:
     tools:
       - ProductLift
+      - Signitic
+      - FacePop
       - Deftform
       - Icanpreneur
       - MetaSurvey
       - Lunacal
       - Teable
+      - NextStep
       - Product Governor
+      - chummer6-design
+      - Emailit
     contract: KARMA_FORGE_DISCOVERY_LAB_WORKFLOWS.yaml
   artifact_factory:
     tools:

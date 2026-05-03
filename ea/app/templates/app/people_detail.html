@@ -392,7 +392,7 @@
         {% for item in detail.history %}
         <div class="detail-row">
           <div>
-            <strong>{{ item.event_type|replace('_', ' ')|title }}</strong>
+            <strong>{% if item.event_type == 'memory_corrected' %}Relationship Updated{% else %}{{ item.event_type|replace('_', ' ')|title }}{% endif %}</strong>
             <small>{{ item.created_at[:19] if item.created_at else 'Unknown time' }}{% if item.actor %} · {{ item.actor }}{% endif %}{% if item.detail %} · {{ item.detail }}{% endif %}</small>
           </div>
           <div class="detail-tag">Event</div>

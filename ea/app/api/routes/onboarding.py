@@ -398,6 +398,7 @@ def register_start(
 def register_verify(
     body: RegisterVerifyIn,
     container: AppContainer = Depends(get_container),
+    request: Request = None,
 ) -> dict[str, object]:
     payload = _verify_registration_payload(container=container, token=body.verification_token)
     if payload is None or str(payload.get("token_kind") or "").strip() != "register_challenge":
@@ -425,6 +426,9 @@ def register_verify(
         google_status = container.onboarding.start_google(
             principal_id=principal_id,
             scope_bundle=str(body.scope_bundle or "core").strip() or "core",
+            redirect_uri_override=f"{_registration_base_url(request)}/google/callback" if request is not None else None,
+            return_to="/register?ready=1",
+            browser_source="register",
         )
         google_start = dict(google_status.get("google_start") or {})
         status = google_status

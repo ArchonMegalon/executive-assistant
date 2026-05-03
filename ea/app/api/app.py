@@ -9,6 +9,15 @@ from app.container import build_container
 from app.settings import get_settings, validate_startup_settings
 
 
+async def _prewarm_provider_health_cache() -> None:
+    try:
+        from app.api.routes.responses import prewarm_provider_health_snapshot_cache
+
+        await prewarm_provider_health_snapshot_cache(lightweight=True)
+    except Exception:
+        return
+
+
 def create_app() -> FastAPI:
     s = get_settings()
     validate_startup_settings(s)
@@ -28,6 +37,7 @@ def create_app() -> FastAPI:
     from app.api.routes.landing_objects import router as landing_objects_router
     from app.api.routes.landing_setup import router as landing_setup_router
     from app.api.routes.landing_workspace import router as landing_workspace_router
+    from app.api.routes.ltd_runtime import router as ltd_runtime_router
     from app.api.routes.memory import router as memory_router
     from app.api.routes.observations import router as observations_router
     from app.api.routes.onboarding import register_router, router as onboarding_router
@@ -47,6 +57,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
+    app.router.on_startup.append(_prewarm_provider_health_cache)
     app.include_router(landing_setup_router)
     app.include_router(landing_actions_router)
     app.include_router(landing_channel_router)
@@ -80,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
     app.include_router(runtime_router, dependencies=auth_dependency)
+    app.include_router(ltd_runtime_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
     app.include_router(rewrite_router, dependencies=auth_dependency)
     app.include_router(skills_router, dependencies=auth_dependency)

@@ -6,9 +6,10 @@ import mimetypes
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
 
 router = APIRouter(tags=["public-tours"])
 
@@ -549,6 +550,44 @@ def _tour_html(payload: dict[str, object]) -> str:
 </html>"""
 
 
+def _render_tour_unavailable_page(
+    request: Request,
+    *,
+    status_code: int,
+    title: str,
+    summary: str,
+    status_label: str,
+    rows: list[dict[str, str]],
+) -> HTMLResponse:
+    response = public_templates.TemplateResponse(
+        request,
+        "workspace_link.html",
+        _public_context(
+            request=request,
+            current_nav="product",
+            page_title=title,
+            principal_id="",
+            status=_anonymous_onboarding_status(),
+            access_identity=None,
+            extra={
+                "link_kicker": "Tour link unavailable",
+                "link_title": title,
+                "link_summary": summary,
+                "link_detail_title": "What happened",
+                "link_status_label": status_label,
+                "link_rows": rows,
+                "primary_action_href": "/sign-in",
+                "primary_action_label": "Return to sign in",
+                "secondary_action_href": "/register",
+                "secondary_action_label": "Create personal workspace",
+            },
+        ),
+    )
+    response.status_code = status_code
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
 def public_tour_payload(slug: str) -> JSONResponse:
     return JSONResponse(_load_tour(slug))
@@ -561,7 +600,49 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
     return FileResponse(file_path, media_type=media_type)
 
 
-@router.get("/tours/{slug}", response_class=HTMLResponse)
-def public_tour_page(slug: str) -> HTMLResponse:
-    payload = _load_tour(slug)
-    return HTMLResponse(_tour_html(payload))
+@router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def public_tour_page(slug: str, request: Request) -> HTMLResponse:
+    try:
+        payload = _load_tour(slug)
+        return HTMLResponse(_tour_html(payload))
+    except HTTPException as exc:
+        detail = str(exc.detail or "").strip().lower()
+        if exc.status_code == 404 and detail == "tour_not_found":
+            return _render_tour_unavailable_page(
+                request,
+                status_code=404,
+                title="This tour link is no longer available.",
+                summary="Ask the sender to share a fresh apartment-tour link or return to the workspace for the latest queue and evidence.",
+                status_label="Tour unavailable",
+                rows=[
+                    {
+                        "label": "Tour state",
+                        "value": "Unavailable",
+                        "detail": "The share bundle may have been replaced, removed, or never finished publishing.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Request a fresh tour",
+                        "detail": "A current link will open the branded myexternalbrain view when the bundle is ready.",
+                    },
+                ],
+            )
+        return _render_tour_unavailable_page(
+            request,
+            status_code=max(int(exc.status_code), 500) if int(exc.status_code) >= 500 else 500,
+            title="This tour is temporarily unavailable.",
+            summary="The tour link exists, but the published bundle is not ready to render right now. Return to the workspace or ask the sender to republish it.",
+            status_label="Tour unavailable",
+            rows=[
+                {
+                    "label": "Tour state",
+                    "value": "Publish problem",
+                    "detail": "The hosted tour bundle is missing required scenes or metadata.",
+                },
+                {
+                    "label": "Recovery",
+                    "value": "Reopen the workspace",
+                    "detail": "The office can regenerate or resend the latest branded link from the queue.",
+                },
+            ],
+        )

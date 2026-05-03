@@ -15,6 +15,7 @@ from app.domain.models import (
     validate_plan_spec,
 )
 from app.repositories.ledger import ExecutionLedgerRepository
+from app.services.ltd_runtime_skill_projection import infer_onemin_media_feature_type
 from app.services.execution_queue_claim_lease_service import MissingReadyStepError
 from app.services.memory_reasoning_service import MemoryReasoningService
 from app.services.planner import PlannerService
@@ -198,7 +199,11 @@ class ExecutionTaskOrchestrationService:
         context_refs = tuple(str(value or "").strip() for value in (req.context_refs or ()) if str(value or "").strip())
         text_alias = str(getattr(req, "text", "") or "").strip()
         structured_text = str(
-            payload.get("normalized_text") or payload.get("source_text") or payload.get("text") or ""
+            payload.get("normalized_text")
+            or payload.get("source_text")
+            or payload.get("prompt")
+            or payload.get("text")
+            or ""
         ).strip()
         effective_text = text_alias or structured_text
         if effective_text:
@@ -213,11 +218,20 @@ class ExecutionTaskOrchestrationService:
         resolved_skill_key = str(skill_key or getattr(req, "skill_key", "") or "").strip()
         if resolved_skill_key:
             payload.setdefault("skill_key", resolved_skill_key)
+        if resolved_task_key.startswith("ltd_runtime__"):
+            payload.setdefault("action_key", resolved_task_key.rsplit("__", 1)[-1])
+        resolved_goal = str(goal or getattr(req, "goal", "") or "").strip()
+        if resolved_goal:
+            payload.setdefault("goal", resolved_goal)
+        if resolved_task_key.startswith("ltd_runtime__") and not str(payload.get("feature_type") or "").strip():
+            inferred_feature_type = infer_onemin_media_feature_type(goal=resolved_goal, input_json=payload)
+            if inferred_feature_type:
+                payload["feature_type"] = inferred_feature_type
         if self._memory_reasoning_service is not None and resolved_principal:
             payload["context_pack"] = self._memory_reasoning_service.build_context_pack(
                 principal_id=resolved_principal,
                 task_key=resolved_task_key,
-                goal=str(goal or getattr(req, "goal", "") or "").strip(),
+                goal=resolved_goal,
                 context_refs=context_refs,
             ).as_dict()
         return payload
@@ -235,7 +249,17 @@ class ExecutionTaskOrchestrationService:
             if resolved_task_key and resolved_task_key != row_task_key:
                 raise ValueError("task_skill_key_mismatch")
             return row_task_key, resolved_skill_key
-        return resolved_task_key or "rewrite_text", ""
+        if resolved_task_key:
+            return resolved_task_key, ""
+        inferred_task_key = ""
+        if self._task_contracts is not None:
+            inferred_task_key = self._task_contracts.infer_task_key(
+                goal=str(getattr(req, "goal", "") or "").strip(),
+                input_json=dict(getattr(req, "input_json", {}) or {}),
+            )
+        if inferred_task_key:
+            return inferred_task_key, inferred_task_key
+        raise ValueError("task_or_skill_key_required")
 
     def require_effective_principal(self, principal_id: str) -> str:
         resolved = str(principal_id or "").strip()
@@ -374,11 +398,21 @@ class ExecutionTaskOrchestrationService:
         tool_name = str(plan_step.tool_name or "").strip()
         if tool_name == "provider.brain_router.structured_generate":
             return "content.generate"
+        if tool_name == "provider.magixai.structured_generate":
+            return "content.generate"
         if tool_name == "provider.brain_router.reasoned_patch_review":
             review_profile = str(
                 getattr(plan_step, "brain_profile", "") or getattr(plan_step, "posthoc_review_profile", "") or ""
             ).strip()
             return "audit.jury" if review_profile == "audit" else "audit.review_light"
+        if tool_name == "provider.onemin.code_generate":
+            return "code.generate"
+        if tool_name == "provider.onemin.reasoned_patch_review":
+            return "code.review"
+        if tool_name == "provider.onemin.image_generate":
+            return "image.generate"
+        if tool_name == "provider.onemin.media_transform":
+            return "media.transform"
         if tool_name == "connector.dispatch":
             return "delivery.send"
         if tool_name == "browseract.extract_account_inventory":

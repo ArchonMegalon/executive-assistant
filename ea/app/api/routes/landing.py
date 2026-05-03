@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import html
+import os
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,7 @@ from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
+from app.services.registration_email import email_delivery_enabled
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
@@ -123,6 +126,56 @@ def _load_status(
         return "", _anonymous_onboarding_status()
     return principal_id, container.onboarding.status(principal_id=principal_id)
 
+
+def _public_app_base_url(request: Request) -> str:
+    explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
+    if forwarded:
+        return f"{forwarded_proto}://{forwarded}"
+    return str(request.base_url).rstrip("/")
+
+
+
+def _normalize_browser_return_to(raw: str | None, *, default: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        return default
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme or parsed.netloc or value.startswith("//") or not value.startswith("/"):
+        return default
+    return value
+
+
+def _browser_request_uses_secure_scheme(request: Request) -> bool:
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
+    if forwarded_proto:
+        return forwarded_proto.split(",", 1)[0].strip() == "https"
+    return str(request.url.scheme or "").strip().lower() == "https"
+
+
+def _workspace_session_cookie_kwargs(request: Request, *, expires_at: str = "") -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "httponly": True,
+        "samesite": "lax",
+        "path": "/",
+        "secure": _browser_request_uses_secure_scheme(request),
+    }
+    normalized_expires_at = str(expires_at or "").strip()
+    if not normalized_expires_at:
+        return kwargs
+    try:
+        expires_dt = datetime.fromisoformat(normalized_expires_at)
+    except ValueError:
+        return kwargs
+    if expires_dt.tzinfo is None:
+        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+    max_age = max(int((expires_dt - datetime.now(timezone.utc)).total_seconds()), 0)
+    kwargs["expires"] = expires_dt
+    kwargs["max_age"] = max_age
+    return kwargs
 
 
 def _shared_browser_fields(
@@ -212,7 +265,7 @@ def _public_context(
         "first_brief_items": _list_rows(
             preview.get("first_brief_preview") or preview.get("first_brief"),
             (
-                "Connect Google Core and surface the first useful brief.",
+                "Connect Google Core and surface the first useful morning memo.",
                 "Keep one reviewable workflow before widening the channel footprint.",
                 "Make approvals and memory rules explicit before automating actions.",
             ),
@@ -220,14 +273,14 @@ def _public_context(
         "suggested_actions": _list_rows(
             preview.get("suggested_actions"),
             (
-                "Turn the workspace posture into a useful brief and queue.",
+                "Turn the workspace posture into a useful morning memo and queue.",
                 "Add more channels only after the first loop already feels useful.",
             ),
         ),
         "trust_notes": _list_rows(
             preview.get("trust_notes"),
             (
-                "Each channel should say clearly what the assistant can actually do today.",
+                "Each channel says clearly what the assistant can actually do today.",
                 "Approvals and workspace memory stay visible product features, not hidden implementation details.",
             ),
         ),
@@ -281,6 +334,55 @@ def _render_public_template(request: Request, template_name: str, **context: Any
     context.setdefault("request", request)
     response = templates.TemplateResponse(request, template_name, context)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+def _render_secure_link_page(
+    request: Request,
+    *,
+    page_title: str,
+    current_nav: str,
+    link_kicker: str,
+    link_title: str,
+    link_summary: str,
+    link_detail_title: str,
+    link_status_label: str,
+    link_rows: list[dict[str, str]],
+    primary_action_href: str,
+    primary_action_label: str,
+    primary_action_method: str = "get",
+    primary_action_fields: dict[str, str] | None = None,
+    secondary_action_href: str = "",
+    secondary_action_label: str = "",
+    status_code: int = 200,
+) -> HTMLResponse:
+    response = _render_public_template(
+        request,
+        "workspace_link.html",
+        **_public_context(
+            request=request,
+            current_nav=current_nav,
+            page_title=page_title,
+            principal_id="",
+            status=_anonymous_onboarding_status(),
+            access_identity=None,
+            extra={
+                "link_kicker": link_kicker,
+                "link_title": link_title,
+                "link_summary": link_summary,
+                "link_detail_title": link_detail_title,
+                "link_status_label": link_status_label,
+                "link_rows": link_rows,
+                "primary_action_href": primary_action_href,
+                "primary_action_label": primary_action_label,
+                "primary_action_method": str(primary_action_method or "get").strip().lower() or "get",
+                "primary_action_fields": dict(primary_action_fields or {}),
+                "secondary_action_href": secondary_action_href,
+                "secondary_action_label": secondary_action_label,
+            },
+        ),
+    )
+    response.status_code = status_code
     return response
 
 
@@ -381,7 +483,7 @@ def integration_detail(
             "eyebrow": "Google",
             "detail_points": (
                 "Start with Google Core unless you already know you need broader workspace actions.",
-                "Google Core is enough for drafts, delivery verification, calendar context, people context, and a useful first brief.",
+                "Google Core is enough for drafts, delivery verification, calendar context, people context, and a useful first morning memo.",
                 "Full Workspace is the explicit upgrade path when you need broader Gmail or Drive context.",
             ),
             "body_points": (
@@ -396,7 +498,7 @@ def integration_detail(
             "detail_points": (
                 "Personal identity linking and official bot installation are separate decisions.",
                 "Login alone does not imply generic history import.",
-                "Future-only, import-later, and manual-forward are distinct promises and should stay distinct in the UI.",
+                "Future-only, import-later, and manual-forward are distinct promises and stay distinct in the UI.",
             ),
             "body_points": (
                 "Ask first whether this is a personal Telegram setup or a bot rollout.",
@@ -409,8 +511,8 @@ def integration_detail(
             "eyebrow": "WhatsApp",
             "detail_points": (
                 "Business onboarding and export intake are separate supported paths.",
-                "The assistant should not promise generic automated history download outside those paths.",
-                "Live messaging and manual history intake should stay visibly distinct in the product contract.",
+                "The assistant does not promise generic automated history download outside those paths.",
+                "Live messaging and manual history intake stay visibly distinct in the product contract.",
             ),
             "body_points": (
                 "Use Business onboarding for the long-term live assistant path.",
@@ -510,13 +612,18 @@ def docs_page(
     )
 
 
-@router.get("/sign-in", response_class=HTMLResponse)
+@router.api_route("/sign-in", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
 def sign_in_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
+    link_status = str(request.query_params.get("link_status") or "").strip()
+    link_email = str(request.query_params.get("link_email") or "").strip()
+    link_count = int(request.query_params.get("link_count") or 0)
+    link_failed_total = int(request.query_params.get("link_failed_total") or 0)
+    link_error = str(request.query_params.get("link_error") or "").strip()
     return _render_public_template(
         request,
         "sign_in.html",
@@ -527,9 +634,74 @@ def sign_in_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
-            extra={"sign_in_notes": SIGN_IN_NOTES},
+            extra={
+                "sign_in_notes": SIGN_IN_NOTES,
+                "sign_in_link_enabled": email_delivery_enabled(),
+                "sign_in_link_status": link_status,
+                "sign_in_link_email": link_email,
+                "sign_in_link_count": link_count,
+                "sign_in_link_failed_total": link_failed_total,
+                "sign_in_link_error": link_error,
+            },
         ),
     )
+
+
+@router.post("/sign-in/email-link")
+async def sign_in_email_link(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> RedirectResponse:
+    form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    email = _form_value(form_data, "email", "").lower()
+    product = build_product_service(container)
+    try:
+        result = product.request_workspace_sign_in_email_links(
+            email=email,
+            base_url=_public_app_base_url(request),
+        )
+    except ValueError as exc:
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "link_status": "invalid",
+                    "link_email": email,
+                    "link_error": str(exc or "workspace_sign_in_email_invalid"),
+                }
+            ),
+            status_code=303,
+        )
+    except RuntimeError as exc:
+        return RedirectResponse(
+            "/sign-in?"
+            + urllib.parse.urlencode(
+                {
+                    "link_status": "failed",
+                    "link_email": email,
+                    "link_error": str(exc or "workspace_sign_in_email_delivery_not_configured"),
+                }
+            ),
+            status_code=303,
+        )
+    query = {
+        "link_status": str(result.get("status") or "failed").strip() or "failed",
+        "link_email": str(result.get("email") or email).strip().lower(),
+        "link_count": str(int(result.get("sent_total") or 0)),
+        "link_failed_total": str(int(result.get("failed_total") or 0)),
+    }
+    if str(query["link_status"]) == "failed":
+        first_error = next(
+            (
+                str(item.get("error") or "").strip()
+                for item in list(result.get("items") or [])
+                if str(item.get("error") or "").strip()
+            ),
+            "",
+        )
+        if first_error:
+            query["link_error"] = first_error
+    return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
 
 
 @router.get("/register", response_class=HTMLResponse)
@@ -559,7 +731,7 @@ def register_page(
     )
 
 
-@router.get("/workspace-invites/{token}", response_class=HTMLResponse)
+@router.api_route("/workspace-invites/{token}", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
 def workspace_invite_preview(
     token: str,
     request: Request,
@@ -568,36 +740,56 @@ def workspace_invite_preview(
     product = build_product_service(container)
     invite = product.preview_workspace_invitation(token=token)
     if invite is None:
-        raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+        return _render_secure_link_page(
+            request,
+            page_title="Workspace invite unavailable",
+            current_nav="sign-in",
+            link_kicker="Invite unavailable",
+            link_title="This workspace invite is no longer valid.",
+            link_summary="Ask the workspace owner to send a fresh invitation or use a current sign-in link if you already have access.",
+            link_detail_title="What happened",
+            link_status_label="Invite unavailable",
+            link_rows=[
+                {"label": "Invite status", "value": "Unavailable", "detail": "The invite may be expired, revoked, or already replaced."},
+                {"label": "Next step", "value": "Request a fresh invite", "detail": "Use sign in if you already have another secure link."},
+            ],
+            primary_action_href="/sign-in",
+            primary_action_label="Request new sign-in link",
+            secondary_action_href="/register",
+            secondary_action_label="Create personal workspace",
+            status_code=404,
+        )
     access_url = str(invite.get("access_url") or "").strip()
     if access_url:
         response = RedirectResponse(access_url, status_code=303)
         response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
         return response
-    body = f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
-    <title>Executive Assistant workspace invitation</title>
-  </head>
-  <body>
-    <main>
-      <h1>Executive Assistant workspace invitation</h1>
-      <p>{html.escape(str(invite.get("email") or "A teammate"))} was invited as {html.escape(str(invite.get("role") or "operator"))}.</p>
-      <p>Status: {html.escape(str(invite.get("status") or "pending"))}</p>
-      <p><a href="/workspace-invites/{html.escape(token)}/accept">Accept invitation</a></p>
-      <p><a href="/sign-in">Workspace access</a></p>
-      <p>Access still depends on the workspace identity posture. Google remains a workspace data connection, not app sign-in.</p>
-    </main>
-  </body>
-</html>"""
-    response = HTMLResponse(body)
-    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-    return response
+    return _render_secure_link_page(
+        request,
+        page_title="Review workspace invite",
+        current_nav="sign-in",
+        link_kicker="Workspace invitation",
+        link_title="Review this workspace invite before you join.",
+        link_summary="This secure invite opens one executive office. Accept it when you are ready to enter with the role below.",
+        link_detail_title="Invite details",
+        link_status_label=str(invite.get("status") or "pending").replace("_", " ").title(),
+        link_rows=[
+            {"label": "Email", "value": str(invite.get("email") or "Unknown"), "detail": ""},
+            {"label": "Role", "value": str(invite.get("role") or "operator").replace("_", " ").title(), "detail": ""},
+            {
+                "label": "Expires",
+                "value": str(invite.get("expires_at") or "Not recorded")[:19] or "Not recorded",
+                "detail": "Accept before the invite expires so the workspace can issue access cleanly.",
+            },
+        ],
+        primary_action_href=f"/workspace-invites/{urllib.parse.quote(token, safe='')}/accept",
+        primary_action_label="Accept invitation",
+        secondary_action_href="/sign-in",
+        secondary_action_label="Return through existing access",
+    )
 
 
-@router.get("/workspace-access/{token}", response_model=None)
+@router.api_route("/workspace-access/{token}", methods=["GET", "HEAD"], response_model=None, include_in_schema=False)
 def workspace_access_session(
     token: str,
     request: Request,
@@ -607,15 +799,40 @@ def workspace_access_session(
     actor = str(request.headers.get("X-EA-Operator-ID") or request.headers.get("X-EA-Principal-ID") or "").strip()
     session = product.open_workspace_access_session(token=token, actor=actor)
     if session is None:
-        raise HTTPException(status_code=404, detail="workspace_access_session_not_found")
-    target = str(request.query_params.get("return_to") or session.get("default_target") or "/app/today").strip() or "/app/today"
+        return _render_secure_link_page(
+            request,
+            page_title="Sign-in link unavailable",
+            current_nav="sign-in",
+            link_kicker="Secure link expired",
+            link_title="This sign-in link is no longer valid.",
+            link_summary="Request a fresh sign-in link or use another secure workspace path such as an invite, current session, or SSO.",
+            link_detail_title="What to do next",
+            link_status_label="Link expired",
+            link_rows=[
+                {"label": "Link state", "value": "Expired or revoked", "detail": "Secure workspace links rotate and eventually expire."},
+                {"label": "Recovery", "value": "Request a new link", "detail": "Use the same inbox that already has workspace access."},
+            ],
+            primary_action_href="/sign-in",
+            primary_action_label="Request new sign-in link",
+            secondary_action_href="/register",
+            secondary_action_label="Create personal workspace",
+            status_code=404,
+        )
+    target = _normalize_browser_return_to(
+        request.query_params.get("return_to") or str(session.get("default_target") or "").strip(),
+        default="/app/today",
+    )
     response = RedirectResponse(target, status_code=303)
-    response.set_cookie("ea_workspace_session", str(session.get("access_token") or "").strip(), httponly=True, samesite="lax", path="/")
+    response.set_cookie(
+        "ea_workspace_session",
+        str(session.get("access_token") or "").strip(),
+        **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()),
+    )
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
 
-@router.get("/workspace-invites/{token}/accept", response_class=HTMLResponse)
+@router.api_route("/workspace-invites/{token}/accept", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
 def workspace_invite_accept(
     token: str,
     request: Request,
@@ -633,33 +850,69 @@ def workspace_invite_accept(
         invite = product.accept_workspace_invitation(token=token, accepted_by=actor)
     except ValueError as exc:
         if str(exc or "").strip() == "operator_seat_limit_reached":
-            raise HTTPException(status_code=409, detail="operator_seat_limit_reached") from exc
+            return _render_secure_link_page(
+                request,
+                page_title="Invite cannot be accepted",
+                current_nav="sign-in",
+                link_kicker="Workspace full",
+                link_title="This workspace cannot add another operator right now.",
+                link_summary="The office is at its current operator seat limit. Ask the workspace owner to free a seat or upgrade the plan before retrying.",
+                link_detail_title="Why acceptance stopped",
+                link_status_label="Seat limit reached",
+                link_rows=[
+                    {"label": "Invite status", "value": "Pending", "detail": "The invite is still valid, but the workspace needs room before it can be accepted."},
+                    {"label": "Next step", "value": "Contact the workspace owner", "detail": "They can revoke an unused seat or expand the plan and resend access."},
+                ],
+                primary_action_href="/sign-in",
+                primary_action_label="Return to sign in",
+                secondary_action_href="/register",
+                secondary_action_label="Create personal workspace",
+                status_code=409,
+            )
         raise
     if invite is None:
-        raise HTTPException(status_code=404, detail="workspace_invitation_not_found")
+        return _render_secure_link_page(
+            request,
+            page_title="Workspace invite unavailable",
+            current_nav="sign-in",
+            link_kicker="Invite unavailable",
+            link_title="This workspace invite is no longer valid.",
+            link_summary="Ask the workspace owner to send a fresh invitation or use another secure workspace link if you already have access.",
+            link_detail_title="What happened",
+            link_status_label="Invite unavailable",
+            link_rows=[
+                {"label": "Invite state", "value": "Unavailable", "detail": "The invite may be expired, revoked, or already used."},
+                {"label": "Next step", "value": "Request a fresh invite", "detail": "A new secure link will reopen the correct workspace."},
+            ],
+            primary_action_href="/sign-in",
+            primary_action_label="Request new sign-in link",
+            secondary_action_href="/register",
+            secondary_action_label="Create personal workspace",
+            status_code=404,
+        )
     access_url = str(invite.get("access_url") or "").strip()
     if access_url:
         response = RedirectResponse(access_url, status_code=303)
         response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
         return response
-    body = f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
-    <title>Executive Assistant invitation accepted</title>
-  </head>
-  <body>
-    <main>
-      <h1>Workspace invitation accepted</h1>
-      <p>{html.escape(str(invite.get("email") or "Workspace teammate"))} is now marked as {html.escape(str(invite.get("status") or "accepted"))}.</p>
-      <p><a href="/sign-in">Continue to workspace access</a></p>
-    </main>
-  </body>
-</html>"""
-    response = HTMLResponse(body)
-    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-    return response
+    return _render_secure_link_page(
+        request,
+        page_title="Workspace invite accepted",
+        current_nav="sign-in",
+        link_kicker="Invitation accepted",
+        link_title="Your workspace invite was accepted.",
+        link_summary="Continue through sign in if you need another secure access link for this workspace.",
+        link_detail_title="Accepted access",
+        link_status_label=str(invite.get("status") or "accepted").replace("_", " ").title(),
+        link_rows=[
+            {"label": "Email", "value": str(invite.get("email") or "Workspace teammate"), "detail": ""},
+            {"label": "Role", "value": str(invite.get("role") or "operator").replace("_", " ").title(), "detail": ""},
+        ],
+        primary_action_href="/sign-in",
+        primary_action_label="Continue to sign in",
+        secondary_action_href="/app/today",
+        secondary_action_label="Open current session",
+    )
 
 
 @router.get("/get-started", response_class=HTMLResponse)
@@ -993,7 +1246,7 @@ def admin_shell(
             console_title=str(payload["title"]),
             console_summary=str(payload["summary"]),
             nav_groups=ADMIN_NAV_GROUPS,
-            workspace_label="Operator Control Plane",
+            workspace_label="Operator Center",
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
         ),

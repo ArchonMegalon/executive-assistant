@@ -56,6 +56,14 @@ def _extract_text(value: object) -> str:
     return str(value).strip()
 
 
+def _first_nonempty(*values: object) -> str:
+    for value in values:
+        text = _extract_text(value)
+        if text:
+            return text
+    return ""
+
+
 def _bool_flag(value: object, *, default: bool = False) -> bool:
     if value is None:
         return default
@@ -131,6 +139,50 @@ def _collect_asset_urls(value: object) -> list[str]:
         seen.add(candidate)
         deduped.append(candidate)
     return deduped
+
+
+_PROMPT_OPTIONAL_MEDIA_FEATURES = {
+    "BACKGROUND_REMOVER",
+    "IMAGE_UPSCALER",
+}
+
+
+def _normalize_media_prompt_object(payload: dict[str, Any]) -> dict[str, object]:
+    prompt_object = dict(payload.get("prompt_object") or {})
+    image_url = _first_nonempty(
+        prompt_object.get("imageUrl"),
+        prompt_object.get("image_url"),
+        payload.get("image_url"),
+        payload.get("imageUrl"),
+        payload.get("asset_url"),
+        payload.get("assetUrl"),
+        payload.get("source_image_url"),
+        payload.get("url"),
+    )
+    if image_url and "imageUrl" not in prompt_object:
+        prompt_object["imageUrl"] = image_url
+    output_format = _first_nonempty(prompt_object.get("output_format"), payload.get("output_format"))
+    if output_format and "output_format" not in prompt_object:
+        prompt_object["output_format"] = output_format
+    search_prompt = _first_nonempty(prompt_object.get("search_prompt"), payload.get("search_prompt"))
+    if search_prompt and "search_prompt" not in prompt_object:
+        prompt_object["search_prompt"] = search_prompt
+    for key in ("background", "size", "quality"):
+        value = _first_nonempty(prompt_object.get(key), payload.get(key))
+        if value and key not in prompt_object:
+            prompt_object[key] = value
+    if "n" not in prompt_object and payload.get("n") is not None:
+        prompt_object["n"] = payload.get("n")
+    return prompt_object
+
+
+def _infer_media_feature_type(payload: dict[str, Any]) -> str:
+    from app.services.ltd_runtime_skill_projection import infer_onemin_media_feature_type
+
+    return infer_onemin_media_feature_type(
+        goal=_first_nonempty(payload.get("goal")),
+        input_json=payload,
+    )
 
 
 class OneminToolAdapter:
@@ -569,7 +621,7 @@ class OneminToolAdapter:
 
     def execute_image_generate(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
-        prompt = _extract_text(payload.get("prompt"))
+        prompt = _extract_text(payload.get("prompt") or payload.get("source_text") or payload.get("normalized_text"))
         if not prompt:
             raise ToolExecutionError("prompt_required:provider.onemin.image_generate")
         model = str(payload.get("model") or self._default_image_model()).strip() or self._default_image_model()
@@ -646,15 +698,18 @@ class OneminToolAdapter:
 
     def execute_media_transform(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
-        feature_type = str(payload.get("feature_type") or "").strip().upper()
+        feature_type = _infer_media_feature_type(payload)
         prompt = _extract_text(payload.get("prompt") or payload.get("source_text"))
+        prompt_object = _normalize_media_prompt_object(payload)
         if not feature_type:
             raise ToolExecutionError("feature_type_required:provider.onemin.media_transform")
-        if not prompt:
+        if "imageUrl" not in prompt_object:
+            raise ToolExecutionError("image_url_required:provider.onemin.media_transform")
+        if feature_type not in _PROMPT_OPTIONAL_MEDIA_FEATURES and not prompt:
             raise ToolExecutionError("prompt_required:provider.onemin.media_transform")
         model = str(payload.get("model") or self._default_media_model()).strip() or self._default_media_model()
-        prompt_object = dict(payload.get("prompt_object") or {})
-        prompt_object.setdefault("prompt", prompt)
+        if prompt:
+            prompt_object.setdefault("prompt", prompt)
         feature_payload = {
             "type": feature_type,
             "model": model,

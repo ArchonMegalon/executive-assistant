@@ -304,6 +304,7 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "EA_ROLE" in dockerfile
+    assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert 'role=${EA_ROLE:-api}; case \\"$role\\" in' in dockerfile
     assert "worker|scheduler)" in dockerfile
     assert "http://127.0.0.1:8090/health/live" in dockerfile

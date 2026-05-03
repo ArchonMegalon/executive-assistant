@@ -86,7 +86,7 @@ def _seed_admin_state(client: TestClient, *, principal_id: str) -> None:
         task_type="handoff",
         role_required="operator",
         brief="Close investor dinner handoff",
-        why_human="Seed a returned handoff for the operator control plane.",
+        why_human="Seed a returned handoff for the operator center.",
         priority="medium",
         sla_due_at="2026-03-25T16:00:00+00:00",
     )
@@ -220,7 +220,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
 
     community = client.get("/admin/community")
     assert community.status_code == 200
-    assert "Access / Rollout" in community.text
+    assert "Access" in community.text
     assert "Workspace access and rollout posture" in community.text
     assert "operator-community@example.com" in community.text
     assert "principal-community@example.com" in community.text
@@ -233,7 +233,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
 
     diagnostics = client.get("/admin/api")
     assert diagnostics.status_code == 200
-    assert "Workspace review" in diagnostics.text
+    assert "Runtime" in diagnostics.text
     assert "Workspace plan" in diagnostics.text
     assert "Operator seats" in diagnostics.text
     assert "Seats used" in diagnostics.text
@@ -256,10 +256,11 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Public guide freshness" in diagnostics.text
     assert "Fix verification" in diagnostics.text
     assert "Channel receipt" in diagnostics.text
-    assert "Blocked delivery follow-ups" in diagnostics.text
-    assert "Delivery follow-ups closed" in diagnostics.text
+    assert "Blocked delivery handoffs" in diagnostics.text
+    assert "Delivery handoffs closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text
     assert "Open bundle" in diagnostics.text
+    assert "Download JSON" in diagnostics.text
     assert "Recent workspace events" in diagnostics.text
 
     bundle = client.get("/app/api/diagnostics/export")

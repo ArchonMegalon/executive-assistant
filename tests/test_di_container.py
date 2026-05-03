@@ -294,6 +294,27 @@ def test_routes_use_app_state_container_dependency() -> None:
     assert resp.json()["content"] == "fake-content"
 
 
+def test_app_startup_prewarms_provider_health_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = ""
+    from app.api import app as app_module
+
+    calls: list[str] = []
+
+    async def fake_prewarm() -> None:
+        calls.append("prewarm")
+
+    monkeypatch.setattr(app_module, "_prewarm_provider_health_cache", fake_prewarm)
+
+    app = app_module.create_app()
+    app.state.container = _FakeContainer()
+
+    with TestClient(app):
+        pass
+
+    assert calls == ["prewarm"]
+
+
 def test_non_prod_mode_allows_default_principal_fallback() -> None:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = ""

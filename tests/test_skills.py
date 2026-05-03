@@ -12,6 +12,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from app.repositories.task_contracts import InMemoryTaskContractRepository
+from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService
 
@@ -1591,5 +1592,349 @@ def test_skill_catalog_can_execute_browseract_workflow_repair_manager_skill(monk
     assert session_body["intent_skill_key"] == "browseract_workflow_repair_manager"
     assert [row["tool_name"] for row in session_body["receipts"]] == [
         "browseract.repair_workflow_spec",
+        "artifact_repository",
+    ]
+
+
+def test_skill_catalog_projects_ltd_runtime_skill_views_and_compiles_browseract_workspace_lane() -> None:
+    client = _client()
+    skill_key = projected_task_key("Documentation.AI", "inspect_workspace")
+
+    fetched_skill = client.get(f"/v1/skills/{skill_key}")
+    assert fetched_skill.status_code == 200
+    fetched_skill_body = fetched_skill.json()
+    assert fetched_skill_body["skill_key"] == skill_key
+    assert fetched_skill_body["provider_hints_json"]["primary"] == ["BrowserAct"]
+    assert fetched_skill_body["input_schema_json"]["required"] == ["binding_id"]
+
+    fetched_contract = client.get(f"/v1/tasks/contracts/{skill_key}")
+    assert fetched_contract.status_code == 200
+    fetched_contract_body = fetched_contract.json()
+    assert fetched_contract_body["task_key"] == skill_key
+    assert fetched_contract_body["runtime_policy_json"]["pre_artifact_tool_name"] == (
+        "browseract.documentation_ai_workspace_reader"
+    )
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "skill_key": skill_key,
+            "goal": "Inspect the Documentation.AI workspace for operator docs drift.",
+        },
+    )
+    assert compiled.status_code == 200
+    body = compiled.json()
+    assert body["skill_key"] == skill_key
+    assert [step["step_key"] for step in body["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_documentation_ai_workspace_reader",
+        "step_artifact_save",
+    ]
+
+
+def test_skill_catalog_lists_projected_ltd_runtime_skills_when_filtered() -> None:
+    client = _client()
+
+    listed = client.get("/v1/skills", params={"limit": 200, "provider_hint": "ltd-runtime"})
+    assert listed.status_code == 200
+    skill_keys = [row["skill_key"] for row in listed.json()]
+    assert projected_task_key("Documentation.AI", "inspect_workspace") in skill_keys
+    assert projected_task_key("AI Magicx", "structured_generate") in skill_keys
+
+    browseract_filtered = client.get("/v1/skills", params={"limit": 20, "provider_hint": "Documentation.AI"})
+    assert browseract_filtered.status_code == 200
+    filtered_keys = [row["skill_key"] for row in browseract_filtered.json()]
+    assert projected_task_key("Documentation.AI", "inspect_workspace") in filtered_keys
+
+
+def test_plan_compile_can_infer_ltd_runtime_task_from_goal_and_input() -> None:
+    client = _client()
+
+    compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "goal": "Inspect the Documentation.AI workspace for docs drift.",
+            "input_json": {
+                "binding_id": "binding-browseract-1",
+                "page_url": "https://docs.example/workspace",
+            },
+        },
+    )
+    assert compiled.status_code == 200
+    body = compiled.json()
+    expected_skill_key = projected_task_key("Documentation.AI", "inspect_workspace")
+    assert body["skill_key"] == expected_skill_key
+    assert body["plan"]["task_key"] == expected_skill_key
+    assert [step["step_key"] for step in body["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_browseract_documentation_ai_workspace_reader",
+        "step_artifact_save",
+    ]
+
+
+def test_plan_compile_can_infer_ltd_runtime_image_and_media_lanes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+    client = _client()
+
+    image_compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "goal": "Generate a launch hero image with 1min.AI.",
+            "input_json": {
+                "service_name": "1min.AI",
+                "prompt": "An executive office at sunrise with a prepared morning memo on the desk.",
+                "size": "1024x1024",
+            },
+        },
+    )
+    assert image_compiled.status_code == 200
+    image_body = image_compiled.json()
+    expected_image_skill_key = projected_task_key("1min.AI", "image_generate")
+    assert image_body["skill_key"] == expected_image_skill_key
+    assert image_body["plan"]["task_key"] == expected_image_skill_key
+    assert [step["step_key"] for step in image_body["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_image_generate",
+        "step_artifact_save",
+    ]
+
+    media_compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "goal": "Remove the background from this image with 1min.AI.",
+            "input_json": {
+                "service_name": "1min.AI",
+                "image_url": "https://example.invalid/notebook.png",
+                "output_format": "png",
+            },
+        },
+    )
+    assert media_compiled.status_code == 200
+    media_body = media_compiled.json()
+    expected_media_skill_key = projected_task_key("1min.AI", "background_remove")
+    assert media_body["skill_key"] == expected_media_skill_key
+    assert media_body["plan"]["task_key"] == expected_media_skill_key
+    assert [step["step_key"] for step in media_body["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_media_transform",
+        "step_artifact_save",
+    ]
+    assert media_body["plan"]["steps"][0]["input_keys"] == ["feature_type"]
+    assert media_body["plan"]["steps"][1]["input_keys"] == ["feature_type"]
+
+    upscale_compiled = client.post(
+        "/v1/plans/compile",
+        json={
+            "goal": "Upscale this image with 1min.AI.",
+            "input_json": {
+                "service_name": "1min.AI",
+                "image_url": "https://example.invalid/notebook.png",
+                "output_format": "png",
+            },
+        },
+    )
+    assert upscale_compiled.status_code == 200
+    upscale_body = upscale_compiled.json()
+    expected_upscale_skill_key = projected_task_key("1min.AI", "image_upscale")
+    assert upscale_body["skill_key"] == expected_upscale_skill_key
+    assert upscale_body["plan"]["task_key"] == expected_upscale_skill_key
+    assert [step["step_key"] for step in upscale_body["plan"]["steps"]] == [
+        "step_input_prepare",
+        "step_media_transform",
+        "step_artifact_save",
+    ]
+
+
+def test_plan_execute_can_infer_ltd_runtime_task_from_structured_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import responses_upstream as upstream
+
+    monkeypatch.setenv("AI_MAGICX_API_KEY", "magicx-key")
+
+    def _fake_call_text(self, *, prompt: str, model: str, lane: str):
+        assert "Summarize the fleet status." in prompt
+        assert lane == "easy"
+        return upstream.UpstreamResult(
+            text='{"summary":"fleet stable","risk":"low"}',
+            provider_key="magixai",
+            model=model,
+            provider_key_slot="primary",
+            provider_backend="aimagicx",
+            provider_account_name="AI_MAGICX_API_KEY",
+            tokens_in=23,
+            tokens_out=11,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_magixai_adapter.MagixaiToolAdapter._call_text",
+        _fake_call_text,
+    )
+
+    client = _client()
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "goal": "Summarize the fleet status with AI Magicx.",
+            "input_json": {
+                "service_name": "AI Magicx",
+                "prompt": "Summarize the fleet status.",
+                "generation_instruction": "Return JSON.",
+            },
+        },
+    )
+    assert execute.status_code == 200
+    body = execute.json()
+    expected_skill_key = projected_task_key("AI Magicx", "structured_generate")
+    assert body["skill_key"] == expected_skill_key
+    assert body["task_key"] == expected_skill_key
+    assert body["deliverable_type"] == "ltd_runtime_ai_magicx_structured_generate_packet"
+    assert body["structured_output_json"]["summary"] == "fleet stable"
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == expected_skill_key
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "provider.magixai.structured_generate",
+        "artifact_repository",
+    ]
+
+
+def test_plan_execute_can_infer_ltd_runtime_image_generation_from_structured_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    def _fake_call_feature(
+        self,
+        *,
+        feature_payload,
+        lane: str,
+        capability: str,
+        principal_id: str = "",
+        allow_reserve: bool = False,
+    ):
+        assert capability == "image_generate"
+        assert lane == "hard"
+        assert principal_id == "exec-1"
+        assert allow_reserve is False
+        assert feature_payload["promptObject"]["prompt"] == "A crisp launch hero image for an executive desk."
+        return (
+            {
+                "data": [
+                    {
+                        "url": "https://assets.example.invalid/generated/hero.png",
+                    }
+                ]
+            },
+            "ONEMIN_AI_API_KEY",
+            "primary",
+            "gpt-image-1-mini",
+            0,
+            0,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.OneminToolAdapter._call_feature",
+        _fake_call_feature,
+    )
+
+    client = _client()
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "goal": "Generate a launch hero image with 1min.AI.",
+            "input_json": {
+                "service_name": "1min.AI",
+                "prompt": "A crisp launch hero image for an executive desk.",
+                "size": "1024x1024",
+            },
+        },
+    )
+    assert execute.status_code == 200
+    body = execute.json()
+    expected_skill_key = projected_task_key("1min.AI", "image_generate")
+    assert body["skill_key"] == expected_skill_key
+    assert body["task_key"] == expected_skill_key
+    assert body["deliverable_type"] == "ltd_runtime_1min_ai_image_generate_packet"
+    assert body["structured_output_json"]["asset_urls"] == [
+        "https://assets.example.invalid/generated/hero.png"
+    ]
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == expected_skill_key
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "provider.onemin.image_generate",
+        "artifact_repository",
+    ]
+
+
+def test_plan_execute_can_infer_ltd_runtime_background_removal_from_structured_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
+
+    def _fake_call_feature(
+        self,
+        *,
+        feature_payload,
+        lane: str,
+        capability: str,
+        principal_id: str = "",
+        allow_reserve: bool = False,
+    ):
+        assert capability == "media_transform"
+        assert lane == "hard"
+        assert principal_id == "exec-1"
+        assert allow_reserve is False
+        assert feature_payload["type"] == "BACKGROUND_REMOVER"
+        assert feature_payload["promptObject"]["imageUrl"] == "https://example.invalid/notebook.png"
+        assert feature_payload["promptObject"]["output_format"] == "png"
+        assert "prompt" not in feature_payload["promptObject"]
+        return (
+            {
+                "temporaryUrl": "https://assets.example.invalid/generated/notebook-cutout.png",
+            },
+            "ONEMIN_AI_API_KEY",
+            "primary",
+            "stable-image",
+            0,
+            0,
+        )
+
+    monkeypatch.setattr(
+        "app.services.tool_execution_onemin_adapter.OneminToolAdapter._call_feature",
+        _fake_call_feature,
+    )
+
+    client = _client()
+    execute = client.post(
+        "/v1/plans/execute",
+        json={
+            "goal": "Remove the background from this image with 1min.AI.",
+            "input_json": {
+                "service_name": "1min.AI",
+                "image_url": "https://example.invalid/notebook.png",
+                "output_format": "png",
+            },
+        },
+    )
+    assert execute.status_code == 200
+    body = execute.json()
+    expected_skill_key = projected_task_key("1min.AI", "background_remove")
+    assert body["skill_key"] == expected_skill_key
+    assert body["task_key"] == expected_skill_key
+    assert body["deliverable_type"] == "ltd_runtime_1min_ai_background_remove_packet"
+    assert body["structured_output_json"]["asset_urls"] == [
+        "https://assets.example.invalid/generated/notebook-cutout.png"
+    ]
+
+    session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
+    assert session.status_code == 200
+    session_body = session.json()
+    assert session_body["intent_skill_key"] == expected_skill_key
+    assert [row["tool_name"] for row in session_body["receipts"]] == [
+        "provider.onemin.media_transform",
         "artifact_repository",
     ]

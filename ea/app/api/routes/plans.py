@@ -15,10 +15,15 @@ from app.domain.models import (
     artifact_storage_handle,
     normalize_artifact,
 )
+from app.services.ltd_runtime_skill_projection import projected_task_key_for_request
 from app.services.orchestrator import AsyncExecutionQueuedError, HumanTaskRequiredError
 from app.services.policy import ApprovalRequiredError, PolicyDeniedError
 
 router = APIRouter(prefix="/v1/plans", tags=["plans"])
+
+
+def _can_infer_ltd_runtime_selector(*, goal: str = "", input_json: dict[str, object] | None = None) -> bool:
+    return bool(projected_task_key_for_request(goal=goal, input_json=input_json))
 
 
 class PlanCompileIn(BaseModel):
@@ -26,10 +31,15 @@ class PlanCompileIn(BaseModel):
     skill_key: str = Field(default="", max_length=200)
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     goal: str = Field(default="", max_length=2000)
+    input_json: dict[str, object] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _require_task_key_or_skill_key(self) -> "PlanCompileIn":
-        if str(self.task_key or "").strip() or str(self.skill_key or "").strip():
+        if (
+            str(self.task_key or "").strip()
+            or str(self.skill_key or "").strip()
+            or _can_infer_ltd_runtime_selector(goal=self.goal, input_json=self.input_json)
+        ):
             return self
         raise PydanticCustomError("task_or_skill_key_required", "task_or_skill_key_required")
 
@@ -107,7 +117,11 @@ class PlanExecuteIn(BaseModel):
 
     @model_validator(mode="after")
     def _require_text_or_input_json(self) -> "PlanExecuteIn":
-        if not str(self.task_key or "").strip() and not str(self.skill_key or "").strip():
+        if not (
+            str(self.task_key or "").strip()
+            or str(self.skill_key or "").strip()
+            or _can_infer_ltd_runtime_selector(goal=self.goal, input_json=self.input_json)
+        ):
             raise PydanticCustomError("task_or_skill_key_required", "task_or_skill_key_required")
         if str(self.text or "").strip() or dict(self.input_json or {}):
             return self
@@ -201,7 +215,14 @@ def _resolve_execution_skill_key(container: AppContainer, *, task_key: str = "",
     return str(row.skill_key or resolved_task_key)
 
 
-def _resolve_task_key(container: AppContainer, *, task_key: str = "", skill_key: str = "") -> str:
+def _resolve_task_key(
+    container: AppContainer,
+    *,
+    task_key: str = "",
+    skill_key: str = "",
+    goal: str = "",
+    input_json: dict[str, object] | None = None,
+) -> str:
     resolved_task_key = str(task_key or "").strip()
     resolved_skill_key = str(skill_key or "").strip()
     if resolved_task_key and not resolved_skill_key:
@@ -214,6 +235,11 @@ def _resolve_task_key(container: AppContainer, *, task_key: str = "", skill_key:
         if resolved_task_key and row_task_key != resolved_task_key:
             raise HTTPException(status_code=422, detail="task_skill_key_mismatch")
         return row_task_key
+    inferred = container.task_contracts.infer_task_key(goal=goal, input_json=input_json)
+    if inferred:
+        return inferred
+    if not resolved_task_key and not resolved_skill_key:
+        raise HTTPException(status_code=422, detail="task_or_skill_key_required")
     return resolved_task_key
 
 
@@ -256,6 +282,8 @@ def compile_plan(
         container,
         task_key=body.task_key,
         skill_key=body.skill_key,
+        goal=body.goal,
+        input_json=dict(body.input_json or {}),
     )
     try:
         intent, plan = container.planner.build_plan(
@@ -339,6 +367,8 @@ def execute_plan(
         container,
         task_key=body.task_key,
         skill_key=body.skill_key,
+        goal=body.goal,
+        input_json=dict(body.input_json or {}),
     )
     skill_key = _resolve_skill_key(container, resolved_task_key)
     execution_skill_key = _resolve_execution_skill_key(

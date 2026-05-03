@@ -26,6 +26,32 @@
     display: block;
     margin-bottom: 6px;
   }
+  .access-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .access-form label {
+    display: block;
+    font-size: 0.85rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .access-form input {
+    width: 100%;
+  }
+  .access-feedback {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+  }
+  .access-feedback strong {
+    display: block;
+    margin-bottom: 6px;
+  }
   @media (max-width: 1080px) {
     .access-grid,
     .access-card-grid {
@@ -38,11 +64,47 @@
   <section class="access-panel">
     <div class="kicker">Existing workspace</div>
     <h1>Sign in if you already have workspace access.</h1>
-    <p class="lead">Return through a current session, a secure email link, a workspace invite, or your managed access layer. New customers should create a personal workspace first.</p>
+    <p class="lead">Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.</p>
     <div class="cta-row">
       <a class="btn primary" href="/app/today">Open current session</a>
       <a class="btn" href="/register">Create personal workspace</a>
     </div>
+    {% if sign_in_link_enabled %}
+    <form class="access-form" method="post" action="/sign-in/email-link">
+      <div>
+        <label for="sign_in_email">Email me a fresh access link</label>
+        <input id="sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" required>
+      </div>
+      <div class="cta-row">
+        <button class="btn" type="submit">Email me a sign-in link</button>
+      </div>
+    </form>
+    {% else %}
+    <div class="access-feedback">
+      <strong>Email return links are not enabled on this deployment yet.</strong>
+      <p class="copy">Use an existing invite, access link, current session, or SSO until mail delivery is configured.</p>
+    </div>
+    {% endif %}
+    {% if sign_in_link_status %}
+    <div class="access-feedback">
+      {% if sign_in_link_status == 'sent' %}
+      <strong>Secure access links sent.</strong>
+      <p class="copy">We sent {{ sign_in_link_count }} secure {{ 'link' if sign_in_link_count == 1 else 'links' }} to {{ sign_in_link_email }}.</p>
+      {% elif sign_in_link_status == 'partial' %}
+      <strong>Some links were sent.</strong>
+      <p class="copy">We sent {{ sign_in_link_count }} secure links to {{ sign_in_link_email }}. {{ sign_in_link_failed_total }} delivery {{ 'failed' if sign_in_link_failed_total == 1 else 'failures' }} still need attention.</p>
+      {% elif sign_in_link_status == 'not_found' %}
+      <strong>No existing workspace matched that email.</strong>
+      <p class="copy">We could not find workspace access for {{ sign_in_link_email }}. Start with a personal workspace if this is a new office.</p>
+      {% elif sign_in_link_status == 'invalid' %}
+      <strong>Enter a valid email address.</strong>
+      <p class="copy">Use the inbox that already has workspace access or an invite.</p>
+      {% else %}
+      <strong>We could not send a sign-in link.</strong>
+      <p class="copy">{{ sign_in_link_error or 'Use your current session, an existing invite, or ask the workspace owner to issue a new link.' }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
     <div class="summary-strip">
       <div class="summary">
         <div class="label">Returning users</div>
@@ -69,7 +131,7 @@
       </section>
       <section class="access-card">
         <strong>Email links</strong>
-        <p class="copy">Workspace invitations, approval links, and delivered actions can all reopen the right workspace directly from email.</p>
+        <p class="copy">Workspace invitations, sign-in links, approval links, and delivered actions can all reopen the right workspace directly from email.</p>
       </section>
       <section class="access-card">
         <strong>First visit</strong>

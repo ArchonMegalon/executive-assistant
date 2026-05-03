@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import socket
 import threading
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 import zlib
 from collections.abc import Iterator
@@ -23,6 +25,8 @@ Config = uvicorn.Config
 Server = uvicorn.Server
 
 from app.api.app import create_app
+from app.domain.models import ToolInvocationResult
+from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from tests.product_test_helpers import seed_founder_fixture, seed_product_state, seed_team_fixture
 
 
@@ -44,6 +48,58 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
         except Exception:
             time.sleep(0.1)
     raise AssertionError(f"server at {base_url} did not become ready in time")
+
+
+def _http_json(
+    base_url: str,
+    path: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    payload: dict[str, object] | None = None,
+) -> tuple[int, dict[str, object]]:
+    request_headers = dict(headers or {})
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        request_headers.setdefault("Content-Type", "application/json")
+    request = urllib.request.Request(
+        f"{base_url}{path}",
+        data=data,
+        headers=request_headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15.0) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            body = json.loads(response.read().decode("utf-8") or "{}")
+            assert isinstance(body, dict)
+            return status, body
+    except urllib.error.HTTPError as exc:
+        body = json.loads(exc.read().decode("utf-8") or "{}")
+        assert isinstance(body, dict)
+        return int(exc.code or 500), body
+
+
+def _sample_ltd_runtime_markdown() -> str:
+    return """
+# LTDs
+
+Updated: 2026-05-02
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `1min.AI` | `Advanced Business Plan` | `12 licenses` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots | Primary API-key lane is already wired. |
+| `Emailit` | `Tier 5` | `1 key` | `Owned` |  | `Tier 1` | Local `.env` key plus sender-domain wiring | Transactional delivery already runs through EA. |
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for operator docs and cited answers. |
+""".strip()
 
 
 def _truthy_env(name: str) -> bool:
@@ -272,7 +328,7 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert "Start a workspace that shows the first useful loop." in page.content()
     assert "Workspace shape" in page.content()
     assert "Google Core" in page.content()
-    assert "Build first brief" in page.content()
+    assert "Build first morning memo" in page.content()
 
     response = page.goto(f"{base_url}/app/today", wait_until="networkidle")
     assert response is not None and response.ok
@@ -528,7 +584,7 @@ def test_admin_audit_surface_renders_in_real_browser(page: Page, product_browser
     response = page.goto(f"{base_url}/admin/audit-trail", wait_until="networkidle")
     assert response is not None and response.ok
     assert "Audit Trail" in page.content()
-    assert "Operator Control Plane" in page.content()
+    assert "Operator Center" in page.content()
 
 
 def test_admin_operator_queue_actions_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
@@ -536,7 +592,7 @@ def test_admin_operator_queue_actions_in_real_browser(page: Page, product_browse
 
     response = page.goto(f"{base_url}/admin/operators", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Team / Operators" in page.content()
+    assert "Operators" in page.content()
 
     with page.expect_response(lambda value: "/app/actions/handoffs/" in value.url and value.request.method == "POST") as claim_response:
         page.locator(".console-row", has_text="Prepare board follow-up handoff").get_by_role("button", name="Claim").first.click()
@@ -557,12 +613,19 @@ def test_admin_diagnostics_bundle_in_real_browser(page: Page, product_browser_se
 
     response = page.goto(f"{base_url}/admin/api", wait_until="networkidle")
     assert response is not None and response.ok
-    assert "Workspace review" in page.content()
+    assert "Runtime" in page.content()
     assert "Billing state" in page.content()
     assert "Commercial boundary" in page.content()
     assert "Workspace diagnostics bundle" in page.content()
     assert "Open bundle" in page.content()
+    assert "Download JSON" in page.content()
     assert "What the office loop is actually doing" in page.content()
+
+    with page.expect_download() as download_info:
+        page.get_by_role("link", name="Download JSON").first.click()
+    download = download_info.value
+    assert "support-bundle" in download.suggested_filename
+    assert download.suggested_filename.endswith(".json")
 
     page.get_by_role("link", name="Open bundle").first.click()
     page.wait_for_load_state("networkidle")
@@ -591,7 +654,7 @@ def test_people_memory_correction_and_handoff_actions_in_real_browser(page: Page
     assert "board packet" in page.content()
     assert "travel coordination" in page.content()
     assert "Recent relationship history" in page.content()
-    assert "Memory Corrected" in page.content()
+    assert "Relationship Updated" in page.content()
 
     response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
     assert response is not None and response.ok
@@ -639,7 +702,7 @@ def test_team_fixture_in_real_browser(browser: Browser, team_browser_server: dic
 
         response = page.goto(f"{base_url}/admin/operators", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Team / Operators" in page.content()
+        assert "Operators" in page.content()
         assert "Team Operator" in page.content()
 
         response = page.goto(f"{base_url}/app/commitments", wait_until="networkidle")
@@ -790,8 +853,8 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     with page.expect_response(lambda value: "/app/channel-actions/" in value.url) as confirm_response:
         support_item_row.get_by_role("link", name="Confirm", exact=True).click()
     assert confirm_response.value.status == 200
-    assert "Executive Assistant action applied" in page.content()
-    page.get_by_role("link", name="Open the related workspace surface").click()
+    assert "The requested action was recorded." in page.content()
+    page.get_by_role("link", name="Open related workspace surface").click()
     page.wait_for_url(f"{base_url}/app/channel-loop/memo")
     page.wait_for_load_state("networkidle")
 
@@ -979,7 +1042,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
 
         response = page.goto(f"{base_url}/admin/community", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Access / Rollout" in page.content()
+        assert "Access" in page.content()
         assert "Workspace access and rollout posture" in page.content()
         assert "operator-browser-community@example.com" in page.content()
         assert "browser-community-access@example.com" in page.content()
@@ -994,7 +1057,7 @@ def test_operator_queue_and_admin_audit_in_real_browser(browser: Browser, operat
 
         response = page.goto(f"{base_url}/admin/api", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Workspace review" in page.content()
+        assert "Runtime" in page.content()
         assert "Commercial boundary" in page.content()
         assert "Workspace diagnostics bundle" in page.content()
         assert "SLA breaches" in page.content()
@@ -1032,3 +1095,167 @@ def test_operator_queue_claim_and_complete_stays_in_operator_lane(browser: Brows
         assert "What just moved through the operator lane" in page.content()
     finally:
         context.close()
+
+
+def test_operator_runtime_catalog_and_ltd_compile_flow_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "ops-e2e"
+    os.environ["ONEMIN_AI_API_KEY"] = "onemin-key"
+    markdown_path = tmp_path / "LTDs.md"
+    markdown_path.write_text(_sample_ltd_runtime_markdown(), encoding="utf-8")
+
+    from app.api.routes import ltd_runtime as ltd_runtime_route
+
+    monkeypatch.setattr(
+        ltd_runtime_route,
+        "_catalog",
+        lambda container: LtdRuntimeCatalogService(
+            provider_registry=container.provider_registry,
+            markdown_path=markdown_path,
+        ),
+    )
+
+    app = create_app()
+    captured: list[object] = []
+    original_execute = app.state.container.tool_execution.execute_invocation
+
+    def _fake_execute(request):  # noqa: ANN001
+        if request.tool_name != "provider.onemin.media_transform":
+            return original_execute(request)
+        captured.append(request)
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="provider://onemin/background-remove",
+            output_json={
+                "normalized_text": json.dumps(
+                    {
+                        "feature_type": request.payload_json["feature_type"],
+                        "asset_urls": ["https://assets.example.invalid/notebook-cutout.png"],
+                    },
+                    ensure_ascii=True,
+                ),
+                "structured_output_json": {
+                    "feature_type": request.payload_json["feature_type"],
+                    "asset_urls": ["https://assets.example.invalid/notebook-cutout.png"],
+                },
+                "preview_text": "https://assets.example.invalid/notebook-cutout.png",
+                "mime_type": "application/json",
+                "feature_type": request.payload_json["feature_type"],
+                "asset_urls": ["https://assets.example.invalid/notebook-cutout.png"],
+            },
+            receipt_json={
+                "principal_id": request.context_json["principal_id"],
+                "feature_type": request.payload_json["feature_type"],
+            },
+        )
+
+    monkeypatch.setattr(app.state.container.tool_execution, "execute_invocation", _fake_execute)
+    client = TestClient(app)
+    server = _start_browser_server(client, seeded={"principal_id": "ops-e2e", "auth_token": "test-token"})
+
+    try:
+        started = next(server)
+        base_url = str(started["base_url"])
+        headers = {
+            "Authorization": "Bearer test-token",
+            "X-EA-Principal-ID": "ops-e2e",
+        }
+
+        status, catalog = _http_json(base_url, "/v1/ltds/runtime-catalog/1min.AI", headers=headers)
+        assert status == 200
+        assert {row["action_key"] for row in catalog["actions"]} >= {
+            "background_remove",
+            "image_upscale",
+            "image_generate",
+        }
+
+        status, compiled = _http_json(
+            base_url,
+            "/v1/plans/compile",
+            method="POST",
+            headers=headers,
+            payload={
+                "goal": "Remove the background from this image with 1min.AI.",
+                "input_json": {
+                    "service_name": "1min.AI",
+                    "image_url": "https://example.invalid/notebook.png",
+                    "output_format": "png",
+                },
+            },
+        )
+        assert status == 200
+        assert compiled["skill_key"] == "ltd_runtime__1min_ai__background_remove"
+        assert compiled["intent"]["deliverable_type"] == "ltd_runtime_1min_ai_background_remove_packet"
+        assert [step["step_key"] for step in compiled["plan"]["steps"]] == [
+            "step_input_prepare",
+            "step_media_transform",
+            "step_artifact_save",
+        ]
+
+        status, executed = _http_json(
+            base_url,
+            "/v1/ltds/runtime-catalog/1min.AI/actions/background_remove",
+            method="POST",
+            headers=headers,
+            payload={
+                "image_url": "https://example.invalid/notebook.png",
+                "output_format": "png",
+            },
+        )
+        assert status == 200
+        assert executed["tool_name"] == "provider.onemin.media_transform"
+        assert executed["output_json"]["feature_type"] == "BACKGROUND_REMOVER"
+        assert executed["output_json"]["asset_urls"] == ["https://assets.example.invalid/notebook-cutout.png"]
+
+        status, executed_plan = _http_json(
+            base_url,
+            "/v1/plans/execute",
+            method="POST",
+            headers=headers,
+            payload={
+                "goal": "Remove the background from this image with 1min.AI.",
+                "input_json": {
+                    "service_name": "1min.AI",
+                    "image_url": "https://example.invalid/notebook.png",
+                    "output_format": "png",
+                },
+            },
+        )
+        assert status == 200
+        assert executed_plan["skill_key"] == "ltd_runtime__1min_ai__background_remove"
+        assert executed_plan["task_key"] == "ltd_runtime__1min_ai__background_remove"
+        assert executed_plan["deliverable_type"] == "ltd_runtime_1min_ai_background_remove_packet"
+        assert executed_plan["structured_output_json"]["asset_urls"] == [
+            "https://assets.example.invalid/notebook-cutout.png"
+        ]
+
+        status, session = _http_json(
+            base_url,
+            f"/v1/rewrite/sessions/{executed_plan['execution_session_id']}",
+            headers=headers,
+        )
+        assert status == 200
+        assert session["intent_skill_key"] == "ltd_runtime__1min_ai__background_remove"
+        assert [row["tool_name"] for row in session["receipts"]] == [
+            "provider.onemin.media_transform",
+            "artifact_repository",
+        ]
+    finally:
+        server.close()
+
+    assert len(captured) == 2
+    direct_request, execute_request = captured
+    assert direct_request.tool_name == "provider.onemin.media_transform"
+    assert direct_request.payload_json["action_key"] == "background_remove"
+    assert direct_request.payload_json["feature_type"] == "BACKGROUND_REMOVER"
+    assert direct_request.context_json["principal_id"] == "ops-e2e"
+    assert execute_request.tool_name == "provider.onemin.media_transform"
+    assert execute_request.payload_json["action_key"] == "background_remove"
+    assert execute_request.payload_json["feature_type"] == "BACKGROUND_REMOVER"
+    assert execute_request.context_json["principal_id"] == "ops-e2e"

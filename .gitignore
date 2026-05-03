@@ -57,3 +57,6 @@ executive_assistant_quiet_dark_pack.zip
 ASSISTANT_PUBLIC_FACE_IMPLEMENTATION_RFC.md
 HANDOFF_NEXT_SESSION.md
 decision_brief.md
+
+# Local runtime proxy pool secrets
+state/fastestvpn-proxy-pool/

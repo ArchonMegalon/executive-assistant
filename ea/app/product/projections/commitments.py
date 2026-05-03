@@ -66,9 +66,9 @@ def commitment_item_from_follow_up(row: FollowUp, stakeholders: dict[str, Stakeh
         proof_refs=(
             EvidenceRef(
                 ref_id=f"follow_up:{row.follow_up_id}",
-                label="Follow-up",
+                label="Commitment",
                 source_type="follow_up",
-                note=compact_text(row.notes, fallback="Follow-up remains open in the workspace ledger."),
+                note=compact_text(row.notes, fallback="Commitment remains open in the workspace ledger."),
             ),
         ),
         confidence=_as_float(source.get("confidence"), default=0.78),

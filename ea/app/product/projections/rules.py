@@ -25,7 +25,7 @@ def rule_items_from_workspace(status: dict[str, object], diagnostics: dict[str, 
             status="active",
             summary="Google remains the first required connection before optional channels and advanced automation.",
             current_value="google",
-            impact="Messaging stays deferred until the first memo, first draft review, and first follow-up are useful.",
+            impact="Messaging stays deferred until the first memo, first draft review, and first commitment loop are useful.",
         ),
         RuleItem(
             id="rule:draft_approval",

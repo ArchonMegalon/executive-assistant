@@ -98,6 +98,24 @@ def test_support_bundle_export_includes_commercial_state_and_records_event() -> 
     assert counts.get("support_bundle_opened", 0) >= 1
 
 
+def test_support_bundle_download_sets_attachment_headers_and_records_event() -> None:
+    client, _seeded = _seed("exec-support-bundle-download")
+
+    export = client.get("/app/api/diagnostics/export", params={"download": "1"})
+    assert export.status_code == 200
+    assert export.headers["content-type"].startswith("application/json")
+    content_disposition = str(export.headers.get("content-disposition") or "")
+    assert "attachment;" in content_disposition
+    assert "support-bundle" in content_disposition
+    body = export.json()
+    assert body["workspace"]["name"] == "Executive Office"
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    counts = diagnostics.json()["analytics"]["counts"]
+    assert counts.get("support_bundle_downloaded", 0) >= 1
+
+
 def test_people_history_endpoint_reflects_memory_corrections() -> None:
     client, seeded = _seed("exec-people-history")
     person_id = seeded["stakeholder_id"]

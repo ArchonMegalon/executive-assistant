@@ -15,6 +15,7 @@ from app.services.execution_operator_routing_service import ExecutionOperatorRou
 from app.services.execution_step_dependency_service import ExecutionStepDependencyService
 from app.services.execution_step_runtime_service import ExecutionStepRuntimeService
 from app.services.execution_task_orchestration_service import ExecutionTaskOrchestrationService
+from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.memory_reasoning_service import ContextPack
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService
@@ -1177,6 +1178,44 @@ def test_execution_task_orchestration_service_resolves_skill_key_through_catalog
     assert result == artifact
     assert started_steps[0][2]["skill_key"] == "browseract_bootstrap_manager"
     assert started_steps[0][2]["workflow_name"] == "Prompt Forge"
+
+
+def test_execution_task_orchestration_service_can_infer_ltd_runtime_task_selector() -> None:
+    contracts = TaskContractService(InMemoryTaskContractRepository())
+    skills = SkillCatalogService(contracts)
+    service = ExecutionTaskOrchestrationService(
+        ledger=type("LedgerStub", (), {})(),
+        planner=None,
+        task_contracts=contracts,
+        skills=skills,
+        get_artifact=lambda artifact_id: None,
+        execute_next_ready_step=lambda session_id: None,
+        fetch_session_snapshot=lambda session_id: None,
+        async_state_service=type("AsyncStateStub", (), {"raise_for_snapshot_state": lambda self, snapshot: None})(),
+    )
+
+    task_key, skill_key = service.resolve_task_selector(
+        type(
+            "TaskReq",
+            (),
+            {
+                "task_key": "",
+                "skill_key": "",
+                "principal_id": "exec-1",
+                "goal": "Summarize the fleet status with AI Magicx.",
+                "text": "",
+                "context_refs": (),
+                "input_json": {
+                    "service_name": "AI Magicx",
+                    "prompt": "Summarize the fleet status.",
+                },
+            },
+        )()
+    )
+
+    expected = projected_task_key("AI Magicx", "structured_generate")
+    assert task_key == expected
+    assert skill_key == expected
 
 
 def test_execution_async_state_service_raises_approval_with_matching_request() -> None:

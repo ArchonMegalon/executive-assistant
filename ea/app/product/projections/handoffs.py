@@ -18,6 +18,16 @@ def handoff_from_human_task(task: HumanTask) -> HandoffNote:
         status=task.status,
         task_type=str(task.task_type or "").strip(),
         resolution=str(task.resolution or "").strip(),
+        property_url=str(input_json.get("property_url") or "").strip(),
+        listing_id=str(input_json.get("listing_id") or "").strip(),
+        variant_key=str(input_json.get("variant_key") or "").strip(),
+        blocked_reason=str(input_json.get("blocked_reason") or "").strip(),
+        tour_url=str(input_json.get("tour_url") or "").strip(),
+        connector_binding_id=str(input_json.get("connector_binding_id") or "").strip(),
+        vendor_tour_url=str(input_json.get("vendor_tour_url") or "").strip(),
+        editor_url=str(input_json.get("editor_url") or "").strip(),
+        source_ref=str(input_json.get("source_ref") or "").strip(),
+        external_id=str(input_json.get("external_id") or "").strip(),
         draft_ref=str(input_json.get("draft_ref") or "").strip(),
         recipient_email=str(input_json.get("recipient_email") or "").strip(),
         subject=str(input_json.get("subject") or "").strip(),
@@ -53,6 +63,41 @@ def handoff_action_options(
                 "channel_action": "assign",
             },
         )
+    if _property_tour_followup_open(handoff):
+        options: list[dict[str, str]] = [
+            {
+                "kind": "recreate",
+                "label": "Recreate tour",
+                "route": "recreate",
+                "method": "post",
+                "channel_action": "recreate",
+            },
+            {
+                "kind": "complete",
+                "label": "Mark sent",
+                "value": "sent",
+                "route": "complete",
+                "method": "post",
+                "channel_action": "sent",
+            },
+            {
+                "kind": "complete",
+                "label": "Unable to process",
+                "value": "failed",
+                "route": "complete",
+                "method": "post",
+                "channel_action": "failed",
+            },
+            {
+                "kind": "complete",
+                "label": "Waiting on principal",
+                "value": "waiting_on_principal",
+                "route": "complete",
+                "method": "post",
+                "channel_action": "waiting_on_principal",
+            },
+        ]
+        return tuple(options)
     if _delivery_followup_open(handoff):
         delivery_reason = str(handoff.delivery_reason or "").strip()
         resolved_return_to = str(return_to or f"/app/handoffs/{handoff.id}").strip() or f"/app/handoffs/{handoff.id}"
@@ -126,6 +171,13 @@ def _delivery_followup_open(handoff: HandoffNote) -> bool:
         str(handoff.task_type or "").strip() == "delivery_followup"
         and str(handoff.status or "").strip() in {"open", "pending", "claimed"}
         and str(handoff.resolution or "").strip() != "sent"
+    )
+
+
+def _property_tour_followup_open(handoff: HandoffNote) -> bool:
+    return (
+        str(handoff.task_type or "").strip() == "property_tour_followup"
+        and str(handoff.status or "").strip() in {"open", "pending", "claimed"}
     )
 
 

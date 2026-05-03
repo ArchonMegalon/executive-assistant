@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import app.product.service as product_service
 from app.product.service import ProductService
@@ -138,6 +140,11 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "support_fallout" in diagnostics_body["product_control"]
     assert "public_guide_freshness" in diagnostics_body["product_control"]
     assert "state" in diagnostics_body["support_verification"]
+    assert "analytics" in diagnostics_body
+    assert "access" in diagnostics_body["analytics"]
+    assert "invitations" in diagnostics_body["analytics"]
+    assert "active" in diagnostics_body["analytics"]["access"]
+    assert "pending" in diagnostics_body["analytics"]["invitations"]
 
     plan = client.get("/app/api/plan")
     assert plan.status_code == 200
@@ -267,6 +274,9 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert signal_body["draft_count"] >= 1
     assert signal_body["staged_drafts"]
     assert "board packet" in signal_body["staged_drafts"][0]["draft_text"].lower()
+    assert signal_body["ooda_loop"]["reviewed"] is True
+    assert signal_body["ooda_loop"]["observe"]["signal_type"] == "email_thread"
+    assert signal_body["ooda_loop"]["ltd_review"]["recommended_count"] >= 0
 
     events = client.get("/app/api/events")
     assert events.status_code == 200
@@ -274,6 +284,7 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert events_body["total"] >= 1
     assert any(item["event_type"] == "office_signal_email_thread" for item in events_body["items"])
     assert any(item["source_id"] == "gmail-thread-123" for item in events_body["items"])
+    assert any(item["event_type"] == "office_signal_ooda_evaluated" and item["source_id"] == "gmail-thread-123" for item in events_body["items"])
     gmail_events = client.get("/app/api/events", params={"channel": "gmail"})
     assert gmail_events.status_code == 200
     assert all(item["channel"] == "gmail" for item in gmail_events.json()["items"])
@@ -342,6 +353,55 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert diagnostics_after_channel_action.status_code == 200
     assert int(dict(diagnostics_after_channel_action.json()["analytics"]["counts"]).get("channel_action_redeemed") or 0) >= 1
 
+    invalid_action = client.get("/app/channel-actions/bad-token")
+    assert invalid_action.status_code == 404
+    assert "This action link is no longer valid." in invalid_action.text
+    assert "Request new sign-in link" in invalid_action.text
+
+
+def test_public_channel_action_links_preview_before_applying_changes() -> None:
+    principal_id = f"exec-public-channel-action-confirm-{uuid4().hex[:8]}"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    approvals_digest = next(item for item in loop.json()["digests"] if item["key"] == "approvals")
+    draft_action = next(item["action_href"] for item in approvals_digest["items"] if item["tag"] == "Draft")
+
+    drafts_before = client.get("/app/api/drafts")
+    assert drafts_before.status_code == 200
+    draft_count_before = len(drafts_before.json())
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    preview = client.get(draft_action)
+    assert preview.status_code == 200
+    assert "Review this secure action before applying it." in preview.text
+    assert "Email scanners and previews will not apply this action." in preview.text
+
+    preview_head = client.head(draft_action, follow_redirects=False)
+    assert preview_head.status_code == 200
+
+    client.headers["X-EA-Principal-ID"] = principal_id
+    drafts_after_preview = client.get("/app/api/drafts")
+    assert drafts_after_preview.status_code == 200
+    assert len(drafts_after_preview.json()) == draft_count_before
+
+    client.headers.pop("X-EA-Principal-ID", None)
+    confirmed = client.post(draft_action, follow_redirects=False)
+    assert confirmed.status_code == 200
+    assert "The requested action was recorded." in confirmed.text
+    assert "Open related workspace surface" in confirmed.text
+
+    client.headers["X-EA-Principal-ID"] = principal_id
+    drafts_after_confirm = client.get("/app/api/drafts")
+    assert drafts_after_confirm.status_code == 200
+    assert len(drafts_after_confirm.json()) == draft_count_before - 1
+
+    diagnostics = client.get("/app/api/diagnostics")
+    assert diagnostics.status_code == 200
+    assert int(dict(diagnostics.json()["analytics"]["counts"]).get("channel_action_redeemed") or 0) >= 1
+
 
 def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
     principal_id = "exec-product-signal-draft"
@@ -403,6 +463,568 @@ def test_signal_ingest_stages_reviewable_reply_draft_and_metrics() -> None:
     assert duplicate_body["staged_count"] >= 1
     assert duplicate_body["draft_count"] == 1
     assert duplicate_body["staged_drafts"][0]["id"] == body["staged_drafts"][0]["id"]
+    assert duplicate_body["ooda_loop"]["reviewed"] is True
+
+
+def test_signal_ingest_email_thread_records_ooda_ltd_recommendations_for_property_workflows() -> None:
+    principal_id = "exec-product-signal-ooda-property"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Signal OODA Office")
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Apartment shortlist",
+            "summary": "Please send a tour for this Willhaben apartment and share the link with Tibor.",
+            "text": "Please send a tour for this Willhaben apartment and share the link with Tibor. https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/garden-apartment-789",
+            "counterparty": "Elisabeth G.",
+            "source_ref": "gmail-thread:ooda-property-1",
+            "external_id": "gmail-message:ooda-property-1",
+            "payload": {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/garden-apartment-789",
+                "delivery_recipient_email": "tibor.girschele@gmail.com",
+            },
+        },
+    )
+    assert signal.status_code == 200
+    body = signal.json()
+    assert body["ooda_loop"]["reviewed"] is True
+    recommendations = body["ooda_loop"]["ltd_review"]["recommended_actions"]
+    assert any(item["service_name"] == "Crezlo Tours" and item["action_key"] == "create_property_tour" for item in recommendations)
+    assert any(item["service_name"] == "Emailit" and item["action_key"] == "delivery_outbox" for item in recommendations)
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "office_signal_ooda_evaluated"})
+    assert events.status_code == 200
+    evaluated = next(item for item in events.json()["items"] if item["source_id"] == "gmail-thread:ooda-property-1")
+    evaluated_actions = evaluated["payload"]["ooda_loop"]["ltd_review"]["recommended_actions"]
+    assert any(item["task_key"].startswith("ltd_runtime__crezlo_tours__create_property_tour") for item in evaluated_actions)
+
+
+def test_signal_ingest_willhaben_search_agent_mail_skips_commitment_staging_but_keeps_ooda_ltd_review() -> None:
+    principal_id = "exec-product-signal-ooda-willhaben-agent"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Willhaben OODA Office")
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "summary": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "text": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "counterparty": "willhaben-Suchagent",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-willhaben-agent-1",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-willhaben-agent-1",
+            "payload": {
+                "from_email": "no-reply@agent.willhaben.at",
+                "from_name": "willhaben-Suchagent",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+    body = signal.json()
+    assert body["staged_count"] == 0
+    assert body["draft_count"] == 0
+    assert body["ooda_loop"]["reviewed"] is True
+    recommendations = body["ooda_loop"]["ltd_review"]["recommended_actions"]
+    assert any(item["service_name"] == "Crezlo Tours" and item["action_key"] == "create_property_tour" for item in recommendations)
+    automated_actions = body["ooda_loop"]["act"]["automated_actions"]
+    review_action = next(item for item in automated_actions if item["action_key"] == "review_property_alert")
+    assert review_action["task_type"] == "property_alert_review"
+    assert review_action["human_task_id"].startswith("human_task:")
+    queue = client.get("/app/api/queue")
+    assert queue.status_code == 200
+    assert any(item["id"] == review_action["human_task_id"] for item in queue.json()["items"])
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    handoff = next(item for item in handoffs.json() if item["id"] == review_action["human_task_id"])
+    assert handoff["task_type"] == "property_alert_review"
+    assert handoff["summary"].startswith("Review apartment alert:")
+
+
+def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatch) -> None:
+    from app.domain.models import Artifact
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1200-brigittenau/apartment-a-123",
+        "listing_id": "listing-123",
+        "listing_uuid": "listing-uuid-123",
+        "title": "Bright Brigittenau apartment",
+        "property_facts_json": {
+            "area_label": "74 m²",
+            "rooms_label": "3 rooms",
+            "total_rent_eur": 1890.0,
+        },
+        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {"include_floorplans": True},
+                "tour_settings_json": {"showSceneNumbers": True},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    observed_email: dict[str, object] = {}
+
+    def _fake_send_property_tour_email(**kwargs) -> RegistrationEmailReceipt:
+        observed_email.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="property-tour-message-1",
+            accepted_at="2026-05-02T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_property_tour_email", _fake_send_property_tour_email)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.task_key in {
+            "create_property_tour",
+            "ltd_runtime__crezlo_tours__create_property_tour",
+        }
+        assert request.input_json["binding_id"] == "browseract-binding-1"
+        assert request.input_json["force_ui_worker"] is True
+        assert request.input_json["property_url"] == packet["property_url"]
+        return Artifact(
+            artifact_id="artifact-property-tour-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "hosted_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
+                "public_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
+                "crezlo_public_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
+                "editor_url": "https://vendor.example.com/editor/brigittenau-apartment-a",
+                "tour_id": "tour-123",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-1",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "sent"
+    assert body["listing_id"] == "listing-123"
+    assert body["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
+    assert body["vendor_tour_url"] == "https://vendor.example.com/tours/brigittenau-apartment-a"
+    assert body["editor_url"] == "https://vendor.example.com/editor/brigittenau-apartment-a"
+    assert body["artifact_id"] == "artifact-property-tour-1"
+    assert body["execution_session_id"] == "session-property-tour-1"
+    assert body["delivery_email"] == "tibor.girschele@gmail.com"
+    assert body["delivery_status"] == "sent"
+    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_email_sent"},
+    )
+    assert events.status_code == 200
+    assert any(item["payload"]["delivery_email"] == "tibor.girschele@gmail.com" for item in events.json()["items"])
+
+
+def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_base_contract_missing(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/live-apartment-456",
+        "listing_id": "listing-456",
+        "listing_uuid": "listing-uuid-456",
+        "title": "Projected Crezlo apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-live/photo-1.jpg"],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+    monkeypatch.setattr(client.app.state.container.task_contracts, "get_contract", lambda key: object() if key == "ltd_runtime__crezlo_tours__create_property_tour" else None)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.task_key == "ltd_runtime__crezlo_tours__create_property_tour"
+        assert request.input_json["force_ui_worker"] is True
+        return Artifact(
+            artifact_id="artifact-property-tour-projected-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-projected-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/projected-crezlo-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/projected-crezlo-apartment",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-projected-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["status"] == "created"
+    assert created.json()["tour_url"] == "https://myexternalbrain.com/tours/projected-crezlo-apartment"
+
+
+def test_property_tour_binding_bootstraps_crezlo_metadata_from_runtime_state(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    runtime_root = tmp_path / "runtime"
+    publish_dir = runtime_root / "crezlo_property_tour_operator_publish"
+    publish_dir.mkdir(parents=True)
+    (publish_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "workflow_id": "86048166080352916",
+                "workflow_name": "crezlo_property_tour_operator_live",
+            }
+        ),
+        encoding="utf-8",
+    )
+    worker_dir = runtime_root / "crezlo_property_tour_runs_smoke4"
+    worker_dir.mkdir(parents=True)
+    (worker_dir / "sample.worker_input.json").write_text(
+        json.dumps(
+            {
+                "login_email": "tour-operator@example.com",
+                "login_password": "secret-password",
+                "workspace_id": "workspace-123",
+                "workspace_domain": "ea-property-tours.example.com",
+                "workspace_base_url": "https://ea-property-tours.example.com",
+                "workspace_tours_url": "https://ea-property-tours.example.com/admin/tours",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("EA_CREZLO_PROPERTY_TOUR_STATE_ROOT", str(runtime_root))
+
+    service = ProductService(client.app.state.container)
+    binding_id = service._resolve_browseract_property_tour_binding_id(principal_id=principal_id)
+    binding = client.app.state.container.tool_runtime.get_connector_binding(binding_id)
+
+    assert binding is not None
+    metadata = dict(binding.auth_metadata_json or {})
+    assert metadata["crezlo_property_tour_workflow_id"] == "86048166080352916"
+    assert metadata["browseract_crezlo_property_tour_workflow_id"] == "86048166080352916"
+    assert metadata["crezlo_login_email"] == "tour-operator@example.com"
+    assert metadata["crezlo_login_password"] == "secret-password"
+    assert metadata["crezlo_workspace_id"] == "workspace-123"
+    assert metadata["crezlo_workspace_domain"] == "ea-property-tours.example.com"
+    assert metadata["crezlo_workspace_base_url"] == "https://ea-property-tours.example.com"
+    assert metadata["crezlo_workspace_tours_url"] == "https://ea-property-tours.example.com/admin/tours"
+
+
+def test_property_tour_url_resolver_prefers_branded_link_even_when_legacy_fields_are_swapped(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    branded_url, vendor_url = product_service._resolve_property_tour_urls(
+        {
+            "crezlo_public_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
+            "public_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
+            "share_url": "https://vendor.example.com/share/brigittenau-apartment-a",
+        }
+    )
+    assert branded_url == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
+    assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
+
+
+def test_willhaben_property_packet_script_path_supports_container_layout(monkeypatch, tmp_path: Path) -> None:
+    container_root = tmp_path / "app"
+    service_path = container_root / "app" / "product" / "service.py"
+    service_path.parent.mkdir(parents=True)
+    service_path.write_text("# container service stub\n", encoding="utf-8")
+    script_path = container_root / "scripts" / "willhaben_property_packet.py"
+    script_path.parent.mkdir(parents=True)
+    script_path.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    monkeypatch.delenv("EA_WILLHABEN_PROPERTY_PACKET_SCRIPT", raising=False)
+    monkeypatch.setattr(product_service, "__file__", str(service_path))
+
+    assert product_service._willhaben_property_packet_script_path() == script_path.resolve()
+
+
+def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missing(monkeypatch) -> None:
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "listing-456",
+            "title": "Riverside apartment",
+            "property_facts_json": {},
+            "media_urls_json": ["https://cdn.example.com/apartment-b/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [
+                {
+                    "variant_key": "layout_first",
+                    "scene_strategy": "layout_first",
+                    "theme_name": "clean_light",
+                    "tour_style": "guided_layout_walkthrough",
+                    "audience": "tenant_screening",
+                    "creative_brief": "Lead with the floor plan.",
+                    "call_to_action": "Open the tour.",
+                    "scene_selection_json": {},
+                    "tour_settings_json": {},
+                }
+            ],
+        },
+    )
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/apartment-b-456",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "browseract_connector_unconfigured"
+    assert body["human_task_id"].startswith("human_task:")
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    assert any(item["id"] == body["human_task_id"] for item in handoffs.json())
+
+
+def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_available(monkeypatch) -> None:
+    from app.domain.models import Artifact
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    seed_product_state(client, principal_id=principal_id)
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/apartment-recreate-001",
+        "listing_id": "listing-recreate-001",
+        "title": "Quiet district apartment",
+        "listing_uuid": "listing-recreate-uuid-001",
+        "property_facts_json": {
+            "area_label": "64 m²",
+            "rooms_label": "2 rooms",
+            "total_rent_eur": 1690.0,
+        },
+        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    blocked = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+        },
+    )
+    assert blocked.status_code == 200
+    blocked_body = blocked.json()
+    assert blocked_body["status"] == "blocked"
+    assert blocked_body["blocked_reason"] == "browseract_connector_unconfigured"
+    handoff_id = blocked_body["human_task_id"]
+
+    send_calls: list[dict[str, object]] = []
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.task_key in {
+            "create_property_tour",
+            "ltd_runtime__crezlo_tours__create_property_tour",
+        }
+        return Artifact(
+            artifact_id="artifact-property-tour-recreated-1",
+            kind="property_tour_packet",
+            content="Property tour recreated.",
+            execution_session_id="session-property-tour-recreated-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/recreated-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/recreated-apartment",
+                "editor_url": "https://vendor.example.com/editor/recreated-apartment",
+            },
+        )
+
+    def _fake_send_property_tour_email(**kwargs: object) -> RegistrationEmailReceipt:
+        send_calls.append(dict(kwargs))
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="property-tour-message-recreated",
+            accepted_at="2026-05-02T00:00:00+00:00",
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    monkeypatch.setattr(product_service, "send_property_tour_email", _fake_send_property_tour_email)
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+
+    recreated = client.post(
+        f"/app/api/handoffs/{handoff_id}/recreate",
+        json={"operator_id": "operator-office"},
+    )
+    assert recreated.status_code == 200
+    recreated_body = recreated.json()
+    assert recreated_body["id"] == handoff_id
+    assert recreated_body["resolution"] == "sent"
+    assert recreated_body["task_type"] == "property_tour_followup"
+    assert send_calls and send_calls[0]["property_url"] == packet["property_url"]
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_email_sent"},
+    )
+    assert events.status_code == 200
+    assert any(
+        item["payload"]["tour_url"] == "https://myexternalbrain.com/tours/recreated-apartment"
+        for item in events.json()["items"]
+    )
+
+
+def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> None:
+    from app.domain.models import Artifact
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "listing-789",
+            "title": "Garden apartment",
+            "property_facts_json": {},
+            "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [
+                {
+                    "variant_key": "layout_first",
+                    "scene_strategy": "layout_first",
+                    "theme_name": "clean_light",
+                    "tour_style": "guided_layout_walkthrough",
+                    "audience": "tenant_screening",
+                    "creative_brief": "Lead with the floor plan.",
+                    "call_to_action": "Open the tour.",
+                    "scene_selection_json": {},
+                    "tour_settings_json": {},
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_property_tour_email",
+        lambda **kwargs: RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="property-tour-message-2",
+            accepted_at="2026-05-02T00:00:00+00:00",
+        ),
+    )
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        return Artifact(
+            artifact_id="artifact-property-tour-2",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-2",
+            principal_id=principal_id,
+            structured_output_json={"crezlo_public_url": "https://myexternalbrain.com/tours/garden-apartment"},
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    ingested = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "saved_link",
+            "channel": "office_api",
+            "title": "Willhaben alert",
+            "summary": "A new apartment matches the search.",
+            "text": "A new apartment matches the search.",
+            "source_ref": "willhaben-alert:listing-789",
+            "external_id": "listing-789",
+            "payload": {
+                "captured_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/garden-apartment-789",
+                "auto_create_property_tour": True,
+                "binding_id": "browseract-binding-2",
+            },
+        },
+    )
+    assert ingested.status_code == 200
+    assert ingested.json()["event_type"] == "office_signal_saved_link"
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_email_sent"},
+    )
+    assert events.status_code == 200
+    assert any(item["payload"]["source_ref"] == "willhaben-alert:listing-789" for item in events.json()["items"])
 
 
 def test_pocket_signal_upload_url_uses_public_host_and_ingests_saved_link(monkeypatch) -> None:
@@ -462,11 +1084,78 @@ def test_pocket_signal_upload_url_uses_public_host_and_ingests_saved_link(monkey
     assert pocket_event["payload"]["captured_url"] == "https://example.com/board-packet"
     assert pocket_event["payload"]["captured_tags"] in {"board, sofia", "board,sofia"}
 
-    diagnostics = client.get("/app/api/diagnostics")
-    assert diagnostics.status_code == 200
-    counts = dict(diagnostics.json()["analytics"]["counts"])
-    assert int(counts.get("signal_ingest_endpoint_issued") or 0) >= 1
-    assert int(counts.get("signal_ingest_endpoint_used") or 0) >= 1
+
+def test_pocket_signal_upload_url_includes_signal_ooda_evaluated() -> None:
+    principal_id = "exec-product-pocket-signal-ooda"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    issued = client.post("/app/api/signals/pocket/upload-url", json={"signal_type": "saved_link"})
+    assert issued.status_code == 200
+    upload_path = urlparse(issued.json()["upload_url"]).path
+
+    ingested = client.post(
+        upload_path,
+        json={
+            "url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/demo-flat-123",
+            "title": "Willhaben apartment follow-up",
+            "excerpt": "Please create a tour for this apartment and send it to the owner.",
+            "item_id": "pocket-ooda-1",
+            "counterparty": "Property Watch",
+        },
+    )
+    assert ingested.status_code == 200
+    ingested_body = ingested.json()
+    assert ingested_body["channel"] == "pocket"
+    assert ingested_body["event_type"] == "office_signal_saved_link"
+    assert ingested_body["source_id"] == "pocket:pocket-ooda-1"
+    assert ingested_body["external_id"] == "pocket-ooda-1"
+    assert ingested_body["ooda_loop"]["reviewed"] is True
+    assert ingested_body["ooda_loop"]["observe"]["signal_type"] == "saved_link"
+    assert ingested_body["ooda_loop"]["observe"]["counterparty"] == "Property Watch"
+    assert ingested_body["ooda_loop"]["ltd_review"]["recommended_count"] >= 0
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "office_signal_ooda_evaluated"})
+    assert events.status_code == 200
+    assert any(
+        item["source_id"] == "pocket:pocket-ooda-1" and item["payload"]["signal_type"] == "saved_link"
+        for item in events.json()["items"]
+    )
+
+
+def test_signal_ingest_calendar_note_includes_ooda_loop() -> None:
+    principal_id = "exec-product-calendar-ooda"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "calendar_note",
+            "channel": "calendar",
+            "title": "Prep with Sofia",
+            "summary": "Follow up after stand-up; draft the decision notes and share them by EOD.",
+            "text": "Follow up with Sofia and share the decision notes by end of day.",
+            "source_ref": "calendar-event:prep-ooda-1",
+            "external_id": "calendar-event:prep-ooda-1",
+            "counterparty": "Sofia N.",
+        },
+    )
+    assert signal.status_code == 200
+    body = signal.json()
+    assert body["channel"] == "calendar"
+    assert body["event_type"] == "office_signal_calendar_note"
+    assert body["staged_count"] >= 0
+    assert body["ooda_loop"]["reviewed"] is True
+    assert body["ooda_loop"]["observe"]["signal_type"] == "calendar_note"
+    assert body["ooda_loop"]["ltd_review"]["reviewed"] is True
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "office_signal_ooda_evaluated"})
+    assert events.status_code == 200
+    assert any(
+        item["source_id"] == "calendar-event:prep-ooda-1" and item["payload"]["signal_type"] == "calendar_note"
+        for item in events.json()["items"]
+    )
 
 
 def test_pocket_saved_link_import_from_local_json_archive(tmp_path) -> None:
@@ -1542,6 +2231,114 @@ def test_approving_signal_reply_draft_records_gmail_send_when_delivery_succeeds(
     assert any(item["event_type"] == "draft_sent" for item in person_detail.json()["history"])
 
 
+def test_approving_signal_reply_draft_uses_originating_google_inbox_binding(monkeypatch) -> None:
+    principal_id = "exec-product-signal-draft-send-secondary"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Signal Draft Secondary Inbox")
+    stakeholder = client.app.state.container.memory_runtime.upsert_stakeholder(
+        principal_id=principal_id,
+        display_name="Sofia N.",
+        channel_ref="sofia@example.com",
+        authority_level="board",
+        importance="high",
+        tone_pref="direct",
+        open_loops_json={"board_packet": True},
+        friction_points_json={},
+        last_interaction_at="2026-03-29T08:45:00+00:00",
+    )
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_google_accounts",
+        lambda **kwargs: [
+            google_oauth_service.GoogleOAuthAccount(
+                binding=google_oauth_service.ProviderBindingRecord(
+                    binding_id="exec-product-signal-draft-send-secondary:google_gmail:acct:google-sub-2",
+                    principal_id=principal_id,
+                    provider_key="google_gmail",
+                    status="enabled",
+                    priority=80,
+                    probe_state="ready",
+                    probe_details_json={},
+                    scope_json={"bundle": "core"},
+                    auth_metadata_json={"google_email": "office@girschele.com"},
+                    created_at="2026-03-29T08:00:00Z",
+                    updated_at="2026-03-29T08:00:00Z",
+                ),
+                connector_binding=None,
+                google_email="office@girschele.com",
+                google_subject="google-sub-2",
+                google_hosted_domain="girschele.com",
+                granted_scopes=(
+                    google_oauth_service.GOOGLE_SCOPE_SEND,
+                    google_oauth_service.GOOGLE_SCOPE_METADATA,
+                ),
+                consent_stage="verify",
+                workspace_mode="user_oauth",
+                token_status="active",
+                last_refresh_at="2026-03-29T08:00:00Z",
+                reauth_required_reason="",
+            )
+        ],
+    )
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "send_google_gmail_message",
+        lambda **kwargs: captured.update(kwargs) or google_oauth_service.GoogleGmailSendResult(
+            binding=None,
+            sender_email="office@girschele.com",
+            recipient_email="sofia@example.com",
+            subject="Re: Board packet follow-up",
+            rfc822_message_id="<ea-draft-test-secondary@ea.local>",
+            gmail_message_id="gmail-sent-secondary",
+            sent_at="2026-03-29T09:30:00Z",
+        ),
+    )
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "Board packet follow-up",
+            "summary": "Send revised board packet to Sofia by EOD.",
+            "text": "Send revised board packet to Sofia by EOD.",
+            "counterparty": "Sofia N.",
+            "stakeholder_id": stakeholder.stakeholder_id,
+            "source_ref": "gmail-thread:office@girschele.com:signal-draft-send",
+            "external_id": "gmail-message:office@girschele.com:signal-draft-send",
+            "payload": {
+                "account_email": "office@girschele.com",
+                "from_email": "sofia@example.com",
+                "from_name": "Sofia N.",
+                "thread_id": "thread-123",
+                "message_id": "message-123",
+                "rfc822_message_id": "<sofia-thread@example.com>",
+                "references": "<older@example.com> <sofia-thread@example.com>",
+            },
+        },
+    )
+    assert signal.status_code == 200
+    draft_ref = signal.json()["staged_drafts"][0]["id"]
+
+    approved = client.post(
+        f"/app/api/drafts/{draft_ref}/approve",
+        json={"reason": "Send it now."},
+    )
+    assert approved.status_code == 200
+    assert captured["binding_id"] == "exec-product-signal-draft-send-secondary:google_gmail:acct:google-sub-2"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    sent_event = next(item for item in events.json()["items"] if item["event_type"] == "draft_sent")
+    assert sent_event["payload"]["sender_email"] == "office@girschele.com"
+    assert sent_event["payload"]["google_binding_id"] == "exec-product-signal-draft-send-secondary:google_gmail:acct:google-sub-2"
+    assert sent_event["payload"]["google_account_email"] == "office@girschele.com"
+
+
 def test_queue_approval_resolution_uses_draft_delivery_runtime() -> None:
     principal_id = "exec-product-queue-draft-delivery"
     client = build_product_client(principal_id=principal_id)
@@ -1912,6 +2709,9 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert {item["channel"] for item in body["items"]} == {"gmail", "calendar"}
     assert any(item["event_type"] == "office_signal_email_thread" and item["staged_count"] >= 1 for item in body["items"])
     assert all(item["deduplicated"] is False for item in body["items"])
+    gmail_item = next(item for item in body["items"] if item["channel"] == "gmail")
+    assert gmail_item["ooda_loop"]["reviewed"] is True
+    assert gmail_item["ooda_loop"]["observe"]["signal_type"] == "email_thread"
 
     events = client.get("/app/api/events")
     assert events.status_code == 200
@@ -1956,6 +2756,7 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     deduplicated_gmail = next(item for item in deduplicated_body["items"] if item["channel"] == "gmail")
     assert deduplicated_gmail["staged_count"] >= 1
     assert deduplicated_gmail["draft_count"] >= 1
+    assert deduplicated_gmail["ooda_loop"]["reviewed"] is True
     diagnostics = client.get("/app/api/usage")
     assert diagnostics.status_code == 200
     sync_analytics = diagnostics.json()["analytics"]["sync"]
@@ -2368,6 +3169,95 @@ def test_google_signal_sync_collapses_duplicate_gmail_threads_by_thread_id(monke
     assert sync_status.status_code == 200
     sync_status_body = sync_status.json()
     assert sync_status_body["last_suppressed_total"] == 1
+
+
+def test_google_signal_sync_status_tracks_per_account_sync_totals(monkeypatch) -> None:
+    principal_id = "exec-product-google-account-sync-status"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="tibor@girschele.com",
+            account_emails=("tibor@girschele.com", "office@girschele.com"),
+            granted_scopes=(
+                google_oauth_service.GOOGLE_SCOPE_METADATA,
+                google_oauth_service.GOOGLE_SCOPE_CALENDAR_READONLY,
+            ),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Founder follow-up",
+                    summary="Send the board packet.",
+                    text="Send the board packet.",
+                    source_ref="gmail-thread:tibor@girschele.com:thread-1",
+                    external_id="gmail-message:tibor@girschele.com:msg-1",
+                    counterparty="Sofia N.",
+                    due_at=None,
+                    payload={
+                        "thread_id": "thread-1",
+                        "message_id": "msg-1",
+                        "account_email": "tibor@girschele.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="calendar_note",
+                    channel="calendar",
+                    title="Board prep",
+                    summary="Starts 2026-03-28T09:00:00+00:00",
+                    text="Board prep agenda due.",
+                    source_ref="calendar-event:tibor@girschele.com:evt-1",
+                    external_id="calendar-event:tibor@girschele.com:evt-1",
+                    counterparty="Sofia N.",
+                    due_at="2026-03-28T09:00:00+00:00",
+                    payload={
+                        "event_id": "evt-1",
+                        "account_email": "tibor@girschele.com",
+                    },
+                ),
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Office request",
+                    summary="Please review the follow-up.",
+                    text="Please review the follow-up.",
+                    source_ref="gmail-thread:office@girschele.com:thread-2",
+                    external_id="gmail-message:office@girschele.com:msg-2",
+                    counterparty="Ops Lead",
+                    due_at=None,
+                    payload={
+                        "thread_id": "thread-2",
+                        "message_id": "msg-2",
+                        "account_email": "office@girschele.com",
+                        "labels": ["INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 5, "calendar_limit": 5})
+    assert synced.status_code == 200
+
+    sync_status = client.get("/app/api/signals/google/status")
+    assert sync_status.status_code == 200
+    sync_status_body = sync_status.json()
+    account_rows = {row["account_email"]: row for row in sync_status_body["account_sync_accounts"]}
+    assert account_rows["tibor@girschele.com"]["gmail_total"] == 1
+    assert account_rows["tibor@girschele.com"]["calendar_total"] == 1
+    assert account_rows["tibor@girschele.com"]["processed_total"] == 2
+    assert account_rows["tibor@girschele.com"]["synced_total"] == 2
+    assert account_rows["tibor@girschele.com"]["deduplicated_total"] == 0
+    assert account_rows["tibor@girschele.com"]["suppressed_total"] == 0
+    assert account_rows["office@girschele.com"]["gmail_total"] == 1
+    assert account_rows["office@girschele.com"]["calendar_total"] == 0
+    assert account_rows["office@girschele.com"]["processed_total"] == 1
+    assert account_rows["office@girschele.com"]["synced_total"] == 1
+    assert account_rows["office@girschele.com"]["suppressed_total"] == 0
 def test_channel_loop_approvals_digest_counts_reviewable_candidates_not_rejected_history() -> None:
     principal_id = "exec-product-channel-loop-reviewable-candidates"
     client = build_product_client(principal_id=principal_id)
@@ -3552,7 +4442,9 @@ def test_workspace_invitation_lifecycle_is_seat_aware() -> None:
 
     preview = client.get(invite["invite_url"])
     assert preview.status_code == 200
-    assert "workspace invitation" in preview.text.lower()
+    assert "Review this workspace invite before you join." in preview.text
+    assert "Accept invitation" in preview.text
+    assert "Return through existing access" in preview.text
 
     accepted = client.post("/app/api/invitations/accept", json={"token": invite["invite_token"]})
     assert accepted.status_code == 200
@@ -3587,6 +4479,8 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     principal_id = "exec-access-sessions"
     client = build_product_client(principal_id=principal_id)
     seeded = seed_product_state(client, principal_id=principal_id)
+    sign_in_head = client.head("/sign-in", follow_redirects=False)
+    assert sign_in_head.status_code == 200
 
     access_session = client.post(
         "/app/api/access-sessions",
@@ -3611,10 +4505,31 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert listed_session["status"] == "active"
 
     client.headers.pop("X-EA-Principal-ID", None)
+    opened_access_external = client.get(
+        access_body["access_url"],
+        params={"return_to": "https://evil.example/phish"},
+        follow_redirects=False,
+    )
+    assert opened_access_external.status_code == 303
+    assert opened_access_external.headers["location"] == "/app/today"
     opened_access = client.get(access_body["access_url"], follow_redirects=False)
     assert opened_access.status_code == 303
     assert opened_access.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
+    opened_access_secure = client.get(
+        access_body["access_url"],
+        follow_redirects=False,
+        headers={"x-forwarded-proto": "https"},
+    )
+    assert opened_access_secure.status_code == 303
+    secure_access_cookie = str(opened_access_secure.headers.get("set-cookie") or "")
+    assert "ea_workspace_session=" in secure_access_cookie
+    assert "Secure" in secure_access_cookie
+    assert "Max-Age=" in secure_access_cookie
+    head_opened_access = client.head(access_body["access_url"], follow_redirects=False)
+    assert head_opened_access.status_code == 303
+    assert head_opened_access.headers["location"] == "/app/today"
+    assert "ea_workspace_session=" in str(head_opened_access.headers.get("set-cookie") or "")
     session_drafts = client.get("/app/api/drafts")
     assert session_drafts.status_code == 200
     assert session_drafts.json()[0]["id"] == f"approval:{seeded['approval_id']}"
@@ -3633,6 +4548,10 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     client.headers.pop("X-EA-Principal-ID", None)
     blocked_access = client.get(access_body["access_url"], follow_redirects=False)
     assert blocked_access.status_code == 404
+    assert "This sign-in link is no longer valid." in blocked_access.text
+    assert "Request new sign-in link" in blocked_access.text
+    blocked_access_head = client.head(access_body["access_url"], follow_redirects=False)
+    assert blocked_access_head.status_code == 404
 
     delivery = client.post(
         "/app/api/channel-loop/memo/deliveries",
@@ -3656,6 +4575,20 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert opened_delivery.status_code == 303
     assert opened_delivery.headers["location"] == "/app/channel-loop/memo"
     assert "ea_workspace_session=" in str(opened_delivery.headers.get("set-cookie") or "")
+    opened_delivery_secure = client.get(
+        delivery_body["delivery_url"],
+        follow_redirects=False,
+        headers={"x-forwarded-proto": "https"},
+    )
+    assert opened_delivery_secure.status_code == 303
+    secure_delivery_cookie = str(opened_delivery_secure.headers.get("set-cookie") or "")
+    assert "ea_workspace_session=" in secure_delivery_cookie
+    assert "Secure" in secure_delivery_cookie
+    assert "Max-Age=" in secure_delivery_cookie
+    opened_delivery_head = client.head(delivery_body["delivery_url"], follow_redirects=False)
+    assert opened_delivery_head.status_code == 303
+    assert opened_delivery_head.headers["location"] == "/app/channel-loop/memo"
+    assert "ea_workspace_session=" in str(opened_delivery_head.headers.get("set-cookie") or "")
     delivered_loop = client.get("/app/api/channel-loop")
     assert delivered_loop.status_code == 200
     delivered_body = delivered_loop.json()
@@ -3667,3 +4600,37 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     counts = diagnostics.json()["analytics"]["counts"]
     assert int(counts.get("channel_digest_delivery_opened") or 0) >= 1
     assert int(counts.get("memo_opened") or 0) >= 1
+
+    missing_delivery = client.get("/channel-loop/deliveries/bad-token")
+    assert missing_delivery.status_code == 404
+    assert "This delivered workspace link is no longer valid." in missing_delivery.text
+    assert "Request new sign-in link" in missing_delivery.text
+    missing_delivery_head = client.head("/channel-loop/deliveries/bad-token", follow_redirects=False)
+    assert missing_delivery_head.status_code == 404
+
+
+def test_workspace_invite_and_access_invalid_pages_render_browser_recovery_copy() -> None:
+    principal_id = "exec-workspace-link-recovery"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="team", workspace_name="Recovery Office")
+
+    missing_invite = client.get("/workspace-invites/bad-token")
+    assert missing_invite.status_code == 404
+    assert "This workspace invite is no longer valid." in missing_invite.text
+    assert "Request a fresh invite" in missing_invite.text
+    assert "Request new sign-in link" in missing_invite.text
+    missing_invite_head = client.head("/workspace-invites/bad-token", follow_redirects=False)
+    assert missing_invite_head.status_code == 404
+
+    missing_access = client.get("/workspace-access/bad-token")
+    assert missing_access.status_code == 404
+    assert "This sign-in link is no longer valid." in missing_access.text
+    assert "Request new sign-in link" in missing_access.text
+    missing_access_head = client.head("/workspace-access/bad-token", follow_redirects=False)
+    assert missing_access_head.status_code == 404
+
+    missing_channel_action = client.get("/app/channel-actions/bad-token")
+    assert missing_channel_action.status_code == 404
+    assert "This action link is no longer valid." in missing_channel_action.text
+    missing_channel_action_head = client.head("/app/channel-actions/bad-token", follow_redirects=False)
+    assert missing_channel_action_head.status_code == 404

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 
 @dataclass(frozen=True)
@@ -495,29 +496,59 @@ _SERVICE_DEFINITIONS: tuple[BrowserActUiServiceDefinition, ...] = (
 )
 
 
+def _normalize_browseract_ui_lookup(value: object) -> str:
+    lowered = str(value or "").strip().lower()
+    return re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
+
+
 def browseract_ui_service_definitions() -> tuple[BrowserActUiServiceDefinition, ...]:
     return _SERVICE_DEFINITIONS
 
 
 def browseract_ui_service_by_capability(capability_key: str) -> BrowserActUiServiceDefinition | None:
-    normalized = str(capability_key or "").strip().lower()
+    normalized = _normalize_browseract_ui_lookup(capability_key)
     for service in _SERVICE_DEFINITIONS:
-        if normalized == service.capability_key:
+        if normalized == _normalize_browseract_ui_lookup(service.capability_key):
             return service
     return None
 
 
 def browseract_ui_service_by_service_key(service_key: str) -> BrowserActUiServiceDefinition | None:
-    normalized = str(service_key or "").strip().lower()
+    normalized = _normalize_browseract_ui_lookup(service_key)
     for service in _SERVICE_DEFINITIONS:
-        if normalized == service.service_key:
+        if normalized == _normalize_browseract_ui_lookup(service.service_key):
             return service
     return None
 
 
 def browseract_ui_service_by_tool(tool_name: str) -> BrowserActUiServiceDefinition | None:
-    normalized = str(tool_name or "").strip().lower()
+    normalized = _normalize_browseract_ui_lookup(tool_name)
     for service in _SERVICE_DEFINITIONS:
-        if normalized == service.tool_name:
+        if normalized == _normalize_browseract_ui_lookup(service.tool_name):
+            return service
+    return None
+
+
+def browseract_ui_service_by_alias(value: str) -> BrowserActUiServiceDefinition | None:
+    normalized = _normalize_browseract_ui_lookup(value)
+    if not normalized:
+        return None
+    for service in _SERVICE_DEFINITIONS:
+        browseract_names = tuple(
+            candidate
+            for candidate in service.browseract_service_names
+            if _normalize_browseract_ui_lookup(candidate) != "browseract"
+        )
+        candidate_values = (
+            service.service_key,
+            service.capability_key,
+            service.tool_name,
+            service.skill_key,
+            service.task_key,
+            service.name,
+            *browseract_names,
+            *service.aliases,
+        )
+        if any(normalized == _normalize_browseract_ui_lookup(candidate) for candidate in candidate_values):
             return service
     return None

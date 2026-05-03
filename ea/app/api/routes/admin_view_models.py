@@ -355,7 +355,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 )
                 if part
             )
-            or "Provider binding is visible in the control plane.",
+            or "Provider binding is visible in the operator center.",
             _humanize(str(provider.get("state") or provider.get("health_state") or "unknown")).title(),
         )
         for provider in providers[:8]
@@ -613,14 +613,17 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             action_href="/app/api/diagnostics/export",
             action_label="Open bundle",
             action_method="get",
+            secondary_action_href="/app/api/diagnostics/export?download=1",
+            secondary_action_label="Download JSON",
+            secondary_action_method="get",
         ),
     ]
     analytics_rows = [
         _row("Draft approvals granted", str(analytics_counts.get("draft_approved") or 0), "Analytics"),
         _row("Drafts sent", str(analytics_counts.get("draft_sent") or 0), "Analytics"),
-        _row("Delivery follow-ups created", str(analytics_counts.get("draft_send_followup_created") or 0), "Analytics"),
-        _row("Delivery follow-ups closed", str(diagnostics_analytics.get("delivery_followup_closeout_count") or 0), "Analytics"),
-        _row("Blocked delivery follow-ups", str(diagnostics_analytics.get("delivery_followup_blocked_count") or 0), "Analytics"),
+        _row("Delivery handoffs created", str(analytics_counts.get("draft_send_followup_created") or 0), "Analytics"),
+        _row("Delivery handoffs closed", str(diagnostics_analytics.get("delivery_followup_closeout_count") or 0), "Analytics"),
+        _row("Blocked delivery handoffs", str(diagnostics_analytics.get("delivery_followup_blocked_count") or 0), "Analytics"),
         _row("Needs reauth", str(analytics_counts.get("draft_send_reauth_needed") or 0), "Analytics"),
         _row("Waiting on principal", str(analytics_counts.get("draft_send_waiting_on_principal") or 0), "Analytics"),
         _row("Memos opened", str(analytics_counts.get("memo_opened") or 0), "Analytics"),
@@ -912,7 +915,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 },
                 {
                     "eyebrow": "Next actions",
-                    "title": "What the operator should do next",
+                    "title": "What to clear next",
                     "items": office_action_rows or [_row("No next actions", "The current office loop does not need an operator intervention.", "Clear")],
                 },
                 {
@@ -996,7 +999,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         },
         "audit-trail": {
             "title": "Audit Trail",
-            "summary": "Approvals, outbound work, and deployment readiness visible in one control surface.",
+            "summary": "Approvals, outbound work, and deployment readiness visible in one operator surface.",
             "cards": [
                 {"eyebrow": "Approval receipts", "title": "Recent approval decisions", "items": approval_history_rows or [_row("No recent approval decisions", "No approval receipts have been recorded yet.", "Empty")]},
                 {"eyebrow": "Outbound work", "title": "Pending delivery", "items": delivery_rows or [_row("No pending delivery", "The outbound queue is currently clear.", "Clear")]},
@@ -1004,7 +1007,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             ],
         },
         "operators": {
-            "title": "Team / Operators",
+            "title": "Operators",
             "summary": "Active operators, their queue pressure, and the items still waiting on humans.",
             "cards": [
                 {"eyebrow": "Operator roster", "title": "Active operators", "items": operator_rows or [_row("No active operators", "No active operator profiles are configured for this principal.", "Empty")]},
@@ -1026,7 +1029,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             ],
         },
         "community": {
-            "title": "Access / Rollout",
+            "title": "Access",
             "summary": "Keep workspace access, rollout readiness, and support posture visible in one operator-safe view.",
             "cards": [
                 {
@@ -1054,8 +1057,8 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             ],
         },
         "api": {
-            "title": "Workspace review",
-            "summary": "Plan, readiness, support, and product signals for the current workspace.",
+            "title": "Runtime",
+            "summary": "Plan, readiness, support, and product signals for the current workspace runtime.",
             "cards": [
                 {"eyebrow": "Workspace", "title": "Workspace posture", "items": workspace_rows},
                 {"eyebrow": "Plan and access", "title": "Commercial boundary", "items": entitlement_rows + billing_rows},

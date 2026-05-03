@@ -336,7 +336,7 @@
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Review', 'These are the items that should move next instead of being rediscovered later.') }}
+      {{ rows(c0['items'], 'Review', 'These are the items moving next instead of being rediscovered later.') }}
     {% endif %}
   </section>
   <aside class="console-focus">
@@ -353,7 +353,7 @@
       <form class="console-form" method="post" action="/app/actions/commitments/extract">
         <label class="console-field">
           <span>Note or thread snippet</span>
-          <textarea id="extract_source_text" name="source_text" placeholder="Paste the note, thread, or meeting takeaway that should become a commitment." required></textarea>
+          <textarea id="extract_source_text" name="source_text" placeholder="Paste the note, thread, or meeting takeaway to turn into a commitment." required></textarea>
         </label>
         <div class="console-field-grid">
           <label class="console-field">
@@ -391,7 +391,7 @@
         </label>
         <label class="console-field">
           <span>Context</span>
-          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move should be."></textarea>
+          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move is."></textarea>
         </label>
         <div class="console-field-grid">
           <label class="console-field">
@@ -430,14 +430,14 @@
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Due', 'Every row should feel tied to a real promise, deadline, or unanswered thread.') }}
+      {{ rows(c0['items'], 'Due', 'Every row is tied to a real promise, deadline, or unanswered thread.') }}
     {% endif %}
   </section>
   <aside class="console-focus">
     <div>
       <div class="console-kicker">What keeps it honest</div>
       <h2>{{ c1.title if c1 else 'Commitments stay attached to the work' }}</h2>
-      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Commitment work should stay connected to the right people, threads, and urgency.' }}</p>
+      <p class="console-copy">{{ c1.body if c1 and c1.body else 'Commitment work stays connected to the right people, threads, and urgency.' }}</p>
     </div>
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Context', 'This is why these items are still in the queue.') }}
@@ -451,7 +451,7 @@
         </label>
         <label class="console-field">
           <span>Context</span>
-          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move should be."></textarea>
+          <textarea id="create_followup_details" name="details" placeholder="Why this commitment matters and what the next move is."></textarea>
         </label>
         <div class="console-field-grid">
           <label class="console-field">
@@ -490,13 +490,13 @@
     <h2>{{ c0.title if c0 else console_title }}</h2>
     <p class="console-copy">{{ c0.body if c0 and c0.body else console_summary }}</p>
     {% if c0 and c0['items'] %}
-      {{ rows(c0['items'], 'Theme', 'Recurring themes should be visible without exposing internal storage language.') }}
+      {{ rows(c0['items'], 'Theme', 'Recurring themes stay visible without exposing internal storage language.') }}
     {% endif %}
   </section>
   <section class="console-panel">
     <div class="console-kicker">Relationship detail</div>
     <h2>{{ c1.title if c1 else 'Open loops around those people' }}</h2>
-    <p class="console-copy">{{ c1.body if c1 and c1.body else 'A useful people graph should lead into open loops, current drafts, and the next decision waiting on that relationship.' }}</p>
+    <p class="console-copy">{{ c1.body if c1 and c1.body else 'A useful people graph leads into open loops, current drafts, and the next decision waiting on that relationship.' }}</p>
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Loop', 'These are the commitments, decisions, and drafts shaping the relationship.') }}
     {% endif %}
@@ -515,7 +515,7 @@
   <section class="console-panel">
     <div class="console-kicker">Evidence trail</div>
     <h2>{{ c1.title if c1 else 'Topics around those people' }}</h2>
-    <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics should stay connected so commitment work makes sense on sight.' }}</p>
+    <p class="console-copy">{{ c1.body if c1 and c1.body else 'People and topics stay connected so commitment work makes sense on sight.' }}</p>
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Topic', 'This is the context that keeps the evidence attached to real office work.') }}
     {% endif %}
@@ -584,7 +584,7 @@
     </div>
     {% endif %}
     {% if c1 and c1['items'] %}
-      {{ rows(c1['items'], 'Review', 'Secondary work should still be easy to clear.') }}
+      {{ rows(c1['items'], 'Review', 'Secondary work stays easy to clear.') }}
     {% endif %}
   </aside>
 </section>

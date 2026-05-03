@@ -12,6 +12,11 @@ from app.domain.models import (
     now_utc_iso,
     parse_task_contract_runtime_policy,
 )
+from app.services.ltd_runtime_skill_projection import (
+    list_projected_task_contracts,
+    project_task_contract,
+    projected_task_key_for_request,
+)
 from app.repositories.task_contracts import InMemoryTaskContractRepository, TaskContractRepository
 from app.repositories.task_contracts_postgres import PostgresTaskContractRepository
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
@@ -354,7 +359,10 @@ class TaskContractService:
         found = self._repo.get(task_key)
         if found is not None:
             return found
-        return self._builtin_contract(task_key)
+        builtin = self._builtin_contract(task_key)
+        if builtin is not None:
+            return builtin
+        return project_task_contract(task_key)
 
     def contract_to_policy_record(self, contract: TaskContract) -> TaskContractPolicyRecord:
         runtime_policy = contract.runtime_policy()
@@ -391,6 +399,12 @@ class TaskContractService:
 
     def contract_or_default(self, task_key: str) -> TaskContract:
         return self.get_contract_or_raise(task_key)
+
+    def infer_task_key(self, *, goal: str = "", input_json: dict[str, Any] | None = None) -> str:
+        return projected_task_key_for_request(goal=goal, input_json=input_json)
+
+    def list_projected_contracts(self, *, provider_hint: str = "", limit: int = 100) -> list[TaskContract]:
+        return list(list_projected_task_contracts(provider_hint=provider_hint, limit=limit))
 
     def compile_rewrite_intent(
         self,

@@ -73,7 +73,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         _assert_no_drift(response.text)
 
     landing = client.get("/")
-    assert "Wake up to a clear brief, not a wall of inbox noise." in landing.text
+    assert "Wake up to a clear morning memo, not a wall of inbox noise." in landing.text
     assert "Create personal workspace" in landing.text
     assert "Nothing sends without your review." in landing.text
     for href in _internal_links(landing.text):

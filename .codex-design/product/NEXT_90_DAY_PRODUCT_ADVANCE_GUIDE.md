@@ -283,6 +283,12 @@ Exit: a GM can assemble tonight's governed pack, the world can talk back on a we
 Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
 Exit: a runner can carry governed trust posture between communities, the world can emit recurring return prompts from approved truth, creator publication behaves like a live operating system instead of a shelf, and LTD-powered followthrough loops stay bounded by Chummer-owned receipts instead of becoming shadow authority.
 
+## Wave 28 - make every visible number defend itself
+
+### 145. Explain every visible value with grounded follow-up and bounded presenter mode
+Owners: `chummer6-core`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: every promoted visible mechanical value, legality result, or warning can open a packet-backed explain drawer with source anchors, bounded why/why-not/what-if follow-up, and optional narration or presenter layers that stay subordinate to first-party text truth.
+
 ## Non-goals for this quarter
 
 This wave is not the time to:

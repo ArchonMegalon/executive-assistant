@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import re
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
@@ -19,6 +23,14 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+def _support_bundle_download_filename(bundle: dict[str, object]) -> str:
+    workspace = dict(bundle.get("workspace") or {})
+    raw_name = str(workspace.get("name") or "executive-assistant").strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw_name).strip("-") or "executive-assistant"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"{slug}-support-bundle-{stamp}.json"
 
 
 @router.post("/settings/morning-memo", response_model=WorkspaceDiagnosticsOut)
@@ -182,17 +194,28 @@ def get_workspace_trust(
 
 @router.get("/diagnostics/export", response_model=WorkspaceSupportBundleOut)
 def export_workspace_support_bundle(
+    download: bool = Query(False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
-) -> WorkspaceSupportBundleOut:
+) -> WorkspaceSupportBundleOut | JSONResponse:
     service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     service.record_surface_event(
         principal_id=context.principal_id,
-        event_type="support_bundle_opened",
+        event_type="support_bundle_downloaded" if download else "support_bundle_opened",
         surface="diagnostics_export",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        actor=actor,
     )
-    return WorkspaceSupportBundleOut(**service.workspace_support_bundle(principal_id=context.principal_id))
+    bundle = service.workspace_support_bundle(principal_id=context.principal_id)
+    if download:
+        return JSONResponse(
+            content=bundle,
+            headers={
+                "Content-Disposition": f'attachment; filename="{_support_bundle_download_filename(bundle)}"',
+                "Cache-Control": "no-store",
+            },
+        )
+    return WorkspaceSupportBundleOut(**bundle)
 
 
 @router.get("/support", response_model=WorkspaceSupportBundleOut)

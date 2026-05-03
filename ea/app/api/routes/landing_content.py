@@ -23,15 +23,15 @@ APP_NAV_GROUPS = (
 
 ADMIN_NAV_GROUPS = (
     {
-        "label": "Operator control plane",
+        "label": "Operator center",
         "items": (
             {"href": "/admin/office", "label": "Office", "key": "office"},
             {"href": "/admin/policies", "label": "Policies", "key": "policies"},
             {"href": "/admin/providers", "label": "Providers", "key": "providers"},
             {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},
-            {"href": "/admin/operators", "label": "Team / Operators", "key": "operators"},
-            {"href": "/admin/community", "label": "Access / Rollout", "key": "community"},
-            {"href": "/admin/api", "label": "Workspace review", "key": "api"},
+            {"href": "/admin/operators", "label": "Operators", "key": "operators"},
+            {"href": "/admin/community", "label": "Access", "key": "community"},
+            {"href": "/admin/api", "label": "Runtime", "key": "api"},
         ),
     },
 )
@@ -39,7 +39,7 @@ ADMIN_NAV_GROUPS = (
 FEATURE_CARDS = (
     {
         "title": "See what changed",
-        "body": "Start with one morning brief that explains what moved overnight and where today already feels tight.",
+        "body": "Start with one morning memo that explains what moved overnight and where today already feels tight.",
     },
     {
         "title": "Decide what matters next",
@@ -53,14 +53,14 @@ FEATURE_CARDS = (
 
 HOW_STEPS = (
     {"title": "Connect Google", "body": "Start with the narrowest useful Google bundle so EA can read calendar pressure and recent email signals."},
-    {"title": "Get your first brief", "body": "See one morning brief, one real queue, and one visible commitment list before adding anything broader."},
+    {"title": "Get your first morning memo", "body": "See one morning memo, one real queue, and one visible commitment list before adding anything broader."},
     {"title": "Review queue work", "body": "Clear one draft, one decision, or one captured commitment before you add operators, messaging channels, or wider office rules."},
 )
 
 PERSONAS = (
     {"title": "Personal workspace first", "body": "Start alone, prove value quickly, and add shared review only when the office actually needs it."},
     {"title": "Executive support later", "body": "Operator review and team workflows stay available, but they do not need to lead the first visit."},
-    {"title": "Calm first day", "body": "The first screens show a brief, a queue, commitments that matter, and what needs approval next."},
+    {"title": "Calm first day", "body": "The first screens show a morning memo, a queue, commitments that matter, and what needs approval next."},
 )
 
 TRUST_CARDS = (
@@ -85,7 +85,7 @@ LANDING_FAQS = (
 )
 
 PRODUCT_MODULES = (
-    {"title": "Morning brief", "body": "Show the day as a clear brief instead of a wall of messages and half-remembered obligations."},
+    {"title": "Morning memo", "body": "Show the day as a clear morning memo instead of a wall of messages and half-remembered obligations."},
     {"title": "Queue", "body": "Keep decisions, drafts, and commitments inside one review lane instead of spreading them across separate product nouns."},
     {"title": "Commitments", "body": "Keep open promises, due work, and handoffs visible until they are closed, deferred, or deliberately dropped."},
     {"title": "People", "body": "Keep relationship memory, recent context, and open loops visible where the office actually needs them."},
@@ -94,7 +94,7 @@ PRODUCT_MODULES = (
 )
 
 SIGN_IN_NOTES = (
-    "Return through a current session, a secure email link, a workspace invite, or your managed access layer.",
+    "Return through a current session, a secure email link, a workspace invite, or SSO.",
     "Create a personal workspace from /register if you are starting fresh.",
     "Google connection is workspace data setup, not the primary app identity method.",
     "Operator invites, shared review, and broader workspace controls come later from Rules and the operator center.",

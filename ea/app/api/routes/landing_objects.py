@@ -128,7 +128,7 @@ def commitment_detail(
             {"label": "Risk", "value": str(commitment.risk_level or "normal").title()},
         ],
         object_sidebar_title="Commitment posture",
-        object_sidebar_copy="A commitment should stay visible until it is closed, deferred, dropped, or reopened with a reason.",
+        object_sidebar_copy="A commitment stays visible until it is closed, deferred, dropped, or reopened with a reason.",
         object_sidebar_rows=[
             _object_detail_row("Source", str(commitment.source_type or "manual").replace("_", " ").title(), "Source"),
             _object_detail_row("Source ref", commitment.source_ref or "No source ref attached.", "Reference"),
@@ -243,7 +243,7 @@ def decision_detail(
             {"label": "SLA", "value": str(decision.sla_status or "unscheduled").replace("_", " ").title()},
         ],
         object_sidebar_title="Decision pressure",
-        object_sidebar_copy="A decision should stay tied to ownership, time pressure, and evidence instead of living as a generic card in a queue.",
+        object_sidebar_copy="A decision stays tied to ownership, time pressure, and evidence instead of living as a generic card in a queue.",
         object_sidebar_rows=[
             _object_detail_row("Recommendation", decision.recommendation or "No recommendation projected yet.", "Recommend"),
             _object_detail_row("Next action", decision.next_action or "No next action projected yet.", "Next"),
@@ -374,7 +374,7 @@ def deadline_detail(
             {"label": "Status", "value": str(deadline.status or "open").replace("_", " ").title()},
         ],
         object_sidebar_title="Deadline pressure",
-        object_sidebar_copy="Deadline windows should stay explorable and resolvable instead of hiding as generic queue pressure.",
+        object_sidebar_copy="Deadline windows stay explorable and resolvable instead of hiding as generic queue pressure.",
         object_sidebar_rows=[
             _object_detail_row("Current note", deadline.summary or "No deadline note recorded.", "Note"),
             _object_detail_row("Priority", str(deadline.priority or "normal").title(), "Priority"),
@@ -473,6 +473,10 @@ def handoff_detail(
         and str(handoff.status or "").strip() in {"pending", "claimed"}
         and str(handoff.resolution or "").strip() != "sent"
     )
+    property_tour_followup_open = (
+        str(handoff.task_type or "").strip() == "property_tour_followup"
+        and str(handoff.status or "").strip() in {"open", "pending", "claimed"}
+    )
     if send_error:
         retry_detail = send_error
     elif send_status == "sent" or str(handoff.resolution or "").strip() == "sent":
@@ -521,7 +525,7 @@ def handoff_detail(
             {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
         ],
         object_sidebar_title="Operator workflow",
-        object_sidebar_copy="A handoff should show who owns it, whether it is waiting on the principal, and what evidence supports the transfer.",
+        object_sidebar_copy="A handoff shows who owns it, whether it is waiting on the principal, and what evidence supports the transfer.",
         object_sidebar_rows=[
             _object_detail_row("Queue item", handoff.queue_item_ref or "No queue item ref attached.", "Queue"),
             _object_detail_row("Draft ref", handoff.draft_ref or "No draft is attached to this handoff.", "Draft"),
@@ -570,6 +574,18 @@ def handoff_detail(
                 tertiary_action_value="waiting_on_principal" if delivery_followup_open else "",
                 tertiary_action_method="post" if delivery_followup_open else "",
                 tertiary_return_to=f"/app/handoffs/{handoff_ref}" if delivery_followup_open else "",
+            ),
+            _object_detail_row(
+                "Property tour followup",
+                "Re-run tour generation and retry delivery after you fix the blocker."
+                if property_tour_followup_open
+                else "Tour actions are available only for property-tour followups.",
+                "Tour",
+                href=handoff.tour_url or handoff.vendor_tour_url or "",
+                action_href=f"/app/actions/handoffs/{handoff_ref}/recreate" if property_tour_followup_open else "",
+                action_label="Recreate tour" if property_tour_followup_open else "",
+                action_method="post" if property_tour_followup_open else "",
+                return_to=f"/app/handoffs/{handoff_ref}" if property_tour_followup_open else "",
             ),
             _object_detail_row("Evidence attached", f"{len(handoff.evidence_refs or [])} evidence refs attached to this handoff.", "Evidence"),
             _object_detail_row("Assignment state", str(handoff.status or "pending").replace("_", " "), "Status"),
@@ -639,6 +655,11 @@ def thread_detail(
         not delivery_followup_open
         and str(thread.status or "").strip() in {"waiting_on_principal", "reauth_needed", "delivery_failed"}
     )
+    property_tour_followup_open = (
+        linked_handoff is not None
+        and str(linked_handoff.task_type or "").strip() == "property_tour_followup"
+        and str(linked_handoff.status or "").strip() in {"open", "pending", "claimed"}
+    )
     delivery_reason = (
         str(linked_handoff.delivery_reason or "").strip()
         if linked_handoff is not None
@@ -655,11 +676,11 @@ def thread_detail(
     elif send_status == "sent" or str(thread.status or "").strip() == "sent" or str(getattr(linked_handoff, "resolution", "") or "").strip() == "sent":
         retry_detail = "Retry send completed."
     elif send_status == "resumed":
-        retry_detail = "Delivery follow-up was reopened for this thread."
+        retry_detail = "Delivery handoff was reopened for this thread."
     elif delivery_followup_open:
         retry_detail = "Try the stored approved draft again after reconnecting Google."
     elif resume_followup_available:
-        retry_detail = "Resume the blocked delivery follow-up so the operator can retry or close it from the thread context."
+        retry_detail = "Resume the blocked delivery handoff so the operator can retry or close it from the thread context."
     else:
         retry_detail = "Retry send is no longer needed for this thread."
     manual_resolution_secondary_value = "reauth_needed" if delivery_reason.startswith("google_") else "failed"
@@ -696,16 +717,32 @@ def thread_detail(
             {"label": "People", "value": str(len(thread.counterparties or []))},
         ],
         object_sidebar_title="Thread context",
-        object_sidebar_copy="A conversation should stay connected to the work it creates: drafts, commitments, decisions, and evidence.",
+        object_sidebar_copy="A conversation stays connected to the work it creates: drafts, commitments, decisions, and evidence.",
         object_sidebar_rows=[
             _object_detail_row("Counterparties", " · ".join(thread.counterparties or []) or "No counterparties projected.", "People"),
             _object_detail_row("Drafts", ", ".join(thread.draft_ids or []) or "No active draft ids.", "Drafts"),
             _object_detail_row("Commitments", ", ".join(thread.related_commitment_ids or []) or "No linked commitments yet.", "Ledger"),
             _object_detail_row(
-                "Delivery follow-up",
-                linked_handoff.summary if linked_handoff is not None else "No linked delivery follow-up is attached to this thread.",
+                "Delivery handoff",
+                linked_handoff.summary if linked_handoff is not None else "No linked delivery handoff is attached to this thread.",
                 "Handoff",
                 href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
+            ),
+            _object_detail_row(
+                "Property tour followup",
+                "Recreate the property-tour handoff once the connector/binding issue is fixed."
+                if property_tour_followup_open
+                else "No property-tour followup action is available for this thread.",
+                "Tour",
+                href=(linked_handoff.tour_url or linked_handoff.vendor_tour_url) if linked_handoff is not None else "",
+                action_href=(
+                    f"/app/actions/handoffs/{linked_handoff_ref}/recreate"
+                    if linked_handoff_ref and property_tour_followup_open
+                    else ""
+                ),
+                action_label="Recreate tour" if property_tour_followup_open else "",
+                action_method="post" if property_tour_followup_open else "",
+                return_to=f"/app/threads/{thread_ref}" if property_tour_followup_open else "",
             ),
             _object_detail_row(
                 "Retry send in EA",
@@ -719,7 +756,7 @@ def thread_detail(
                     if resume_followup_available
                     else ""
                 ),
-                action_label="Retry send" if delivery_followup_open else "Resume follow-up" if resume_followup_available else "",
+                action_label="Retry send" if delivery_followup_open else "Resume handoff" if resume_followup_available else "",
                 action_method="post" if delivery_followup_open or resume_followup_available else "",
                 return_to=f"/app/threads/{thread_ref}" if delivery_followup_open or resume_followup_available else "",
                 secondary_action_href=f"/app/handoffs/{linked_handoff_ref}" if linked_handoff_ref else "",
@@ -842,7 +879,7 @@ def evidence_detail(
             {"label": "Status", "value": "Available"},
         ],
         object_sidebar_title="Provenance",
-        object_sidebar_copy="Evidence should explain why the product surfaced something and what objects currently depend on that fact.",
+        object_sidebar_copy="Evidence explains why the product surfaced something and what objects currently depend on that fact.",
         object_sidebar_rows=[
             _object_detail_row("Reference", href_value or "No external URL attached to this evidence row.", "Link"),
             _object_detail_row("Related objects", ", ".join(evidence.related_object_refs or []) or "No linked objects yet.", "Objects"),
@@ -905,7 +942,7 @@ def rule_detail(
             {"label": "Approval", "value": "Required" if rule.requires_approval else "Direct save"},
         ],
         object_sidebar_title="Rule effect",
-        object_sidebar_copy="Rules should be legible in product language: what they change, who they affect, and whether the change needs approval.",
+        object_sidebar_copy="Rules stay legible in product language: what they change, who they affect, and whether the change needs approval.",
         object_sidebar_rows=[
             _object_detail_row("Impact", rule.impact or "No impact summary projected yet.", "Impact"),
             _object_detail_row("Simulation", simulated_effect or "Run a simulation in Settings before changing this rule.", "Simulate"),

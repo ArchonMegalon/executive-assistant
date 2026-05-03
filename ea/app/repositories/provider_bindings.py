@@ -24,6 +24,7 @@ class ProviderBindingRepository(Protocol):
     def upsert(
         self,
         *,
+        binding_id: str | None = None,
         principal_id: str,
         provider_key: str,
         status: str,
@@ -44,6 +45,9 @@ class ProviderBindingRepository(Protocol):
         probe_state: str,
         probe_details_json: dict[str, object] | None = None,
     ) -> ProviderBindingRecord | None:
+        ...
+
+    def delete(self, binding_id: str) -> ProviderBindingRecord | None:
         ...
 
 
@@ -96,6 +100,7 @@ class InMemoryProviderBindingRepository:
     def upsert(
         self,
         *,
+        binding_id: str | None = None,
         principal_id: str,
         provider_key: str,
         status: str,
@@ -112,13 +117,14 @@ class InMemoryProviderBindingRepository:
         if not normalized_provider:
             raise ValueError("provider_key_required")
 
-        existing = self.get_for_provider(normalized_principal, normalized_provider)
-        binding_id = existing.binding_id if existing is not None else f"{normalized_principal}:{normalized_provider}"
+        normalized_binding_id = str(binding_id or "").strip()
+        existing = self.get(normalized_binding_id) if normalized_binding_id else self.get_for_provider(normalized_principal, normalized_provider)
+        resolved_binding_id = normalized_binding_id or (existing.binding_id if existing is not None else f"{normalized_principal}:{normalized_provider}")
         timestamp = now_utc_iso()
         normalized_status = str(status or "enabled").strip().lower() or "enabled"
         normalized_probe_state = str(probe_state or "unknown").strip() or "unknown"
         payload = ProviderBindingRecord(
-            binding_id=binding_id,
+            binding_id=resolved_binding_id,
             principal_id=normalized_principal,
             provider_key=normalized_provider,
             status=normalized_status,
@@ -130,8 +136,8 @@ class InMemoryProviderBindingRepository:
             created_at=existing.created_at if existing is not None else timestamp,
             updated_at=timestamp,
         )
-        self._rows[binding_id] = payload
-        self._touch_order(binding_id)
+        self._rows[resolved_binding_id] = payload
+        self._touch_order(resolved_binding_id)
         return payload
 
     def set_status(self, binding_id: str, status: str) -> ProviderBindingRecord | None:
@@ -167,6 +173,14 @@ class InMemoryProviderBindingRepository:
         self._rows[normalized_id] = updated
         self._touch_order(normalized_id)
         return updated
+
+    def delete(self, binding_id: str) -> ProviderBindingRecord | None:
+        normalized_id = str(binding_id or "").strip()
+        current = self._rows.pop(normalized_id, None)
+        if current is None:
+            return None
+        self._order = [key for key in self._order if key != normalized_id]
+        return current
 
 
 def build_provider_binding_repo(settings: Settings):

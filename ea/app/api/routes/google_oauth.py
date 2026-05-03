@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id, require_request_auth
 from app.container import AppContainer
+from app.product.service import build_product_service
 from app.services.google_oauth import (
     GOOGLE_PROVIDER_KEY,
     GoogleGmailSmokeResult,
@@ -13,6 +14,7 @@ from app.services.google_oauth import (
     complete_google_oauth_callback,
     disconnect_google_account,
     list_google_accounts,
+    promote_google_account,
     run_google_gmail_smoke_test,
     upgrade_google_oauth_scope,
 )
@@ -38,6 +40,7 @@ class GoogleOAuthAccountOut(BaseModel):
     binding_id: str
     provider_key: str
     principal_id: str
+    is_primary: bool
     google_email: str
     google_subject: str
     google_hosted_domain: str
@@ -67,11 +70,13 @@ class GoogleGmailSmokeTestOut(BaseModel):
 
 class GoogleOAuthDisconnectIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    binding_id: str | None = Field(default=None, min_length=1, max_length=320)
 
 
 class GoogleGmailSmokeTestIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     recipient_email: str | None = Field(default=None, max_length=320)
+    binding_id: str | None = Field(default=None, min_length=1, max_length=320)
 
 
 def _account_out(account: GoogleOAuthAccount) -> GoogleOAuthAccountOut:
@@ -79,6 +84,7 @@ def _account_out(account: GoogleOAuthAccount) -> GoogleOAuthAccountOut:
         binding_id=account.binding.binding_id,
         provider_key=account.binding.provider_key,
         principal_id=account.binding.principal_id,
+        is_primary=account.binding.binding_id == f"{account.binding.principal_id}:{GOOGLE_PROVIDER_KEY}",
         google_email=account.google_email,
         google_subject=account.google_subject,
         google_hosted_domain=account.google_hosted_domain,
@@ -122,6 +128,17 @@ def google_oauth_callback(
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    build_product_service(container).record_surface_event(
+        principal_id=account.binding.principal_id,
+        event_type="google_account_connected",
+        surface="google_oauth_callback",
+        actor=str(account.google_email or account.binding.principal_id or "google_oauth").strip(),
+        metadata={
+            "binding_id": str(account.binding.binding_id or "").strip(),
+            "google_email": str(account.google_email or "").strip(),
+            "google_subject": str(account.google_subject or "").strip(),
+        },
+    )
     return _account_out(account)
 
 
@@ -153,12 +170,27 @@ def google_oauth_disconnect(
 ) -> GoogleOAuthAccountOut:
     principal_id = resolve_principal_id(body.principal_id, context)
     try:
-        binding = disconnect_google_account(container=container, principal_id=principal_id)
+        binding = disconnect_google_account(
+            container=container,
+            principal_id=principal_id,
+            binding_id=str(body.binding_id or "").strip(),
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     accounts = list_google_accounts(container=container, principal_id=principal_id)
     for account in accounts:
         if account.binding.binding_id == binding.binding_id:
+            build_product_service(container).record_surface_event(
+                principal_id=principal_id,
+                event_type="google_account_disconnected",
+                surface="providers_google_api",
+                actor=str(context.operator_id or context.access_email or context.principal_id or "google_api").strip(),
+                metadata={
+                    "binding_id": str(account.binding.binding_id or "").strip(),
+                    "google_email": str(account.google_email or "").strip(),
+                    "google_subject": str(account.google_subject or "").strip(),
+                },
+            )
             return _account_out(account)
     raise HTTPException(status_code=404, detail="google_oauth_binding_not_found")
 
@@ -173,6 +205,36 @@ def google_oauth_accounts(
     return [_account_out(account) for account in list_google_accounts(container=container, principal_id=resolved_principal)]
 
 
+@router.post("/accounts/{binding_id}/make-primary", dependencies=[Depends(require_request_auth)])
+def google_oauth_make_primary(
+    binding_id: str,
+    principal_id: str | None = Query(default=None, min_length=1),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleOAuthAccountOut:
+    resolved_principal = resolve_principal_id(principal_id, context)
+    try:
+        account = promote_google_account(
+            container=container,
+            principal_id=resolved_principal,
+            binding_id=binding_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    build_product_service(container).record_surface_event(
+        principal_id=resolved_principal,
+        event_type="google_account_primary_updated",
+        surface="providers_google_api",
+        actor=str(context.operator_id or context.access_email or context.principal_id or "google_api").strip(),
+        metadata={
+            "binding_id": str(account.binding.binding_id or "").strip(),
+            "google_email": str(account.google_email or "").strip(),
+            "google_subject": str(account.google_subject or "").strip(),
+        },
+    )
+    return _account_out(account)
+
+
 @router.post("/gmail/smoke-test", dependencies=[Depends(require_request_auth)])
 def google_gmail_smoke_test(
     body: GoogleGmailSmokeTestIn,
@@ -185,6 +247,7 @@ def google_gmail_smoke_test(
             container=container,
             principal_id=principal_id,
             recipient_email=body.recipient_email,
+            binding_id=str(body.binding_id or "").strip(),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

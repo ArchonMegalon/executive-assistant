@@ -192,6 +192,65 @@ async function main() {
 
   const log = (message) => result.logs.push(String(message || ''));
 
+  function workspaceLabelCandidates(packet) {
+    const labels = [];
+    const push = (value) => {
+      const text = String(value || '').trim();
+      if (text && !labels.includes(text)) labels.push(text);
+    };
+    const configured = packet.workspace_label_candidates;
+    if (Array.isArray(configured)) {
+      for (const entry of configured) push(entry);
+    }
+    push(packet.workspace_label);
+    push(packet.workspace_name);
+    const workspaceDomain = String(packet.workspace_domain || '').trim();
+    const workspaceSlug = workspaceDomain.split('.')[0] || '';
+    if (workspaceSlug) {
+      const normalized = workspaceSlug.replace(/-\d{6,}$/i, '');
+      const derived = normalized
+        .split('-')
+        .filter(Boolean)
+        .map((part) => {
+          const cleaned = String(part || '').trim();
+          if (!cleaned) return '';
+          if (cleaned.length <= 2) return cleaned.toUpperCase();
+          return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+        })
+        .filter(Boolean)
+        .join(' ');
+      push(derived);
+    }
+    return labels;
+  }
+
+  async function enterWorkspace() {
+    await page.goto('https://tours.crezlo.com/admin/workspaces', { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
+    await page.waitForTimeout(4000);
+    const desiredDomain = String(packet.workspace_domain || '').trim().toLowerCase();
+    if (desiredDomain && String(page.url() || '').toLowerCase().includes(desiredDomain) && String(page.url() || '').includes('/admin/tours')) {
+      return;
+    }
+    const candidates = workspaceLabelCandidates(packet);
+    for (const label of candidates) {
+      const candidate = page.getByText(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')).first();
+      if (!await candidate.count()) {
+        continue;
+      }
+      await candidate.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(6000);
+      const currentUrl = String(page.url() || '').toLowerCase();
+      if ((!desiredDomain || currentUrl.includes(desiredDomain)) && currentUrl.includes('/admin/tours')) {
+        return;
+      }
+    }
+    const addTourButton = page.getByRole('button', { name: /add tour/i }).first();
+    if (await addTourButton.count()) {
+      return;
+    }
+    throw new Error(`workspace_tours_unreachable:${page.url()}`);
+  }
+
   async function maybeLogin() {
     await page.goto('https://tours.crezlo.com/admin/login', { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
     await page.waitForTimeout(2000);
@@ -217,11 +276,10 @@ async function main() {
 
   try {
     await maybeLogin();
-    await page.goto(String(packet.workspace_tours_url || ''), { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
     if (String(page.url() || '').includes('accounts.crezlo.com/login')) {
       await maybeLogin();
-      await page.goto(String(packet.workspace_tours_url || ''), { waitUntil: 'domcontentloaded', timeout: 120000 }).catch(() => {});
     }
+    await enterWorkspace();
     await page.waitForTimeout(4000);
 
     const createTourResponse = page.waitForResponse(
@@ -399,8 +457,13 @@ def main() -> int:
             "login_email": login_email,
             "login_password": login_password,
             "tour_title": str(packet.get("tour_title") or "").strip(),
+            "workspace_id": str(packet.get("workspace_id") or "").strip(),
+            "workspace_domain": str(packet.get("workspace_domain") or DEFAULT_WORKSPACE_DOMAIN).strip(),
             "workspace_base_url": workspace_base_url,
             "workspace_tours_url": workspace_tours_url,
+            "workspace_label": str(packet.get("workspace_label") or "").strip(),
+            "workspace_name": str(packet.get("workspace_name") or "").strip(),
+            "workspace_label_candidates": list(packet.get("workspace_label_candidates") or []),
             "local_media_paths": [str(path) for path in selected_paths],
             "timeout_seconds": timeout_seconds,
         }

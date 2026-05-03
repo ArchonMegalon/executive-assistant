@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import re
+import subprocess
 import time
 import urllib.error
 import urllib.parse
@@ -20,7 +21,7 @@ from uuid import uuid4
 
 import yaml
 
-from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder
+from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
@@ -59,10 +60,15 @@ from app.product.projections import (
     thread_items_from_objects,
 )
 from app.services import google_oauth as google_oauth_service
+from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
+from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.registration_email import (
     delivery_sender_emails,
     email_delivery_enabled,
     send_channel_digest_email,
+    send_google_connect_email,
+    send_property_tour_email,
+    send_workspace_access_email,
     send_workspace_invitation_email,
 )
 
@@ -94,6 +100,7 @@ _EA_DELIVERY_TEXT_MARKERS = (
     "use this verification code to create your executive assistant workspace",
     "google is connected after sign-up as a workspace data source",
 )
+_WILLHABEN_HOST_MARKERS = ("willhaben.at",)
 _PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
 _PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
 _DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
@@ -175,6 +182,89 @@ _POCKET_ACTIONABLE_MARKERS = (
     "deliver ",
     "update ",
 )
+_EMAIL_APPROVAL_MARKERS = (
+    "approval",
+    "approve",
+    "approved",
+    "pending review",
+    "review queue",
+    "sign off",
+    "sign-off",
+    "signoff",
+)
+_EMAIL_DOCUMENTATION_MARKERS = (
+    "documentation",
+    "docs",
+    "faq",
+    "handbook",
+    "help center",
+    "knowledge base",
+    "llms.txt",
+    "manual",
+    "playbook",
+    "runbook",
+)
+_EMAIL_MARKUP_MARKERS = (
+    "annotate",
+    "board packet",
+    "deck",
+    "markup",
+    "pdf",
+    "proposal",
+    "slide",
+)
+_EMAIL_IMAGE_BACKGROUND_MARKERS = (
+    "background remove",
+    "cut out",
+    "remove the background",
+    "transparent background",
+)
+_EMAIL_IMAGE_UPSCALE_MARKERS = (
+    "higher resolution",
+    "image upscale",
+    "sharpen image",
+    "upscale",
+    "upscaled",
+)
+_EMAIL_IMAGE_GENERATION_MARKERS = (
+    "banner",
+    "hero image",
+    "illustration",
+    "mockup",
+    "poster",
+    "render",
+    "thumbnail",
+    "visual",
+)
+_EMAIL_PROPERTY_MARKERS = (
+    "apartment",
+    "floor plan",
+    "floorplan",
+    "immobilie",
+    "listing",
+    "property",
+    "tour",
+    "wohnung",
+)
+_EMAIL_DELIVERY_MARKERS = (
+    "deliver",
+    "delivery",
+    "email link",
+    "notify",
+    "send the link",
+    "share the link",
+)
+_EMAIL_DEADLINE_MARKERS = (
+    "asap",
+    "by eod",
+    "deadline",
+    "this afternoon",
+    "this evening",
+    "today",
+    "tomorrow",
+    "urgent",
+)
+_URL_TEXT_RE = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 
 
 def _now_iso() -> str:
@@ -286,6 +376,33 @@ def _is_assistant_originated_delivery_email(*, title: str, summary: str, payload
     return any(marker in haystack for marker in _EA_DELIVERY_TEXT_MARKERS)
 
 
+def _is_willhaben_search_agent_email(
+    *,
+    title: str,
+    summary: str,
+    counterparty: str,
+    payload: dict[str, object] | None,
+) -> bool:
+    payload_json = dict(payload or {})
+    from_email = str(payload_json.get("from_email") or "").strip().lower()
+    from_name = str(payload_json.get("from_name") or "").strip().lower()
+    normalized_counterparty = str(counterparty or "").strip().lower()
+    normalized_title = str(title or "").strip().lower()
+    normalized_summary = str(summary or "").strip().lower()
+    if "agent.willhaben.at" not in from_email:
+        return False
+    if "suchagent" not in " ".join(part for part in (from_name, normalized_counterparty, normalized_title) if part):
+        return False
+    if "neue anzeige" in normalized_title or "neue anzeigen" in normalized_title:
+        return True
+    return "neue anzeige" in normalized_summary or "neue anzeigen" in normalized_summary
+
+
+def _property_alert_review_brief(title: str) -> str:
+    normalized_title = compact_text(str(title or "").strip(), fallback="apartment alert", limit=88)
+    return f"Review apartment alert: {normalized_title}"
+
+
 def _memo_issue_channel_item(*, memo_loop: dict[str, object]) -> dict[str, str] | None:
     issue_reason = str(memo_loop.get("last_issue_reason") or "").strip()
     if not issue_reason:
@@ -362,6 +479,26 @@ def _search_score(*, tokens: tuple[str, ...], title: str = "", summary: str = ""
 def _looks_like_url(value: object) -> bool:
     normalized = str(value or "").strip().lower()
     return normalized.startswith("https://") or normalized.startswith("http://")
+
+
+def _extract_urls_from_text(value: object) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for raw in _URL_TEXT_RE.findall(str(value or "")):
+        normalized = str(raw or "").strip().rstrip(").,;]>")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            rows.append(normalized)
+    return tuple(rows)
+
+
+def _normalized_ltd_lookup(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _contains_any_marker(text: str, markers: tuple[str, ...]) -> bool:
+    normalized = str(text or "").strip().lower()
+    return any(str(marker or "").strip().lower() in normalized for marker in markers if str(marker or "").strip())
 
 
 def _saved_link_fallback_id(url_text: str) -> str:
@@ -838,6 +975,191 @@ def _default_public_guide_manifest_path() -> Path:
     )
 
 
+def _is_willhaben_property_url(value: object) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    parsed = urllib.parse.urlparse(normalized)
+    host = str(parsed.netloc or "").strip().lower()
+    return bool(host) and any(marker in host for marker in _WILLHABEN_HOST_MARKERS)
+
+
+def _configured_public_tour_hosts() -> tuple[str, ...]:
+    hosts: list[str] = []
+    for raw in (
+        str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip(),
+        str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip(),
+    ):
+        if not raw:
+            continue
+        parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
+        host = str(parsed.netloc or parsed.path or "").strip().lower()
+        if host and host not in hosts:
+            hosts.append(host)
+    return tuple(hosts)
+
+
+def _is_crezlo_tour_host(value: object) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    parsed = urllib.parse.urlparse(normalized if "://" in normalized else f"https://{normalized}")
+    host = str(parsed.netloc or parsed.path or "").strip().lower()
+    return "crezlo" in host
+
+
+def _is_branded_public_tour_url(value: object) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    parsed = urllib.parse.urlparse(normalized if "://" in normalized else f"https://{normalized}")
+    host = str(parsed.netloc or parsed.path or "").strip().lower()
+    if not host:
+        return False
+    configured_hosts = _configured_public_tour_hosts()
+    if configured_hosts:
+        return host in configured_hosts
+    return "/tours/" in normalized and not _is_crezlo_tour_host(normalized)
+
+
+def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[str, str]:
+    hosted_url = _first_non_empty_text(structured_output.get("hosted_url"))
+    public_url = _first_non_empty_text(structured_output.get("public_url"))
+    share_url = _first_non_empty_text(structured_output.get("share_url"))
+    crezlo_public_url = _first_non_empty_text(structured_output.get("crezlo_public_url"))
+
+    branded_tour_url = _first_non_empty_text(
+        hosted_url,
+        public_url if _is_branded_public_tour_url(public_url) else "",
+        crezlo_public_url if _is_branded_public_tour_url(crezlo_public_url) else "",
+        share_url if _is_branded_public_tour_url(share_url) else "",
+    )
+    vendor_tour_url = _first_non_empty_text(
+        crezlo_public_url if _is_crezlo_tour_host(crezlo_public_url) else "",
+        public_url if _is_crezlo_tour_host(public_url) else "",
+        share_url if _is_crezlo_tour_host(share_url) else "",
+    )
+    if not branded_tour_url:
+        branded_tour_url = _first_non_empty_text(public_url, share_url, crezlo_public_url)
+    if not vendor_tour_url:
+        vendor_tour_url = _first_non_empty_text(
+            public_url if public_url != branded_tour_url else "",
+            share_url if share_url != branded_tour_url else "",
+            crezlo_public_url if crezlo_public_url != branded_tour_url else "",
+        )
+    return branded_tour_url, vendor_tour_url
+
+
+def _willhaben_property_packet_script_path() -> Path:
+    explicit = str(os.getenv("EA_WILLHABEN_PROPERTY_PACKET_SCRIPT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    resolved = Path(__file__).resolve()
+    for parent in resolved.parents:
+        candidate = parent / "scripts" / "willhaben_property_packet.py"
+        if candidate.exists():
+            return candidate
+    return (_repo_root() / "scripts" / "willhaben_property_packet.py").resolve()
+
+
+def _load_json_dict(path: Path) -> dict[str, object]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _crezlo_property_tour_state_root() -> Path:
+    explicit = str(os.getenv("EA_CREZLO_PROPERTY_TOUR_STATE_ROOT") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path("/docker/fleet/state/browseract_bootstrap/runtime")
+
+
+def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
+    root = _crezlo_property_tour_state_root()
+    metadata: dict[str, object] = {}
+
+    publish_result = _load_json_dict(root / "crezlo_property_tour_operator_publish" / "result.json")
+    workflow_id = _first_non_empty_text(
+        publish_result.get("workflow_id"),
+        publish_result.get("browseract_crezlo_property_tour_workflow_id"),
+        publish_result.get("crezlo_property_tour_workflow_id"),
+    )
+    if workflow_id:
+        metadata["crezlo_property_tour_workflow_id"] = workflow_id
+        metadata["browseract_crezlo_property_tour_workflow_id"] = workflow_id
+
+    try:
+        worker_inputs = sorted(
+            root.glob("crezlo_property_tour_runs_*/*.worker_input.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        worker_inputs = []
+    for candidate in worker_inputs:
+        loaded = _load_json_dict(candidate)
+        if not loaded:
+            continue
+        login_email = _first_non_empty_text(loaded.get("login_email"), loaded.get("crezlo_login_email"))
+        login_password = _first_non_empty_text(loaded.get("login_password"), loaded.get("crezlo_login_password"))
+        workspace_id = _first_non_empty_text(loaded.get("workspace_id"))
+        workspace_domain = _first_non_empty_text(loaded.get("workspace_domain"))
+        workspace_base_url = _first_non_empty_text(loaded.get("workspace_base_url"))
+        workspace_tours_url = _first_non_empty_text(loaded.get("workspace_tours_url"))
+        if login_email:
+            metadata["crezlo_login_email"] = login_email
+        if login_password:
+            metadata["crezlo_login_password"] = login_password
+        if workspace_id:
+            metadata["crezlo_workspace_id"] = workspace_id
+            metadata["browseract_crezlo_workspace_id"] = workspace_id
+        if workspace_domain:
+            metadata["crezlo_workspace_domain"] = workspace_domain
+            metadata["browseract_crezlo_workspace_domain"] = workspace_domain
+        if workspace_base_url:
+            metadata["crezlo_workspace_base_url"] = workspace_base_url
+            metadata["browseract_crezlo_workspace_base_url"] = workspace_base_url
+        if workspace_tours_url:
+            metadata["crezlo_workspace_tours_url"] = workspace_tours_url
+            metadata["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
+        break
+    return metadata
+
+
+def _load_willhaben_property_packet(property_url: str) -> dict[str, object]:
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not _is_willhaben_property_url(normalized_url):
+        raise RuntimeError("willhaben_property_url_invalid")
+    script_path = _willhaben_property_packet_script_path()
+    if not script_path.exists():
+        raise RuntimeError(f"willhaben_property_packet_script_missing:{script_path}")
+    try:
+        completed = subprocess.run(
+            ["python3", str(script_path), normalized_url],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("python3_missing:willhaben_property_packet") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("willhaben_property_packet_timeout") from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(f"willhaben_property_packet_failed:{detail[:400]}")
+    try:
+        payload = json.loads(str(completed.stdout or "").strip() or "[]")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("willhaben_property_packet_invalid") from exc
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+        raise RuntimeError("willhaben_property_packet_invalid")
+    return dict(payload[0])
+
+
 def _load_json_dict(path: Path) -> dict[str, object] | None:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -1194,6 +1516,15 @@ def _operator_id_from_email(value: str) -> str:
     return f"operator-{slug or uuid4().hex[:6]}"
 
 
+def _principal_email_hint(principal_id: str) -> str:
+    normalized = str(principal_id or "").strip()
+    if normalized.startswith("cf-email:"):
+        candidate = normalized.partition(":")[2].strip().lower()
+        if "@" in candidate:
+            return candidate
+    return ""
+
+
 def _display_name_from_email(value: str) -> str:
     normalized = str(value or "").strip().lower()
     local = normalized.split("@", 1)[0] if "@" in normalized else normalized
@@ -1314,7 +1645,15 @@ class ProductService:
         delivery_preferences = dict(status.get("delivery_preferences") or {})
         morning_memo = dict(delivery_preferences.get("morning_memo") or {})
         google_accounts = google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id)
-        primary_google_account = google_accounts[0] if google_accounts else None
+        primary_google_account = next(
+            (
+                account
+                for account in google_accounts
+                if str(account.binding.status or "").strip().lower() == "enabled"
+                and str(account.token_status or "").strip().lower() != "revoked"
+            ),
+            google_accounts[0] if google_accounts else None,
+        )
         recipient_email = str(
             morning_memo.get("resolved_recipient_email")
             or getattr(primary_google_account, "google_email", "")
@@ -2040,10 +2379,13 @@ class ProductService:
         self,
         *,
         signals: tuple[google_oauth_service.GoogleWorkspaceSignal, ...],
-    ) -> tuple[tuple[google_oauth_service.GoogleWorkspaceSignal, ...], int]:
+    ) -> tuple[
+        tuple[google_oauth_service.GoogleWorkspaceSignal, ...],
+        tuple[google_oauth_service.GoogleWorkspaceSignal, ...],
+    ]:
         curated: list[google_oauth_service.GoogleWorkspaceSignal] = []
+        suppressed: list[google_oauth_service.GoogleWorkspaceSignal] = []
         seen_gmail_threads: set[str] = set()
-        suppressed_total = 0
         for signal in signals:
             normalized_channel = str(signal.channel or "").strip().lower()
             normalized_signal = str(signal.signal_type or "").strip().lower()
@@ -2057,16 +2399,16 @@ class ProductService:
             ).strip()
             if normalized_channel == "gmail" and normalized_signal == "email_thread":
                 if self._gmail_signal_labels(signal=signal) & _LOW_SIGNAL_GMAIL_LABELS:
-                    suppressed_total += 1
+                    suppressed.append(signal)
                     continue
                 thread_key = normalized_thread_ref or normalized_source
                 if thread_key and thread_key in seen_gmail_threads:
-                    suppressed_total += 1
+                    suppressed.append(signal)
                     continue
                 if thread_key:
                     seen_gmail_threads.add(thread_key)
             curated.append(signal)
-        return tuple(curated), suppressed_total
+        return tuple(curated), tuple(suppressed)
 
     def _channel_action_secret(self) -> str:
         configured = str(self._container.settings.auth.api_token or "").strip()
@@ -2305,6 +2647,14 @@ class ProductService:
         if not subject.lower().startswith("re:"):
             subject = f"Re: {subject}"
         payload_json = dict(payload or {})
+        google_account_email = str(payload_json.get("account_email") or "").strip().lower()
+        google_binding_id = ""
+        if google_account_email:
+            for account in google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id):
+                account_email = str(getattr(account, "google_email", "") or "").strip().lower()
+                if account_email == google_account_email:
+                    google_binding_id = str(account.binding.binding_id or "").strip()
+                    break
         gmail_thread_id = str(payload_json.get("thread_id") or "").strip() or _gmail_resource_id(
             source_ref,
             prefix="gmail-thread:",
@@ -2340,6 +2690,8 @@ class ProductService:
                 "gmail_message_id": gmail_message_id,
                 "gmail_rfc822_message_id": str(payload_json.get("rfc822_message_id") or "").strip(),
                 "gmail_references": str(payload_json.get("references") or payload_json.get("message_id") or "").strip(),
+                "google_account_email": google_account_email,
+                "google_binding_id": google_binding_id,
                 "signal_type": normalized_signal,
                 "draft_origin": "office_signal",
                 "tone": preferred_tone,
@@ -2434,6 +2786,29 @@ class ProductService:
                 accepted.append(candidate_id)
         return tuple(accepted)
 
+    def _resolve_google_binding_for_action(
+        self,
+        *,
+        principal_id: str,
+        action_json: dict[str, object],
+    ) -> tuple[str, str]:
+        explicit_binding_id = str(action_json.get("google_binding_id") or "").strip()
+        explicit_account_email = str(
+            action_json.get("google_account_email")
+            or action_json.get("account_email")
+            or ""
+        ).strip().lower()
+        if explicit_binding_id:
+            return explicit_binding_id, explicit_account_email
+        if not explicit_account_email:
+            return "", ""
+        for account in google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id):
+            account_email = str(getattr(account, "google_email", "") or "").strip().lower()
+            if account_email != explicit_account_email:
+                continue
+            return str(account.binding.binding_id or "").strip(), account_email
+        return "", explicit_account_email
+
     def _maybe_send_approved_draft(
         self,
         *,
@@ -2454,6 +2829,10 @@ class ProductService:
         signal_type = str(action_json.get("signal_type") or "").strip()
         reply_to_message_id = str(action_json.get("gmail_rfc822_message_id") or action_json.get("in_reply_to") or "").strip()
         references = str(action_json.get("gmail_references") or action_json.get("references") or "").strip()
+        google_binding_id, google_account_email = self._resolve_google_binding_for_action(
+            principal_id=principal_id,
+            action_json=action_json,
+        )
         if not recipient_email or not body_text:
             return {
                 "status": "skipped",
@@ -2468,6 +2847,8 @@ class ProductService:
                 "signal_type": signal_type,
                 "reply_to_message_id": reply_to_message_id,
                 "references": references,
+                "google_binding_id": google_binding_id,
+                "google_account_email": google_account_email,
             }
         if not subject:
             subject = compact_text(body_text, fallback="EA follow-up", limit=120)
@@ -2485,6 +2866,7 @@ class ProductService:
                 thread_id=thread_id or None,
                 reply_to_message_id=reply_to_message_id or None,
                 references=references or None,
+                binding_id=google_binding_id,
             )
         except RuntimeError as exc:
             reason = str(exc or "draft_send_failed")
@@ -2517,6 +2899,8 @@ class ProductService:
                 "signal_type": signal_type,
                 "reply_to_message_id": reply_to_message_id,
                 "references": references,
+                "google_binding_id": google_binding_id,
+                "google_account_email": google_account_email,
             }
         return {
             "status": "sent",
@@ -2535,6 +2919,8 @@ class ProductService:
             "signal_type": signal_type,
             "reply_to_message_id": reply_to_message_id,
             "references": references,
+            "google_binding_id": google_binding_id,
+            "google_account_email": google_account_email or receipt.sender_email,
         }
 
     def _ensure_draft_delivery_followup(
@@ -3357,7 +3743,7 @@ class ProductService:
         for ref_id, label, source_type, note in (
             (draft_ref, "Draft", "approval", event_type.replace("_", " ")),
             (source_ref, "Source", "signal", subject or reason),
-            (handoff_ref, "Delivery follow-up", "human_task", reason or resolution),
+            (handoff_ref, "Delivery handoff", "human_task", reason or resolution),
         ):
             if ref_id and all(existing.ref_id != ref_id for existing in evidence_refs):
                 evidence_refs.append(EvidenceRef(ref_id=ref_id, label=label, source_type=source_type, note=note))
@@ -3495,6 +3881,16 @@ class ProductService:
         title_text = str(title or "").strip()
         source_text = str(text or "").strip() or " ".join(part for part in (title_text, summary_text) if part).strip()
         payload_json = dict(payload or {})
+        is_willhaben_search_agent = (
+            normalized_channel == "gmail"
+            and normalized_signal == "email_thread"
+            and _is_willhaben_search_agent_email(
+                title=title_text,
+                summary=summary_text,
+                counterparty=counterparty,
+                payload=payload_json,
+            )
+        )
         stable_external_identity = bool(str(external_id or "").strip() or str(source_ref or "").strip())
         source_text_fragment = source_text[:80]
         if normalized_channel == "pocket" and stable_external_identity:
@@ -3508,7 +3904,20 @@ class ProductService:
                 payload=payload_json,
             )
         )
-        suppress_candidate_staging = suppress_candidate_staging or bool(payload_json.get("suppress_candidate_staging"))
+        suppress_candidate_staging = suppress_candidate_staging or is_willhaben_search_agent or bool(payload_json.get("suppress_candidate_staging"))
+        property_alert_review_result = self._maybe_open_property_alert_review_from_signal(
+            principal_id=principal_id,
+            signal_type=normalized_signal,
+            channel=normalized_channel,
+            title=title_text,
+            summary=summary_text,
+            text=source_text,
+            source_ref=str(source_ref or "").strip(),
+            external_id=str(external_id or "").strip(),
+            counterparty=str(counterparty or "").strip(),
+            payload=payload_json,
+            actor=str(actor or "").strip() or "office_api",
+        )
         dedupe_parts = [
             "office-signal",
             principal_id,
@@ -3546,6 +3955,11 @@ class ProductService:
                 recipient_email=str(payload_json.get("from_email") or "").strip().lower(),
             )
             existing_drafts = (self._draft_from_approval(existing_draft_approval),) if existing_draft_approval is not None else ()
+            existing_payload = dict(getattr(existing_event, "payload", {}) or {})
+            existing_ooda_loop = self._attach_property_alert_review_to_ooda_loop(
+                ooda_loop=existing_payload.get("ooda_loop"),
+                review_result=property_alert_review_result,
+            )
             return {
                 "observation_id": str(existing_event.observation_id or ""),
                 "channel": str(existing_event.channel or normalized_channel),
@@ -3558,6 +3972,7 @@ class ProductService:
                 "staged_count": len(existing_candidates),
                 "draft_count": len(existing_drafts),
                 "deduplicated": True,
+                "ooda_loop": existing_ooda_loop,
             }
         allow_generic_fallback = False
         if not suppress_candidate_staging:
@@ -3606,7 +4021,8 @@ class ProductService:
             payload=payload_json,
             staged_candidates=staged,
         )
-        payload_json = {
+        resolved_signal_source_id = str(source_ref or external_id or dedupe_key).strip()
+        base_payload_json = {
             "signal_type": normalized_signal,
             "title": title_text,
             "summary": summary_text,
@@ -3618,6 +4034,49 @@ class ProductService:
             "staged_candidate_ids": [row.candidate_id for row in staged if str(row.candidate_id or "").strip()],
             "staged_draft_ids": [staged_draft.id] if staged_draft is not None else [],
             **dict(payload or {}),
+        }
+        automated_signal_result: dict[str, object] | None = None
+        ooda_loop: dict[str, object] = {}
+        automated_signal_result = self._maybe_create_willhaben_property_tour_from_signal(
+            principal_id=principal_id,
+            title=title_text,
+            summary=summary_text,
+            source_ref=resolved_signal_source_id,
+            external_id=str(external_id or "").strip(),
+            payload=base_payload_json,
+            actor=str(actor or "").strip() or "office_api",
+        )
+        try:
+            ooda_loop = self._build_email_signal_ooda_loop(
+                signal_type=normalized_signal,
+                channel=normalized_channel,
+                title=title_text,
+                summary=summary_text,
+                text=source_text,
+                source_ref=str(source_ref or "").strip(),
+                external_id=str(external_id or "").strip(),
+                counterparty=str(counterparty or "").strip(),
+                due_at=due_at,
+                payload=base_payload_json,
+                actor=str(actor or "").strip() or "office_api",
+                staged_candidates=staged,
+                staged_draft=staged_draft,
+                automated_result=automated_signal_result,
+            )
+        except Exception as exc:
+            ooda_loop = {
+                "reviewed": False,
+                "reviewed_at": _now_iso(),
+                "summary": "Signal OODA loop failed.",
+                "error": compact_text(str(exc or ""), fallback="signal_ooda_failed", limit=220),
+            }
+        ooda_loop = self._attach_property_alert_review_to_ooda_loop(
+            ooda_loop=ooda_loop,
+            review_result=property_alert_review_result,
+        )
+        payload_json = {
+            **base_payload_json,
+            "ooda_loop": dict(ooda_loop or {}),
         }
         event = self._container.channel_runtime.ingest_observation(
             principal_id=principal_id,
@@ -3645,9 +4104,26 @@ class ProductService:
                 "external_id": str(external_id or "").strip(),
                 "staged_count": len(staged),
                 "draft_count": 1 if staged_draft is not None else 0,
+                "ooda_recommended_ltd_count": len(list((ooda_loop or {}).get("ltd_review", {}).get("recommended_actions") or [])),
             },
-            source_id=str(source_ref or event.observation_id or "").strip(),
+            source_id=str(resolved_signal_source_id or event.observation_id or "").strip(),
         )
+        if ooda_loop:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="office_signal_ooda_evaluated",
+                payload={
+                    "channel": normalized_channel,
+                    "signal_type": normalized_signal,
+                    "source_ref": str(source_ref or "").strip(),
+                    "external_id": str(external_id or "").strip(),
+                    "counterparty": str(counterparty or "").strip(),
+                    "summary": str(ooda_loop.get("summary") or "").strip(),
+                    "ooda_loop": dict(ooda_loop or {}),
+                },
+                source_id=str(resolved_signal_source_id or event.observation_id or "").strip(),
+                dedupe_key=f"{principal_id}|{dedupe_key}|office-signal-ooda",
+            )
         return {
             "observation_id": str(event.observation_id or ""),
             "channel": str(event.channel or ""),
@@ -3660,7 +4136,223 @@ class ProductService:
             "staged_count": len(staged),
             "draft_count": 1 if staged_draft is not None else 0,
             "deduplicated": False,
+            "ooda_loop": dict(ooda_loop or {}),
         }
+
+    def _existing_property_alert_review_task(
+        self,
+        *,
+        principal_id: str,
+        source_ref: str,
+        external_id: str,
+    ) -> HumanTask | None:
+        normalized_source = str(source_ref or "").strip()
+        normalized_external = str(external_id or "").strip()
+        if not normalized_source and not normalized_external:
+            return None
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+            if str(getattr(row, "task_type", "") or "").strip() != "property_alert_review":
+                continue
+            input_json = dict(getattr(row, "input_json", {}) or {})
+            if normalized_source and str(input_json.get("source_ref") or "").strip() == normalized_source:
+                return row
+            if normalized_external and str(input_json.get("external_id") or "").strip() == normalized_external:
+                return row
+        return None
+
+    def _open_property_alert_review(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        summary: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        account_email: str,
+        property_url: str,
+        actor: str,
+    ) -> dict[str, object]:
+        existing = self._existing_property_alert_review_task(
+            principal_id=principal_id,
+            source_ref=source_ref,
+            external_id=external_id,
+        )
+        if existing is not None:
+            return {
+                "status": "existing",
+                "human_task_id": f"human_task:{existing.human_task_id}",
+                "queue_item_ref": f"human_task:{existing.human_task_id}",
+                "task_type": "property_alert_review",
+                "property_url": property_url,
+                "source_ref": source_ref,
+                "external_id": external_id,
+                "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
+            }
+        session_id = self._start_product_review_session(
+            principal_id=principal_id,
+            goal=f"Review apartment alert for {title or counterparty or 'Willhaben'}",
+            source_ref=source_ref or external_id,
+        )
+        task = self._container.orchestrator.create_human_task(
+            session_id=session_id,
+            principal_id=principal_id,
+            task_type="property_alert_review",
+            role_required="operator",
+            brief=_property_alert_review_brief(title),
+            why_human="Apartment-search mail should stay visible as a review item, not a fake commitment. Decide whether to open the listing, generate a tour, or ignore the alert.",
+            priority="normal",
+            input_json={
+                "title": str(title or "").strip(),
+                "summary": str(summary or "").strip(),
+                "counterparty": str(counterparty or "").strip(),
+                "account_email": str(account_email or "").strip().lower(),
+                "property_url": str(property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
+            },
+            desired_output_json={
+                "resolution": "reviewed",
+                "selected_action": "",
+                "property_url": str(property_url or "").strip(),
+                "notes": "",
+            },
+        )
+        payload = {
+            "status": "opened",
+            "human_task_id": f"human_task:{task.human_task_id}",
+            "queue_item_ref": f"human_task:{task.human_task_id}",
+            "task_type": "property_alert_review",
+            "property_url": str(property_url or "").strip(),
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_alert_review_created",
+            payload={
+                **payload,
+                "title": str(title or "").strip(),
+                "summary": str(summary or "").strip(),
+                "counterparty": str(counterparty or "").strip(),
+                "account_email": str(account_email or "").strip().lower(),
+                "actor": str(actor or "").strip() or "office_api",
+            },
+            source_id=str(source_ref or external_id or task.human_task_id).strip(),
+            dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-created",
+        )
+        return payload
+
+    def _maybe_open_property_alert_review_from_signal(
+        self,
+        *,
+        principal_id: str,
+        signal_type: str,
+        channel: str,
+        title: str,
+        summary: str,
+        text: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        payload: dict[str, object],
+        actor: str,
+    ) -> dict[str, object] | None:
+        if str(signal_type or "").strip().lower() != "email_thread":
+            return None
+        if str(channel or "").strip().lower() != "gmail":
+            return None
+        if not _is_willhaben_search_agent_email(
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            payload=payload,
+        ):
+            return None
+        all_urls = self._append_unique_refs(
+            (),
+            *(
+                _extract_urls_from_text(title)
+                + _extract_urls_from_text(summary)
+                + _extract_urls_from_text(text)
+                + _extract_urls_from_text(source_ref)
+                + _extract_urls_from_text(external_id)
+            ),
+            str(payload.get("property_url") or "").strip(),
+            str(payload.get("captured_url") or "").strip(),
+            str(payload.get("url") or "").strip(),
+            str(payload.get("href") or "").strip(),
+        )
+        property_url = next((value for value in all_urls if _is_willhaben_property_url(value)), "")
+        return self._open_property_alert_review(
+            principal_id=principal_id,
+            title=title,
+            summary=summary,
+            source_ref=source_ref,
+            external_id=external_id,
+            counterparty=counterparty,
+            account_email=str(payload.get("account_email") or "").strip().lower(),
+            property_url=property_url,
+            actor=actor,
+        )
+
+    def _attach_property_alert_review_to_ooda_loop(
+        self,
+        *,
+        ooda_loop: object,
+        review_result: dict[str, object] | None,
+    ) -> dict[str, object]:
+        updated = dict(ooda_loop or {}) if isinstance(ooda_loop, dict) else {}
+        if review_result is None:
+            return updated
+        decide = dict(updated.get("decide") or {})
+        recommended_actions = [str(value or "").strip() for value in list(decide.get("recommended_actions") or []) if str(value or "").strip()]
+        if "open_property_alert_review" not in recommended_actions:
+            recommended_actions.append("open_property_alert_review")
+        decide["recommended_actions"] = recommended_actions
+        decide_summary = str(decide.get("summary") or "").strip()
+        review_note = "Keep the apartment alert as a review item instead of staging a fake commitment."
+        if review_note not in decide_summary:
+            decide["summary"] = compact_text(" ".join(part for part in (decide_summary, review_note) if part), fallback=review_note, limit=220)
+        updated["decide"] = decide
+
+        act = dict(updated.get("act") or {})
+        executed_actions = [str(value or "").strip() for value in list(act.get("executed_actions") or []) if str(value or "").strip()]
+        if "property_alert_review_queued" not in executed_actions:
+            executed_actions.append("property_alert_review_queued")
+        act["executed_actions"] = executed_actions
+        automated_actions = [dict(item) for item in list(act.get("automated_actions") or []) if isinstance(item, dict)]
+        human_task_id = str(review_result.get("human_task_id") or "").strip()
+        if not any(
+            str(item.get("action_key") or "").strip() == "review_property_alert"
+            and str(item.get("human_task_id") or "").strip() == human_task_id
+            for item in automated_actions
+        ):
+            automated_actions.append(
+                {
+                    "action_key": "review_property_alert",
+                    "service_name": "Executive Assistant",
+                    "status": str(review_result.get("status") or "").strip() or "opened",
+                    "human_task_id": human_task_id,
+                    "queue_item_ref": str(review_result.get("queue_item_ref") or human_task_id).strip(),
+                    "task_type": str(review_result.get("task_type") or "property_alert_review").strip(),
+                    "property_url": str(review_result.get("property_url") or "").strip(),
+                    "recommended_task_key": str(review_result.get("recommended_task_key") or "").strip(),
+                }
+            )
+        act["automated_actions"] = automated_actions
+        act_summary = str(act.get("summary") or "").strip()
+        act_note = "Opened an apartment-alert review item so the alert stays visible in the queue without becoming a fake commitment."
+        if act_note not in act_summary:
+            act["summary"] = compact_text(" ".join(part for part in (act_summary, act_note) if part), fallback=act_note, limit=220)
+        updated["act"] = act
+
+        summary_text = str(updated.get("summary") or "").strip()
+        if act_note not in summary_text:
+            updated["summary"] = compact_text(" ".join(part for part in (summary_text, act_note) if part), fallback=act_note, limit=240)
+        return updated
 
     def _existing_office_signal_event(
         self,
@@ -3702,6 +4394,988 @@ class ProductService:
                 return row
         return None
 
+    def _signal_ltd_review(
+        self,
+        *,
+        title: str,
+        summary: str,
+        text: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        payload: dict[str, object],
+        source_label: str = "signal",
+    ) -> dict[str, object]:
+        try:
+            catalog = LtdRuntimeCatalogService(provider_registry=self._container.provider_registry)
+            profiles = catalog.list_profiles()
+        except Exception as exc:
+            return {
+                "reviewed": False,
+                "profiles_considered": 0,
+                "reviewed_action_count": 0,
+                "recommended_actions": [],
+                "summary": compact_text(
+                    f"LTD review was not available for this {source_label}.",
+                    fallback="LTD review unavailable for this signal.",
+                    limit=220,
+                ),
+                "error": compact_text(str(exc or ""), fallback="ltd_runtime_catalog_unavailable", limit=180),
+            }
+
+        action_index: dict[tuple[str, str], tuple[object, object]] = {}
+        reviewed_action_count = 0
+        for profile in profiles:
+            normalized_service = _normalized_ltd_lookup(getattr(profile, "service_name", ""))
+            for action in getattr(profile, "actions", ()) or ():
+                normalized_action = _normalized_ltd_lookup(getattr(action, "action_key", ""))
+                if not normalized_action or normalized_action == "discover_account":
+                    continue
+                reviewed_action_count += 1
+                action_index.setdefault((normalized_service, normalized_action), (profile, action))
+
+        combined_text = " ".join(
+            part
+            for part in (
+                str(title or "").strip(),
+                str(summary or "").strip(),
+                str(text or "").strip(),
+                str(counterparty or "").strip(),
+                str(source_ref or "").strip(),
+                str(external_id or "").strip(),
+                str(payload.get("snippet") or "").strip(),
+                str(payload.get("body_text_excerpt") or "").strip(),
+            )
+            if part
+        ).lower()
+        all_urls = self._append_unique_refs(
+            (),
+            *(
+                _extract_urls_from_text(title)
+                + _extract_urls_from_text(summary)
+                + _extract_urls_from_text(text)
+                + _extract_urls_from_text(source_ref)
+                + _extract_urls_from_text(external_id)
+            ),
+            str(payload.get("property_url") or "").strip(),
+            str(payload.get("captured_url") or "").strip(),
+            str(payload.get("url") or "").strip(),
+            str(payload.get("href") or "").strip(),
+        )
+        property_url = next((value for value in all_urls if _is_willhaben_property_url(value)), "")
+        wants_property_tour = bool(property_url) or _contains_any_marker(combined_text, _EMAIL_PROPERTY_MARKERS)
+        wants_approval_review = _contains_any_marker(combined_text, _EMAIL_APPROVAL_MARKERS)
+        wants_documentation = _contains_any_marker(combined_text, _EMAIL_DOCUMENTATION_MARKERS)
+        wants_markup_review = _contains_any_marker(combined_text, _EMAIL_MARKUP_MARKERS)
+        wants_background_remove = _contains_any_marker(combined_text, _EMAIL_IMAGE_BACKGROUND_MARKERS)
+        wants_image_upscale = _contains_any_marker(combined_text, _EMAIL_IMAGE_UPSCALE_MARKERS)
+        wants_image_generate = _contains_any_marker(combined_text, _EMAIL_IMAGE_GENERATION_MARKERS)
+        wants_delivery = _contains_any_marker(combined_text, _EMAIL_DELIVERY_MARKERS)
+        delivery_email = _first_non_empty_text(
+            payload.get("delivery_recipient_email"),
+            payload.get("notify_email"),
+            payload.get("recipient_email"),
+        ).lower()
+
+        recommendations: list[dict[str, object]] = []
+
+        def _add_recommendation(
+            *,
+            service_key: str,
+            action_key: str,
+            reason: str,
+            score: int,
+            context_json: dict[str, object] | None = None,
+        ) -> None:
+            matched = action_index.get((_normalized_ltd_lookup(service_key), _normalized_ltd_lookup(action_key)))
+            if matched is None:
+                return
+            profile, action = matched
+            recommendations.append(
+                {
+                    "service_name": str(getattr(profile, "service_name", "") or ""),
+                    "runtime_state": str(getattr(profile, "runtime_state", "") or ""),
+                    "action_key": str(getattr(action, "action_key", "") or ""),
+                    "label": str(getattr(action, "label", "") or ""),
+                    "description": str(getattr(action, "description", "") or ""),
+                    "execution_mode": str(getattr(action, "execution_mode", "") or ""),
+                    "executable": bool(getattr(action, "executable", False)),
+                    "provider_key": str(getattr(action, "provider_key", "") or ""),
+                    "route_path": str(getattr(action, "route_path", "") or ""),
+                    "task_key": projected_task_key(
+                        str(getattr(profile, "service_name", "") or ""),
+                        str(getattr(action, "action_key", "") or ""),
+                    ),
+                    "reason": compact_text(reason, fallback="Relevant LTD action.", limit=220),
+                    "score": score,
+                    "context": dict(context_json or {}),
+                    "notes": str(getattr(action, "notes", "") or ""),
+                }
+            )
+
+        if wants_property_tour:
+            _add_recommendation(
+                service_key="Crezlo Tours",
+                action_key="create_property_tour",
+                reason="Signal references a property listing or apartment-tour workflow that fits the Crezlo tour lane.",
+                score=100 if property_url else 82,
+                context_json={"property_url": property_url},
+            )
+        if wants_approval_review:
+            _add_recommendation(
+                service_key="ApproveThis",
+                action_key="read_queue",
+                reason="Signal reads like an approval or sign-off request that should check the external approval queue.",
+                score=70,
+            )
+        if wants_documentation:
+            _add_recommendation(
+                service_key="Documentation.AI",
+                action_key="inspect_workspace",
+                reason="Signal asks for docs, handbooks, or knowledge-base work that fits the Documentation.AI workspace lane.",
+                score=66,
+            )
+        if wants_markup_review:
+            _add_recommendation(
+                service_key="MarkupGo",
+                action_key="inspect_workspace",
+                reason="Signal mentions a deck, PDF, packet, or markup-style review that fits the MarkupGo workspace lane.",
+                score=64,
+            )
+        if wants_background_remove:
+            _add_recommendation(
+                service_key="1min.AI",
+                action_key="background_remove",
+                reason="Signal asks for image cleanup or background removal that fits the 1min.AI media lane.",
+                score=72,
+            )
+        if wants_image_upscale:
+            _add_recommendation(
+                service_key="1min.AI",
+                action_key="image_upscale",
+                reason="Signal asks for higher-resolution image output that fits the 1min.AI upscaling lane.",
+                score=71,
+            )
+        if wants_image_generate:
+            _add_recommendation(
+                service_key="1min.AI",
+                action_key="image_generate",
+                reason="Signal asks for a render, mockup, illustration, or other generated visual.",
+                score=63,
+            )
+        if delivery_email or wants_delivery:
+            _add_recommendation(
+                service_key="Emailit",
+                action_key="delivery_outbox",
+                reason="Signal implies a link or outcome that may need external delivery through the managed email outbox.",
+                score=55 if delivery_email else 48,
+                context_json={"delivery_email": delivery_email},
+            )
+
+        recommendations.sort(
+            key=lambda item: (
+                -int(item.get("score") or 0),
+                not bool(item.get("executable")),
+                str(item.get("service_name") or "").lower(),
+                str(item.get("action_key") or "").lower(),
+            )
+        )
+        trimmed = recommendations[:4]
+        if trimmed:
+            summary_text = f"Reviewed {reviewed_action_count} LTD actions and recommended {len(trimmed)}."
+        else:
+            summary_text = f"Reviewed {reviewed_action_count} LTD actions and found no additional lane worth invoking."
+        for row in trimmed:
+            row.pop("score", None)
+        return {
+            "reviewed": True,
+            "profiles_considered": len(profiles),
+            "reviewed_action_count": reviewed_action_count,
+            "recommended_actions": trimmed,
+            "summary": summary_text,
+        }
+
+    def _email_signal_ltd_review(
+        self,
+        *,
+        title: str,
+        summary: str,
+        text: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return self._signal_ltd_review(
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            counterparty=counterparty,
+            payload=payload,
+            source_label="email",
+        )
+
+    def _build_email_signal_ooda_loop(
+        self,
+        *,
+        signal_type: str,
+        channel: str,
+        title: str,
+        summary: str,
+        text: str,
+        source_ref: str,
+        external_id: str,
+        counterparty: str,
+        due_at: str | None,
+        payload: dict[str, object],
+        actor: str,
+        staged_candidates: tuple[CommitmentCandidate, ...],
+        staged_draft: DraftCandidate | None,
+        automated_result: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        normalized_signal_type = str(signal_type or "email_thread").strip().lower() or "email_thread"
+        ltd_review = self._signal_ltd_review(
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            counterparty=counterparty,
+            payload=payload,
+            source_label="email" if normalized_signal_type == "email_thread" else "signal",
+        )
+        combined_text = " ".join(
+            part
+            for part in (
+                str(title or "").strip(),
+                str(summary or "").strip(),
+                str(text or "").strip(),
+                str(counterparty or "").strip(),
+                str(payload.get("snippet") or "").strip(),
+                str(payload.get("body_text_excerpt") or "").strip(),
+            )
+            if part
+        ).lower()
+        all_urls = self._append_unique_refs(
+            (),
+            *(
+                _extract_urls_from_text(title)
+                + _extract_urls_from_text(summary)
+                + _extract_urls_from_text(text)
+                + _extract_urls_from_text(source_ref)
+                + _extract_urls_from_text(external_id)
+            ),
+            str(payload.get("property_url") or "").strip(),
+            str(payload.get("captured_url") or "").strip(),
+            str(payload.get("url") or "").strip(),
+            str(payload.get("href") or "").strip(),
+        )
+        property_url = next((value for value in all_urls if _is_willhaben_property_url(value)), "")
+
+        orientation_tags: list[str] = []
+        orientation_notes: list[str] = []
+        if _contains_any_marker(combined_text, _REPLY_SIGNAL_CUES):
+            orientation_tags.append("reply_or_follow_up")
+            orientation_notes.append("Signal reads like a reply or follow-up request.")
+        if str(due_at or "").strip() or _contains_any_marker(combined_text, _EMAIL_DEADLINE_MARKERS):
+            orientation_tags.append("deadline_or_urgency")
+            orientation_notes.append("Signal includes urgency or a timing cue.")
+        if property_url or _contains_any_marker(combined_text, _EMAIL_PROPERTY_MARKERS):
+            orientation_tags.append("property_workflow")
+            orientation_notes.append("Signal references property-search or tour work.")
+        if _contains_any_marker(combined_text, _EMAIL_APPROVAL_MARKERS):
+            orientation_tags.append("approval_context")
+            orientation_notes.append("Signal looks like an approval or sign-off surface.")
+        if _contains_any_marker(combined_text, _EMAIL_DOCUMENTATION_MARKERS):
+            orientation_tags.append("documentation_request")
+            orientation_notes.append("Signal asks for docs or knowledge-base work.")
+        if _contains_any_marker(combined_text, _EMAIL_MARKUP_MARKERS):
+            orientation_tags.append("asset_review")
+            orientation_notes.append("Signal mentions a packet, deck, PDF, or markup review.")
+        if _contains_any_marker(combined_text, _EMAIL_IMAGE_BACKGROUND_MARKERS + _EMAIL_IMAGE_UPSCALE_MARKERS + _EMAIL_IMAGE_GENERATION_MARKERS):
+            orientation_tags.append("visual_asset_request")
+            orientation_notes.append("Signal asks for visual or media work.")
+        if not orientation_notes:
+            orientation_notes.append("Signal was reviewed for commitments, delivery intent, and automation opportunities.")
+
+        recommended_ltd_actions = list(ltd_review.get("recommended_actions") or [])
+        decide_actions: list[str] = []
+        decide_notes: list[str] = []
+        if staged_candidates:
+            decide_actions.append("stage_commitment_candidates")
+            decide_notes.append(f"Stage {len(staged_candidates)} commitment candidate{'s' if len(staged_candidates) != 1 else ''}.")
+        else:
+            decide_notes.append("No commitment candidate was strong enough to stage from this signal.")
+        if staged_draft is not None:
+            decide_actions.append("stage_reply_draft")
+            decide_notes.append("Prepare a reply draft for approval before send.")
+        if recommended_ltd_actions:
+            decide_actions.append("review_ltd_actions")
+            decide_notes.append(f"Review {len(recommended_ltd_actions)} LTD action recommendation{'s' if len(recommended_ltd_actions) != 1 else ''}.")
+        else:
+            decide_notes.append("No additional LTD lane is recommended from the current signal context.")
+
+        executed_actions: list[str] = []
+        automated_actions: list[dict[str, object]] = []
+        if staged_candidates:
+            executed_actions.append("commitment_candidates_staged")
+        if staged_draft is not None:
+            executed_actions.append("reply_draft_staged")
+        if automated_result is not None:
+            automated_actions.append(
+                {
+                    "action_key": "create_property_tour",
+                    "service_name": "Crezlo Tours",
+                    "status": str(automated_result.get("status") or "").strip(),
+                    "delivery_status": str(automated_result.get("delivery_status") or "").strip(),
+                    "blocked_reason": str(automated_result.get("blocked_reason") or "").strip(),
+                    "tour_url": str(automated_result.get("tour_url") or "").strip(),
+                    "human_task_id": str(automated_result.get("human_task_id") or "").strip(),
+                }
+            )
+            executed_actions.append("create_property_tour")
+
+        draft_count = 1 if staged_draft is not None else 0
+        act_notes = [
+            f"Staged {len(staged_candidates)} candidate{'s' if len(staged_candidates) != 1 else ''} and {draft_count} reply draft{'s' if draft_count != 1 else ''}."
+        ]
+        if automated_actions:
+            automated_status = automated_actions[0]
+            if str(automated_status.get("status") or "").strip() == "created":
+                act_notes.append("Ran the property-tour automation for the referenced listing.")
+            elif str(automated_status.get("status") or "").strip() == "blocked":
+                act_notes.append("Property-tour automation was reviewed but handed off because the lane is not fully configured.")
+
+        observe_summary = compact_text(
+            " ".join(
+                part
+                for part in (
+                    f"Signal from {counterparty}." if counterparty else "",
+                    title,
+                    summary,
+                )
+                if str(part or "").strip()
+            ),
+            fallback="Inbound signal received.",
+            limit=220,
+        )
+        orient_summary = compact_text(" ".join(orientation_notes), fallback="Signal intent was reviewed.", limit=220)
+        decide_summary = compact_text(" ".join(decide_notes), fallback="Signal decisions were recorded.", limit=220)
+        act_summary = compact_text(" ".join(act_notes), fallback="Signal actions were recorded.", limit=220)
+        return {
+            "reviewed": True,
+            "reviewed_at": _now_iso(),
+            "actor": str(actor or "").strip() or "office_api",
+            "observe": {
+                "summary": observe_summary,
+                "channel": str(channel or "").strip().lower() or "gmail",
+                "signal_type": normalized_signal_type,
+                "counterparty": str(counterparty or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "due_at": str(due_at or "").strip(),
+                "property_url": property_url,
+                "account_email": str(payload.get("account_email") or "").strip().lower(),
+            },
+            "orient": {
+                "summary": orient_summary,
+                "tags": orientation_tags,
+            },
+            "ltd_review": {
+                **dict(ltd_review),
+                "recommended_count": len(recommended_ltd_actions),
+            },
+            "decide": {
+                "summary": decide_summary,
+                "recommended_actions": decide_actions,
+            },
+            "act": {
+                "summary": act_summary,
+                "executed_actions": executed_actions,
+                "staged_candidate_count": len(staged_candidates),
+                "staged_draft_count": draft_count,
+                "automated_actions": automated_actions,
+            },
+            "summary": compact_text(
+                " ".join(part for part in (observe_summary, decide_summary, str(ltd_review.get("summary") or "").strip()) if part),
+                fallback="Signal OODA loop evaluated.",
+                limit=240,
+            ),
+        }
+
+    def _selected_willhaben_tour_variant(
+        self,
+        *,
+        packet: dict[str, object],
+        variant_key: str,
+    ) -> dict[str, object]:
+        requested = str(variant_key or "").strip().lower()
+        variants = [dict(entry) for entry in list(packet.get("tour_variants_json") or []) if isinstance(entry, dict)]
+        if not variants:
+            raise RuntimeError("willhaben_tour_variants_missing")
+        if requested:
+            for row in variants:
+                if str(row.get("variant_key") or "").strip().lower() == requested:
+                    return row
+        return variants[0]
+
+    def _resolve_browseract_property_tour_binding_id(
+        self,
+        *,
+        principal_id: str,
+        binding_id: str = "",
+    ) -> str:
+        bootstrap_metadata = _crezlo_property_tour_bootstrap_metadata()
+        explicit = str(binding_id or "").strip()
+        if explicit:
+            return explicit
+        bindings = self._container.tool_runtime.list_connector_bindings(principal_id, limit=100)
+        for row in bindings:
+            if str(getattr(row, "connector_name", "") or "").strip().lower() != "browseract":
+                continue
+            if str(getattr(row, "status", "") or "").strip().lower() != "enabled":
+                continue
+            current_metadata = dict(getattr(row, "auth_metadata_json", {}) or {})
+            merged_metadata = dict(current_metadata)
+            for key, value in bootstrap_metadata.items():
+                if not str(merged_metadata.get(key) or "").strip() and value not in {None, ""}:
+                    merged_metadata[key] = value
+            if merged_metadata != current_metadata:
+                updated = self._container.tool_runtime.upsert_connector_binding(
+                    principal_id=principal_id,
+                    connector_name="browseract",
+                    external_account_ref=str(getattr(row, "external_account_ref", "") or "").strip() or "crezlo-auto",
+                    scope_json=dict(getattr(row, "scope_json", {}) or {}),
+                    auth_metadata_json=merged_metadata,
+                    status=str(getattr(row, "status", "") or "enabled"),
+                )
+                return str(updated.binding_id or "").strip()
+            return str(getattr(row, "binding_id", "") or "").strip()
+        if not str(os.getenv("BROWSERACT_API_KEY") or "").strip():
+            return ""
+        auth_metadata = {
+            "service_name": "Crezlo Tours",
+            "service_accounts_json": {"Crezlo Tours": {"status": "configured"}},
+            **bootstrap_metadata,
+        }
+        created = self._container.tool_runtime.upsert_connector_binding(
+            principal_id=principal_id,
+            connector_name="browseract",
+            external_account_ref="crezlo-auto",
+            scope_json={"services": ["Crezlo Tours", "Crezlo"], "scopes": ["browseract", "crezlo"]},
+            auth_metadata_json=auth_metadata,
+            status="enabled",
+        )
+        return str(created.binding_id or "").strip()
+
+    def _property_tour_execution_error_reason(self, exc: Exception) -> str:
+        detail = str(exc or "").strip().lower()
+        if any(
+            marker in detail
+            for marker in (
+                "connector_binding_required:browseract.crezlo_property_tour",
+                "connector_binding_not_found",
+                "connector_binding_disabled",
+            )
+        ):
+            return "browseract_connector_unconfigured"
+        if any(
+            marker in detail
+            for marker in (
+                "crezlo_login_required_for_direct_create",
+                "crezlo_login_email_missing",
+                "crezlo_login_password_missing",
+                "crezlo_login_required",
+                "crezlo_worker_missing",
+            )
+        ):
+            return "crezlo_property_tour_not_configured"
+        if "crezlo_media_missing" in detail:
+            return "listing_media_missing"
+        return "property_tour_execution_failed"
+
+    def _existing_property_tour_followup(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        variant_key: str,
+    ) -> HumanTask | None:
+        normalized_url = str(property_url or "").strip()
+        normalized_variant = str(variant_key or "").strip().lower()
+        if not normalized_url:
+            return None
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+            if str(getattr(row, "task_type", "") or "").strip() != "property_tour_followup":
+                continue
+            input_json = dict(getattr(row, "input_json", {}) or {})
+            if str(input_json.get("property_url") or "").strip() != normalized_url:
+                continue
+            if str(input_json.get("variant_key") or "").strip().lower() != normalized_variant:
+                continue
+            return row
+        return None
+
+    def _open_property_tour_followup(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        title: str,
+        variant_key: str,
+        blocked_reason: str,
+        recipient_email: str,
+        source_ref: str,
+        external_id: str,
+        connector_binding_id: str,
+    ) -> HumanTask:
+        existing = self._existing_property_tour_followup(
+            principal_id=principal_id,
+            property_url=property_url,
+            variant_key=variant_key,
+        )
+        if existing is not None:
+            return existing
+        session_id = self._start_product_review_session(
+            principal_id=principal_id,
+            goal=f"Finish apartment-tour automation for {title or property_url}",
+            source_ref=source_ref or property_url,
+        )
+        return self._container.orchestrator.create_human_task(
+            session_id=session_id,
+            principal_id=principal_id,
+            task_type="property_tour_followup",
+            role_required="operator",
+            brief=f"Finish apartment tour delivery for {title or property_url}",
+            why_human=f"Automatic apartment-tour handling stopped at {blocked_reason}. Finish the tour or delivery path.",
+            priority="high",
+            input_json={
+                "property_url": str(property_url or "").strip(),
+                "title": str(title or "").strip(),
+                "variant_key": str(variant_key or "").strip(),
+                "blocked_reason": str(blocked_reason or "").strip(),
+                "recipient_email": str(recipient_email or "").strip().lower(),
+                "connector_binding_id": str(connector_binding_id or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+            },
+            desired_output_json={
+                "status": "completed",
+                "tour_url": "",
+                "delivery_email": str(recipient_email or "").strip().lower(),
+            },
+        )
+
+    def _maybe_create_willhaben_property_tour_from_signal(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        summary: str,
+        source_ref: str,
+        external_id: str,
+        payload: dict[str, object],
+        actor: str,
+    ) -> dict[str, object] | None:
+        wants_tour = bool(payload.get("auto_create_property_tour"))
+        if not wants_tour:
+            actions = payload.get("ooda_actions")
+            if isinstance(actions, (list, tuple, set)):
+                wants_tour = any(str(value or "").strip().lower() == "create_property_tour" for value in actions)
+        if not wants_tour:
+            return None
+        property_url = _first_non_empty_text(
+            payload.get("property_url"),
+            payload.get("captured_url"),
+            payload.get("url"),
+            payload.get("href"),
+            source_ref if _is_willhaben_property_url(source_ref) else "",
+            external_id if _is_willhaben_property_url(external_id) else "",
+        )
+        if not _is_willhaben_property_url(property_url):
+            return None
+        try:
+            return self.create_willhaben_property_tour(
+                principal_id=principal_id,
+                property_url=property_url,
+                recipient_email=_first_non_empty_text(
+                    payload.get("delivery_recipient_email"),
+                    payload.get("recipient_email"),
+                    payload.get("notify_email"),
+                    _principal_email_hint(principal_id),
+                ),
+                variant_key=_first_non_empty_text(payload.get("variant_key"), payload.get("tour_variant_key"), "layout_first"),
+                binding_id=_first_non_empty_text(payload.get("binding_id")),
+                source_ref=source_ref,
+                external_id=external_id,
+                auto_deliver=bool(payload.get("auto_deliver", True)),
+                actor=actor,
+            )
+        except Exception as exc:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_auto_failed",
+                payload={
+                    "property_url": property_url,
+                    "source_ref": str(source_ref or "").strip(),
+                    "external_id": str(external_id or "").strip(),
+                    "title": str(title or "").strip(),
+                    "summary": str(summary or "").strip(),
+                    "error": str(exc or "").strip(),
+                },
+                source_id=str(source_ref or external_id or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or external_id or property_url}|property-tour-auto-failed",
+            )
+            return None
+
+    def create_willhaben_property_tour(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        recipient_email: str = "",
+        variant_key: str = "layout_first",
+        binding_id: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        auto_deliver: bool = True,
+        actor: str = "",
+    ) -> dict[str, object]:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not _is_willhaben_property_url(normalized_url):
+            raise ValueError("willhaben_property_url_invalid")
+        packet = _load_willhaben_property_packet(normalized_url)
+        variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
+        resolved_variant_key = str(variant.get("variant_key") or variant_key or "layout_first").strip() or "layout_first"
+        title = str(packet.get("title") or normalized_url).strip() or normalized_url
+        listing_id = str(packet.get("listing_id") or "").strip()
+        resolved_source_ref = str(source_ref or f"willhaben:{listing_id or _saved_link_fallback_id(normalized_url)}").strip()
+        resolved_external_id = str(external_id or listing_id or normalized_url).strip()
+        resolved_binding_id = self._resolve_browseract_property_tour_binding_id(
+            principal_id=principal_id,
+            binding_id=binding_id,
+        )
+        resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
+        generated_at = _now_iso()
+        if not resolved_binding_id:
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason="browseract_connector_unconfigured",
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id="",
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": "",
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": "browseract_connector_unconfigured",
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:browseract_connector_unconfigured",
+            )
+            return payload
+
+        request_payload = {
+            "binding_id": resolved_binding_id,
+            "force_ui_worker": True,
+            "tour_title": " - ".join(part for part in (title, resolved_variant_key.replace("_", " ")) if part)[:180],
+            "display_title": title[:220],
+            "property_url": normalized_url,
+            "media_urls_json": list(packet.get("media_urls_json") or []),
+            "floorplan_urls_json": list(packet.get("floorplan_urls_json") or []),
+            "scene_strategy": str(variant.get("scene_strategy") or "layout_first").strip(),
+            "scene_selection_json": dict(variant.get("scene_selection_json") or {}),
+            "property_facts_json": dict(packet.get("property_facts_json") or {}),
+            "creative_brief": str(variant.get("creative_brief") or "").strip(),
+            "variant_key": resolved_variant_key,
+            "language": "de",
+            "theme_name": str(variant.get("theme_name") or "").strip(),
+            "tour_style": str(variant.get("tour_style") or "").strip(),
+            "audience": str(variant.get("audience") or "").strip(),
+            "call_to_action": str(variant.get("call_to_action") or "").strip(),
+            "tour_visibility": "public",
+            "tour_settings_json": dict(variant.get("tour_settings_json") or {}),
+            "is_private": False,
+            "runtime_inputs_json": {
+                "listing_id": listing_id,
+                "listing_uuid": str(packet.get("listing_uuid") or "").strip(),
+                "variant_key": resolved_variant_key,
+                "source": "willhaben",
+            },
+        }
+        resolved_task_key = "create_property_tour"
+        if self._container.task_contracts.get_contract(resolved_task_key) is None:
+            projected_crezlo_task_key = projected_task_key("Crezlo Tours", "create_property_tour")
+            if self._container.task_contracts.get_contract(projected_crezlo_task_key) is not None:
+                resolved_task_key = projected_crezlo_task_key
+
+        artifact = None
+        blocked_reason = ""
+        try:
+            artifact = self._container.orchestrator.execute_task_artifact(
+                TaskExecutionRequest(
+                    task_key=resolved_task_key,
+                    principal_id=principal_id,
+                    goal=f"create a steerable apartment tour for {title}",
+                    input_json=request_payload,
+                )
+            )
+        except Exception as exc:
+            blocked_reason = self._property_tour_execution_error_reason(exc)
+
+        if blocked_reason:
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason=blocked_reason,
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": blocked_reason,
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
+            )
+            return payload
+
+        structured_output = dict(artifact.structured_output_json or {}) if artifact is not None else {}
+        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+        editor_url = _first_non_empty_text(structured_output.get("editor_url"))
+        payload = {
+            "generated_at": generated_at,
+            "status": "created",
+            "property_url": normalized_url,
+            "title": title,
+            "listing_id": listing_id,
+            "variant_key": resolved_variant_key,
+            "artifact_id": str(artifact.artifact_id or "").strip(),
+            "execution_session_id": str(artifact.execution_session_id or "").strip(),
+            "connector_binding_id": resolved_binding_id,
+            "tour_url": tour_url,
+            "vendor_tour_url": vendor_tour_url,
+            "editor_url": editor_url,
+            "delivery_email": resolved_recipient_email,
+            "delivery_status": "skipped" if not auto_deliver else "",
+            "blocked_reason": "",
+            "human_task_id": "",
+            "source_ref": resolved_source_ref,
+            "external_id": resolved_external_id,
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="willhaben_property_tour_created",
+            payload={
+                **payload,
+                "tour_id": str(structured_output.get("tour_id") or "").strip(),
+            },
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
+        )
+        if not auto_deliver:
+            return payload
+
+        if not tour_url:
+            blocked_reason = "property_tour_url_missing"
+        elif not resolved_recipient_email:
+            blocked_reason = "delivery_recipient_missing"
+        elif not email_delivery_enabled():
+            blocked_reason = "email_delivery_not_configured"
+        else:
+            blocked_reason = ""
+
+        if blocked_reason:
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason=blocked_reason,
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload.update(
+                {
+                    "status": "blocked",
+                    "delivery_status": "blocked",
+                    "blocked_reason": blocked_reason,
+                    "human_task_id": f"human_task:{followup.human_task_id}",
+                }
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
+            )
+            return payload
+
+        facts = dict(packet.get("property_facts_json") or {})
+        price_value = facts.get("total_rent_eur")
+        price_label = f"EUR {price_value:g}" if isinstance(price_value, (int, float)) else ""
+        try:
+            receipt = send_property_tour_email(
+                recipient_email=resolved_recipient_email,
+                property_title=title,
+                property_url=normalized_url,
+                tour_url=tour_url,
+                variant_key=resolved_variant_key,
+                listing_id=listing_id,
+                area_label=str(facts.get("area_label") or "").strip(),
+                rooms_label=str(facts.get("rooms_label") or "").strip(),
+                price_label=price_label,
+            )
+            payload.update({"status": "sent", "delivery_status": "sent"})
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_email_sent",
+                payload={
+                    **payload,
+                    "provider": str(receipt.provider or "").strip(),
+                    "message_id": str(receipt.message_id or "").strip(),
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-email-sent",
+            )
+            return payload
+        except Exception as exc:
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason="property_tour_delivery_failed",
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload.update(
+                {
+                    "status": "blocked",
+                    "delivery_status": "failed",
+                    "blocked_reason": "property_tour_delivery_failed",
+                    "human_task_id": f"human_task:{followup.human_task_id}",
+                }
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_delivery_failed",
+                payload={**payload, "error": str(exc or "").strip()},
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-email-failed",
+            )
+            return payload
+
+    def recreate_property_tour_followup(
+        self,
+        *,
+        principal_id: str,
+        handoff_ref: str,
+        operator_id: str,
+        actor: str,
+    ) -> HandoffNote | None:
+        if not str(handoff_ref or "").strip().startswith("human_task:"):
+            return None
+        task_id = handoff_ref.split(":", 1)[1]
+        current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id)
+        if current is None:
+            return None
+        if str(current.task_type or "").strip() != "property_tour_followup":
+            return None
+        current_status = str(current.status or "").strip()
+        if current_status not in {"open", "pending", "claimed"}:
+            raise RuntimeError("handoff_not_recreatable")
+        current_operator = str(current.assigned_operator_id or "").strip()
+        if current_operator and current_operator != str(operator_id or "").strip():
+            raise RuntimeError("handoff_owned_by_other_operator")
+        if str(operator_id or "").strip() and current_operator != str(operator_id or "").strip():
+            assigned = self.assign_handoff(
+                principal_id=principal_id,
+                handoff_ref=handoff_ref,
+                operator_id=operator_id,
+                actor=actor,
+            )
+            if assigned is None:
+                raise RuntimeError("handoff_not_assignable")
+            current = self._container.orchestrator.fetch_human_task(task_id, principal_id=principal_id) or current
+        input_json = dict(current.input_json or {})
+        result = self.create_willhaben_property_tour(
+            principal_id=principal_id,
+            property_url=str(input_json.get("property_url") or "").strip(),
+            recipient_email=str(input_json.get("recipient_email") or "").strip(),
+            variant_key=str(input_json.get("variant_key") or "layout_first").strip(),
+            binding_id=str(input_json.get("connector_binding_id") or "").strip(),
+            source_ref=str(input_json.get("source_ref") or "").strip(),
+            external_id=str(input_json.get("external_id") or "").strip(),
+            auto_deliver=True,
+            actor=actor,
+        )
+        if str(result.get("status") or "").strip() == "sent":
+            completed = self.complete_handoff(
+                principal_id=principal_id,
+                handoff_ref=handoff_ref,
+                operator_id=operator_id,
+                actor=actor,
+                resolution="sent",
+            )
+            if completed is not None:
+                return completed
+        return self.get_handoff(principal_id=principal_id, handoff_ref=handoff_ref)
+
     def sync_google_workspace_signals(
         self,
         *,
@@ -3710,13 +5384,28 @@ class ProductService:
         email_limit: int = 5,
         calendar_limit: int = 5,
     ) -> dict[str, object]:
+        seen_source_refs: set[str] = set()
+        seen_external_ids: set[str] = set()
+        for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id):
+            if str(getattr(row, "channel", "") or "").strip().lower() != "gmail":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip().lower() != "office_signal_email_thread":
+                continue
+            source_id = str(getattr(row, "source_id", "") or "").strip()
+            external_id = str(getattr(row, "external_id", "") or "").strip()
+            if source_id:
+                seen_source_refs.add(source_id)
+            if external_id:
+                seen_external_ids.add(external_id)
         packet = google_oauth_service.list_recent_workspace_signals(
             container=self._container,
             principal_id=principal_id,
             email_limit=email_limit,
             calendar_limit=calendar_limit,
+            seen_source_refs=seen_source_refs,
+            seen_external_ids=seen_external_ids,
         )
-        curated_signals, suppressed_total = self._curate_google_workspace_signals(signals=packet.signals)
+        curated_signals, suppressed_signals = self._curate_google_workspace_signals(signals=packet.signals)
         items = [
             self.ingest_office_signal(
                 principal_id=principal_id,
@@ -3734,13 +5423,57 @@ class ProductService:
             )
             for row in curated_signals
         ]
+        suppressed_total = len(suppressed_signals)
         deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
         synced_total = len(items) - deduplicated_total
+        account_rollups: dict[str, dict[str, object]] = {}
+        account_order: list[str] = []
+
+        def _signal_account_email(signal: google_oauth_service.GoogleWorkspaceSignal) -> str:
+            return str(dict(signal.payload or {}).get("account_email") or "").strip().lower()
+
+        def _ensure_account_rollup(account_email: str) -> dict[str, object]:
+            normalized_email = str(account_email or "").strip().lower()
+            key = normalized_email or "unattributed"
+            if key not in account_rollups:
+                account_rollups[key] = {
+                    "account_email": normalized_email,
+                    "gmail_total": 0,
+                    "calendar_total": 0,
+                    "processed_total": 0,
+                    "synced_total": 0,
+                    "deduplicated_total": 0,
+                    "suppressed_total": 0,
+                }
+                account_order.append(key)
+            return account_rollups[key]
+
+        for account_email in packet.account_emails:
+            _ensure_account_rollup(str(account_email or "").strip().lower())
+        for signal in packet.signals:
+            row = _ensure_account_rollup(_signal_account_email(signal))
+            if str(signal.channel or "").strip().lower() == "gmail":
+                row["gmail_total"] = int(row["gmail_total"] or 0) + 1
+            elif str(signal.channel or "").strip().lower() == "calendar":
+                row["calendar_total"] = int(row["calendar_total"] or 0) + 1
+        for signal, item in zip(curated_signals, items):
+            row = _ensure_account_rollup(_signal_account_email(signal))
+            row["processed_total"] = int(row["processed_total"] or 0) + 1
+            if bool(item.get("deduplicated")):
+                row["deduplicated_total"] = int(row["deduplicated_total"] or 0) + 1
+            else:
+                row["synced_total"] = int(row["synced_total"] or 0) + 1
+        for signal in suppressed_signals:
+            row = _ensure_account_rollup(_signal_account_email(signal))
+            row["suppressed_total"] = int(row["suppressed_total"] or 0) + 1
+        account_sync_accounts = [dict(account_rollups[key]) for key in account_order]
         self._record_product_event(
             principal_id=principal_id,
             event_type="google_workspace_signal_sync_completed",
             payload={
                 "account_email": packet.account_email,
+                "account_emails": list(packet.account_emails),
+                "accounts": account_sync_accounts,
                 "email_limit": max(int(email_limit), 0),
                 "calendar_limit": max(int(calendar_limit), 0),
                 "processed_total": len(items),
@@ -3759,6 +5492,7 @@ class ProductService:
         return {
             "generated_at": _now_iso(),
             "account_email": packet.account_email,
+            "account_emails": list(packet.account_emails),
             "granted_scopes": list(packet.granted_scopes),
             "items": items,
             "total": len(items),
@@ -3770,10 +5504,17 @@ class ProductService:
     def google_signal_sync_status(self, *, principal_id: str) -> dict[str, object]:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
         sync = dict(dict(diagnostics.get("analytics") or {}).get("sync") or {})
+        google_accounts = google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id)
+        account_emails = [
+            str(account.google_email or "").strip().lower()
+            for account in google_accounts
+            if str(account.google_email or "").strip()
+        ]
         return {
             "generated_at": _now_iso(),
             "connected": bool(sync.get("google_connected")),
             "account_email": str(sync.get("google_account_email") or "").strip(),
+            "account_emails": account_emails,
             "token_status": str(sync.get("google_token_status") or "missing").strip() or "missing",
             "last_refresh_at": str(sync.get("google_last_refresh_at") or "").strip(),
             "reauth_required_reason": str(sync.get("google_reauth_required_reason") or "").strip(),
@@ -3787,6 +5528,31 @@ class ProductService:
             "last_calendar_total": int(sync.get("google_sync_last_calendar_total") or 0),
             "age_seconds": sync.get("google_sync_age_seconds"),
             "freshness_state": str(sync.get("google_sync_freshness_state") or "watch").strip() or "watch",
+            "account_sync_accounts": [
+                dict(value)
+                for value in list(sync.get("google_sync_accounts") or [])
+                if isinstance(value, dict)
+            ],
+            "last_send_verification_at": str(sync.get("google_send_verification_last_at") or "").strip(),
+            "last_send_verification_state": str(sync.get("google_send_verification_last_state") or "").strip(),
+            "last_send_verification_sender_email": str(sync.get("google_send_verification_last_sender_email") or "").strip(),
+            "last_send_verification_recipient_email": str(sync.get("google_send_verification_last_recipient_email") or "").strip(),
+            "last_send_verification_binding_id": str(sync.get("google_send_verification_last_binding_id") or "").strip(),
+            "last_send_verification_error": str(sync.get("google_send_verification_last_error") or "").strip(),
+            "send_verification_accounts": [
+                dict(value)
+                for value in list(sync.get("google_send_verification_accounts") or [])
+                if isinstance(value, dict)
+            ],
+            "last_account_change_at": str(sync.get("google_account_change_last_at") or "").strip(),
+            "last_account_change_state": str(sync.get("google_account_change_last_state") or "").strip(),
+            "last_account_change_binding_id": str(sync.get("google_account_change_last_binding_id") or "").strip(),
+            "last_account_change_email": str(sync.get("google_account_change_last_email") or "").strip(),
+            "account_change_accounts": [
+                dict(value)
+                for value in list(sync.get("google_account_change_accounts") or [])
+                if isinstance(value, dict)
+            ],
             "pending_commitment_candidates": int(sync.get("pending_commitment_candidates") or 0),
             "covered_signal_candidates": int(sync.get("covered_signal_candidates") or 0),
         }
@@ -5415,6 +7181,382 @@ class ProductService:
             dedupe_key=f"{principal_id}|{invitation_id}|revoked",
         )
         return self.get_workspace_invitation(principal_id=principal_id, invitation_id=invitation_id)
+
+    def _workspace_sign_in_candidates(
+        self,
+        *,
+        email: str,
+        observation_limit: int = 5000,
+        per_principal_limit: int = 200,
+    ) -> tuple[dict[str, object], ...]:
+        normalized_email = str(email or "").strip().lower()
+        if not normalized_email:
+            return ()
+        principal_last_seen: dict[str, str] = {}
+        for row in self._container.channel_runtime.list_recent_observations(limit=max(int(observation_limit), 100)):
+            payload = dict(row.payload or {})
+            email_values = (
+                str(payload.get("email") or "").strip().lower(),
+                str(payload.get("recipient_email") or "").strip().lower(),
+            )
+            if normalized_email not in email_values:
+                continue
+            principal_id = str(row.principal_id or "").strip()
+            if not principal_id:
+                continue
+            created_at = str(row.created_at or "").strip()
+            previous = str(principal_last_seen.get(principal_id) or "").strip()
+            if not previous or created_at > previous:
+                principal_last_seen[principal_id] = created_at
+        candidates: list[dict[str, object]] = []
+        for principal_id, last_seen_at in sorted(principal_last_seen.items(), key=lambda item: item[1], reverse=True):
+            status = self._container.onboarding.status(principal_id=principal_id)
+            workspace = dict(status.get("workspace") or {})
+            workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
+            access_matches = [
+                dict(row)
+                for row in self.list_workspace_access_sessions(
+                    principal_id=principal_id,
+                    status="active",
+                    limit=max(int(per_principal_limit), 50),
+                )
+                if str(row.get("email") or "").strip().lower() == normalized_email
+            ]
+            access_matches.sort(
+                key=lambda row: (
+                    str(row.get("issued_at") or ""),
+                    str(row.get("session_id") or ""),
+                ),
+                reverse=True,
+            )
+            if access_matches:
+                selected = access_matches[0]
+                candidates.append(
+                    {
+                        "kind": "access",
+                        "principal_id": principal_id,
+                        "workspace_name": workspace_name,
+                        "email": normalized_email,
+                        "role": str(selected.get("role") or "principal").strip().lower() or "principal",
+                        "display_name": str(selected.get("display_name") or workspace_name).strip() or workspace_name,
+                        "operator_id": str(selected.get("operator_id") or "").strip(),
+                    }
+                )
+                continue
+            accepted_invites = [
+                dict(row)
+                for row in self.list_workspace_invitations(
+                    principal_id=principal_id,
+                    status="accepted",
+                    limit=max(int(per_principal_limit), 50),
+                )
+                if str(row.get("email") or "").strip().lower() == normalized_email
+            ]
+            accepted_invites.sort(
+                key=lambda row: (
+                    str(row.get("accepted_at") or row.get("invited_at") or ""),
+                    str(row.get("invitation_id") or ""),
+                ),
+                reverse=True,
+            )
+            if accepted_invites:
+                selected = accepted_invites[0]
+                candidates.append(
+                    {
+                        "kind": "access",
+                        "principal_id": principal_id,
+                        "workspace_name": workspace_name,
+                        "email": normalized_email,
+                        "role": str(selected.get("role") or "operator").strip().lower() or "operator",
+                        "display_name": str(selected.get("display_name") or workspace_name).strip() or workspace_name,
+                        "operator_id": str(selected.get("operator_id") or "").strip(),
+                    }
+                )
+                continue
+            pending_invites = [
+                dict(row)
+                for row in self.list_workspace_invitations(
+                    principal_id=principal_id,
+                    status="pending",
+                    limit=max(int(per_principal_limit), 50),
+                )
+                if str(row.get("email") or "").strip().lower() == normalized_email
+            ]
+            pending_invites.sort(
+                key=lambda row: (
+                    str(row.get("invited_at") or ""),
+                    str(row.get("invitation_id") or ""),
+                ),
+                reverse=True,
+            )
+            if pending_invites:
+                selected = pending_invites[0]
+                candidates.append(
+                    {
+                        "kind": "invite",
+                        "principal_id": principal_id,
+                        "workspace_name": workspace_name,
+                        "email": normalized_email,
+                        "role": str(selected.get("role") or "operator").strip().lower() or "operator",
+                        "display_name": str(selected.get("display_name") or "").strip(),
+                        "invited_by": str(selected.get("invited_by") or "").strip(),
+                        "note": str(selected.get("note") or "").strip(),
+                        "invite_url": str(selected.get("invite_url") or "").strip(),
+                        "expires_at": str(selected.get("expires_at") or "").strip(),
+                    }
+                )
+        return tuple(candidates)
+
+    def request_workspace_sign_in_email_links(
+        self,
+        *,
+        email: str,
+        base_url: str = "",
+        expires_in_hours: int = 72,
+    ) -> dict[str, object]:
+        normalized_email = str(email or "").strip().lower()
+        if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
+            raise ValueError("workspace_sign_in_email_invalid")
+        if not email_delivery_enabled():
+            raise RuntimeError("workspace_sign_in_email_delivery_not_configured")
+        candidates = self._workspace_sign_in_candidates(email=normalized_email)
+        if not candidates:
+            return {
+                "status": "not_found",
+                "email": normalized_email,
+                "workspace_total": 0,
+                "sent_total": 0,
+                "failed_total": 0,
+                "items": [],
+            }
+        sent_total = 0
+        failed_total = 0
+        items: list[dict[str, object]] = []
+        for candidate in candidates:
+            principal_id = str(candidate.get("principal_id") or "").strip()
+            workspace_name = str(candidate.get("workspace_name") or "Executive Workspace").strip() or "Executive Workspace"
+            kind = str(candidate.get("kind") or "access").strip().lower() or "access"
+            role = str(candidate.get("role") or "principal").strip().lower() or "principal"
+            display_name = str(candidate.get("display_name") or workspace_name).strip() or workspace_name
+            try:
+                if kind == "invite":
+                    invite_url = str(candidate.get("invite_url") or "").strip()
+                    if not invite_url:
+                        raise RuntimeError("workspace_invite_url_missing")
+                    absolute_invite_url = urllib.parse.urljoin(str(base_url or "").strip(), invite_url) if str(base_url or "").strip() else invite_url
+                    receipt = send_workspace_invitation_email(
+                        recipient_email=normalized_email,
+                        invite_url=absolute_invite_url,
+                        role=role,
+                        invited_by=str(candidate.get("invited_by") or workspace_name).strip() or workspace_name,
+                        note=str(candidate.get("note") or "").strip(),
+                        expires_at=str(candidate.get("expires_at") or "").strip(),
+                    )
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="workspace_sign_in_invite_email_sent",
+                        payload={
+                            "recipient_email": normalized_email,
+                            "workspace_name": workspace_name,
+                            "role": role,
+                            "provider": receipt.provider,
+                        },
+                        source_id=f"signin-invite:{normalized_email}:{principal_id}",
+                    )
+                    sent_total += 1
+                    items.append(
+                        {
+                            "kind": kind,
+                            "workspace_name": workspace_name,
+                            "principal_id": principal_id,
+                            "status": "sent",
+                            "role": role,
+                        }
+                    )
+                    continue
+                access_session = self.issue_workspace_access_session(
+                    principal_id=principal_id,
+                    email=normalized_email,
+                    role=role,
+                    display_name=display_name,
+                    operator_id=str(candidate.get("operator_id") or "").strip(),
+                    source_kind="sign_in_email",
+                    expires_in_hours=expires_in_hours,
+                )
+                access_url = str(access_session.get("access_url") or "").strip()
+                absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url
+                receipt = send_workspace_access_email(
+                    recipient_email=normalized_email,
+                    workspace_name=workspace_name,
+                    access_url=absolute_access_url,
+                    role=role,
+                    display_name=display_name,
+                    expires_at=str(access_session.get("expires_at") or "").strip(),
+                )
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="workspace_sign_in_access_email_sent",
+                    payload={
+                        "recipient_email": normalized_email,
+                        "workspace_name": workspace_name,
+                        "role": role,
+                        "provider": receipt.provider,
+                        "access_session_id": str(access_session.get("session_id") or "").strip(),
+                    },
+                    source_id=f"signin-access:{normalized_email}:{principal_id}",
+                )
+                sent_total += 1
+                items.append(
+                    {
+                        "kind": kind,
+                        "workspace_name": workspace_name,
+                        "principal_id": principal_id,
+                        "status": "sent",
+                        "role": role,
+                    }
+                )
+            except RuntimeError as exc:
+                failed_total += 1
+                error_text = str(exc or "workspace_sign_in_email_send_failed")
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="workspace_sign_in_email_failed",
+                    payload={
+                        "recipient_email": normalized_email,
+                        "workspace_name": workspace_name,
+                        "role": role,
+                        "error": error_text,
+                        "kind": kind,
+                    },
+                    source_id=f"signin-failed:{normalized_email}:{principal_id}:{kind}",
+                )
+                items.append(
+                    {
+                        "kind": kind,
+                        "workspace_name": workspace_name,
+                        "principal_id": principal_id,
+                        "status": "failed",
+                        "role": role,
+                        "error": error_text,
+                    }
+                )
+        status = "sent" if sent_total and not failed_total else "partial" if sent_total else "failed"
+        return {
+            "status": status,
+            "email": normalized_email,
+            "workspace_total": len(candidates),
+            "sent_total": sent_total,
+            "failed_total": failed_total,
+            "items": items,
+        }
+
+    def send_google_connect_email_link(
+        self,
+        *,
+        principal_id: str,
+        recipient_email: str,
+        scope_bundle: str = "full_workspace",
+        base_url: str = "",
+        expires_in_hours: int = 72,
+    ) -> dict[str, object]:
+        normalized_email = str(recipient_email or "").strip().lower()
+        if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
+            raise ValueError("google_connect_email_invalid")
+        if not email_delivery_enabled():
+            raise RuntimeError("google_connect_email_delivery_not_configured")
+        normalized_bundle = google_oauth_service.normalize_scope_bundle(scope_bundle)
+        if normalized_bundle == "all":
+            normalized_bundle = "full_workspace"
+        workspace = dict(self._container.onboarding.status(principal_id=principal_id).get("workspace") or {})
+        workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
+        accounts = sorted(
+            google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id),
+            key=lambda account: (
+                account.binding.binding_id != f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}",
+                str(account.google_email or "").strip().lower(),
+            ),
+        )
+        primary_account = next(
+            (
+                account
+                for account in accounts
+                if str(account.binding.binding_id or "").strip()
+                == f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}"
+            ),
+            accounts[0] if accounts else None,
+        )
+        access_session = self.issue_workspace_access_session(
+            principal_id=principal_id,
+            email=normalized_email,
+            role="principal",
+            display_name=workspace_name,
+            source_kind="google_connect_email",
+            expires_in_hours=expires_in_hours,
+        )
+        connect_path = "/app/actions/google/connect?" + urllib.parse.urlencode(
+            {
+                "return_to": "/app/settings/google",
+                "scope_bundle": normalized_bundle,
+            }
+        )
+        access_path = (
+            f"{str(access_session.get('access_url') or '').strip()}?"
+            f"return_to={urllib.parse.quote(connect_path, safe='/')}"
+        )
+        absolute_connect_url = urllib.parse.urljoin(str(base_url or "").strip(), access_path) if str(base_url or "").strip() else access_path
+        bundle_details = google_oauth_service.google_scope_bundle_details(normalized_bundle)
+        try:
+            receipt = send_google_connect_email(
+                recipient_email=normalized_email,
+                workspace_name=workspace_name,
+                connect_url=absolute_connect_url,
+                scope_label=str(bundle_details.get("label") or normalized_bundle).strip() or normalized_bundle,
+                scope_summary=str(bundle_details.get("summary") or "").strip(),
+                primary_google_email=str(getattr(primary_account, "google_email", "") or "").strip(),
+                connected_account_total=len(accounts),
+                expires_at=str(access_session.get("expires_at") or "").strip(),
+            )
+        except RuntimeError as exc:
+            error_text = str(exc or "google_connect_email_send_failed")
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="google_connect_email_failed",
+                payload={
+                    "recipient_email": normalized_email,
+                    "workspace_name": workspace_name,
+                    "scope_bundle": normalized_bundle,
+                    "error": error_text,
+                },
+                source_id=f"google-connect-email:{normalized_email}:{normalized_bundle}",
+            )
+            raise
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_connect_email_sent",
+            payload={
+                "recipient_email": normalized_email,
+                "workspace_name": workspace_name,
+                "scope_bundle": normalized_bundle,
+                "provider": receipt.provider,
+                "access_session_id": str(access_session.get("session_id") or "").strip(),
+                "connected_account_total": len(accounts),
+                "primary_google_email": str(getattr(primary_account, "google_email", "") or "").strip(),
+            },
+            source_id=f"google-connect-email:{normalized_email}:{normalized_bundle}",
+        )
+        return {
+            "status": "sent",
+            "recipient_email": normalized_email,
+            "workspace_name": workspace_name,
+            "scope_bundle": normalized_bundle,
+            "scope_label": str(bundle_details.get("label") or normalized_bundle).strip() or normalized_bundle,
+            "connected_account_total": len(accounts),
+            "primary_google_email": str(getattr(primary_account, "google_email", "") or "").strip(),
+            "connect_url": access_path,
+            "access_session_id": str(access_session.get("session_id") or "").strip(),
+            "email_provider": receipt.provider,
+            "email_message_id": receipt.message_id,
+        }
 
     def create_commitment(
         self,
@@ -7299,11 +9441,63 @@ class ProductService:
         google_sync_last_event = next((row for row in reversed(event_rows) if row.event_type == "google_workspace_signal_sync_completed"), None)
         google_sync_last_payload = dict(getattr(google_sync_last_event, "payload", {}) or {}) if google_sync_last_event is not None else {}
         google_sync_last_completed_at = str(getattr(google_sync_last_event, "created_at", "") or "").strip()
+        google_send_verification_last_event = next(
+            (
+                row
+                for row in reversed(event_rows)
+                if row.event_type in {"google_send_verification_completed", "google_send_verification_failed"}
+            ),
+            None,
+        )
+        google_send_verification_last_payload = (
+            dict(getattr(google_send_verification_last_event, "payload", {}) or {})
+            if google_send_verification_last_event is not None
+            else {}
+        )
+        google_send_verification_last_at = str(getattr(google_send_verification_last_event, "created_at", "") or "").strip()
+        google_send_verification_last_state = (
+            "completed"
+            if str(getattr(google_send_verification_last_event, "event_type", "") or "").strip() == "google_send_verification_completed"
+            else "failed"
+            if google_send_verification_last_event is not None
+            else ""
+        )
+        google_account_change_last_event = next(
+            (
+                row
+                for row in reversed(event_rows)
+                if row.event_type in {
+                    "google_account_connected",
+                    "google_account_primary_updated",
+                    "google_account_disconnected",
+                }
+            ),
+            None,
+        )
+        google_account_change_last_payload = (
+            dict(getattr(google_account_change_last_event, "payload", {}) or {})
+            if google_account_change_last_event is not None
+            else {}
+        )
+        google_account_change_last_at = str(getattr(google_account_change_last_event, "created_at", "") or "").strip()
+        google_account_change_last_state = (
+            str(getattr(google_account_change_last_event, "event_type", "") or "").strip().replace("google_", "")
+            if google_account_change_last_event is not None
+            else ""
+        )
         pocket_sync_last_event = next((row for row in reversed(event_rows) if row.event_type == "pocket_recording_sync_completed"), None)
         pocket_sync_last_payload = dict(getattr(pocket_sync_last_event, "payload", {}) or {}) if pocket_sync_last_event is not None else {}
         pocket_sync_last_completed_at = str(getattr(pocket_sync_last_event, "created_at", "") or "").strip()
         google_accounts = google_oauth_service.list_google_accounts(container=self._container, principal_id=principal_id)
-        primary_google_account = google_accounts[0] if google_accounts else None
+        primary_google_account = next(
+            (
+                account
+                for account in google_accounts
+                if str(account.binding.status or "").strip().lower() == "enabled"
+                and str(account.token_status or "").strip().lower() != "revoked"
+            ),
+            google_accounts[0] if google_accounts else None,
+        )
         google_connected = primary_google_account is not None or bool(str(google_sync_last_payload.get("account_email") or "").strip())
         google_account_email = str(
             getattr(primary_google_account, "google_email", "") or google_sync_last_payload.get("account_email") or ""
@@ -7311,6 +9505,98 @@ class ProductService:
         google_token_status = str(getattr(primary_google_account, "token_status", "") or "").strip() or ("active" if google_sync_last_completed_at else ("missing" if not google_connected else "unknown"))
         google_last_refresh_at = str(getattr(primary_google_account, "last_refresh_at", "") or google_sync_last_completed_at or "").strip()
         google_reauth_required_reason = str(getattr(primary_google_account, "reauth_required_reason", "") or "").strip()
+        google_send_verification_by_identity: dict[str, dict[str, object]] = {}
+        for row in reversed(event_rows):
+            if row.event_type not in {"google_send_verification_completed", "google_send_verification_failed"}:
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            identity = (
+                str(payload.get("google_subject") or "").strip().lower()
+                or str(payload.get("google_email") or "").strip().lower()
+                or str(payload.get("sender_email") or "").strip().lower()
+                or str(payload.get("binding_id") or "").strip().lower()
+            )
+            if not identity or identity in google_send_verification_by_identity:
+                continue
+            google_send_verification_by_identity[identity] = {
+                "state": "completed" if row.event_type == "google_send_verification_completed" else "failed",
+                "verified_at": str(getattr(row, "created_at", "") or "").strip(),
+                "sender_email": str(payload.get("sender_email") or "").strip(),
+                "recipient_email": str(payload.get("recipient_email") or "").strip(),
+                "error": str(payload.get("error") or "").strip(),
+            }
+        google_send_verification_accounts: list[dict[str, object]] = []
+        for account in google_accounts:
+            identity_keys = (
+                str(account.google_subject or "").strip().lower(),
+                str(account.google_email or "").strip().lower(),
+                str(account.binding.binding_id or "").strip().lower(),
+            )
+            matched: dict[str, object] = {}
+            for identity_key in identity_keys:
+                if identity_key and identity_key in google_send_verification_by_identity:
+                    matched = dict(google_send_verification_by_identity[identity_key])
+                    break
+            google_send_verification_accounts.append(
+                {
+                    "binding_id": str(account.binding.binding_id or "").strip(),
+                    "google_email": str(account.google_email or "").strip(),
+                    "google_subject": str(account.google_subject or "").strip(),
+                    "is_primary": str(account.binding.binding_id or "").strip()
+                    == f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}",
+                    "state": str(matched.get("state") or "").strip(),
+                    "verified_at": str(matched.get("verified_at") or "").strip(),
+                    "sender_email": str(matched.get("sender_email") or "").strip(),
+                    "recipient_email": str(matched.get("recipient_email") or "").strip(),
+                    "error": str(matched.get("error") or "").strip(),
+                }
+            )
+        google_account_change_by_identity: dict[str, dict[str, object]] = {}
+        for row in reversed(event_rows):
+            if row.event_type not in {
+                "google_account_connected",
+                "google_account_primary_updated",
+                "google_account_disconnected",
+            }:
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            identity = (
+                str(payload.get("google_subject") or "").strip().lower()
+                or str(payload.get("google_email") or "").strip().lower()
+                or str(payload.get("binding_id") or "").strip().lower()
+            )
+            if not identity or identity in google_account_change_by_identity:
+                continue
+            google_account_change_by_identity[identity] = {
+                "state": str(row.event_type or "").strip().replace("google_", ""),
+                "changed_at": str(getattr(row, "created_at", "") or "").strip(),
+                "google_email": str(payload.get("google_email") or "").strip(),
+                "error": str(payload.get("error") or "").strip(),
+            }
+        google_account_change_accounts: list[dict[str, object]] = []
+        for account in google_accounts:
+            identity_keys = (
+                str(account.google_subject or "").strip().lower(),
+                str(account.google_email or "").strip().lower(),
+                str(account.binding.binding_id or "").strip().lower(),
+            )
+            matched_change: dict[str, object] = {}
+            for identity_key in identity_keys:
+                if identity_key and identity_key in google_account_change_by_identity:
+                    matched_change = dict(google_account_change_by_identity[identity_key])
+                    break
+            google_account_change_accounts.append(
+                {
+                    "binding_id": str(account.binding.binding_id or "").strip(),
+                    "google_email": str(account.google_email or "").strip(),
+                    "google_subject": str(account.google_subject or "").strip(),
+                    "is_primary": str(account.binding.binding_id or "").strip()
+                    == f"{account.binding.principal_id}:{google_oauth_service.GOOGLE_PROVIDER_KEY}",
+                    "state": str(matched_change.get("state") or "").strip(),
+                    "changed_at": str(matched_change.get("changed_at") or "").strip(),
+                    "error": str(matched_change.get("error") or "").strip(),
+                }
+            )
         google_sync_age_seconds: int | None = None
         if google_sync_last_completed_at:
             try:
@@ -7419,6 +9705,9 @@ class ProductService:
             if (delivery_success_total + delivery_failure_total)
             else None
         )
+        pending_invitations = len(self.list_workspace_invitations(principal_id=principal_id, status="pending", limit=500))
+        accepted_invitations = len(self.list_workspace_invitations(principal_id=principal_id, status="accepted", limit=500))
+        revoked_invitations = len(self.list_workspace_invitations(principal_id=principal_id, status="revoked", limit=500))
         workspace_access_open_rate = (
             round(access_session_opened_count / max(access_session_issued_count, 1), 2)
             if access_session_issued_count
@@ -7643,6 +9932,11 @@ class ProductService:
                     "revoked": access_session_revoked_count,
                     "active": active_access_sessions,
                 },
+                "invitations": {
+                    "pending": pending_invitations,
+                    "accepted": accepted_invitations,
+                    "revoked": revoked_invitations,
+                },
                 "sync": {
                     "google_sync_completed": google_sync_completed_count,
                     "pocket_sync_completed": pocket_sync_completed_count,
@@ -7660,6 +9954,35 @@ class ProductService:
                     "google_sync_last_calendar_total": int(google_sync_last_payload.get("calendar_total") or 0),
                     "google_sync_age_seconds": google_sync_age_seconds,
                     "google_sync_freshness_state": google_sync_freshness_state,
+                    "google_sync_accounts": [
+                        dict(value)
+                        for value in list(google_sync_last_payload.get("accounts") or [])
+                        if isinstance(value, dict)
+                    ],
+                    "google_send_verification_last_at": google_send_verification_last_at,
+                    "google_send_verification_last_state": google_send_verification_last_state,
+                    "google_send_verification_last_sender_email": str(
+                        google_send_verification_last_payload.get("sender_email") or ""
+                    ).strip(),
+                    "google_send_verification_last_recipient_email": str(
+                        google_send_verification_last_payload.get("recipient_email") or ""
+                    ).strip(),
+                    "google_send_verification_last_binding_id": str(
+                        google_send_verification_last_payload.get("binding_id") or ""
+                    ).strip(),
+                    "google_send_verification_last_error": str(
+                        google_send_verification_last_payload.get("error") or ""
+                    ).strip(),
+                    "google_send_verification_accounts": [dict(value) for value in google_send_verification_accounts],
+                    "google_account_change_last_at": google_account_change_last_at,
+                    "google_account_change_last_state": google_account_change_last_state,
+                    "google_account_change_last_binding_id": str(
+                        google_account_change_last_payload.get("binding_id") or ""
+                    ).strip(),
+                    "google_account_change_last_email": str(
+                        google_account_change_last_payload.get("google_email") or ""
+                    ).strip(),
+                    "google_account_change_accounts": [dict(value) for value in google_account_change_accounts],
                     "pocket_sync_last_completed_at": pocket_sync_last_completed_at,
                     "pocket_sync_last_synced_total": int(pocket_sync_last_payload.get("synced_total") or 0),
                     "pocket_sync_last_deduplicated_total": int(pocket_sync_last_payload.get("deduplicated_total") or 0),
@@ -8182,6 +10505,8 @@ class ProductService:
             return "Claimed from operator digest."
         if normalized == "retry_send":
             return "Retried from operator digest."
+        if normalized == "recreate":
+            return "Recreated from operator digest."
         if normalized == "sent":
             return "Marked sent from operator digest."
         if normalized == "failed":
@@ -9175,16 +11500,16 @@ class ProductService:
         actor: str = "",
         preferred_operator_id: str = "",
     ) -> dict[str, object] | None:
-        payload = _verify_channel_payload(secret=self._channel_action_secret(), token=token)
-        if payload is None:
+        preview = self.preview_channel_action_token(token=token)
+        if preview is None:
             return None
-        principal_id = str(payload.get("principal_id") or "").strip()
-        object_kind = str(payload.get("object_kind") or "").strip().lower()
-        object_ref = str(payload.get("object_ref") or "").strip()
-        action = str(payload.get("action") or "").strip().lower()
-        return_to = str(payload.get("return_to") or "/sign-in").strip() or "/sign-in"
-        reason = str(payload.get("reason") or "Resolved from channel action link.").strip() or "Resolved from channel action link."
-        operator_id = str(preferred_operator_id or payload.get("operator_id") or "").strip()
+        principal_id = str(preview.get("principal_id") or "").strip()
+        object_kind = str(preview.get("object_kind") or "").strip().lower()
+        object_ref = str(preview.get("object_ref") or "").strip()
+        action = str(preview.get("action") or "").strip().lower()
+        return_to = str(preview.get("return_to") or "/sign-in").strip() or "/sign-in"
+        reason = str(preview.get("reason") or "Resolved from channel action link.").strip() or "Resolved from channel action link."
+        operator_id = str(preferred_operator_id or preview.get("operator_id") or "").strip()
         resolved_actor = str(actor or operator_id or principal_id or "channel_link").strip() or "channel_link"
         if not principal_id or not object_kind or not object_ref or not action:
             return None
@@ -9253,6 +11578,13 @@ class ProductService:
                     operator_id=operator_id,
                     actor=resolved_actor,
                 )
+            elif action == "recreate":
+                result = self.recreate_property_tour_followup(
+                    principal_id=principal_id,
+                    handoff_ref=object_ref,
+                    operator_id=operator_id,
+                    actor=resolved_actor,
+                )
             else:
                 result = self.complete_handoff(
                     principal_id=principal_id,
@@ -9291,6 +11623,33 @@ class ProductService:
             "action": action,
             "return_to": return_to,
             "actor": resolved_actor,
+        }
+
+    def preview_channel_action_token(
+        self,
+        *,
+        token: str,
+    ) -> dict[str, object] | None:
+        payload = _verify_channel_payload(secret=self._channel_action_secret(), token=token)
+        if payload is None:
+            return None
+        principal_id = str(payload.get("principal_id") or "").strip()
+        object_kind = str(payload.get("object_kind") or "").strip().lower()
+        object_ref = str(payload.get("object_ref") or "").strip()
+        action = str(payload.get("action") or "").strip().lower()
+        if not principal_id or not object_kind or not object_ref or not action:
+            return None
+        return {
+            "principal_id": principal_id,
+            "object_kind": object_kind,
+            "object_ref": object_ref,
+            "action": action,
+            "return_to": str(payload.get("return_to") or "/sign-in").strip() or "/sign-in",
+            "reason": str(payload.get("reason") or "Resolved from channel action link.").strip()
+            or "Resolved from channel action link.",
+            "operator_id": str(payload.get("operator_id") or "").strip(),
+            "issued_at": str(payload.get("issued_at") or "").strip(),
+            "expires_at": str(payload.get("expires_at") or "").strip(),
         }
 
     def record_surface_event(

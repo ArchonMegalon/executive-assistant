@@ -40,7 +40,7 @@ def test_executive_operator_fixture_supports_admin_and_handoff_loop() -> None:
 
     operators = client.get("/admin/operators")
     assert operators.status_code == 200
-    assert "Team / Operators" in operators.text
+    assert "Operators" in operators.text
     assert seeded["human_task_id"] in client.get("/app/api/handoffs").text
 
     bundle = client.get("/app/api/diagnostics/export")
