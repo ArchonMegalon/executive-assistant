@@ -164,6 +164,34 @@ page_types:
     - blocker truth
     - petition intake
     - generic review context
+  parts_index_page:
+    audience: deeper_public
+    max_technical_depth: medium
+    max_images: 1
+    top_banner_allowed: false
+    preferred_image_type: concept_art
+    hero_required: false
+    screenshot_preferred: false
+    caption_required: false
+    allowed_sources:
+    - products/chummer/PUBLIC_PART_REGISTRY.yaml
+    - approved public-status summaries
+    - products/chummer/PUBLIC_GUIDE_POLICY.md
+    forbidden_sources:
+    - products/chummer/projects/*.md
+    - products/chummer/OWNERSHIP_MATRIX.md
+    - products/chummer/GROUP_BLOCKERS.md
+    required_topics:
+    - choose the right lane
+    - practical user symptoms
+    - visible surface or work zone
+    - deeper reading route
+    forbidden_terms:
+    - repo taxonomy
+    - ownership matrix
+    - trust boundaries
+    - principal-to-user mapping
+    - blocker truth
   horizon_index:
     audience: deeper_public
     max_technical_depth: medium

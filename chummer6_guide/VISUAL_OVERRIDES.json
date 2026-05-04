@@ -358,13 +358,15 @@
   "assets/horizons/karma-forge.png": {
     "visual_prompt": "Governed rules evolution under pressure at an industrial review bench: one rulesmith reconciles a volatile house-rule pack through color-banded diff strips, stamped approval cards, rollback cassettes, provenance rails, compatibility traces, and visible control markers under hard sodium spill. The frame must immediately communicate approval, rollback, provenance, consequence, and bounded experimentation for a Shadowrun table before anyone reads a caption. Dense, graphic, and cover-like rather than quiet or documentary. Keep both hands on hardware, rails, cassettes, clamps, or diff controls rather than loose paper or card handling. No readable text, no literal forge, no anvil, no sparks-and-hammer focus, no glowing-card cliché, no sparse bench still, and no face-hidden generic hand close-up.",
     "scene_contract": {
-      "subject": "one rulesmith reconciling a volatile house-rule pack through review, diff, and rollback pressure",
-      "environment": "an industrial review bench with chip trays, diff strips, approval cards, rollback cassettes, provenance rails, seal bands, compatibility halos, and hard task lighting",
-      "action": "forcing volatile rule deltas through governed approval, rollback, and provenance checks before they can touch a table",
-      "composition": "workshop_bench",
-      "props": ["diff strips", "approval cards", "rollback cassettes", "provenance rails", "seal bands", "control markers"],
-      "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets"],
-      "mood": "high-pressure, governed, and semantically explicit",
+      "subject": "a standing rulesmith and skeptical reviewer forcing unstable house-rule packs through an industrial approval rail while the apparatus looms larger than they do",
+      "environment": "an improvised industrial rules lab with approval rails, rollback rig hardware, provenance seals, consequence chambers, assay racks, cassette bins, gantry hooks, sample lockers, and hard sodium spill",
+      "action": "driving diff controls, rollback clamps, and witness locks under visible pressure so governed rules evolution reads through apparatus, rails, and consequence hardware instead of paperwork",
+      "metaphor": "governed rules evolution under pressure",
+      "composition": "approval_rail",
+      "props": ["rule lattice", "approval rail", "rollback cassette", "provenance seals", "cassette bin", "assay rack", "witness lock"],
+      "overlays": ["compatibility markers", "rollback seals", "receipt traces", "approval state brackets", "witness locks"],
+      "palette": "forge orange, audit green, midnight iron",
+      "mood": "volatile, expensive, and tightly governed",
       "easter_egg_policy": "forbid",
       "humor_policy": "forbid"
     }

@@ -847,12 +847,25 @@ def load_visual_overrides() -> dict[str, object]:
     return dict(loaded) if isinstance(loaded, dict) else {}
 
 
-def _merge_media_override_row(base_row: dict[str, object], override_row: dict[str, object]) -> dict[str, object]:
+def _merge_media_override_row(base_row: dict[str, object], override_row: dict[str, object], *, target: str = "") -> dict[str, object]:
     merged = dict(base_row)
     for key, value in override_row.items():
         if key == "scene_contract" and isinstance(value, dict):
             base_contract = dict(merged.get("scene_contract") or {})
-            base_contract.update(value)
+            if target in CRITICAL_VISUAL_TARGETS:
+                for contract_key, contract_value in value.items():
+                    if contract_key in {
+                        "easter_egg_kind",
+                        "easter_egg_placement",
+                        "easter_egg_detail",
+                        "easter_egg_visibility",
+                        "easter_egg_policy",
+                        "humor_policy",
+                        "humor",
+                    }:
+                        base_contract[contract_key] = contract_value
+            else:
+                base_contract.update(value)
             merged["scene_contract"] = base_contract
         else:
             merged[key] = value
@@ -870,7 +883,7 @@ def apply_visual_overrides_to_media(overrides: dict[str, object]) -> None:
     hero = media.get("hero")
     hero_override = visual_overrides.get("assets/hero/chummer6-hero.png")
     if isinstance(hero, dict) and isinstance(hero_override, dict):
-        media["hero"] = _merge_media_override_row(dict(hero), hero_override)
+        media["hero"] = _merge_media_override_row(dict(hero), hero_override, target="assets/hero/chummer6-hero.png")
 
     for group, prefix in (("parts", "assets/parts"), ("horizons", "assets/horizons")):
         rows = media.get(group)
@@ -884,7 +897,7 @@ def apply_visual_overrides_to_media(overrides: dict[str, object]) -> None:
             target = f"{prefix}/{item_id}.png"
             override_row = visual_overrides.get(target)
             if isinstance(override_row, dict):
-                merged_rows[item_id] = _merge_media_override_row(dict(row), override_row)
+                merged_rows[item_id] = _merge_media_override_row(dict(row), override_row, target=target)
             else:
                 merged_rows[item_id] = row
         media[group] = merged_rows
@@ -911,7 +924,7 @@ def scene_plan_pack_audit(overrides: dict[str, object]) -> dict[str, object]:
         if not isinstance(contract, dict):
             return
         composition = str(contract.get("composition") or "").strip()
-        if target:
+        if target and target not in CRITICAL_VISUAL_TARGETS:
             override = visual_overrides.get(target)
             if isinstance(override, dict):
                 override_contract = override.get("scene_contract")
@@ -1095,7 +1108,7 @@ PAGE_ID_TO_PAGE_TYPE: dict[str, str] = {
     "current_phase": "status_page",
     "current_status": "status_page",
     "public_surfaces": "status_page",
-    "parts_index": "part_page",
+    "parts_index": "parts_index_page",
     "horizons_index": "horizon_index",
 }
 EMPTY_MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(\s*\)")
@@ -1699,7 +1712,16 @@ def critical_visual_findings_for_target(target: str, row: object) -> list[str]:
                 str(row.get("visual_prompt") or ""),
             )
         ).strip().lower()
-        if re.search(r"\btable\b", scene_focus) and any(token in scene_focus for token in ("sitting", "seated", "paperwork")):
+        tableau_terms = {"group_table", "safehouse_table", "desk_still_life", "workshop_bench"}
+        if (
+            composition in tableau_terms
+            or (
+                re.search(r"\btable\b", scene_focus)
+                and any(token in scene_focus for token in ("sitting", "seated", "paperwork"))
+                and "shadowrun table" not in scene_focus
+                and "instead of paperwork" not in scene_focus
+            )
+        ):
             findings.append("critical_scene:tableau_not_forge")
         if not any(token in combined for token in ("approval rail", "rollback rig", "provenance seal", "rules lab", "consequence bench")):
             findings.append("critical_lore:missing_forge_semantics")
@@ -1854,6 +1876,18 @@ def page_supporting_context(page_id: str) -> list[str]:
         }
         snippets = list(curated_fallbacks.get(page, []))
     return snippets[:8]
+
+
+def page_public_context_tokens(page_id: str) -> tuple[str, ...]:
+    page = str(page_id or "").strip()
+    tokens: list[str] = ["guide", "horizon", "issue", "watch", "artifact", "receipt", "status", "proof"]
+    if page == "parts_index":
+        tokens.extend(["lane", "part", "surface"])
+    elif page == "horizons_index":
+        tokens.extend(["lane", "future", "next"])
+    elif page == "where_to_go_deeper":
+        tokens.extend(["design", "source", "code"])
+    return tuple(tokens)
 
 
 def faq_page_source() -> str:
@@ -3498,10 +3532,18 @@ def fallback_media_seed(kind: str, *, name: str, item: dict[str, object]) -> dic
     }
 
 
+def media_item_with_slug(name: str, item: dict[str, object]) -> dict[str, object]:
+    prepared = dict(item)
+    if not str(prepared.get("slug") or "").strip():
+        prepared["slug"] = str(name or "").strip()
+    return prepared
+
+
 def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[str, object]]) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, object]]]:
     copy_rows: dict[str, dict[str, str]] = {}
     media_rows: dict[str, dict[str, object]] = {}
     for name, item in items.items():
+        media_item = media_item_with_slug(name, item)
         row = result.get(name)
         if not isinstance(row, dict):
             legacy_name = LEGACY_PART_SLUGS.get(name)
@@ -3509,13 +3551,13 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
                 row = result.get(legacy_name)
         if not isinstance(row, dict):
             copy_rows[name] = fallback_part_copy(name, item)
-            media_rows[name] = normalize_media_override("part", fallback_media_seed("part", name=name, item=item), item)
+            media_rows[name] = normalize_media_override("part", fallback_media_seed("part", name=name, item=media_item), media_item)
             continue
         copy = row.get("copy")
         media = row.get("media")
         if not isinstance(copy, dict) or not isinstance(media, dict):
             copy_rows[name] = fallback_part_copy(name, item)
-            media_rows[name] = normalize_media_override("part", fallback_media_seed("part", name=name, item=item), item)
+            media_rows[name] = normalize_media_override("part", fallback_media_seed("part", name=name, item=media_item), media_item)
             continue
         cleaned_copy = {
             key: editorial_self_audit_text(
@@ -3528,9 +3570,9 @@ def normalize_parts_bundle(result: dict[str, object], *, items: dict[str, dict[s
         if len(cleaned_copy) < 3:
             cleaned_copy = fallback_part_copy(name, item)
         try:
-            media_cleaned = normalize_media_override("part", dict(media), item)
+            media_cleaned = normalize_media_override("part", dict(media), media_item)
         except Exception:
-            media_cleaned = normalize_media_override("part", fallback_media_seed("part", name=name, item=item), item)
+            media_cleaned = normalize_media_override("part", fallback_media_seed("part", name=name, item=media_item), media_item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
     return copy_rows, media_rows
@@ -3540,16 +3582,17 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
     copy_rows: dict[str, dict[str, str]] = {}
     media_rows: dict[str, dict[str, object]] = {}
     for name, item in items.items():
+        media_item = media_item_with_slug(name, item)
         row = result.get(name)
         if not isinstance(row, dict):
             copy_rows[name] = fallback_horizon_copy(name, item)
-            media_rows[name] = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=item), item)
+            media_rows[name] = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=media_item), media_item)
             continue
         copy = row.get("copy")
         media = row.get("media")
         if not isinstance(copy, dict) or not isinstance(media, dict):
             copy_rows[name] = fallback_horizon_copy(name, item)
-            media_rows[name] = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=item), item)
+            media_rows[name] = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=media_item), media_item)
             continue
         cleaned_copy = {
             key: editorial_self_audit_text(
@@ -3562,9 +3605,9 @@ def normalize_horizons_bundle(result: dict[str, object], *, items: dict[str, dic
         if len(cleaned_copy) < 7:
             cleaned_copy = fallback_horizon_copy(name, item)
         try:
-            media_cleaned = normalize_media_override("horizon", dict(media), item)
+            media_cleaned = normalize_media_override("horizon", dict(media), media_item)
         except Exception:
-            media_cleaned = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=item), item)
+            media_cleaned = normalize_media_override("horizon", fallback_media_seed("horizon", name=name, item=media_item), media_item)
         copy_rows[name] = cleaned_copy
         media_rows[name] = media_cleaned
     return copy_rows, media_rows
@@ -4168,19 +4211,7 @@ def copy_quality_findings(section_type: str, name: str, row: dict[str, object], 
             findings.append(
                 "Do not pitch a runnable proof-of-concept on root pages. If you mention artifacts, frame them as inspectable evidence within the current product direction."
             )
-        if page_supporting_context(name) and not any(
-            token in lowered
-            for token in (
-                "guide",
-                "horizon",
-                "issue",
-                "watch",
-                "artifact",
-                "receipt",
-                "status",
-                "proof",
-            )
-        ):
+        if page_supporting_context(name) and not any(token in lowered for token in page_public_context_tokens(name)):
             findings.append("Name at least one visible public surface, future lane, or cautious public action instead of describing the project only in abstract terms.")
         if name == "readme" and not any(token in lowered for token in ("guide", "horizon", "issue tracker", "artifact", "trace", "rough")):
             findings.append("README should point the reader toward the public guide, future lanes, issue tracker, or inspectable public artifacts instead of staying at product-story altitude.")
@@ -4556,9 +4587,9 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
         }
     if page_id == "parts_index":
         return {
-            "intro": "The parts map shows how the product is organized for clear ownership and trust boundaries.",
-            "body": "Use it to find the lane that matches your problem quickly. Each part describes responsibilities, visible surfaces, and where to inspect deeper evidence.",
-            "kicker": "Read the parts as working lanes with explicit boundaries.",
+            "intro": "Use the parts guide to pick the lane that matches the problem in front of you.",
+            "body": "Each part explains what it helps with, which visible surface or work zone you would notice, and where to go deeper if that lane matters to your table.",
+            "kicker": "Pick the lane that solves tonight's problem first.",
         }
     if page_id == "horizons_index":
         return {
@@ -5768,8 +5799,18 @@ Return valid JSON only.
 
 
 def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[str, object]) -> dict[str, object]:
+    def canonical_asset_key(value: object) -> str:
+        cleaned = str(value or "").strip().lower().replace("\\", "/")
+        if cleaned.endswith(".png"):
+            cleaned = cleaned.rsplit("/", 1)[-1][:-4]
+        elif "/" in cleaned:
+            cleaned = cleaned.rsplit("/", 1)[-1]
+        cleaned = cleaned.replace("_", "-").replace(" ", "-")
+        cleaned = re.sub(r"[^a-z0-9-]+", "-", cleaned)
+        return re.sub(r"-{2,}", "-", cleaned).strip("-")
+
     def asset_slug(raw_item: dict[str, object]) -> str:
-        return str(raw_item.get("slug") or raw_item.get("id") or raw_item.get("title") or kind).strip().lower().replace(" ", "-")
+        return canonical_asset_key(raw_item.get("slug") or raw_item.get("id") or raw_item.get("title") or kind)
 
     def contains_machine_overlay_language(text: str) -> bool:
         lowered = " ".join(str(text or "").split()).strip().lower()
@@ -5894,7 +5935,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             return "ambient lane arcs with district markers and branching path traces"
         if overlay_mode == "forge_review_ar":
             return "forge review rails with provenance seals, rollback vectors, approval chips, and witness lock"
-        lowered_asset_key = str(asset_key or "").strip().lower()
+        lowered_asset_key = canonical_asset_key(asset_key)
         if lowered_asset_key == "hero":
             return "medscan diagnostic rail with cyberware calibration, wound stabilization, and upgrade-state chips"
         if lowered_asset_key == "design":
@@ -6120,7 +6161,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         }
 
     def asset_scene_defaults(asset_key: str) -> dict[str, object]:
-        lowered_key = str(asset_key or "").strip().lower()
+        lowered_key = canonical_asset_key(asset_key)
         curated: dict[str, dict[str, object]] = {
             "hero": {
                 "subject": "an ork streetdoc stabilizing an ugly hairy troll runner on a hacked surgical recliner while a teammate crowds the far edge with tools or hard light",
@@ -6377,6 +6418,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         return False
 
     def infer_scene_contract(*, asset_key: str, visual_prompt: str) -> dict[str, object]:
+        asset_key = canonical_asset_key(asset_key)
         lowered = visual_prompt.lower()
         defaults = asset_scene_defaults(asset_key)
         locked_defaults = bool(defaults)
@@ -6487,7 +6529,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "table-pulse": "forensic_replay",
         }
         preferred = preferred_compositions.get(asset_key)
-        if preferred and composition in {"single_protagonist", "service_rack", "desk_still_life", "city_edge", "solo_operator", "transit_checkpoint", "workshop"}:
+        if preferred and composition in {"single_protagonist", "service_rack", "desk_still_life", "city_edge", "solo_operator", "transit_checkpoint", "workshop", "workshop_bench"}:
             composition = preferred
         palette = str(defaults.get("palette") or "cyan-magenta neon")
         mood = str(defaults.get("mood") or "dangerous, curious, and slightly amused")
@@ -6534,6 +6576,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         }
 
     def normalize_scene_contract(raw: object, *, asset_key: str, visual_prompt: str) -> dict[str, object]:
+        asset_key = canonical_asset_key(asset_key)
         default = infer_scene_contract(asset_key=asset_key, visual_prompt=visual_prompt)
         locked_defaults = bool(asset_scene_defaults(asset_key))
         if not isinstance(raw, dict):
@@ -6603,6 +6646,7 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
             "solo_operator",
             "transit_checkpoint",
             "workshop",
+            "workshop_bench",
         }:
             contract["composition"] = preferred
         # Keep the prompt close by so downstream renderers can reason over both.
@@ -6871,6 +6915,10 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         normalized[field] = value
     normalized["meta"] = str(normalized.get("meta", "")).strip()
     asset_key = asset_slug(item)
+    media_target = media_asset_target(kind=kind, item=item)
+    target_asset_key = canonical_asset_key(media_target)
+    if asset_scene_defaults(target_asset_key):
+        asset_key = target_asset_key
     fallback_fields = fallback_media_fields(asset_key=asset_key, kind=kind)
     curated_titles = {
         "hub": ("Relay Spine", "Hosted coordination under pressure."),
@@ -6930,7 +6978,6 @@ def normalize_media_override(kind: str, cleaned: dict[str, object], item: dict[s
         asset_key=asset_key,
         visual_prompt=str(normalized["visual_prompt"]),
     )
-    media_target = media_asset_target(kind=kind, item=item)
     visual_contract = visual_contract_for_target(media_target)
     if visual_contract:
         normalized["scene_contract"]["visual_contract"] = visual_contract
@@ -7543,10 +7590,11 @@ def generate_overrides(
                 trace(f"part copy/media bundle fallback ({','.join(batch.keys())}): {exc}")
                 for part_id, item in batch.items():
                     part_copy_rows[part_id] = fallback_part_copy(part_id, dict(item))
+                    media_item = media_item_with_slug(part_id, dict(item))
                     part_media_rows[part_id] = normalize_media_override(
                         "part",
-                        fallback_media_seed("part", name=part_id, item=dict(item)),
-                        dict(item),
+                        fallback_media_seed("part", name=part_id, item=media_item),
+                        media_item,
                     )
         for name, item in selected_parts.items():
             cleaned_copy = dict(part_copy_rows[name])
@@ -7637,10 +7685,11 @@ def generate_overrides(
                 trace(f"horizon copy/media bundle fallback ({','.join(batch.keys())}): {exc}")
                 for horizon_id, item in batch.items():
                     horizon_copy_rows[horizon_id] = fallback_horizon_copy(horizon_id, dict(item))
+                    media_item = media_item_with_slug(horizon_id, dict(item))
                     horizon_media_rows[horizon_id] = normalize_media_override(
                         "horizon",
-                        fallback_media_seed("horizon", name=horizon_id, item=dict(item)),
-                        dict(item),
+                        fallback_media_seed("horizon", name=horizon_id, item=media_item),
+                        media_item,
                     )
         for name, item in selected_horizons.items():
             cleaned_copy = dict(horizon_copy_rows[name])
