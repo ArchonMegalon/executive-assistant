@@ -1,0 +1,351 @@
+{
+  "contract_name": "ea.next90_m135_closure_coverage",
+  "coverage_families": [
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "governor_operator_packet_contract",
+          "path": "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+          "state": "task_proven"
+        },
+        {
+          "anchor_id": "operator_safe_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+          "state": "passed"
+        },
+        {
+          "anchor_id": "organizer_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
+          "state": "passed"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "compile_coverage",
+      "required_anchors": [
+        "governor_operator_packet_contract",
+        "operator_safe_followthrough_receipt",
+        "organizer_followthrough_receipt"
+      ]
+    },
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "governor_operator_packet_contract",
+          "path": "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+          "state": "task_proven"
+        },
+        {
+          "anchor_id": "operator_safe_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+          "state": "passed"
+        },
+        {
+          "anchor_id": "participation_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+          "state": "passed"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "signal_coverage",
+      "required_anchors": [
+        "governor_operator_packet_contract",
+        "operator_safe_followthrough_receipt",
+        "participation_followthrough_receipt"
+      ]
+    },
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "explain_companion_contract",
+          "path": "/docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml",
+          "state": "complete"
+        },
+        {
+          "anchor_id": "launch_followthrough_contract",
+          "path": "/docker/EA/docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml",
+          "state": "task_proven"
+        },
+        {
+          "anchor_id": "participation_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+          "state": "passed"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "companion_coverage",
+      "required_anchors": [
+        "explain_companion_contract",
+        "launch_followthrough_contract",
+        "participation_followthrough_receipt"
+      ]
+    },
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "public_copy_guard_script",
+          "path": "/docker/EA/scripts/chummer6_guide_worker.py",
+          "state": "present"
+        },
+        {
+          "anchor_id": "explain_companion_contract",
+          "path": "/docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml",
+          "state": "complete"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "public_copy_coverage",
+      "required_anchors": [
+        "public_copy_guard_script",
+        "explain_companion_contract"
+      ]
+    },
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "governor_operator_packet_contract",
+          "path": "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+          "state": "task_proven"
+        },
+        {
+          "anchor_id": "operator_safe_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+          "state": "passed"
+        },
+        {
+          "anchor_id": "organizer_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
+          "state": "passed"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "operator_packet_coverage",
+      "required_anchors": [
+        "governor_operator_packet_contract",
+        "operator_safe_followthrough_receipt",
+        "organizer_followthrough_receipt"
+      ]
+    },
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "provider_digest_script",
+          "path": "/docker/EA/scripts/chummer6_provider_readiness.py",
+          "state": "present"
+        },
+        {
+          "anchor_id": "operator_safe_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+          "state": "passed"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "provider_digest_coverage",
+      "required_anchors": [
+        "provider_digest_script",
+        "operator_safe_followthrough_receipt"
+      ]
+    },
+    {
+      "anchor_details": [
+        {
+          "anchor_id": "launch_followthrough_contract",
+          "path": "/docker/EA/docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml",
+          "state": "task_proven"
+        },
+        {
+          "anchor_id": "operator_safe_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+          "state": "passed"
+        },
+        {
+          "anchor_id": "organizer_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
+          "state": "passed"
+        },
+        {
+          "anchor_id": "participation_followthrough_receipt",
+          "path": "/docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+          "state": "passed"
+        }
+      ],
+      "blockers": [],
+      "coverage_state": "covered",
+      "family_id": "followthrough_coverage",
+      "required_anchors": [
+        "launch_followthrough_contract",
+        "operator_safe_followthrough_receipt",
+        "organizer_followthrough_receipt",
+        "participation_followthrough_receipt"
+      ]
+    }
+  ],
+  "generated_at": "2026-05-05T20:32:20.149077+00:00",
+  "guardrails": {
+    "active_package_status": "task_proven",
+    "claim_guard_rules": [
+      "Stay downstream of packet and design truth; do not widen canon authority.",
+      "Hold closed when any required source packet, proof receipt, or guard marker drifts.",
+      "Keep provider digest bounded to readiness-state projection instead of release-channel authority.",
+      "Keep companion and followthrough outputs packet-grounded instead of narrative invention.",
+      "Reject public copy that contains planning language, blank CTA routes, or truncated user-facing text."
+    ],
+    "runtime_safety_markers": [
+      "TASK_LOCAL_TELEMETRY",
+      "ACTIVE_RUN_HANDOFF",
+      "/var/lib/codex-fleet",
+      "supervisor status",
+      "supervisor eta",
+      "operator telemetry",
+      "codexea status",
+      "codexea eta"
+    ]
+  },
+  "handoff_status": {
+    "bounded_authority_statement": "EA compiles closure coverage from existing bounded packets and script guards only; it does not define release, runtime, or canon truth.",
+    "closeout_receipt": "/docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json",
+    "frontier_id": 4019469848,
+    "handoff_contract": "verify_closed_package_only",
+    "package_id": "next90-m135-ea-close-ea-compile-signal-companion-public-copy-operator-p",
+    "status": "ea_scope_complete",
+    "successor_rules": [
+      "Do not reopen this package to add new canon authority.",
+      "Reopen only if one of the bounded source packets, proofs, or guard scripts drifts.",
+      "Route new canon questions back to design, registry, hub, fleet, or product-owned runtime surfaces."
+    ],
+    "work_task_id": "135.10"
+  },
+  "package_proof": {
+    "allowed_paths": [
+      "scripts",
+      "feedback",
+      "docs"
+    ],
+    "frontier_id": 4019469848,
+    "milestone_id": 135,
+    "owned_surfaces": [
+      "close_ea_compile_signal_companion:executive_assistant"
+    ],
+    "package_id": "next90-m135-ea-close-ea-compile-signal-companion-public-copy-operator-p",
+    "title": "Close EA compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage without canon authority.",
+    "wave": "W22",
+    "work_task_id": "135.10"
+  },
+  "proof_kind": "repo_local_closure_bundle",
+  "source_truth_status": [
+    {
+      "anchor_id": "governor_operator_packet_contract",
+      "kind": "yaml_contract",
+      "owned_surfaces": [
+        "operator_packets:weekly_governor",
+        "reporter_followthrough:release_truth"
+      ],
+      "package_id": "next90-m106-ea-governor-packets",
+      "path": "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
+      "present": true,
+      "state": "task_proven"
+    },
+    {
+      "anchor_id": "operator_safe_followthrough_receipt",
+      "handoff_status": null,
+      "kind": "json_receipt",
+      "package_id": "next90-m113-executive-assistant-operator-safe-packets",
+      "package_title": "Produce operator-safe GM prep and roster movement packets",
+      "path": "/docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+      "present": true,
+      "state": "passed"
+    },
+    {
+      "anchor_id": "organizer_followthrough_receipt",
+      "handoff_status": null,
+      "kind": "json_receipt",
+      "package_id": "next90-m118-ea-organizer-followthrough",
+      "package_title": "Compile organizer packets, event prep, and followthrough from governed operations truth.",
+      "path": "/docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
+      "present": true,
+      "state": "passed"
+    },
+    {
+      "anchor_id": "launch_followthrough_contract",
+      "kind": "yaml_contract",
+      "owned_surfaces": [
+        "launch_followthrough_drafts",
+        "reporter_followthrough:public"
+      ],
+      "package_id": "next90-m120-ea-launch-pulse-followthrough",
+      "path": "/docker/EA/docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml",
+      "present": true,
+      "state": "task_proven"
+    },
+    {
+      "anchor_id": "participation_followthrough_receipt",
+      "handoff_status": null,
+      "kind": "json_receipt",
+      "package_id": "next90-m129-ea-compile-contribution-participation-entitlement-channel-a",
+      "package_title": "Compile contribution, participation, entitlement, channel, and reward followthrough packets from Hub/Fleet receipts only.",
+      "path": "/docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+      "present": true,
+      "state": "passed"
+    },
+    {
+      "anchor_id": "explain_companion_contract",
+      "kind": "yaml_contract",
+      "owned_surfaces": [
+        "explain_packet_narration:ea",
+        "grounded_follow_up_compile:ea"
+      ],
+      "package_id": "next90-m145-ea-grounded-explain-narration-packs",
+      "path": "/docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml",
+      "present": true,
+      "state": "complete"
+    },
+    {
+      "anchor_id": "provider_digest_script",
+      "kind": "bounded_script",
+      "markers_ok": true,
+      "missing_markers": [],
+      "path": "/docker/EA/scripts/chummer6_provider_readiness.py",
+      "present": true,
+      "required_markers": [
+        "STATE_OUT = Path(\"/docker/fleet/state/chummer6/ea_provider_readiness.json\")",
+        "RAW_KEY_NAMES",
+        "ADAPTER_ENV_NAMES",
+        "overlay_vision_readiness"
+      ],
+      "state": "present"
+    },
+    {
+      "anchor_id": "public_copy_guard_script",
+      "kind": "bounded_script",
+      "markers_ok": true,
+      "missing_markers": [],
+      "path": "/docker/EA/scripts/chummer6_guide_worker.py",
+      "present": true,
+      "required_markers": [
+        "for public copy, reject developer-facing planning language",
+        "Do not ship empty markdown links or blank CTA routes in public copy.",
+        "Replace truncated public copy. Do not leave clipped words or trailing ellipses"
+      ],
+      "state": "present"
+    }
+  ],
+  "status": "passed",
+  "truth_bundle": {
+    "bundle_id": "ea-m135-closure-coverage-v1",
+    "source_anchor_ids": [
+      "governor_operator_packet_contract",
+      "operator_safe_followthrough_receipt",
+      "organizer_followthrough_receipt",
+      "launch_followthrough_contract",
+      "participation_followthrough_receipt",
+      "explain_companion_contract",
+      "provider_digest_script",
+      "public_copy_guard_script"
+    ]
+  }
+}

@@ -60,13 +60,12 @@ shared_truth_runtime_sources:
   - source_anchor_id: ea_operator_safe_baseline
     path: /docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
     use_rule: Event-prep posture must reuse the operator-safe baseline instead of inventing a second EA-local escalation model.
-  canonical_authority:
-    successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
-    successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
-    design_successor_queue_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
-    queue_package: next90-m118-ea-organizer-followthrough status=complete
-    registry_work_task: 118.3 status=complete owner=executive-assistant
-  active_package_reason: The EA packet contract now exists and is machine-verifiable, but milestone 118 remains an active cross-repo package until Hub, UI, and Fleet sibling lanes finish their governed organizer surfaces.
+canonical_authority:
+  successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  design_successor_queue_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue_package: next90-m118-ea-organizer-followthrough status=complete
+  registry_work_task: 118.3 status=complete owner=executive-assistant
   queue_proof_required_entries:
     - /docker/EA/docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml
     - /docker/EA/docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml
@@ -80,6 +79,7 @@ shared_truth_runtime_sources:
     - python3 scripts/materialize_next90_m118_ea_organizer_packets.py exits 0
     - python3 scripts/verify_next90_m118_ea_organizer_packets.py exits 0
     - python3 tests/test_next90_m118_ea_organizer_packets.py exits 0 with ran=6 failed=0
+active_package_reason: The EA packet contract now exists and is machine-verifiable, but milestone 118 remains an active cross-repo package until Hub, UI, and Fleet sibling lanes finish their governed organizer surfaces.
 repeat_prevention:
   worker_rule: Reuse this EA packet contract and generated proof instead of inventing a second organizer followthrough schema in future shards.
   do_not_reopen_for:

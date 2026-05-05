@@ -1,0 +1,11 @@
+package_id: next90-m135-ea-close-ea-compile-signal-companion-public-copy-operator-p
+work_task_id: '135.10'
+frontier_id: 4019469848
+status: ea_scope_complete
+handoff_contract: verify_closed_package_only
+successor_rules:
+  - Do not reopen this package to add new canon authority.
+  - Reopen only if one of the bounded source packets, proofs, or guard scripts drifts.
+  - Route new canon questions back to design, registry, hub, fleet, or product-owned runtime surfaces.
+closeout_receipt: /docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json
+bounded_authority_statement: EA compiles closure coverage from existing bounded packets and script guards only; it does not define release, runtime, or canon truth.

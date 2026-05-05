@@ -1,0 +1,100 @@
+contract_name: ea.chummer_closure_coverage_pack
+package_id: next90-m135-ea-close-ea-compile-signal-companion-public-copy-operator-p
+milestone_id: 135
+work_task_id: '135.10'
+frontier_id: 4019469848
+wave: W22
+status: task_proven
+title: Close EA compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage without canon authority.
+allowed_paths:
+  - scripts
+  - feedback
+  - docs
+owned_surfaces:
+  - close_ea_compile_signal_companion:executive_assistant
+governed_truth_bundle:
+  bundle_id: ea-m135-closure-coverage-v1
+  claim_guard_rules:
+    - Stay downstream of packet and design truth; do not widen canon authority.
+    - Hold closed when any required source packet, proof receipt, or guard marker drifts.
+    - Keep provider digest bounded to readiness-state projection instead of release-channel authority.
+    - Keep companion and followthrough outputs packet-grounded instead of narrative invention.
+    - Reject public copy that contains planning language, blank CTA routes, or truncated user-facing text.
+  runtime_safety_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  source_anchors:
+    - anchor_id: governor_operator_packet_contract
+      path: /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+      kind: yaml_contract
+    - anchor_id: operator_safe_followthrough_receipt
+      path: /docker/EA/.codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json
+      kind: json_receipt
+    - anchor_id: organizer_followthrough_receipt
+      path: /docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
+      kind: json_receipt
+    - anchor_id: launch_followthrough_contract
+      path: /docker/EA/docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml
+      kind: yaml_contract
+    - anchor_id: participation_followthrough_receipt
+      path: /docker/EA/.codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json
+      kind: json_receipt
+    - anchor_id: explain_companion_contract
+      path: /docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+      kind: yaml_contract
+    - anchor_id: provider_digest_script
+      path: /docker/EA/scripts/chummer6_provider_readiness.py
+      kind: bounded_script
+      required_markers:
+        - STATE_OUT = Path("/docker/fleet/state/chummer6/ea_provider_readiness.json")
+        - RAW_KEY_NAMES
+        - ADAPTER_ENV_NAMES
+        - overlay_vision_readiness
+    - anchor_id: public_copy_guard_script
+      path: /docker/EA/scripts/chummer6_guide_worker.py
+      kind: bounded_script
+      required_markers:
+        - for public copy, reject developer-facing planning language
+        - Do not ship empty markdown links or blank CTA routes in public copy.
+        - Replace truncated public copy. Do not leave clipped words or trailing ellipses
+  closure_families:
+    - family_id: compile_coverage
+      required_anchors:
+        - governor_operator_packet_contract
+        - operator_safe_followthrough_receipt
+        - organizer_followthrough_receipt
+    - family_id: signal_coverage
+      required_anchors:
+        - governor_operator_packet_contract
+        - operator_safe_followthrough_receipt
+        - participation_followthrough_receipt
+    - family_id: companion_coverage
+      required_anchors:
+        - explain_companion_contract
+        - launch_followthrough_contract
+        - participation_followthrough_receipt
+    - family_id: public_copy_coverage
+      required_anchors:
+        - public_copy_guard_script
+        - explain_companion_contract
+    - family_id: operator_packet_coverage
+      required_anchors:
+        - governor_operator_packet_contract
+        - operator_safe_followthrough_receipt
+        - organizer_followthrough_receipt
+    - family_id: provider_digest_coverage
+      required_anchors:
+        - provider_digest_script
+        - operator_safe_followthrough_receipt
+    - family_id: followthrough_coverage
+      required_anchors:
+        - launch_followthrough_contract
+        - operator_safe_followthrough_receipt
+        - organizer_followthrough_receipt
+        - participation_followthrough_receipt

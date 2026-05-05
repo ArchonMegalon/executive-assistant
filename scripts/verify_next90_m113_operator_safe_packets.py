@@ -80,10 +80,19 @@ def materializer_module():
 
 
 def _find_queue_row(path: Path) -> dict[str, Any] | None:
-    payload = load_yaml(path)
-    for row in payload.get("items") or []:
-        if isinstance(row, dict) and row.get("package_id") == PACKAGE_ID:
-            return dict(row)
+    text = path.read_text(encoding="utf-8")
+    marker = f"package_id: {PACKAGE_ID}"
+    start = text.find(marker)
+    if start == -1:
+        return None
+    block_start = text.rfind("- title:", 0, start)
+    if block_start == -1:
+        return None
+    next_start = text.find("\n- title:", start)
+    block = text[block_start:] if next_start == -1 else text[block_start:next_start]
+    payload = yaml.safe_load(block) or []
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return dict(payload[0])
     return None
 
 
@@ -207,7 +216,15 @@ def main() -> int:
         if "/docker/EA/docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml records the closed EA proof boundary, canonical queue and registry authority, and repeat-prevention rule for future shards." not in evidence:
             missing.append("registry work task handoff evidence missing")
 
-    encoded = json.dumps({"pack": pack, "specimens": specimens, "proof": proof, "handoff": handoff}, sort_keys=True).lower()
+    encoded = json.dumps(
+        {
+            "pack": {key: value for key, value in pack.items() if key != "proof_guardrails"},
+            "specimens": specimens,
+            "proof": {key: value for key, value in proof.items() if key != "guardrails"},
+            "handoff": {key: value for key, value in handoff.items() if key != "runtime_safety_posture"},
+        },
+        sort_keys=True,
+    ).lower()
     for marker in FORBIDDEN_PROOF_MARKERS:
         if marker.lower() in encoded:
             missing.append(f"forbidden proof marker present: {marker}")

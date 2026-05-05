@@ -54,10 +54,19 @@ def materializer_module():
     return module
 
 def _find_queue_row(path: Path) -> dict[str, Any] | None:
-    payload = load_yaml(path)
-    for row in payload.get("items") or []:
-        if isinstance(row, dict) and row.get("package_id") == PACKAGE_ID:
-            return dict(row)
+    text = path.read_text(encoding="utf-8")
+    marker = f"package_id: {PACKAGE_ID}"
+    start = text.find(marker)
+    if start == -1:
+        return None
+    block_start = text.rfind("- title:", 0, start)
+    if block_start == -1:
+        return None
+    next_start = text.find("\n- title:", start)
+    block = text[block_start:] if next_start == -1 else text[block_start:next_start]
+    payload = yaml.safe_load(block) or []
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        return dict(payload[0])
     return None
 
 def _find_registry_task(path: Path) -> dict[str, Any] | None:
