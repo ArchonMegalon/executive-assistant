@@ -18,7 +18,12 @@ COPY ea/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY ea/app ./app
 COPY LTDs.md /app/LTDs.md
+COPY scripts/avomap_flyover_worker.py /app/scripts/avomap_flyover_worker.py
 COPY scripts/browseract_template_service_worker.py /app/scripts/browseract_template_service_worker.py
+COPY scripts/booka_book_worker.py /app/scripts/booka_book_worker.py
+COPY scripts/crezlo_property_tour_worker.py /app/scripts/crezlo_property_tour_worker.py
+COPY scripts/ea_responses_proxy.py /app/scripts/ea_responses_proxy.py
+COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
 COPY scripts/publish_browseract_ui_results.py /app/scripts/publish_browseract_ui_results.py
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

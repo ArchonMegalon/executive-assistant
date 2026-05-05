@@ -1352,6 +1352,17 @@ def test_page_supporting_context_filters_old_product_signals_from_root_pages() -
     assert "deterministic rules truth" not in joined
 
 
+def test_page_supporting_context_includes_sr4_to_sr6_support_story() -> None:
+    worker = _load_worker_module()
+
+    joined = "\n".join(worker.page_supporting_context("what_chummer6_is")).lower()
+
+    assert "multi-era" in joined
+    assert "sr4" in joined
+    assert "sr5" in joined
+    assert "sr6" in joined
+
+
 def test_page_prompts_include_faq_and_help_ids() -> None:
     worker = _load_worker_module()
 
@@ -1724,6 +1735,29 @@ def test_build_page_prompt_includes_supporting_public_context() -> None:
         or "Live now" in prompt
         or "Preview releases, channels, and notes" in prompt
     )
+
+
+def test_build_page_prompt_allows_supporting_context_for_edition_labels() -> None:
+    worker = _load_worker_module()
+
+    prompt = worker.build_page_prompt("what_chummer6_is", worker.PAGE_PROMPTS["what_chummer6_is"])
+
+    assert "page payload or supporting_public_context explicitly says them" in prompt
+    assert "sr4" in prompt.lower()
+    assert "sr5" in prompt.lower()
+    assert "sr6" in prompt.lower()
+
+
+def test_build_pages_bundle_prompt_allows_supporting_context_for_edition_labels() -> None:
+    worker = _load_worker_module()
+
+    prompt = worker.build_pages_bundle_prompt(
+        items={"what_chummer6_is": worker.PAGE_PROMPTS["what_chummer6_is"]},
+        global_ooda={},
+        section_oodas={},
+    )
+
+    assert "page payload or supporting_public_context explicitly says them" in prompt
 
 
 def test_build_horizon_prompt_includes_rollout_access_canon() -> None:

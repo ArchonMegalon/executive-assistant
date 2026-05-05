@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import secrets
 import warnings
 from dataclasses import dataclass, replace
+
+
+_PROCESS_SIGNING_SECRET = secrets.token_urlsafe(48)
 
 
 def _to_int(raw: str, default: int) -> int:
@@ -43,6 +47,7 @@ class StorageSettings:
 class AuthSettings:
     api_token: str
     default_principal_id: str
+    signing_secret: str = ""
     allow_loopback_no_auth: bool = False
     cf_access_team_domain: str = ""
     cf_access_audiences: tuple[str, ...] = ()
@@ -206,6 +211,18 @@ def _database_url(settings: object) -> str:
     return str(getattr(storage, "database_url", "") or "").strip()
 
 
+def resolve_signing_secret(settings: Settings, *, purpose: str = "") -> str:
+    auth = getattr(settings, "auth", None)
+    configured = ""
+    if auth is not None:
+        configured = str(getattr(auth, "signing_secret", "") or "").strip()
+    secret = configured or _PROCESS_SIGNING_SECRET
+    normalized_purpose = str(purpose or "").strip()
+    if not normalized_purpose:
+        return secret
+    return f"{secret}:{normalized_purpose}"
+
+
 def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
     source_backend = str(settings.storage.backend or "auto").strip().lower() or "auto"
     database_url = _database_url(settings)
@@ -284,8 +301,17 @@ def ensure_prod_api_token_configured(settings: Settings) -> None:
     raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_API_TOKEN or Cloudflare Access auth to be set")
 
 
+def ensure_prod_signing_secret_configured(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    if str(getattr(settings.auth, "signing_secret", "") or "").strip():
+        return
+    raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_SIGNING_SECRET")
+
+
 def validate_startup_settings(settings: Settings) -> RuntimeProfile:
     ensure_prod_api_token_configured(settings)
+    ensure_prod_signing_secret_configured(settings)
     profile = resolve_runtime_profile(settings)
     if is_prod_mode(settings.runtime.mode):
         if profile.storage_backend != "postgres":
@@ -324,6 +350,7 @@ def get_settings() -> Settings:
     artifacts_dir = (os.environ.get("EA_ARTIFACTS_DIR") or "/tmp/ea_artifacts").strip() or "/tmp/ea_artifacts"
 
     api_token = (os.environ.get("EA_API_TOKEN") or "").strip()
+    signing_secret = (os.environ.get("EA_SIGNING_SECRET") or "").strip()
     default_principal_id = (os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "local-user").strip() or "local-user"
     allow_loopback_no_auth = _env_truthy(os.environ.get("EA_ALLOW_LOOPBACK_NO_AUTH"))
     cf_access_team_domain = (os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN") or "").strip().lower().rstrip("/")
@@ -372,6 +399,7 @@ def get_settings() -> Settings:
         auth=AuthSettings(
             api_token=api_token,
             default_principal_id=default_principal_id,
+            signing_secret=signing_secret,
             allow_loopback_no_auth=allow_loopback_no_auth,
             cf_access_team_domain=cf_access_team_domain,
             cf_access_audiences=cf_access_audiences,

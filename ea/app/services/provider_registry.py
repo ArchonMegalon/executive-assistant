@@ -1652,6 +1652,8 @@ class ProviderRegistryService:
                 route_primary_provider_key = str(survival_route.get("primary_provider_key") or "").strip()
                 primary_state_override = str(survival_route.get("state") or "").strip() or "unavailable"
                 lane_detail = str(survival_route.get("reason") or "").strip()
+            if profile_name in {"review_light", "audit"} and "browseract" in provider_views:
+                lane_provider_keys = tuple(dict.fromkeys(("browseract", *lane_provider_keys)))
             lane_providers = tuple(
                 provider_views[provider_key]
                 for provider_key in lane_provider_keys
@@ -1682,10 +1684,14 @@ class ProviderRegistryService:
                     health_provider_key=(
                         health_provider_key
                         if profile_name == "survival"
-                        else self._effective_lane_health_provider_key(
-                            health_provider_key,
-                            primary=primary,
-                            providers=lane_providers,
+                        else (
+                            str(primary.provider_key or "").strip()
+                            if profile_name in {"review_light", "audit"} and primary is not None and str(primary.provider_key or "").strip() == "browseract"
+                            else self._effective_lane_health_provider_key(
+                                health_provider_key,
+                                primary=primary,
+                                providers=lane_providers,
+                            )
                         )
                     ),
                     provider_hint_order=effective_hint_order,

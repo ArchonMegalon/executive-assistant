@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Emailit is the promoted outbound email delivery candidate for Hub-owned transactional and lifecycle email.
+Emailit is the promoted outbound email delivery provider for Hub-owned transactional and lifecycle email.
 
 Core rule:
 

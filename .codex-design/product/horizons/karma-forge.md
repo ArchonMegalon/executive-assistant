@@ -24,7 +24,11 @@ A real rule environment.
 
 ---
 
-## The promise
+## Table pain
+
+House rules are common, but hidden XML, one-off spreadsheets, and Discord-pin folklore make the table pay for every custom choice with lost trust and compatibility drift.
+
+## Bounded product move
 
 **Change the table. Keep the trust.**
 
@@ -42,6 +46,29 @@ The creator does not have to ship fragile house-rule notes.
 The organizer does not have to maintain twelve conflicting Discord pins.
 
 Chummer shows the rule environment, the active packages, the impact, the compatibility, and the next safe action.
+
+---
+
+## Key tool posture
+
+KARMA FORGE benefits from discovery, review, and governed-process LTDs, but none of them become rule truth.
+
+* `Icanpreneur` - bounded discovery interview and synthesis lane for repeated house-rule demand
+* `Deftform` - structured intake and pre-screen lane for rule proposals
+* `Lunacal` - follow-up clinic and scheduling lane for rule-review sessions
+* `MetaSurvey` - quantitative validation lane after a proposal cluster forms
+* `Teable` - review-board and AdminIntent projection surface
+* `NextStep` - governed process runner for discovery sprints, approvals, and closeout discipline
+* `ApproveThis` - bounded approval edge when external signoff is useful
+* bounded `FacePop`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` - recruitment, followthrough, and approved explainer lanes only
+* bounded `Prompting Systems` and `AI Magicx` - proposal-summary and approved-explainer helper lanes only
+
+Chummer still owns:
+
+* rule truth
+* compatibility truth
+* publication truth
+* rollback truth
 
 ---
 
@@ -102,7 +129,7 @@ World offers
 Threat tags
 Scenario modifiers
 Compatibility fingerprint
-Activation receipts
+Activation records
 Approval posture
 ```
 
@@ -110,17 +137,17 @@ That means a runner is not just “an SR6 character.”
 
 A runner is:
 
-> “An SR6 runner built under this exact campaign environment, with these source packs, this amend graph, these options, this fingerprint, and these receipts.”
+> “An SR6 runner built under this exact campaign environment, with these source packs, this amend graph, these options, this fingerprint, and this activation record.”
 
 When the environment changes, Chummer can show what changed before anyone plays under the wrong assumptions.
 
 ---
 
-## Activation receipts
+## Activation records
 
-Every meaningful rule change should create an **Activation Receipt**.
+Every meaningful rule change should create an **Activation Record**.
 
-An activation receipt tells the table:
+An activation record tells the table:
 
 - what package graph was requested
 - what compiled successfully
@@ -132,7 +159,7 @@ An activation receipt tells the table:
 - what became lossy
 - what compatibility fingerprint was used
 
-That receipt is the table’s safety rail.
+That record is the table’s safety rail.
 
 A GM can say:
 
@@ -144,11 +171,30 @@ A player can ask:
 
 Chummer can answer:
 
-> “Three gear categories changed availability. Two items in your build are now campaign-restricted. One item remains legal because it was grandfathered by the GM. Here is the receipt.”
+> “Three gear categories changed availability. Two items in your build are now campaign-restricted. One item remains legal because it was grandfathered by the GM. Here is the breakdown.”
 
 That is the kind of trust tabletop tools usually do not give you.
 
 ---
+
+## Likely owners
+
+* `chummer6-core`
+* `chummer6-hub`
+* `chummer6-hub-registry`
+
+## Foundations
+
+* edition-specific rule-environment seams that do not flatten SR4, SR5, and SR6 differences
+* import and parity evidence strong enough to falsify unsafe rule-pack claims
+* governed package, approval, rollback, and compatibility metadata
+* runtime receipts that can explain why a runner is legal, blocked, grandfathered, or stale
+
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
 
 ## What it looks like for a GM
 
@@ -463,7 +509,7 @@ A creator might say:
 
 KARMA FORGE should discover the real publishing requirement:
 
-> “The creator needs a versioned rule pack with compatibility labels, examples, preview receipts, and table adoption guidance.”
+> “The creator needs a versioned rule pack with compatibility labels, examples, preview summaries, and table adoption guidance.”
 
 That is why KARMA FORGE includes a discovery pipeline:
 
@@ -777,7 +823,7 @@ Creators get:
 - a way to publish reusable rule packs
 - compatibility labels
 - versioning
-- preview receipts
+- preview summaries
 - example builds
 - community adoption paths
 - public trust
@@ -1002,3 +1048,11 @@ Where BLACK LEDGER’s world consequences become playable rewards and threats.
 Where Chummer5a’s custom-data legacy becomes a safer future.
 
 **KARMA FORGE is the forge where tables shape their own Shadowrun — without burning down the campaign.**
+## Owner handoff gate
+
+Rule evolution must route through governed packages, approvals, and compatibility metadata before promotion.
+
+## Why still a horizon
+
+Alternate-ruleset and house-rule power only become product-safe when the activation, rollback, compatibility, and explain loops are boringly provable.
+Until those seams are strong enough, KARMA FORGE stays a bounded future lane instead of a live product promise.

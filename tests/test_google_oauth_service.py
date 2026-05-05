@@ -183,6 +183,22 @@ def test_google_signal_loader_uses_full_message_text_when_modify_scope_granted(m
     assert detail_query["format"] == ["full"]
 
 
+def test_html_to_text_preserves_anchor_urls_for_willhaben_listing_links() -> None:
+    from app.services import google_oauth as google_service
+
+    html_body = """
+    <div>
+      Neue Anzeige:
+      <a href="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-apartment-123">Zum Inserat</a>
+    </div>
+    """
+
+    normalized = google_service._normalize_gmail_body_text(google_service._html_to_text(html_body))
+
+    assert "Zum Inserat" in normalized
+    assert "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-apartment-123" in normalized
+
+
 def test_google_signal_loader_pages_deeper_for_older_unseen_mail(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 

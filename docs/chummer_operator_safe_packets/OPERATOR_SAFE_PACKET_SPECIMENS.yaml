@@ -1,0 +1,17 @@
+package_id: next90-m113-executive-assistant-operator-safe-packets
+generated_at: "2026-04-24T13:11:00Z"
+status: task_proven
+shared_truth_bundle_id: ea-m113-operator-safe-packets-v1
+packet_specimens:
+  gm_prep_packets:
+    state: ready
+    safe_operator_actions:
+      - verify governed GM-operations readiness
+      - quote the upstream hold reason instead of improvising campaign truth
+    fail_closed_rule: If Hub or UI proof drifts, surface the hold and stop.
+  roster_movement_followthrough:
+    state: ready
+    safe_operator_actions:
+      - confirm roster movement receipt status
+      - hand back the upstream receipt path when followthrough is blocked
+    fail_closed_rule: If governed roster receipts drift, surface the hold and stop.

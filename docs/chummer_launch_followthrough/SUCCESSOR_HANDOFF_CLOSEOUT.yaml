@@ -1,0 +1,83 @@
+contract_name: ea.chummer_launch_followthrough_successor_handoff
+package_id: next90-m120-ea-launch-pulse-followthrough
+milestone_id: 120
+status: active_package_proven
+active_surfaces:
+  - launch_followthrough_drafts
+  - reporter_followthrough:public
+scope_boundary:
+  active_package_only: next90-m120-ea-launch-pulse-followthrough
+  allowed_paths:
+    - skills
+    - feedback
+    - docs
+    - tests
+  remaining_milestone_work_belongs_to:
+    - chummer6-hub
+    - chummer6-hub-registry
+    - fleet
+    - chummer6-design
+completed_outputs:
+  - docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml
+  - docs/chummer_launch_followthrough/PUBLIC_AND_REPORTER_FOLLOWTHROUGH_SPECIMENS.yaml
+  - docs/chummer_launch_followthrough/README.md
+  - docs/chummer_launch_followthrough/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - tests/test_next90_m120_ea_launch_pulse_followthrough.py
+  - feedback/2026-05-05-next90-m120-ea-launch-pulse-followthrough-progress.md
+proof_command:
+  command: python3 tests/test_next90_m120_ea_launch_pulse_followthrough.py
+  expected_result: ran=5 failed=0
+proof_artifacts:
+  - docs/chummer_launch_followthrough/CHUMMER_LAUNCH_FOLLOWTHROUGH_PACK.yaml
+  - docs/chummer_launch_followthrough/PUBLIC_AND_REPORTER_FOLLOWTHROUGH_SPECIMENS.yaml
+  - docs/chummer_launch_followthrough/README.md
+  - docs/chummer_launch_followthrough/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - tests/test_next90_m120_ea_launch_pulse_followthrough.py
+  - feedback/2026-05-05-next90-m120-ea-launch-pulse-followthrough-progress.md
+shared_truth_runtime_sources:
+  - source_anchor_id: fleet_launch_pulse_packet
+    path: /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json
+    use_rule: EA drafts must inherit Fleet's launch action, adoption health, support risk, and proof freshness posture exactly once.
+  - source_anchor_id: fleet_weekly_governor_packet
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    use_rule: Operator launch followthrough must reuse Fleet's measured rollout action window and public status copy.
+  - source_anchor_id: registry_release_channel
+    path: /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+    use_rule: Reporter and public followthrough must stay inside the registry's promoted, preview, fallback, fixed, and revoked route posture.
+  - source_anchor_id: fleet_support_case_packets
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    use_rule: Reporter followthrough must remain receipt-gated and source-rule aligned with Fleet support truth.
+  - source_anchor_id: design_launch_health_language
+    path: /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_LAUNCH_HEALTH_LANGUAGE.md
+    use_rule: EA draft copy may only use the canonical live, preview, fallback, fixed, revoked, and blocked launch vocabulary.
+  - source_anchor_id: design_public_release_experience
+    path: /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml
+    use_rule: Draft followthrough must keep preview, fallback, recovery, and flagship wording subordinate to the current public shelf rules.
+  - source_anchor_id: ea_governor_packet_baseline
+    path: /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+    use_rule: The earlier EA governor packet baseline remains the release-claim discipline source for bounded reporter followthrough.
+canonical_authority:
+  successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  design_successor_queue_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue_package: next90-m120-ea-launch-pulse-followthrough status=in_progress
+  registry_work_task: 120.4 status=in_progress owner=executive-assistant
+  active_package_reason: The EA draft contract is now explicit and test-backed, but milestone 120 remains an active cross-repo package until Hub, Registry, Fleet, and design sibling lanes converge on public launch-health truth.
+repeat_prevention:
+  worker_rule: Reuse this EA launch followthrough contract instead of inventing a second reporter or public launch-draft schema in future shards.
+  do_not_reopen_for:
+    - Hub-owned public trust routes, proof-shelf rendering, or launch-health UI implementation work.
+    - Registry-owned release-channel, tuple posture, or revocation truth implementation work.
+    - Fleet-owned launch-pulse materialization, proof freshness, or support-risk compilation work outside this EA draft contract.
+    - Design-owned public launch language or release-experience canon work.
+runtime_safety_posture:
+  forbidden_proof_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  generated_receipt_refresh_rule: Because this package is docs-and-tests only, future refreshes should change proof only when the contract, live launch-pulse posture, or canonical authority changes rather than from worker-context churn.

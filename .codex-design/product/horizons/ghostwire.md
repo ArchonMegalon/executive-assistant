@@ -1,10 +1,10 @@
 # GHOSTWIRE
 
-## The problem
+## Table pain
 
 We know something went wrong, but we cannot reconstruct what actually happened once the moment has passed.
 
-## What it would do
+## Bounded product move
 
 Chummer would support replay, after-action review, and forensics packets built from receipts over time.
 This lane is about what happened mechanically, what can be reconstructed safely, and how to compare or explain it after the fact without mutating canonical session truth.
@@ -25,7 +25,7 @@ It also gives premium recovery a memory: when something goes wrong, the product 
 * `Mootion` - bounded replay/video experiments
 * `Paperguide` - cited reconstruction helper
 
-## What has to be true first
+## Foundations
 
 * append-only reducer-safe ledger truth
 * explain provenance canon
@@ -33,7 +33,17 @@ It also gives premium recovery a memory: when something goes wrong, the product 
 * media-side receipt capture for after-action outputs
 * degraded-state receipts that survive crash, reconnect, and restore paths
 
-## Why it is not ready yet
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
+
+## Owner handoff gate
+
+Replay must prove reducer-safe, receipt-backed reconstruction before it can leave horizon status.
+
+## Why still a horizon
 
 Replay is only safe when reconstruction is receipt-backed and reducer-safe.
 Until Chummer can prove that after-action views stay grounded in canonical truth rather than retrospective invention, GHOSTWIRE remains a horizon instead of product truth.

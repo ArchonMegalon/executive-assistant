@@ -24,9 +24,9 @@ cards:
     audience: public
     image_family: simulation_bench
     asset_slot: capability_check_rules
-    action_label: Inspect a real proof trail
-    proof_note: "Proof: modifier trail, source trace, and repeatable output stay visible together."
-    pain: Follow receipts, source traces, and modifier trails instead of arguing from vibes.
+    action_label: Inspect a real explanation trail
+    proof_note: "Shows: modifier trail, source trace, and repeatable output stay visible together."
+    pain: Follow explanations, source traces, and modifier trails instead of arguing from vibes.
     payoff: The answer stays inspectable when somebody asks where the number came from.
   - id: get_the_poc
     bucket: start_here
@@ -37,22 +37,22 @@ cards:
     audience: public
     image_family: streetfront
     action_label: See continuity in preview
-    proof_note: "Proof: continuity survives device drift without hiding the current product limits."
+    proof_note: "Shows: continuity survives device drift without hiding the current product limits."
     pain: Carry the same dossier, ledger, and session state across devices without losing trust.
-    payoff: Receipt-backed continuity keeps the table moving even when the network does not cooperate.
+    payoff: Clear continuity keeps the table moving even when the network does not cooperate.
   - id: publish_grounded_artifacts
     bucket: start_here
     title: Exchange
-    summary: Move dossiers, recaps, packets, and support proof across tools without severing provenance.
+    summary: Move dossiers, recaps, packets, and support context across tools without severing provenance.
     href: /artifacts
     badge: Workflow
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
     action_label: See portable outputs
-    proof_note: "Proof: exchange and publication are now governed by manifests, previews, and provenance rules instead of copy-paste folklore."
+    proof_note: "Shows: exchange and publication are now governed by manifests, previews, and provenance rules instead of copy-paste folklore."
     pain: Export, support, and creator handoff usually lose context right when you need trust the most.
-    payoff: Portable outputs stay tied to manifests, compatibility, and receipts.
+    payoff: Portable outputs stay tied to manifests, compatibility, and clear source trails.
   - id: improve_the_product
     bucket: start_here
     title: Improve
@@ -62,13 +62,13 @@ cards:
     audience: public
     image_family: archive_stair
     action_label: Open support and feedback
-    proof_note: "Proof: support, feedback, and release truth are meant to close the loop back to users rather than disappear into a private inbox."
+    proof_note: "Shows: support, feedback, and release truth are meant to close the loop back to users rather than disappear into a private inbox."
     pain: Reporting a problem is useless if the product cannot route, close, and explain the outcome honestly.
     payoff: Improvement becomes a visible loop instead of a one-way complaint box.
   - id: deterministic_truth
     bucket: why_trust_it
     title: Deterministic rules truth
-    summary: No fuzzy math. Core-owned receipts stay attached to the answer.
+    summary: No fuzzy math. Core-owned explanations stay attached to the answer.
     href: /what-is-chummer
     badge: Trust
     audience: public
@@ -76,10 +76,10 @@ cards:
     microproof: Deterministic engine|Repeatable totals|Clean audit trail
     pain: Engine-backed modifiers
     payoff: Repeatable totals and clean audits
-  - id: receipts_and_provenance
+  - id: explanations_and_provenance
     bucket: why_trust_it
-    title: Receipts and provenance
-    summary: Every answer stays tied to visible receipts and provenance.
+    title: Explanations and provenance
+    summary: Every answer stays tied to visible explanations and provenance.
     href: /now
     badge: Proof
     audience: public
@@ -189,7 +189,7 @@ cards:
   - id: horizon_alice
     bucket: coming_next
     title: ALICE
-    summary: Builders get grounded what-if analysis without trusting fuzzy assistants.
+    summary: Branch the same runner into temporary build ghosts and compare grounded tradeoffs before you commit.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
     badge: Research
     audience: public
@@ -203,11 +203,11 @@ cards:
     fallback_label: Read the horizon brief
     external_ok: true
     pain: We only discover weak builds after they explode in public.
-    payoff: Compare grounded tradeoffs with receipts instead of guesswork.
+    payoff: Compare build ghosts with clear change notes instead of guessing and hoping the live runner survives the experiment.
   - id: horizon_knowledge_fabric
     bucket: coming_next
     title: KNOWLEDGE FABRIC
-    summary: Ask a rules question and get a grounded answer with citations and receipts.
+    summary: Ask a rules question and get a grounded answer with citations and source trails.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
     badge: Research
     audience: public
@@ -408,19 +408,19 @@ cards:
     payoff: One truthful bootstrap turns a Mac Codex session into a repeatable public-release lane instead of a manual operator ritual.
     proof_note: "Paste `bash <(curl -fsSL https://chummer.run/downloads/release-upload/bootstrap.sh)` into the Mac shell, then let the bootstrap build, sign, notarize, publish, and verify the release with the current supported chummer.run topology."
     microproof: Clone and pin refs|Codesign and notarize|Publish and verify live shelf
-  - id: artifact_rules_receipt
+  - id: artifact_rules_explanation
     bucket: featured_artifacts
-    title: Explanation receipt trail
-    summary: The proof shelf already shows how Chummer explains a result instead of hiding the path.
+    title: Explanation trail
+    summary: The preview shelf already shows how Chummer explains a result instead of hiding the path.
     href: /now#real-rules-truth
     badge: Available today
     audience: public
     image_family: simulation_bench
     asset_slot: capability_check_rules
-    detail_route: /artifacts/explanation-receipt-trail
-    action_label: Inspect the receipt trail
+    detail_route: /artifacts/explanation-trail
+    action_label: Inspect the explanation trail
     detail_primary_href: /now#real-rules-truth
-    detail_primary_label: Inspect the proof trail
+    detail_primary_label: Inspect the explanation trail
   - id: artifact_runsite_pack
     bucket: featured_artifacts
     title: Runsite pack
@@ -535,7 +535,7 @@ cards:
   - id: participate_future
     bucket: participate
     title: Start KARMA FORGE discovery
-    summary: Turn house-rule pain into governed discovery packets with Icanpreneur prompts, receipts, and Product Governor routing.
+    summary: Turn house-rule pain into governed discovery packets with Icanpreneur prompts, clear change notes, and Product Governor routing.
     href: /participate/karma-forge
     badge: Public
     audience: public

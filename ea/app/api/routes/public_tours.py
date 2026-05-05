@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
+from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 
 router = APIRouter(tags=["public-tours"])
 
@@ -92,7 +93,7 @@ def _money(value: object) -> str:
     return "EUR ?"
 
 
-def _tour_html(payload: dict[str, object]) -> str:
+def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
@@ -137,12 +138,14 @@ def _tour_html(payload: dict[str, object]) -> str:
     cta = html.escape(str(brief.get("call_to_action") or "").strip())
     listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
     hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
+    clickrank_html = clickrank_head_snippet(hostname)
     return f"""<!doctype html>
 <html lang="de">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
+    {clickrank_html}
     <style>
       :root {{
         --bg: #f3eee3;
@@ -604,7 +607,7 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
 def public_tour_page(slug: str, request: Request) -> HTMLResponse:
     try:
         payload = _load_tour(slug)
-        return HTMLResponse(_tour_html(payload))
+        return HTMLResponse(_tour_html(payload, hostname=request_hostname(request)))
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
         if exc.status_code == 404 and detail == "tour_not_found":

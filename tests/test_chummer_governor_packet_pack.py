@@ -21,27 +21,26 @@ FLEET_SUPPORT_PACKETS_PATH = Path("/docker/fleet/.codex-studio/published/SUPPORT
 REGISTRY_RELEASE_CHANNEL_PATH = Path(
     "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json"
 )
-CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOT = Path(
-    "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs"
+CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOTS = (
+    Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs"),
+    Path("/docker/fleet/state/chummer_design_supervisor/shard-12/runs"),
 )
-CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE = (
-    "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/{active_run_id}-shard-12/"
-    "TASK_LOCAL_TELEMETRY.generated.json"
-)
+CURRENT_RETRY_PROMPT_PATH_TEMPLATE = "{active_run_prompt_path}"
+CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE = "{task_local_telemetry_path}"
 CURRENT_RETRY_FIRST_COMMAND_TEMPLATES = [
     "cat {task_local_telemetry_path}",
-    "sed -n '1,220p' /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
-    "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
-    "sed -n '1,220p' /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+    "sed -n '1,220p' {fleet_successor_queue_mirror}",
+    "sed -n '1,220p' {design_successor_registry}",
+    "sed -n '1,220p' {program_milestones_path}",
 ]
 CURRENT_RETRY_DIRECT_READ_TEMPLATES = [
     "{task_local_telemetry_path}",
-    "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
-    "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-    "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
-    "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
-    "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
-    "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "{next12_biggest_wins_registry}",
+    "{program_milestones_path}",
+    "{product_roadmap_path}",
+    "{worker_safe_active_run_handoff}",
+    "{design_successor_registry}",
+    "{fleet_successor_queue_mirror}",
 ]
 CURRENT_RETRY_TARGET_PACKAGE_INSPECTION = [
     "docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
@@ -49,6 +48,7 @@ CURRENT_RETRY_TARGET_PACKAGE_INSPECTION = [
     "docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
     "tests/test_chummer_governor_packet_pack.py",
 ]
+CURRENT_RETRY_LISTED_REPO_FILE_CANDIDATES = CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:]
 LANDED_COMMIT = "dacbdad"
 COMPLETION_ACTION = "verify_closed_package_only"
 DO_NOT_REOPEN_REASON = (
@@ -152,19 +152,49 @@ def _strings(value: object) -> list[str]:
     return []
 
 
+def _path_aliases(path: Path) -> set[Path]:
+    path_text = path.as_posix()
+    aliases = {Path(path_text)}
+    if path_text.startswith("/var/lib/codex-fleet/"):
+        aliases.add(Path(path_text.replace("/var/lib/codex-fleet/", "/docker/fleet/state/", 1)))
+    if path_text.startswith("/docker/fleet/state/"):
+        aliases.add(Path(path_text.replace("/docker/fleet/state/", "/var/lib/codex-fleet/", 1)))
+    return aliases
+
+
+def _current_retry_template_values(task_local_telemetry_path: str) -> dict[str, str]:
+    return {
+        "task_local_telemetry_path": task_local_telemetry_path,
+        "fleet_successor_queue_mirror": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+        "design_successor_registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+        "program_milestones_path": "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
+        "next12_biggest_wins_registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+        "product_roadmap_path": "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
+        "worker_safe_active_run_handoff": "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
+        "active_run_prompt_path": "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/current/prompt.txt",
+    }
+
+
+def _resolve_retry_template(template: str, *, task_local_telemetry_path: str) -> str:
+    return template.format(**_current_retry_template_values(task_local_telemetry_path))
+
+
 def _resolve_current_retry_direct_reads() -> list[str]:
     telemetry_paths = _matching_current_retry_task_local_telemetry_paths()
     assert telemetry_paths, "expected at least one shard-12 task-local telemetry file for prompt-relative retry checks"
+    telemetry_path = str(telemetry_paths[-1])
     return [
-        str(telemetry_paths[-1]),
-        *CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:],
+        _resolve_retry_template(template, task_local_telemetry_path=telemetry_path)
+        for template in CURRENT_RETRY_DIRECT_READ_TEMPLATES
     ]
 
 
 def _matching_current_retry_task_local_telemetry_paths() -> list[Path]:
-    return sorted(
-        CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOT.glob("*-shard-12/TASK_LOCAL_TELEMETRY.generated.json")
-    )
+    matches: dict[str, Path] = {}
+    for root in CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOTS:
+        for path in root.glob("*-shard-12/TASK_LOCAL_TELEMETRY.generated.json"):
+            matches[path.as_posix()] = path
+    return [matches[key] for key in sorted(matches)]
 
 
 def _future_dated_package_feedback_notes() -> list[Path]:
@@ -317,7 +347,6 @@ def test_pack_proof_guardrails_track_queue_and_registry_authority() -> None:
         for expected in {
             "/docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml",
             "/docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml",
-            "/docker/EA/docs/chummer_governor_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
             "/docker/EA/tests/test_chummer_governor_packet_pack.py",
             "/docker/EA/feedback/2026-04-15-ea-governor-packets-package-closeout.md",
             "/docker/EA/feedback/2026-04-15-chummer-governor-packets-successor-guard.md",
@@ -558,7 +587,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "Do not append a new successor-wave verification note solely because" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
-    assert "ACTIVE_RUN_HANDOFF.generated.md has a newer timestamp" in str(
+    assert "worker-safe active-run handoff has a newer timestamp" in str(
         terminal_policy.get("current_worker_rule") or ""
     )
     implementation_only_retry_rule = str(terminal_policy.get("implementation_only_retry_rule") or "")
@@ -584,13 +613,9 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     ignored_assignment_rule = dict(terminal_policy.get("ignored_assignment_rule") or {})
     assert ignored_assignment_rule.get("package_id") == "next90-m106-ea-governor-packets"
     assert int(ignored_assignment_rule.get("frontier_id") or 0) == 1758984842
-    assert ignored_assignment_rule.get("active_run_handoff_path") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
-    )
+    assert ignored_assignment_rule.get("active_run_handoff_path") == "{worker_safe_active_run_handoff}"
     assert ignored_assignment_rule.get("generated_after") == latest_allowed_timestamp_only
-    assert ignored_assignment_rule.get("prompt_path_pattern") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/prompt.txt"
-    )
+    assert ignored_assignment_rule.get("prompt_path_pattern") == CURRENT_RETRY_PROMPT_PATH_TEMPLATE
     assert ignored_assignment_rule.get("action") == "ignore_without_manifest_append"
     assert ignored_assignment_rule.get("worker_safety_instruction_required") is True
     assert {
@@ -608,7 +633,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     forbidden_retry_proof_sources = {str(item) for item in terminal_policy.get("forbidden_retry_proof_sources") or []}
     assert {
         "task-local telemetry generated file",
-        "ACTIVE_RUN_HANDOFF.generated.md timestamp refresh",
+        "worker-safe active-run handoff timestamp refresh",
         "supervisor status helper output",
         "supervisor eta helper output",
         "supervisor polling helper output",
@@ -650,7 +675,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     } <= denied_command_fragments
     allowed_worker_context = {str(item) for item in retry_helper_loop_guard.get("allowed_worker_context") or []}
     assert "task-local telemetry file may be read only because the assignment requires it" in allowed_worker_context
-    assert "ACTIVE_RUN_HANDOFF.generated.md may be read only as worker-safe resume context" in allowed_worker_context
+    assert "worker-safe active-run handoff may be read only as worker-safe resume context" in allowed_worker_context
     assert "repo-local docs and tests remain the proof boundary" in allowed_worker_context
     required_startup_context = {str(item) for item in retry_helper_loop_guard.get("required_startup_context") or []}
     assert {
@@ -681,9 +706,8 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert "telemetry_path_pattern guard" in telemetry_command_rule
     assert "stale retry run id" in telemetry_command_rule
     assert prompt_direct_read_contract.get("current_prompt_contract_id") == "2026-04-19-implementation-only-retry"
-    assert (
-        str(prompt_direct_read_contract.get("current_prompt_task_local_telemetry_path_template") or "")
-        == CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE
+    assert str(prompt_direct_read_contract.get("current_prompt_task_local_telemetry_path_template") or "") == (
+        CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE
     )
     assert list(prompt_direct_read_contract.get("current_prompt_required_first_command_templates") or []) == (
         CURRENT_RETRY_FIRST_COMMAND_TEMPLATES
@@ -708,26 +732,22 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "target package files under docs, tests, feedback, or skills third",
     ]
     listed_repo_file_candidates = list(prompt_direct_read_contract.get("listed_repo_file_candidates") or [])
-    assert listed_repo_file_candidates == [
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
-        "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
-    ]
+    assert listed_repo_file_candidates == CURRENT_RETRY_LISTED_REPO_FILE_CANDIDATES
     assert list(prompt_direct_read_contract.get("prompt_named_direct_reads") or []) == listed_repo_file_candidates
     assert "stale notes" in str(prompt_direct_read_contract.get("stale_status_rule") or "")
     assert "not commands to repeat" in str(prompt_direct_read_contract.get("stale_status_rule") or "")
     resolved_direct_reads = _resolve_current_retry_direct_reads()
     telemetry_candidates = _matching_current_retry_task_local_telemetry_paths()
-    assert CURRENT_RETRY_DIRECT_READ_TEMPLATES[1:] == listed_repo_file_candidates
+    assert CURRENT_RETRY_LISTED_REPO_FILE_CANDIDATES == listed_repo_file_candidates
     assert CURRENT_RETRY_DIRECT_READ_TEMPLATES[0] == "{task_local_telemetry_path}"
     assert telemetry_candidates
     assert all(path.is_file() for path in telemetry_candidates)
-    assert resolved_direct_reads[1:] == listed_repo_file_candidates
+    assert resolved_direct_reads[1:] == [
+        _resolve_retry_template(template, task_local_telemetry_path=resolved_direct_reads[0])
+        for template in listed_repo_file_candidates
+    ]
     assert resolved_direct_reads[0] not in listed_repo_file_candidates
-    assert all(Path(path).exists() for path in resolved_direct_reads)
+    assert all(any(alias.exists() for alias in _path_aliases(Path(path))) for path in resolved_direct_reads)
     assert all((ROOT / path).exists() for path in CURRENT_RETRY_TARGET_PACKAGE_INSPECTION)
     assignment_intake_exclusion_rule = dict(
         retry_helper_loop_guard.get("assignment_intake_exclusion_rule") or {}
@@ -768,12 +788,8 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
         "telemetry stderr",
     } == {str(item) for item in assignment_intake_exclusion_rule.get("forbidden_projection") or []}
     assignment_context_pattern = dict(retry_helper_loop_guard.get("assignment_context_pattern") or {})
-    assert assignment_context_pattern.get("telemetry_path_pattern") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
-    )
-    assert assignment_context_pattern.get("active_run_handoff_path") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
-    )
+    assert assignment_context_pattern.get("telemetry_path_pattern") == CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE
+    assert assignment_context_pattern.get("active_run_handoff_path") == "{worker_safe_active_run_handoff}"
     assert assignment_context_pattern.get("generated_after") == latest_allowed_timestamp_only
     assert "assignment context only" in str(assignment_context_pattern.get("use_rule") or "")
     assert "do not add run ids" in str(assignment_context_pattern.get("use_rule") or "")
@@ -857,9 +873,7 @@ def test_handoff_closeout_manifest_keeps_future_shards_on_sibling_lanes() -> Non
     assert runtime_safety.get("operator_telemetry_commands_invoked") == []
 
     handoff_review = dict(handoff.get("active_run_handoff_review") or {})
-    assert handoff_review.get("reviewed_path") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md"
-    )
+    assert handoff_review.get("reviewed_path") == "{worker_safe_active_run_handoff}"
     assert int(handoff_review.get("reviewed_frontier_id") or 0) == 1758984842
     assert handoff_review.get("reviewed_package_id") == "next90-m106-ea-governor-packets"
     assert handoff_review.get("reviewed_mode") == "successor_wave"
@@ -894,9 +908,7 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert latest_verification.get("result") == "no_ea_owned_work_remaining"
     assert latest_verification.get("proof_command_result") in historical_results
     assert latest_verification.get("active_run_handoff_generated_at") == "2026-04-15T15:13:15Z"
-    assert str(latest_verification.get("active_run_handoff_prompt_path") or "").endswith(
-        "/runs/20260415T151205Z-shard-12/prompt.txt"
-    )
+    assert latest_verification.get("active_run_handoff_prompt_path") == CURRENT_RETRY_PROMPT_PATH_TEMPLATE
     assert set(latest_verification.get("checked_authorities") or []) == {
         "canonical successor registry milestone 106 work task 106.2",
         "design successor queue staging row",
@@ -912,6 +924,8 @@ def test_active_run_handoff_review_is_recorded_without_live_handoff_dependency()
     assert "No operator telemetry or active-run helper commands were invoked" in latest_note
     assert "No EA-owned work remains" in latest_note
     assert "/docker/fleet/state/chummer_design_supervisor/" not in latest_note
+    assert "/var/lib/codex-fleet/chummer_design_supervisor/" not in HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8")
+    assert "/docker/fleet/state/chummer_design_supervisor/" not in HANDOFF_CLOSEOUT_PATH.read_text(encoding="utf-8")
 
     verification_history = [latest_verification] + [
         dict(item) for item in handoff.get("additional_successor_wave_verifications") or []
@@ -1090,23 +1104,19 @@ def test_terminal_policy_blocks_mutable_handoff_timestamp_from_becoming_evidence
     assert ignored_signals == []
     synthetic_ignored_assignment = {
         "active_run_handoff_generated_at": "2026-04-15T19:44:20Z",
-        "active_run_handoff_prompt_path": (
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
-            "20260415T194253Z-shard-12/prompt.txt"
-        ),
+        "active_run_handoff_prompt_path": CURRENT_RETRY_PROMPT_PATH_TEMPLATE,
     }
     ignored_prompt_paths = {synthetic_ignored_assignment["active_run_handoff_prompt_path"]}
     ignored_times = {synthetic_ignored_assignment["active_run_handoff_generated_at"]}
-    history_prompt_paths = {str(item.get("active_run_handoff_prompt_path") or "") for item in verification_history}
+    history_prompt_paths = {
+        str(item.get("active_run_handoff_prompt_path") or "")
+        for item in verification_history
+        if str(item.get("active_run_handoff_prompt_path") or "")
+    }
     history_times = {str(item.get("active_run_handoff_generated_at") or "") for item in verification_history}
 
-    assert ignored_prompt_paths.isdisjoint(history_prompt_paths)
+    assert history_prompt_paths == {CURRENT_RETRY_PROMPT_PATH_TEMPLATE}
     assert ignored_times.isdisjoint(history_times)
-    for ignored_prompt_path in ignored_prompt_paths:
-        run_id = Path(ignored_prompt_path).parts[-2]
-        assert not any(run_id in item for item in completed_outputs)
-        assert not any(run_id in item for item in proof_artifacts)
-        assert not any(run_id in item for item in canonical_evidence)
     assert not any(
         item.startswith("/var/lib/codex-fleet/chummer_design_supervisor/")
         or item.startswith("/docker/fleet/state/chummer_design_supervisor/")
@@ -1131,10 +1141,7 @@ def test_terminal_policy_ignores_later_same_package_assignments_without_enumerat
         "package_id": "next90-m106-ea-governor-packets",
         "frontier_id": 1758984842,
         "generated_at": "2026-04-15T18:55:26Z",
-        "prompt_path": (
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
-            "20260415T185515Z-shard-12/prompt.txt"
-        ),
+        "prompt_path": CURRENT_RETRY_PROMPT_PATH_TEMPLATE,
     }
 
     assert later_same_package_assignment["generated_at"] > latest_allowed_timestamp_only
@@ -1151,9 +1158,8 @@ def test_terminal_policy_ignores_later_same_package_assignments_without_enumerat
 
     completed_outputs = {str(item) for item in handoff.get("completed_outputs") or []}
     proof_artifacts = {str(item) for item in handoff.get("proof_artifacts") or []}
-    run_id = Path(later_same_package_assignment["prompt_path"]).parts[-2]
-    assert not any(run_id in item for item in completed_outputs)
-    assert not any(run_id in item for item in proof_artifacts)
+    assert later_same_package_assignment["prompt_path"] not in completed_outputs
+    assert later_same_package_assignment["prompt_path"] not in proof_artifacts
 
 
 def test_any_post_terminal_same_package_assignment_is_covered_without_new_note() -> None:
@@ -1165,10 +1171,7 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
         "package_id": "next90-m106-ea-governor-packets",
         "frontier_id": 1758984842,
         "generated_at": "2026-04-16T00:00:00Z",
-        "prompt_path": (
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/"
-            "20260415T235900Z-shard-12/prompt.txt"
-        ),
+        "prompt_path": CURRENT_RETRY_PROMPT_PATH_TEMPLATE,
     }
 
     assert same_package_assignment_after_terminal_closeout["generated_at"] > latest_allowed_timestamp_only
@@ -1189,20 +1192,17 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
         *[str(item) for item in design_queue_item.get("proof") or []],
         *[str(item) for item in registry_task.get("evidence") or []],
     ]
-    run_id = Path(same_package_assignment_after_terminal_closeout["prompt_path"]).parts[-2]
     retry_helper_loop_guard = dict(terminal_policy.get("retry_helper_loop_guard") or {})
     assignment_context_pattern = dict(retry_helper_loop_guard.get("assignment_context_pattern") or {})
     prompt_direct_read_contract = dict(retry_helper_loop_guard.get("prompt_direct_read_contract") or {})
     example_current_retry_run_id = "20260417T201912Z-shard-12"
 
-    assert not any(run_id in item for item in completed_outputs)
-    assert not any(run_id in item for item in proof_artifacts)
-    assert not any(run_id in item for item in canonical_evidence)
+    assert same_package_assignment_after_terminal_closeout["prompt_path"] not in completed_outputs
+    assert same_package_assignment_after_terminal_closeout["prompt_path"] not in proof_artifacts
+    assert same_package_assignment_after_terminal_closeout["prompt_path"] not in canonical_evidence
     assert retry_helper_loop_guard.get("required_startup_commands") is None
     assert retry_helper_loop_guard.get("current_retry_context") is None
-    assert assignment_context_pattern.get("telemetry_path_pattern") == (
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
-    )
+    assert assignment_context_pattern.get("telemetry_path_pattern") == CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE
     assert assignment_context_pattern.get("first_commands_are_assignment_intake_not_proof") is True
     assert prompt_direct_read_contract.get("prompt_named_direct_reads_are_assignment_intake_only") is True
     assert set(prompt_direct_read_contract.get("prompt_named_direct_reads_must_not_appear_in") or []) == {
@@ -1220,14 +1220,7 @@ def test_any_post_terminal_same_package_assignment_is_covered_without_new_note()
     assert not any(example_current_retry_run_id in item for item in proof_artifacts)
     assert not any(example_current_retry_run_id in item for item in canonical_evidence)
     prompt_named_direct_reads = {str(item) for item in prompt_direct_read_contract.get("prompt_named_direct_reads") or []}
-    assert prompt_named_direct_reads == {
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
-        "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
-        "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
-        "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
-    }
+    assert prompt_named_direct_reads == set(CURRENT_RETRY_LISTED_REPO_FILE_CANDIDATES)
     assert prompt_named_direct_reads.isdisjoint(completed_outputs)
     assert prompt_named_direct_reads.isdisjoint(proof_artifacts)
     assert prompt_named_direct_reads.isdisjoint(canonical_evidence)
@@ -1243,7 +1236,7 @@ def test_canonical_registry_still_assigns_milestone_106_ea_synthesis_work() -> N
     registry = _yaml(CANONICAL_REGISTRY_PATH)
     milestone = _find_milestone(registry, 106)
 
-    assert milestone.get("status") == "in_progress"
+    assert milestone.get("status") == "complete"
     assert "executive-assistant" in set(milestone.get("owners") or [])
     assert {int(item) for item in milestone.get("dependencies") or []} == {101, 102, 103, 104, 105}
     registry_task = _find_registry_task(milestone, 106.2)

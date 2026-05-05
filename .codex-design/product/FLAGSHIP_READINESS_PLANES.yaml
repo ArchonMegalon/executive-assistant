@@ -1,0 +1,205 @@
+product: chummer
+version: 1
+last_reviewed: 2026-04-30
+purpose: Machine-readable release-health planes that separate structural completion from flagship replacement truth.
+status_values:
+  - missing
+  - warning
+  - ready
+policy:
+  structural_green_is_not_flagship_green:
+    - Empty milestone registries, green repo tests, or broad parity `covered` language do not imply flagship replacement readiness.
+    - Every release-health plane must name an owner repo, source artifact, proving artifact, and concrete fail condition.
+  divergence_classes:
+    - id: must_match
+      meaning: Legacy surface or behavior must remain visually and behaviorally equivalent because veterans still rely on it directly.
+    - id: may_improve
+      meaning: Chummer6 may modernize the surface only when discoverability, directness, speed, trust, and reversibility improve or stay equal.
+    - id: may_remove_if_non_degrading
+      meaning: A Chummer6-only extra or legacy-adjacent control may be removed only if no real user job becomes slower, riskier, or less inspectable.
+  split_brain_release_truth:
+    - Installer bytes, release-channel truth, public shelf truth, in-app update truth, and recovery truth must agree.
+    - If they disagree, the affected plane stays non-ready even when individual tests pass.
+  release_plane_reporting:
+    - "`active_wave_status: complete` validates the public front-door closeout plane, not all substrate families."
+    - Campaign/world/community/admin contracts may remain `in_progress` while front-door public proof remains valid and must be labeled as such in pulse and roadmap summaries.
+planes:
+  - id: flagship_ready
+    owner_repos:
+      - chummer6-design
+      - fleet
+    source_artifacts:
+      - FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+      - FLAGSHIP_PARITY_REGISTRY.yaml
+      - FLAGSHIP_PRODUCT_BAR.md
+    proving_artifacts:
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - Any release-health plane below `ready`
+      - Any in-scope flagship parity family below `gold_ready`
+  - id: sr5_veteran_ready
+    owner_repos:
+      - chummer6-ui
+      - chummer5a
+      - fleet
+    source_artifacts:
+      - VETERAN_FIRST_MINUTE_GATE.yaml
+      - CHUMMER5A_HUMAN_PARITY_ACCEPTANCE_SPEC.md
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - A veteran cannot orient in the first minute without browser ritual or dashboard detour
+      - Dialog-level parity evidence stays stale or incomplete for release-blocking SR5 families
+  - id: veteran_deep_workflow_ready
+    owner_repos:
+      - chummer6-ui
+      - chummer6-core
+      - fleet
+    source_artifacts:
+      - CHUMMER5A_HUMAN_PARITY_ACCEPTANCE_MATRIX.yaml
+      - FLAGSHIP_PARITY_REGISTRY.yaml
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
+    fail_when:
+      - Dense builder, import, continuity, utility, or export families remain below `veteran_approved`
+      - Workflow execution proof leaves unresolved flagship-family receipts
+  - id: dense_workbench_ready
+    owner_repos:
+      - chummer6-ui-kit
+      - chummer6-ui
+      - fleet
+    source_artifacts:
+      - DENSE_WORKBENCH_BUDGET.yaml
+      - FLAGSHIP_PRODUCT_BAR.md
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - Spacing, chrome, status visibility, or section posture break dense-workbench budget
+  - id: primary_route_ready
+    owner_repos:
+      - chummer6-hub-registry
+      - chummer6-hub
+      - fleet
+    source_artifacts:
+      - PRIMARY_ROUTE_REGISTRY.yaml
+      - PUBLIC_RELEASE_EXPERIENCE.yaml
+    proving_artifacts:
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - Any major job lacks one explicit primary route plus one bounded fallback story
+      - Public route truth and desktop tuple truth disagree
+  - id: public_shelf_ready
+    owner_repos:
+      - chummer6-hub
+      - chummer6-hub-registry
+      - fleet
+    source_artifacts:
+      - PUBLIC_RELEASE_EXPERIENCE.yaml
+      - FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/Docker/Downloads/RELEASE_CHANNEL.generated.json
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - Public shelf, route posture, and promoted tuples disagree
+      - The recommended public path is thinner or riskier than the flagship desktop promise
+  - id: data_durability_ready
+    owner_repos:
+      - chummer6-core
+      - chummer6-ui
+      - chummer6-hub
+      - fleet
+    source_artifacts:
+      - CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md
+      - FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+    proving_artifacts:
+      - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
+      - /docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json
+    fail_when:
+      - Character, campaign, import, restore, or export flows can lose governed truth across update, rollback, or migration
+  - id: recovery_trust_ready
+    owner_repos:
+      - chummer6-ui
+      - chummer6-hub
+      - fleet
+    source_artifacts:
+      - DESKTOP_EXECUTABLE_EXIT_GATES.md
+      - FLAGSHIP_PRODUCT_BAR.md
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json
+    fail_when:
+      - Install, update, rollback, restore, or first-launch proof is stale, mismatched, or externally contradictory
+  - id: rules_explainability_ready
+    owner_repos:
+      - chummer6-design
+      - chummer6-core
+      - executive-assistant
+      - fleet
+    source_artifacts:
+      - EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md
+      - SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md
+      - BUILD_LAB_PRODUCT_MODEL.md
+      - FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+    proving_artifacts:
+      - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
+      - /docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json
+    fail_when:
+      - Important computed values cannot be explained where users ask why
+      - Explain coverage-registry, source-anchor class, or bounded follow-up release-gate truth drifts from Fleet closeout evidence
+      - Explain/build journeys remain blocked or implicit
+  - id: custom_data_survival_ready
+    owner_repos:
+      - chummer6-core
+      - chummer6-ui
+      - fleet
+    source_artifacts:
+      - RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md
+      - CHUMMER5A_HUMAN_PARITY_ACCEPTANCE_SPEC.md
+    proving_artifacts:
+      - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - Custom XML, translator, or amend-package survival depends on hidden downgrade paths
+      - Rule-environment authoring and custom-data bridge proof diverge
+  - id: large_sheet_performance_ready
+    owner_repos:
+      - chummer6-core
+      - chummer6-ui
+      - fleet
+    source_artifacts:
+      - METRICS_AND_SLOS.yaml
+      - FLAGSHIP_PRODUCT_BAR.md
+    proving_artifacts:
+      - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
+      - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+    fail_when:
+      - Veteran-sized sheets, rosters, imports, or compare flows exceed promoted flagship budgets
+  - id: sr4_parity_ready
+    owner_repos:
+      - chummer6-ui
+      - chummer6-core
+      - fleet
+    source_artifacts:
+      - LEGACY_CLIENT_AND_ADJACENT_PARITY.md
+      - FLAGSHIP_PARITY_REGISTRY.yaml
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SR4_DESKTOP_WORKFLOW_PARITY.generated.json
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SR4_SR6_DESKTOP_PARITY_FRONTIER.generated.json
+    fail_when:
+      - SR4 explicit parity proofs stay absent, external-only, or below bounded replacement quality
+  - id: sr6_parity_ready
+    owner_repos:
+      - chummer6-ui
+      - chummer6-core
+      - fleet
+    source_artifacts:
+      - LEGACY_CLIENT_AND_ADJACENT_PARITY.md
+      - FLAGSHIP_PARITY_REGISTRY.yaml
+    proving_artifacts:
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SR6_DESKTOP_WORKFLOW_PARITY.generated.json
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SR4_SR6_DESKTOP_PARITY_FRONTIER.generated.json
+    fail_when:
+      - SR6 explicit parity proofs stay absent, external-only, or below bounded replacement quality

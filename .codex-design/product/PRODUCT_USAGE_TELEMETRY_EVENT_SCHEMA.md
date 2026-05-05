@@ -233,6 +233,7 @@ The telemetry transport layer must obey these rules:
 Canonical `workflow_id` values:
 
 * `first_launch_open_or_build`
+* `first_playable_session_onboarding`
 * `open_existing_character`
 * `create_new_character`
 * `import_legacy_character`
@@ -241,6 +242,50 @@ Canonical `workflow_id` values:
 * `recover_after_crash`
 * `open_campaign_workspace`
 * `launch_play_shell`
+
+### Onboarding
+
+* `onboarding.first_session.stage_reached`
+  Payload:
+  * `workflow_id`: `first_playable_session_onboarding`
+  * `onboarding_lane`: `flagship_desktop`, `desktop_guest`, `no_desktop_public`, `recovery_resume`
+  * `stage_id`
+* `onboarding.first_session.stage_blocked`
+  Payload:
+  * `workflow_id`: `first_playable_session_onboarding`
+  * `onboarding_lane`
+  * `stage_id`
+  * `blocker_family`
+  * `blocker_requires_desktop`
+* `onboarding.first_session.completed`
+  Payload:
+  * `workflow_id`: `first_playable_session_onboarding`
+  * `onboarding_lane`
+  * `time_to_first_playable_bucket_minutes`
+  * `used_support_safe_recovery`
+  * `primer_seen`
+  * `briefing_seen`
+
+Canonical `stage_id` values:
+
+* `entry_visible`
+* `lane_selected`
+* `identity_or_guest_confirmed`
+* `runner_path_ready`
+* `campaign_primer_seen`
+* `session_briefing_seen`
+* `table_handoff_ready`
+* `first_playable_session_started`
+
+Canonical `blocker_family` values:
+
+* `install_or_link_failure`
+* `rule_or_legality_failure`
+* `runner_selection_failure`
+* `primer_or_briefing_missing`
+* `table_handoff_unavailable`
+* `schedule_or_device_preflight_failure`
+* `support_escape`
 
 ### Feature adoption
 
@@ -445,6 +490,26 @@ Columns:
 * `abandoned_count`
 * `failed_count`
 * `median_duration_bucket_ms`
+
+### `first_playable_session_daily`
+
+One row per onboarding lane, install, and day.
+
+Columns:
+
+* `usage_day`
+* `installation_id`
+* `onboarding_lane`
+* `entry_visible_count`
+* `runner_ready_count`
+* `primer_seen_count`
+* `briefing_seen_count`
+* `table_handoff_ready_count`
+* `first_playable_session_started_count`
+* `blocked_count`
+* `recovered_after_block_count`
+* `top_blocker_family`
+* `median_time_to_first_playable_bucket_minutes`
 
 ### `feature_adoption_daily`
 

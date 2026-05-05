@@ -1,46 +1,67 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-05-03T10:37:31Z",
-  "as_of": "2026-05-03",
+  "generated_at": "2026-05-05T15:57:27Z",
+  "as_of": "2026-05-05",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 12 Biggest Wins is materially closed as the latest recommended closeout wave; journey proof is blocked; flagship replacement readiness is still open; overall progress is 99% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
+  "summary": "Next 12 Biggest Wins is materially closed as the latest recommended closeout wave; journey proof is ready; flagship replacement readiness is ready; overall progress is 99% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
   "active_wave": "Next 12 Biggest Wins",
   "active_wave_status": "complete",
+  "closure_semantics": {
+    "plane": "dual",
+    "front_door_closeout": "complete",
+    "substrate_proof_lane": "in_progress",
+    "front_door_belief": "public release-control plane and public tuple posture are stable on public main",
+    "substrate_belief": "campaign-world-community-admin proof contracts remain in active proof status"
+  },
+  "substrate_contract_sets_in_progress": [
+    "outbound_notification_delivery_vnext",
+    "community_rule_environment_vnext",
+    "world_frame_vnext",
+    "mission_market_vnext",
+    "intel_economy_vnext",
+    "world_tick_vnext",
+    "resolution_report_vnext",
+    "world_newsreel_vnext",
+    "opposition_packet_vnext",
+    "open_run_network_vnext",
+    "seasonal_honors_vnext",
+    "feedback_signal_ooda_vnext",
+    "admin_projection_and_intent_vnext",
+    "journey_proof_vnext",
+    "crash_automation_vnext",
+    "account_aware_install_linking_vnext",
+    "desktop_update_vnext"
+  ],
   "release_health": {
-    "state": "needs_attention",
-    "reason": "Published flagship readiness proof is not green, so release posture cannot overclaim even when red blockers are clear.",
+    "state": "green_or_explained",
+    "reason": "No red blockers are open and published flagship readiness proof is green.",
     "front_door_wave_closed": true
   },
   "flagship_readiness": {
-    "state": "watch",
-    "reason": "Published flagship readiness proof is fail. Coverage gaps remain: fleet_and_operator_loop. Readiness-plane gaps remain: structural_ready, flagship_ready.",
-    "proof_status": "fail",
-    "coverage_gap_keys": [
-      "fleet_and_operator_loop"
-    ],
-    "readiness_plane_gap_keys": [
-      "structural_ready",
-      "flagship_ready"
-    ]
+    "state": "ready",
+    "reason": "Published flagship readiness proof passed with no remaining coverage or readiness-plane gaps.",
+    "proof_status": "pass",
+    "coverage_gap_keys": [],
+    "readiness_plane_gap_keys": []
   },
   "rule_environment_trust": {
-    "state": "watch",
-    "reason": "Rule-environment trust still needs journey-gate closure."
+    "state": "ready",
+    "reason": "Rule-environment trust follows current journey-gate readiness."
   },
   "edition_authorship_and_import_confidence": {
     "state": "monitor",
     "reason": "Edition/import confidence is monitored through ongoing history-backed pulse snapshots."
   },
   "journey_gate_health": {
-    "state": "blocked",
-    "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-    "blocked_count": 2,
+    "state": "ready",
+    "reason": "Journey proof is steady on current published evidence.",
+    "blocked_count": 0,
     "warning_count": 0,
     "blocked_external_only_count": 0,
-    "blocked_with_local_count": 2,
+    "blocked_with_local_count": 0,
     "blocked_external_only_hosts": [],
     "blocked_external_only_tuples": []
   },
@@ -75,12 +96,12 @@
   "public_promise_drift_count": 0,
   "governor_decisions": [
     {
-      "decision_id": "2026-05-03-focus-next-12-biggest-wins",
+      "decision_id": "2026-05-05-focus-next-12-biggest-wins",
       "action": "focus_shift",
-      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 20 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
+      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 22 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
       "cited_signals": [
         "overall_progress_percent=99",
-        "history_snapshot_count=20",
+        "history_snapshot_count=22",
         "oldest_blocker_days=0",
         "phase_label=Public-fit polish",
         "longest_pole=Core Engine",
@@ -88,16 +109,16 @@
       ]
     },
     {
-      "decision_id": "2026-05-03-launch-governance",
+      "decision_id": "2026-05-05-launch-governance",
       "action": "freeze_launch",
-      "reason": "Freeze launch expansion while 2 golden journey(s) remain blocked and journey health is blocked.",
+      "reason": "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating).",
       "cited_signals": [
-        "journey_gate_state=blocked",
-        "journey_gate_blocked_count=2",
+        "journey_gate_state=ready",
+        "journey_gate_blocked_count=0",
         "local_release_proof_status=passed",
-        "flagship_readiness_state=watch",
-        "flagship_readiness_proof_status=fail",
-        "provider_canary_status=Canary green on all active lanes",
+        "flagship_readiness_state=ready",
+        "flagship_readiness_proof_status=pass",
+        "provider_canary_status=Canary evidence is still accumulating",
         "closure_health_state=clear",
         "successor_dependency_state=ready",
         "successor_open_dependency_ids=",
@@ -109,37 +130,32 @@
   "next_checkpoint_question": "What is the smallest cross-repo slice that makes the campaign OS indispensable and turns trust, adoption, and publication depth into a real launch advantage?",
   "snapshot": {
     "release_health": {
-      "state": "needs_attention",
-      "reason": "Published flagship readiness proof is not green, so release posture cannot overclaim even when red blockers are clear.",
+      "state": "green_or_explained",
+      "reason": "No red blockers are open and published flagship readiness proof is green.",
       "front_door_wave_closed": true
     },
     "flagship_readiness": {
-      "state": "watch",
-      "reason": "Published flagship readiness proof is fail. Coverage gaps remain: fleet_and_operator_loop. Readiness-plane gaps remain: structural_ready, flagship_ready.",
-      "proof_status": "fail",
-      "coverage_gap_keys": [
-        "fleet_and_operator_loop"
-      ],
-      "readiness_plane_gap_keys": [
-        "structural_ready",
-        "flagship_ready"
-      ]
+      "state": "ready",
+      "reason": "Published flagship readiness proof passed with no remaining coverage or readiness-plane gaps.",
+      "proof_status": "pass",
+      "coverage_gap_keys": [],
+      "readiness_plane_gap_keys": []
     },
     "rule_environment_trust": {
-      "state": "watch",
-      "reason": "Rule-environment trust still needs journey-gate closure."
+      "state": "ready",
+      "reason": "Rule-environment trust follows current journey-gate readiness."
     },
     "edition_authorship_and_import_confidence": {
       "state": "monitor",
       "reason": "Edition/import confidence is monitored through ongoing history-backed pulse snapshots."
     },
     "journey_gate_health": {
-      "state": "blocked",
-      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-      "blocked_count": 2,
+      "state": "ready",
+      "reason": "Journey proof is steady on current published evidence.",
+      "blocked_count": 0,
       "warning_count": 0,
       "blocked_external_only_count": 0,
-      "blocked_with_local_count": 2,
+      "blocked_with_local_count": 0,
       "blocked_external_only_hosts": [],
       "blocked_external_only_tuples": []
     },
@@ -174,12 +190,12 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-05-03-focus-next-12-biggest-wins",
+        "decision_id": "2026-05-05-focus-next-12-biggest-wins",
         "action": "focus_shift",
-        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 20 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
+        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 22 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
         "cited_signals": [
           "overall_progress_percent=99",
-          "history_snapshot_count=20",
+          "history_snapshot_count=22",
           "oldest_blocker_days=0",
           "phase_label=Public-fit polish",
           "longest_pole=Core Engine",
@@ -187,16 +203,16 @@
         ]
       },
       {
-        "decision_id": "2026-05-03-launch-governance",
+        "decision_id": "2026-05-05-launch-governance",
         "action": "freeze_launch",
-        "reason": "Freeze launch expansion while 2 golden journey(s) remain blocked and journey health is blocked.",
+        "reason": "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating).",
         "cited_signals": [
-          "journey_gate_state=blocked",
-          "journey_gate_blocked_count=2",
+          "journey_gate_state=ready",
+          "journey_gate_blocked_count=0",
           "local_release_proof_status=passed",
-          "flagship_readiness_state=watch",
-          "flagship_readiness_proof_status=fail",
-          "provider_canary_status=Canary green on all active lanes",
+          "flagship_readiness_state=ready",
+          "flagship_readiness_proof_status=pass",
+          "provider_canary_status=Canary evidence is still accumulating",
           "closure_health_state=clear",
           "successor_dependency_state=ready",
           "successor_open_dependency_ids=",
@@ -211,14 +227,14 @@
     "current_recommended_wave": "Next 12 Biggest Wins",
     "overall_progress_percent": 99,
     "phase_label": "Public-fit polish",
-    "history_snapshot_count": 20,
+    "history_snapshot_count": 22,
     "longest_pole": "Core Engine",
-    "launch_readiness": "Hold launch expansion pending route-canary validation. 2 golden journey(s) remain blocked.",
+    "launch_readiness": "Launch posture is still waiting on provider-route evidence.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
-      "canary_status": "Canary green on all active lanes",
-      "review_due": "2026-05-16",
-      "next_decision": "Promote once canaries stay green and support fallout remains clear through the next route review."
+      "canary_status": "Canary evidence is still accumulating",
+      "review_due": "2026-05-19",
+      "next_decision": "Hold broad promotion until public route canary coverage exists."
     },
     "successor_dependency_posture": {
       "state": "ready",
@@ -235,7 +251,7 @@
       "summary": "Successor launch dependencies are closed in the next-90-day registry."
     },
     "flagship_product_readiness_source": "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
-    "flagship_product_readiness_status": "fail",
+    "flagship_product_readiness_status": "pass",
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "post_audit_next20_status": "complete",
     "active_wave_registry": "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
@@ -265,26 +281,18 @@
       "local_release_proof_status": "passed",
       "proven_journey_count": 5,
       "proven_route_count": 10,
-      "history_snapshot_count": 20,
-      "summary": "Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 20 weekly snapshots are on record for the current public trust posture."
+      "history_snapshot_count": 22,
+      "summary": "Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 22 weekly snapshots are on record for the current public trust posture."
     },
     "progress_trend": {
-      "state": "moving",
-      "direction": "down",
-      "delta_percent": 1,
-      "from_as_of": "2026-04-26",
-      "to_as_of": "2026-05-01",
-      "summary": "Regression -1% from 2026-04-26 to 2026-05-01. Trend window: 2026-04-12 99% -> 2026-04-13 99% -> 2026-04-14 99% -> 2026-04-16 100% -> 2026-04-23 100% -> 2026-04-25 100% -> 2026-04-26 100% -> 2026-05-01 99%.",
+      "state": "steady",
+      "direction": "flat",
+      "delta_percent": 0,
+      "from_as_of": "2026-05-02",
+      "to_as_of": "2026-05-05",
+      "summary": "Flat trend 0% from 2026-05-02 to 2026-05-05. Trend window: 2026-04-14 99% -> 2026-04-16 100% -> 2026-04-23 100% -> 2026-04-25 100% -> 2026-04-26 100% -> 2026-05-01 99% -> 2026-05-02 99% -> 2026-05-05 99%.",
       "sample_count": 8,
       "samples": [
-        {
-          "as_of": "2026-04-12",
-          "overall_progress_percent": 99
-        },
-        {
-          "as_of": "2026-04-13",
-          "overall_progress_percent": 99
-        },
         {
           "as_of": "2026-04-14",
           "overall_progress_percent": 99
@@ -308,8 +316,42 @@
         {
           "as_of": "2026-05-01",
           "overall_progress_percent": 99
+        },
+        {
+          "as_of": "2026-05-02",
+          "overall_progress_percent": 99
+        },
+        {
+          "as_of": "2026-05-05",
+          "overall_progress_percent": 99
         }
       ]
-    }
+    },
+    "closure_semantics": {
+      "plane": "dual",
+      "front_door_closeout": "complete",
+      "substrate_proof_lane": "in_progress",
+      "front_door_belief": "public release-control plane and public tuple posture are stable on public main",
+      "substrate_belief": "campaign-world-community-admin proof contracts remain in active proof status"
+    },
+    "substrate_contract_sets_in_progress": [
+      "outbound_notification_delivery_vnext",
+      "community_rule_environment_vnext",
+      "world_frame_vnext",
+      "mission_market_vnext",
+      "intel_economy_vnext",
+      "world_tick_vnext",
+      "resolution_report_vnext",
+      "world_newsreel_vnext",
+      "opposition_packet_vnext",
+      "open_run_network_vnext",
+      "seasonal_honors_vnext",
+      "feedback_signal_ooda_vnext",
+      "admin_projection_and_intent_vnext",
+      "journey_proof_vnext",
+      "crash_automation_vnext",
+      "account_aware_install_linking_vnext",
+      "desktop_update_vnext"
+    ]
   }
 }

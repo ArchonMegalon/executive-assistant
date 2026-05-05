@@ -90,10 +90,19 @@ TROLL_MARK_PATH = Path("/docker/chummercomplete/Chummer6/assets/meta/chummer-tro
 CHUMMER6_REPO_ROOT = Path("/docker/chummercomplete/Chummer6")
 DEFAULT_PROVIDER_ORDER = [
     "media_factory",
-    "magixai",
     "browseract_prompting_systems",
     "browseract_magixai",
+    "magixai",
+    "onemin",
 ]
+CANONICAL_RENDER_PROVIDERS = {
+    "comfyui",
+    "media_factory",
+    "browseract_prompting_systems",
+    "browseract_magixai",
+    "magixai",
+    "onemin",
+}
 PALETTES = [
     ("#0f766e", "#34d399"),
     ("#1d4ed8", "#7dd3fc"),
@@ -1331,7 +1340,7 @@ def truthy_env(name: str, *, default: bool = False) -> bool:
 
 
 def _is_onemin_provider_allowed() -> bool:
-    return _boolish(env_value("CHUMMER6_ENABLE_ONEMIN_PROVIDER"), default=False)
+    return _boolish(env_value("CHUMMER6_ENABLE_ONEMIN_PROVIDER"), default=True)
 
 
 def _floatish(value: object, *, default: float = 0.0) -> float:
@@ -2503,6 +2512,10 @@ def provider_order() -> list[str]:
     requested = [item.strip().lower().replace("-", "_") for item in re.split(r"[,\s]+", raw) if item.strip()]
     order: list[str] = []
     for value in requested:
+        if value in {"1min", "1min_ai", "1min.ai", "oneminai"}:
+            value = "onemin"
+        if value not in CANONICAL_RENDER_PROVIDERS:
+            continue
         if value in {"onemin", "ea_onemin", "one_min", "1min"} and not _is_onemin_provider_allowed():
             continue
         if (
@@ -2514,7 +2527,11 @@ def provider_order() -> list[str]:
             continue
         if value not in order:
             order.append(value)
-    return order or list(DEFAULT_PROVIDER_ORDER)
+    if not order:
+        order = list(DEFAULT_PROVIDER_ORDER)
+    if not str(os.environ.get("CHUMMER6_IMAGE_PROVIDER_ORDER") or "").strip() and _comfyui_render_enabled() and "comfyui" not in order:
+        order.insert(0, "comfyui")
+    return order
 
 
 def routed_provider_order_for_target(target: str, *, providers: list[str] | None = None) -> list[str]:
@@ -6093,11 +6110,11 @@ def _static_first_contact_overlay_layout(*, target: str, width: int, height: int
                 {"box": (int(width * 0.62), int(height * 0.6), int(width * 0.96), int(height * 0.94)), "start": 214, "end": 300, "color": amber, "width": 2},
             ],
             "chips": [
-                {"x": int(width * 0.04), "y": int(height * 0.145), "text": "ID check", "color": amber, "font_size": 10},
-                {"x": int(width * 0.04), "y": int(height * 0.2), "text": "chrome sync", "color": lime, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.145), "text": "SIN maybe fake", "color": amber, "font_size": 10},
+                {"x": int(width * 0.04), "y": int(height * 0.2), "text": "smartlink green", "color": lime, "font_size": 9},
                 {"x": int(width * 0.04), "y": int(height * 0.255), "text": "ward edge", "color": cyan, "font_size": 10},
-                {"x": int(width * 0.79), "y": int(height * 0.75), "text": "camera angle", "color": amber, "font_size": 9},
-                {"x": int(width * 0.04), "y": int(height * 0.81), "text": "door route", "color": cyan, "font_size": 9},
+                {"x": int(width * 0.79), "y": int(height * 0.75), "text": "cam jack 67%", "color": amber, "font_size": 9},
+                {"x": int(width * 0.04), "y": int(height * 0.81), "text": "cover route 3.1s", "color": cyan, "font_size": 9},
                 {"x": int(width * 0.28), "y": int(height * 0.85), "text": "side-door option", "color": lime, "font_size": 9},
             ],
         }
@@ -6155,9 +6172,9 @@ def _static_first_contact_overlay_layout(*, target: str, width: int, height: int
             ],
             "chips": [
                 {"x": int(width * 0.24), "y": int(height * 0.54), "text": "clamp now", "color": cyan, "font_size": 9},
-                {"x": int(width * 0.39), "y": int(height * 0.11), "text": "seal drift", "color": amber, "font_size": 9},
-                {"x": int(width * 0.63), "y": int(height * 0.18), "text": "witness pressure", "color": red, "font_size": 8},
-                {"x": int(width * 0.63), "y": int(height * 0.42), "text": "rollback path", "color": cyan, "font_size": 8},
+                {"x": int(width * 0.73), "y": int(height * 0.11), "text": "seal drift 14%", "color": amber, "font_size": 9},
+                {"x": int(width * 0.66), "y": int(height * 0.18), "text": "witness lock weak", "color": red, "font_size": 8},
+                {"x": int(width * 0.63), "y": int(height * 0.42), "text": "rollback safe 62%", "color": cyan, "font_size": 8},
                 {"x": int(width * 0.56), "y": int(height * 0.68), "text": "blast edge", "color": amber, "font_size": 9},
             ],
         }
@@ -7592,8 +7609,8 @@ def _apply_flagship_finish_postpass_ffmpeg(*, image_path: Path, target: str) -> 
             "eq=contrast=1.08:saturation=1.12:brightness=0.022:gamma=1.028,"
             "vibrance=intensity=0.18,"
             "colorbalance=rs=0.018:bs=-0.016:rm=0.010:bm=-0.008,"
-            "cas=strength=0.12,"
-            "unsharp=5:5:0.42:3:3:0.0"
+            "cas=strength=0.24,"
+            "unsharp=5:5:0.66:3:3:0.0"
         )
     elif target == "assets/horizons/karma-forge.png":
         filtergraph = (
@@ -9164,7 +9181,7 @@ def apply_text_suppression_repair_postpass(*, image_path: Path, spec: dict[str, 
     if not target:
         return "text_suppression_repair_postpass:skipped"
     if target == "assets/horizons/karma-forge.png":
-        return "text_suppression_repair_postpass:skipped_karma_forge"
+        return _apply_forge_overlay_sanitization_postpass_pillow(image_path=image_path)
     if target == "assets/horizons/alice.png":
         return "text_suppression_repair_postpass:skipped_alice"
     if target not in {
@@ -10084,7 +10101,10 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
             " ".join(
                 [
                     "Illustrated cover-grade cyberpunk-fantasy streetdoc cyberarm cover art.",
+                    "Illustrated cover-grade cyberpunk-fantasy streetdoc cover art.",
                     "Ultra-wide establishing shot, environment first, camera several meters back and slightly above eye level, the room occupies well over half the frame, and figures occupy less than one quarter of frame.",
+                    "Verified post-composite may sharpen them, not invent them.",
+                    "Cyberarm fit diagnostic only.",
                     lived_story_clause(normalized),
                     chummer_dev_clause(normalized),
                     "Make the frame read like a short Shadowrun story with three beats visible at once: the cyberarm is being fitted now, the runner is deciding whether the implant proof holds now, and the next ugly move back into the sprawl is already hanging over the room.",
@@ -10097,7 +10117,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "The left half of frame must stay busy with doorway, shelving, hanging tools, floor reflections, and streetdoc clutter; avoid blank dark wall or empty negative space.",
                     "Keep the characters nested inside the room instead of becoming the whole shot, with more bay, floor, ceiling cabling, and surrounding hardware than portrait anatomy, and cast roles must read clearly at a glance.",
                     "Poster-grade realism with crisp material edges, high microcontrast, hard orange-cyan contrast, brighter work-light bloom, sharper grime detail, stronger wet reflections, saturated civic color highlights, and bold silhouette grouping.",
-                    "AR posture is cyberarm fit diagnostic: expose cyberware seams, clamp points, implant trays, med-rig arms, fingers, wrists, tool placement, and wet-floor reflections cleanly so a second-pass vision planner can decide the final NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, and TORQUE LIMIT callouts from the rendered image. Any diegetic AR inside the base art must stay sparse and welded to real implant geometry; verified post-composite is where the explicit runner questions get answered.",
+                    "AR posture is cyberarm fit diagnostic: expose cyberware seams, clamp points, implant trays, med-rig arms, fingers, wrists, tool placement, and wet-floor reflections cleanly so a second-pass vision planner can decide the final NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, and TORQUE LIMIT callouts from the rendered image. Any diegetic AR inside the base art must stay sparse and welded to real implant geometry; verified post-composite may sharpen them, not invent them.",
                     "Negative constraints: medium shot, bedside crop, close portrait, gore, clean clinic, hospital showroom, medbay monitor wall, white-coat doctor, framed ECG screen, giant UI slab, centered HUD card, empty left wall, blank floor, soft watercolor blur, clean empty surfaces, back-view idle pair, or a blown-out doorway panel.",
                     "Do not paint signage, title text, or public-facing UI walls into the scene. No pseudo monitors and no dashboard-style screens.",
                     "Short cyberarm-fit chips are allowed when welded to the implant, anatomy, clamps, tools, or med-rig geometry. No watermark. 16:9.",
@@ -10179,6 +10199,7 @@ def critical_asset_onemin_scene_prompt(*, target: str, row: dict[str, object], c
                     "Ultra-wide oblique establishing shot from a van side door or rear quarter, environment and rig first, camera several meters back, with the rig interior and reconnect hardware occupying well over half the frame and the operator staying smaller than one sixth of frame.",
                     lived_story_clause(normalized),
                     "Shadowrun-adjacent reconnect lane inside a battered van or service rig where one operator patches a dropped mesh link back into sync cradles, cable nests, rugged relay bricks, patch rails, and router housings fixed into the wall and ceiling while a second teammate, limp passenger, or drone shadow survives deeper in frame.",
+                    "Keep the windows reduced to wet shape and traffic glow only, with no readable exterior shop signs or billboard copy surviving through the glass.",
                     "Pack the interior with physical relay grammar: roof cabling, rugged side rails, sync cradles, patch cords, route couplers, battery bricks, blank status bars, bracketed routers, cassette housings, wet floor clutter, rear-door geometry, side-door framing, dirty med tape, and one cropped corp service shell so the place reads before any hand-held gadget.",
                     "Keep the operator nested deep in the hardware with both hands working inside the rig, never presenting a device to camera and never becoming a centered portrait, chest-up crop, or face-led close shot.",
                     "Make the scene clearly harsh and human: a wounded teammate, crash kit, or drone casualty should survive in depth while obvious body-worn chrome such as cyberarm seams, datajack, trodes, or smartlink lens still reads in the frame.",
@@ -10457,7 +10478,15 @@ def build_safe_onemin_prompt(*, prompt: str, spec: dict[str, object]) -> str:
     if critical_asset:
         direct_flagship_prompt = critical_asset_onemin_scene_prompt(target=target, row=row, contract=contract)
         if direct_flagship_prompt:
-            return sanitize_prompt_for_provider(direct_flagship_prompt, provider="onemin")
+            detail_parts = [
+                compact_text(row.get("visual_prompt") or "", limit=220),
+                compact_text(contract.get("subject") or "", limit=92),
+                compact_text(contract.get("environment") or "", limit=108),
+                compact_text(contract.get("action") or "", limit=108),
+            ]
+            stitched = " ".join([*[part for part in detail_parts if part], direct_flagship_prompt])
+            sanitized = sanitize_prompt_for_provider(stitched, provider="onemin")
+            return clip_prompt_text(sanitized, limit=2200)
     if critical_asset:
         visual_seed_source = critical_asset_onemin_scene_brief(target) or row.get("replace_visual_prompt") or row.get("visual_prompt") or prompt or ""
         visual_seed = clip_prompt_text(" ".join(str(visual_seed_source or "").split()).strip(), limit=760)
@@ -10848,7 +10877,7 @@ def ooda_variant_prompt(
         )
         _add_correction(
             "hero_room_story",
-            "Hero-specific correction: keep more visible safehouse geometry, gear clutter, open bay door, prep rail, tool wall, wet floor, hanging lights, and route-readiness hardware in frame."
+            "Hero-specific correction: keep more visible garage clinic geography, gear clutter, open bay door, prep rail, tool wall, wet floor, hanging lights, and route-readiness hardware in frame."
         )
         if "text_suppression" in correction_tags:
             _add_correction(
@@ -11201,10 +11230,14 @@ def ooda_variant_spec(
             elif previous_provider == "media_factory":
                 _prioritize("browseract_prompting_systems")
                 provider_tags.append("prefer_browseract_challenger")
+            elif previous_provider == "onemin":
+                _prioritize("magixai")
+                provider_tags.append("prefer_magixai_challenger")
         if {"visual_audit:soft_finish", "critical_visual_gate:soft_finish", "visual_audit:insufficient_flash", "critical_visual_gate:insufficient_flash"} & notes:
             if previous_provider == "media_factory":
-                _prioritize("magixai")
-                provider_tags.append("prefer_magixai_finish")
+                preferred_finish = "onemin" if "onemin" in providers else "magixai"
+                _prioritize(preferred_finish)
+                provider_tags.append(f"prefer_{preferred_finish}_finish")
         if {
             "visual_audit:environment_share_too_low",
             "visual_audit:subject_crop_too_tight",
@@ -11216,6 +11249,9 @@ def ooda_variant_spec(
                 _prioritize("magixai")
                 provider_tags.append("prefer_magixai_room")
             elif previous_provider == "magixai":
+                _prioritize("media_factory")
+                provider_tags.append("prefer_media_factory_room")
+            elif previous_provider == "onemin":
                 _prioritize("media_factory")
                 provider_tags.append("prefer_media_factory_room")
         if {
@@ -11671,20 +11707,20 @@ def asset_specs() -> list[dict[str, object]]:
             "banned": TABLEAU_COMPOSITIONS | STATIC_DESK_COMPOSITIONS,
             "person_count_target": "duo_or_team",
             "flash_level": "bold",
-            "prompt_nudge": "Treat the hero like a first-contact Shadowrun streetdoc cyberarm poster, not a quiet mood still: obvious metahuman presence, implant trust pressure, cyberarm fitting, useful runner-facing AR diagnostics, and strong foreground-midground-background layering. The runner, new cyberarm, streetdoc, treatment chair, clamp hardware, tool wall, med rig, and clinic clutter must read at banner scale. Pull the camera far enough back that the full streetdoc bay, doorway, floor, shelves, machinery, and clutter are obvious at a glance. Push harder on poster energy with stronger orange-cyan contrast, vivid magenta or acid-green accent spill, harsher rim light, wetter reflections, sharper prop detail, and a bright street-level clinic feel. This is a converted shack, container, or back-room implant bay with at least two active people in frame, not desk glamour, not a clean hospital exam room, and not a monitor-heavy tech showroom. Any AR text must be useful to the runner or streetdoc and anchored to the cyberarm work.",
-            "environment": "a bright streetdoc shack or converted clinic bay with an open container doorway, cyberarm fitting chair, surgical clamps, tool wall, implant trays, chrome arm parts, med rig, gauze, bottles, patched coats, extension cords, wet concrete, tarps, and cyan diagnostic spill fighting with amber clinic lamps across the room",
-            "subject": "a runner receiving a new cyberarm in a hacked repair recliner while a visibly augmented metahuman streetdoc or cybertech calibrates the implant from center-right frame",
+            "prompt_nudge": "Treat the hero like a first-contact Shadowrun streetdoc cyberarm triage poster, not a quiet mood still: obvious metahuman presence, implant trust pressure, cyberarm fitting, useful runner-facing AR diagnostics, and strong foreground-midground-background layering. The runner, new cyberarm, streetdoc, treatment chair, clamp hardware, tool wall, med rig, and garage-clinic clutter must read at banner scale. Pull the camera far enough back that the full streetdoc bay, doorway, floor, shelves, machinery, and clutter are obvious at a glance. Push harder on poster energy with stronger orange-cyan contrast, vivid magenta or acid-green accent spill, harsher rim light, wetter reflections, sharper prop detail, and a bright street-level clinic feel. This is a converted shack, container, or back-room garage clinic with at least two active people in frame, not desk glamour, not a clean hospital exam room, and not a monitor-heavy tech showroom. Any AR text must be useful to the runner or streetdoc and anchored to the cyberarm work.",
+            "environment": "a bright garage clinic streetdoc shack or converted clinic bay with an open bay door, side bench, cyberarm fitting chair, surgical clamps, tool wall, implant trays, chrome arm parts, med rig, gauze, bottles, patched coats, extension cords, wet concrete, tarps, and cyan diagnostic spill fighting with amber clinic lamps across the room",
+            "subject": "a visibly augmented metahuman streetdoc stabilizing a runner receiving a new cyberarm in a hacked repair recliner while a teammate or assistant crowds the triage bay from center-right frame",
             "action": "the streetdoc is checking nerve sync, joint seal, grip test, pain response, and torque limits before the runner gets back into the sprawl",
             "metaphor": "trust becoming visible during the cyberarm fit",
-            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy streetdoc cyberarm scene in a bright converted clinic shack or back-alley implant bay. Set the camera several meters back so the room tells at least half the story: open container doorway, wet floor, shelves, tool walls, surgical clamps, implant trays, chrome cyberarm parts, med rig, side clutter, hanging clinic lamps, and deep bay hardware must stay visible around the figures. Put a runner in a hacked repair recliner receiving a new cyberarm while a visibly augmented metahuman streetdoc or cybertech actively calibrates the implant from center or right frame and one assistant, teammate, or witness crowds the opposite edge with med patches, a tool tray, or hard practical light. Layer physical props everywhere: implant trays, tool chest, gauze, bottles, med-gel, chrome housings, cable bundles, cheap fluorescent strips, clinic lamps, hanging cables, rust, wet concrete, and three vivid light families inside the scene itself: electric-cyan diagnostic spill, hot amber task light, and saturated magenta or acid-green neon or astral bleed reflecting off chrome and puddles. The frame must feel grimy, mythic, bright, and specific enough that a new viewer immediately reads Shadowrun streetdoc pressure, implant trust, visible cyberarm work, and runner risk instead of generic sci-fi maintenance. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and no murky monochrome shadow wash. Show at least two active people clearly in frame with visible hands doing work and more room, floor, doorway, and hardware than portrait anatomy. Readable AR text is allowed only for runner-relevant diagnostics such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT when anchored to the implant, clamps, tools, or med rig. No readable shop signs, slogans, jacket patches, gore, clean hospital room, desk, bench, crate, lone gadget hero prop, framed monitors, generic number readouts, or dashboard wall.",
+            "replace_visual_prompt": "16:9 illustrated promo-poster key art for a cyberpunk-fantasy streetdoc cyberarm scene in a bright garage clinic streetdoc shack or back-alley implant bay. Set the camera several meters back so the room tells at least half the story: open bay door, wet floor, side bench, shelves, tool walls, surgical clamps, implant trays, chrome cyberarm parts, med rig, side clutter, hanging clinic lamps, and deep bay hardware must stay visible around the figures. Put a runner in a hacked repair recliner receiving a new cyberarm while a visibly augmented metahuman streetdoc or cybertech actively calibrates and stabilizes the implant from center or right frame and one assistant, teammate, or witness crowds the opposite edge with med patches, a tool tray, or hard practical light. Layer physical props everywhere: implant trays, tool chest, gauze, bottles, med-gel, chrome housings, cable bundles, cheap fluorescent strips, clinic lamps, hanging cables, rust, wet concrete, and three vivid light families inside the scene itself: electric-cyan diagnostic spill, hot amber task light, and saturated magenta or acid-green neon or astral bleed reflecting off chrome and puddles. The frame must feel grimy, mythic, bright, triage-driven, and specific enough that a new viewer immediately reads Shadowrun streetdoc pressure, implant trust, visible cyberarm work, and runner risk instead of generic sci-fi maintenance. Push harder toward packed flashy cover-art energy with stronger orange-cyan contrast, sharper rim light, bolder silhouettes, more diagonal force, crisp material detail, and no murky monochrome shadow wash. Show at least two active people clearly in frame with visible hands doing work and more room, floor, doorway, and hardware than portrait anatomy. Readable AR text is allowed only for runner-relevant diagnostics such as NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, or TORQUE LIMIT when anchored to the implant, clamps, tools, or med rig. No readable shop signs, slogans, jacket patches, gore, clean hospital room, desk, bench, crate, lone gadget hero prop, framed monitors, generic number readouts, or dashboard wall.",
             "framing": "ultra-wide establishing streetdoc-bay shot with strong diagonal composition, the runner and cyberarm anchored through the center, the streetdoc or cybertech readable in center-right, a second support figure on the opposite edge, dense foreground clutter in both lower corners, overhead clinic lights, shelf props, tool storage, visible floor and doorway, and deep background bay hardware visible together; no portrait crop, no hallway symmetry, and no empty negative-space void",
             "avoid": "extreme face crop, gore, alley crate posing, alley corridor, desk glamour, storefront signs, menu boards, seated table pose, close portrait framing, side-profile portrait, phone glamour close-up, handheld slate, card close-up, paper in hand, bright screens, glowing panels, framed boards, front-facing paper strips, long receipt paper, waist-height counters, benches, tabletops, pristine hospital tiles, clean white medical showroom, a lone gadget becoming the hero prop, a single-person dim bay still, a back-facing idle pair, hallway symmetry, a quiet low-density mood still, a clean suburban clinic, a floating ECG line, readable jacket text, readable back patch slogans, or any CHUMMER DEV text",
             "overlay_hint": "NERVE SYNC, JOINT SEAL, GRIP TEST, PAIN WATCH, TORQUE LIMIT, and clamp-alignment cues",
             "props": ["cyberarm fitting chair", "surgical clamps", "implant tray", "tool wall", "med rig", "gauze", "chrome arm housings", "bottles"],
             "overlays": ["NERVE SYNC", "JOINT SEAL", "GRIP TEST", "PAIN WATCH", "TORQUE LIMIT"],
             "visual_motifs": ["streetdoc bay", "new cyberarm", "runner risk", "implant trust", "cyberarm diagnostics", "clinic clutter", "wet street grime"],
-            "overlay_callouts": ["ID check", "camera angle", "chrome sync", "door route", "ward edge", "side-door option"],
-            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
+            "overlay_callouts": ["SIN maybe fake", "cam jack 67%", "smartlink green", "cover route 3.1s", "ward edge", "side-door option"],
+            "providers": ["onemin", "magixai", "media_factory", "browseract_prompting_systems", "browseract_magixai"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",
@@ -11924,7 +11960,7 @@ def asset_specs() -> list[dict[str, object]]:
             "framing": "farther-back oblique van-interior shot from the side door or rear quarter with dense cabling, rack seams, wet floor, doorway geometry, cradle hardware, and a secondary presence visible in the left, center, and right thirds; the operator is small and secondary to the rig",
             "avoid": "close-up of fingers on a phone, neutral tablet portrait, cropped gadget glamour, bright wall panel, front-facing dashboard screen, windshield sign bleed, menu-board windows, chest-up portrait framing, or a handheld lifted into the foreground",
             "overlay_hint": "signal halos, route weighting arcs, comms-handshake health, and posture brackets",
-            "providers": ["magixai", "media_factory"],
+            "providers": ["magixai", "onemin", "media_factory"],
             "magixai_models": ["fal-ai/flux-pro/v1.1-ultra", "fal-ai/flux-2-pro", "fal-ai/ideogram/v2"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
@@ -11982,7 +12018,7 @@ def asset_specs() -> list[dict[str, object]]:
             "overlays": ["compatibility arcs", "diff markers", "approval seals", "rollback arcs", "control brackets", "consequence nodes", "witness locks"],
             "visual_motifs": ["rules lab", "rollback rig", "approval pressure", "controlled experimentation", "review witness", "consequence chamber"],
             "overlay_callouts": ["seal drift", "approval rail", "PROVENANCE", "ROLLBACK", "COMPATIBILITY ARC", "witness line LOCK", "REVERT COST"],
-            "providers": ["magixai", "browseract_magixai", "browseract_prompting_systems"],
+            "providers": ["media_factory", "onemin", "magixai", "browseract_prompting_systems", "browseract_magixai"],
             "onemin_models": ["gpt-image-1"],
             "onemin_sizes": ["auto", "1536x1024"],
             "onemin_image_quality": "high",

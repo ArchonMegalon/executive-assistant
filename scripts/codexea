@@ -958,6 +958,10 @@ else:
 print(f"ETA at current pace: {fmt(topup.get('hours_remaining_at_current_pace'))}")
 billing = payload.get("onemin_billing_aggregate") or {}
 if billing:
+    print(f"Next daily top-up at: {fmt(billing.get('next_daily_topup_at'))}")
+    print(f"Daily top-up amount: {fmt(billing.get('daily_topup_amount'))}")
+    print(f"Next subscription top-up at: {fmt(billing.get('next_subscription_topup_at'))}")
+    print(f"Subscription top-up amount: {fmt(billing.get('subscription_topup_amount'))}")
     print(f"Next top-up at: {fmt(billing.get('next_topup_at'))}")
     print(f"Top-up amount: {fmt(billing.get('topup_amount'))}")
     print(f"Hours until top-up: {fmt(billing.get('hours_until_next_topup'))}")

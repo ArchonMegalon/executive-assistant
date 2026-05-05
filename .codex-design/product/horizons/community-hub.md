@@ -1,10 +1,10 @@
 # COMMUNITY HUB
 
-## The problem
+## Table pain
 
 Finding a table still means juggling community rules, approvals, chats, calendars, meeting links, roster notes, and after-session follow-up just to get the right people to the table and close the loop afterward.
 
-## What it would do
+## Bounded product move
 
 COMMUNITY HUB would turn BLACK LEDGER and campaign prep into a practical recruitment, scheduling, prep, and closeout layer.
 
@@ -39,10 +39,23 @@ The public fantasy is:
 
 ## Tool posture
 
-Bounded scheduling, intake, and publication tooling may help with discovery, booking, and weekly honors.
-Meeting tools and observer tools stay projection or assistance lanes only.
+COMMUNITY HUB profits from intake, scheduling, review, and closeout tooling, but accepted roster and run truth remain first-party.
 
-## What has to be true first
+* `Deftform` - structured intake and application preflight support
+* `Lunacal` - booking and human-escalation lane
+* `MetaSurvey` - follow-up and network-signal collection
+* `Teable` - operator review-board and AdminIntent workbench
+* `NextStep` - governed queue and closeout runbook execution
+* `ApproveThis` - bounded approval edge for operator or guest signoff
+* `Emailit` - invite, reminder, decision, and closeout delivery after Hub decides the message should exist
+* bounded `FacePop` and `Signitic` - public-entry and passive recruitment lanes only
+* bounded `vidBoard` and `Taja` - approved onboarding, honors, and recap media only
+* bounded `hedy.ai`, `Nonverbia`, and `BrowserAct` - consent-gated observer, debrief, and capture helpers only
+
+Meeting tools and play surfaces stay projection or handoff lanes only.
+They do not become run, roster, consent, or consequence truth.
+
+## Foundations
 
 * BLACK LEDGER job packets and world consequences must already be trustworthy enough to seed open runs
 * campaign and run truth must remain Chummer-owned even when meeting platforms are involved
@@ -51,6 +64,12 @@ Meeting tools and observer tools stay projection or assistance lanes only.
 * a beginner GM must be able to open, staff, prep, schedule, and close a starter run without stitching together five external tools
 * observer and debrief lanes must be strictly consent-gated
 * reputation and seasonal honors must derive from typed source events rather than hidden scoring
+
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
 
 ## Hard boundary
 
@@ -62,7 +81,11 @@ Meeting tools and observer tools stay projection or assistance lanes only.
 * not pay-to-win ranking
 * not Table Pulse or GOD deciding world truth or moderation truth
 
-## Why it is not ready yet
+## Owner handoff gate
+
+Open-run listing, accepted roster, meeting handoff, observer consent, and reputation events must stay Chummer-owned even when third-party meeting or analysis tools are in the loop.
+
+## Why still a horizon
 
 This only works if Chummer can prove four things at once:
 

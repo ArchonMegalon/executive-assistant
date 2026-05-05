@@ -7,6 +7,8 @@ TARGET_UID="${EA_RUN_AS_UID:-}"
 TARGET_GID="${EA_RUN_AS_GID:-}"
 TARGET_USER="ea"
 TARGET_GROUP="ea"
+TARGET_HOME="/home/ea"
+MOUNTED_HOME="${HOME:-/home/ea}"
 
 if [ "$(id -u)" = "0" ]; then
   if [ -n "${TARGET_GID}" ]; then
@@ -27,10 +29,19 @@ if [ "$(id -u)" = "0" ]; then
       fi
     fi
   fi
+  RESOLVED_TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6 || true)"
+  if [ -n "${RESOLVED_TARGET_HOME}" ]; then
+    TARGET_HOME="${RESOLVED_TARGET_HOME}"
+  fi
   mkdir -p "${LEDGER_DIR}"
   mkdir -p "${ARTIFACTS_DIR}"
+  mkdir -p "${TARGET_HOME}"
   chown -R "${TARGET_USER}:${TARGET_GROUP}" "${LEDGER_DIR}"
   chown -R "${TARGET_USER}:${TARGET_GROUP}" "${ARTIFACTS_DIR}"
+  chown -R "${TARGET_USER}:${TARGET_GROUP}" "${TARGET_HOME}"
+  if [ "${MOUNTED_HOME}" != "${TARGET_HOME}" ] && [ -d "${MOUNTED_HOME}/.gemini" ] && [ ! -e "${TARGET_HOME}/.gemini" ]; then
+    ln -s "${MOUNTED_HOME}/.gemini" "${TARGET_HOME}/.gemini" || true
+  fi
   if [ -S /var/run/docker.sock ]; then
     DOCKER_GID="$(stat -c '%g' /var/run/docker.sock 2>/dev/null || true)"
     if [ -n "${DOCKER_GID}" ]; then
@@ -44,6 +55,7 @@ if [ "$(id -u)" = "0" ]; then
       fi
     fi
   fi
+  export HOME="${TARGET_HOME}"
   exec runuser -u "${TARGET_USER}" -- "$@"
 fi
 

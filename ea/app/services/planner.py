@@ -432,11 +432,13 @@ class PlannerService:
         capability_key = str(policy.pre_artifact_capability_key or default_capability_key or "").strip()
         tool_name = str(policy.pre_artifact_tool_name or default_tool_name).strip()
         allowed_tools = {str(value or "").strip() for value in contract.allowed_tools if str(value or "").strip()}
+        logical_route = self._logical_pre_artifact_route_for_capability(capability_key)
+        if logical_route is not None and not tool_name:
+            return logical_route
         if capability_key:
             try:
                 return self._route_capability(contract=contract, capability_key=capability_key, principal_id=principal_id)
             except PlanValidationError:
-                logical_route = self._logical_pre_artifact_route_for_capability(capability_key)
                 if logical_route is not None:
                     return logical_route
                 if not tool_name:
@@ -790,7 +792,7 @@ class PlannerService:
             max_attempts=max_attempts,
             retry_backoff_seconds=retry_backoff_seconds,
             depends_on=depends_on,
-            input_keys=("source_text",),
+            input_keys=("normalized_text",),
             output_keys=("normalized_text", "structured_output_json", "preview_text", "mime_type"),
             desired_output_json=self._structured_generate_desired_output_json(contract),
             **self._step_brain_metadata(contract=contract, route=route, principal_id=principal_id),
@@ -1019,7 +1021,9 @@ class PlannerService:
         default_input_keys: tuple[str, ...],
     ) -> tuple[str, ...]:
         normalized = str(capability_key or "").strip()
-        if normalized in {"structured_generate", "code_generate"}:
+        if normalized == "structured_generate":
+            return ("normalized_text",)
+        if normalized == "code_generate":
             return ("source_text",)
         if normalized == "image_generate":
             return ("source_text",)

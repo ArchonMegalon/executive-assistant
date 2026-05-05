@@ -2538,24 +2538,14 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
         continue_on_rate_limit=True,
     )
 
-    assert calls == [
-        "ONEMIN_AI_API_KEY",
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-    ]
-    assert attempted_count == 3
-    assert skipped_count == 0
+    assert calls == ["ONEMIN_AI_API_KEY"]
+    assert attempted_count == 1
+    assert skipped_count == 2
     assert rate_limited is True
     assert len(errors) == 1
     assert errors[0]["tool_name"] == "onemin.api.billing_refresh"
-    assert [row["account_label"] for row in billing_results] == [
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-    ]
-    assert [row["account_label"] for row in member_results] == [
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-    ]
+    assert billing_results == []
+    assert member_results == []
 
 
 def test_onemin_provider_api_refresh_batches_after_rate_limit(
@@ -2580,10 +2570,16 @@ def test_onemin_provider_api_refresh_batches_after_rate_limit(
         ),
     )
 
+    quarantine_state = {"seconds": 0.0, "reason": ""}
     monkeypatch.setattr(
         providers_route,
         "_onemin_direct_api_quarantine_remaining",
-        lambda: (0.0, ""),
+        lambda: (quarantine_state["seconds"], quarantine_state["reason"]),
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "_quarantine_onemin_direct_api",
+        lambda reason: quarantine_state.update({"seconds": 300.0, "reason": reason}),
     )
     monkeypatch.setattr(
         providers_route.upstream,
@@ -2647,17 +2643,12 @@ def test_onemin_provider_api_refresh_batches_after_rate_limit(
         continue_on_rate_limit=True,
     )
 
-    assert calls == [
-        "ONEMIN_AI_API_KEY",
-        "ONEMIN_AI_API_KEY_FALLBACK_1",
-        "ONEMIN_AI_API_KEY_FALLBACK_2",
-        "ONEMIN_AI_API_KEY_FALLBACK_3",
-    ]
-    assert attempted_count == 4
-    assert skipped_count == 0
+    assert calls == ["ONEMIN_AI_API_KEY"]
+    assert attempted_count == 1
+    assert skipped_count == 3
     assert rate_limited is True
     assert errors[-1]["error"] == "onemin_login_http_429"
-    assert sleep_calls == [0.5]
+    assert sleep_calls == []
 
 
 def test_onemin_provider_api_refresh_rotates_fastestvpn_proxy_and_recovers_rate_limit(
@@ -2736,6 +2727,19 @@ def test_onemin_provider_api_refresh_rotates_fastestvpn_proxy_and_recovers_rate_
     assert [row["account_label"] for row in billing_results] == ["ONEMIN_AI_API_KEY"]
     assert [row["account_label"] for row in member_results] == ["ONEMIN_AI_API_KEY"]
     assert rotation_reasons == ["onemin.api.billing_refresh:ONEMIN_AI_API_KEY"]
+
+
+def test_onemin_direct_api_quarantine_uses_retry_after_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setenv("ONEMIN_DIRECT_API_CLOUDFLARE_COOLDOWN_SECONDS", "7200")
+    seconds = providers_route._onemin_direct_api_quarantine_seconds_for_reason(
+        'onemin_login_http_429:{"message":"Too many requests. Please try again after 252 seconds","retryAfter":252}'
+    )
+
+    assert seconds == 267.0
 
 
 def test_onemin_manager_exposes_hourly_burn_rate_on_accounts_aggregate_and_actual_credits(
@@ -3003,9 +3007,9 @@ def test_provider_registry_endpoint_exposes_lane_backend_and_capacity(monkeypatc
     assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
 
     review_light = next(item for item in body["lanes"] if item["profile"] == "review_light")
-    assert review_light["backend"] == "gemini_vortex"
-    assert review_light["health_provider_key"] == "gemini_vortex"
-    assert review_light["providers"][0]["provider_key"] == "gemini_vortex"
+    assert review_light["backend"] == "browseract"
+    assert review_light["health_provider_key"] == "browseract"
+    assert review_light["providers"][0]["provider_key"] == "browseract"
 
 
 def test_media_stewardship_endpoint_exposes_scheduler_and_challenger_state(
@@ -3076,6 +3080,8 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
+    monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", "33ff8f39-6213-4903-99d7-81048b5b3e1f")
     slug = "kahlenberg-layout-first"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -3125,10 +3131,11 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
 
     client = _client(principal_id="exec-public-tour")
 
-    page = client.get(f"/tours/{slug}")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert page.status_code == 200
     assert "Property Tour" in page.text
     assert f"/tours/files/{slug}/scene-01.jpg" in page.text
+    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
     page_head = client.head(f"/tours/{slug}", follow_redirects=False)
     assert page_head.status_code == 200
 
@@ -3148,6 +3155,8 @@ def test_public_results_no_longer_shadow_tour_routes(
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "1")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
+    monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", "33ff8f39-6213-4903-99d7-81048b5b3e1f")
     result_dir = tmp_path / "results"
     result_bundle = result_dir / "movie-demo"
     result_bundle.mkdir(parents=True)
@@ -3173,9 +3182,10 @@ def test_public_results_no_longer_shadow_tour_routes(
 
     client = _client(principal_id="exec-public-result")
 
-    result_page = client.get("/results/movie-demo")
+    result_page = client.get("/results/movie-demo", headers={"host": "myexternalbrain.com"})
     assert result_page.status_code == 200
     assert "Movie Demo" in result_page.text
+    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in result_page.text
 
     missing_tour = client.get("/tours/movie-demo")
     assert missing_tour.status_code == 404

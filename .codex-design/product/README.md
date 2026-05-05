@@ -22,15 +22,15 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 1. Public/product story:
    `VISION.md` -> `PUBLIC_LANDING_POLICY.md` -> `PUBLIC_NAVIGATION.yaml` -> `PUBLIC_LANDING_MANIFEST.yaml` -> `PUBLIC_FEATURE_REGISTRY.yaml` -> `PUBLIC_PROGRESS_PARTS.yaml` -> `PUBLIC_CAMPAIGN_IMAGE_MANIFEST.yaml` -> `PUBLIC_USER_MODEL.md` -> `PUBLIC_AUTH_FLOW.md` -> `PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md` -> `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md` -> `PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md` -> `PUBLIC_SIGNAL_TO_CANON_PIPELINE.md` -> `PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml` -> `PUBLIC_FEEDBACK_TAXONOMY.yaml` -> `COMPANION_PERSONA_AND_INTERACTION_MODEL.md` -> `COMPANION_PACKET.md` -> `COMPANION_TRIGGER_REGISTRY.yaml` -> `COMPANION_EVENT_SCHEMA.yaml` -> `PUBLIC_MEDIA_BRIEFS.yaml` -> `PUBLIC_VIDEO_BRIEFS.yaml` -> `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml`
 2. Product middle and control loop:
-   `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md` -> `CONFIDENCE_READINESS_AND_CONTINUITY_REGISTRY.yaml` -> `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_GUIDE.md` -> `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_REGISTRY.yaml` -> `LOST_POTENTIAL_MATERIALIZATION_WAVE.md` -> `LOST_POTENTIAL_MATERIALIZATION_REGISTRY.yaml` -> `READY_FOR_TONIGHT_MODE.md` -> `READY_FOR_TONIGHT_GATES.yaml` -> `PUBLIC_ONBOARDING_PATHS_FOR_NO_DESKTOP_USERS.md` -> `ROLE_KITS_AND_STARTER_LOADOUTS.md` -> `ROLE_KIT_REGISTRY.yaml` -> `SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md` -> `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md` -> `CAMPAIGN_ADOPTION_START_FROM_TODAY_FLOW.md` -> `FOUNDRY_FIRST_VTT_HANDOFF_PROOF.md` -> `VTT_EXPORT_TARGET_ACCEPTANCE.yaml` -> `RUNNER_PASSPORT_AND_CROSS_COMMUNITY_TRUST.md` -> `RUNNER_PASSPORT_ACCEPTANCE.yaml` -> `LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md` -> `SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md` -> `CAMPAIGN_ADOPTION_WIZARD.md` -> `GM_RUNBOARD_LIVE_OPERATIONS.md` -> `RUNNER_RESUME_AND_GOAL_PINS.md` -> `PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md` -> `BLACK_LEDGER_MVP_001.md` -> `WORLD_BROADCAST_AND_FACTION_PROPAGANDA_CADENCE.md` -> `WORLD_BROADCAST_RECIPE_REGISTRY.yaml` -> `WORLD_DISPATCH_AND_REACTIVATION_LOOP.md` -> `WORLD_DISPATCH_REACTIVATION_GATES.yaml` -> `CREW_AND_MISSION_FIT_MODEL.md` -> `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md` -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `INTEROP_AND_PORTABILITY_MODEL.md` -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` -> `USER_JOURNEYS.md` -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml` -> `JOURNEY_GATES.generated.json` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
+   `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md` -> `CONFIDENCE_READINESS_AND_CONTINUITY_REGISTRY.yaml` -> `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_GUIDE.md` -> `LIVING_CAMPAIGN_LOOP_MATERIALIZATION_REGISTRY.yaml` -> `LOST_POTENTIAL_MATERIALIZATION_WAVE.md` -> `LOST_POTENTIAL_MATERIALIZATION_REGISTRY.yaml` -> `READY_FOR_TONIGHT_MODE.md` -> `READY_FOR_TONIGHT_GATES.yaml` -> `PUBLIC_ONBOARDING_PATHS_FOR_NO_DESKTOP_USERS.md` -> `ROLE_KITS_AND_STARTER_LOADOUTS.md` -> `ROLE_KIT_REGISTRY.yaml` -> `SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md` -> `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md` -> `CAMPAIGN_ADOPTION_START_FROM_TODAY_FLOW.md` -> `FOUNDRY_FIRST_VTT_HANDOFF_PROOF.md` -> `VTT_EXPORT_TARGET_ACCEPTANCE.yaml` -> `RUNNER_PASSPORT_AND_CROSS_COMMUNITY_TRUST.md` -> `RUNNER_PASSPORT_ACCEPTANCE.yaml` -> `LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md` -> `SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md` -> `CAMPAIGN_ADOPTION_WIZARD.md` -> `GM_RUNBOARD_LIVE_OPERATIONS.md` -> `RUNNER_RESUME_AND_GOAL_PINS.md` -> `PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md` -> `BUILD_GHOST_MVP_001.md` -> `BLACK_LEDGER_MVP_001.md` -> `WORLD_BROADCAST_AND_FACTION_PROPAGANDA_CADENCE.md` -> `WORLD_BROADCAST_RECIPE_REGISTRY.yaml` -> `WORLD_DISPATCH_AND_REACTIVATION_LOOP.md` -> `WORLD_DISPATCH_REACTIVATION_GATES.yaml` -> `CREW_AND_MISSION_FIT_MODEL.md` -> `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md` -> `CAMPAIGN_SPINE_AND_CREW_MODEL.md` -> `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md` -> `ROAMING_WORKSPACE_AND_ENTITLEMENT_SYNC.md` -> `CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md` -> `INTEROP_AND_PORTABILITY_MODEL.md` -> `RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md` -> `USER_JOURNEYS.md` -> `GOLDEN_JOURNEY_RELEASE_GATES.yaml` -> `JOURNEY_GATES.generated.json` -> `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md` -> `SUPPORT_AND_SIGNAL_OODA_LOOP.md` -> `EXPERIENCE_SUCCESS_METRICS.md`
 3. Repo and contract boundaries:
    `ARCHITECTURE.md` -> `PRODUCT_BACKBONE_WORKSPACE.md` -> `PRODUCT_BACKBONE_WORKSPACE.yaml` -> `OWNERSHIP_MATRIX.md` -> `LEAD_DESIGNER_OPERATING_MODEL.md` -> `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` -> `PROVIDER_AND_ROUTE_STEWARDSHIP.md` -> `CONTRACT_SETS.yaml` -> `projects/*.md`
 4. Delivery and release control:
    `RELEASE_PIPELINE.md` -> `REPO_HYGIENE_RELEASE_TRUST_AND_AUTOMATION_SAFETY.md` -> `REPO_HARDENING_CHECKLIST.yaml` -> `DESKTOP_CLIENT_PRODUCT_CUT.md` -> `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` -> `PUBLIC_RELEASE_EXPERIENCE.yaml` -> `PUBLIC_DOWNLOADS_POLICY.md` -> `DESKTOP_AUTO_UPDATE_SYSTEM.md` -> `PUBLIC_AUTO_UPDATE_POLICY.md` -> `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` -> `LOCALIZATION_PARITY_MATRIX.yaml` -> `PRODUCT_USAGE_TELEMETRY_MODEL.md` -> `PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md` -> `PRIVACY_AND_RETENTION_BOUNDARIES.md` -> `FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md` -> `FEEDBACK_AND_SIGNAL_OODA_LOOP.md` -> `FEEDBACK_AND_CRASH_STATUS_MODEL.md` -> `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md` -> `PROGRAM_MILESTONES.yaml` -> `GROUP_BLOCKERS.md` -> `RELEASE_EVIDENCE_PACK.md`
 5. Future lanes and public explainer posture:
-   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `HORIZON_SIGNAL_POLICY.md` -> `LTD_DISCOVERY_OUTREACH_AND_VALIDATION_INTEGRATION_GUIDE.md` -> `ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md` -> `PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md` -> `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md` -> `PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md` -> `PUBLIC_SIGNAL_TO_CANON_PIPELINE.md` -> `KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md` -> `HOUSE_RULE_DISCOVERY_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md` -> `FLAGSHIP_PRODUCT_BAR.md` -> `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md` -> `CHUMMER5A_FAMILIARITY_BRIDGE.md` -> `DENSE_WORKBENCH_BUDGET.yaml` -> `VETERAN_FIRST_MINUTE_GATE.yaml` -> `PRIMARY_ROUTE_REGISTRY.yaml` -> `DESKTOP_EXECUTABLE_EXIT_GATES.md` -> `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` -> `COMMUNITY_SAFETY_MODERATION_AND_APPEALS.md` -> `COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES.yaml` -> `CREATOR_DASHBOARD_AND_ADOPTION_ANALYTICS.md` -> `CREATOR_PUBLICATION_ANALYTICS_SCHEMA.yaml` -> `CREATOR_OPERATING_SYSTEM.md` -> `ACCESSIBILITY_AND_COGNITIVE_LOAD_RELEASE_BAR.md` -> `ACCESSIBILITY_COGNITIVE_LOAD_GATES.yaml` -> `NEXT_12_BIGGEST_WINS_GUIDE.md` -> `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` -> `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md` -> `CONFIDENCE_READINESS_AND_CONTINUITY_REGISTRY.yaml` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` -> `FLAGSHIP_PARITY_REGISTRY.yaml` -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
+   `HORIZONS.md` -> `HORIZON_REGISTRY.yaml` -> `HORIZON_AND_FEATURE_LTD_INTEGRATION_GUIDE.md` -> `HORIZON_SIGNAL_POLICY.md` -> `LTD_DISCOVERY_OUTREACH_AND_VALIDATION_INTEGRATION_GUIDE.md` -> `ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md` -> `PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md` -> `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md` -> `PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md` -> `PUBLIC_SIGNAL_TO_CANON_PIPELINE.md` -> `KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md` -> `HOUSE_RULE_DISCOVERY_REGISTRY.yaml` -> `BUILD_LAB_PRODUCT_MODEL.md` -> `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md` -> `FLAGSHIP_PRODUCT_BAR.md` -> `SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md` -> `CHUMMER5A_FAMILIARITY_BRIDGE.md` -> `DENSE_WORKBENCH_BUDGET.yaml` -> `VETERAN_FIRST_MINUTE_GATE.yaml` -> `PRIMARY_ROUTE_REGISTRY.yaml` -> `DESKTOP_EXECUTABLE_EXIT_GATES.md` -> `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` -> `COMMUNITY_SAFETY_MODERATION_AND_APPEALS.md` -> `COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES.yaml` -> `CREATOR_DASHBOARD_AND_ADOPTION_ANALYTICS.md` -> `CREATOR_PUBLICATION_TRUST_AND_COMPATIBILITY_POLICY.md` -> `CREATOR_PUBLICATION_ANALYTICS_SCHEMA.yaml` -> `CREATOR_OPERATING_SYSTEM.md` -> `ACCESSIBILITY_AND_COGNITIVE_LOAD_RELEASE_BAR.md` -> `ACCESSIBILITY_COGNITIVE_LOAD_GATES.yaml` -> `NEXT_12_BIGGEST_WINS_GUIDE.md` -> `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` -> `CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md` -> `CONFIDENCE_READINESS_AND_CONTINUITY_REGISTRY.yaml` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` -> `LEGACY_CLIENT_AND_ADJACENT_PARITY_REGISTRY.yaml` -> `FLAGSHIP_PARITY_REGISTRY.yaml` -> `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` -> `PUBLIC_GUIDE_POLICY.md` -> `PUBLIC_GUIDE_PAGE_REGISTRY.yaml` -> `PUBLIC_PART_REGISTRY.yaml` -> `PUBLIC_FAQ_REGISTRY.yaml` -> `NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md` -> `NEXT_20_BIG_WINS_EXECUTION_PLAN.md` -> `NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_GUIDE.md` -> `POST_AUDIT_NEXT_20_BIG_WINS_REGISTRY.yaml` -> `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_GUIDE.md` -> `NEXT_20_BIG_WINS_AFTER_POST_AUDIT_CLOSEOUT_REGISTRY.yaml`
 6. Governed LTD operating systems:
-   `EXTERNAL_TOOLS_PLANE.md` -> `LTD_CAPABILITY_MAP.md` -> `LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml` -> `LTD_CADENCE_AND_FOLLOWTHROUGH_SYSTEM.md` -> `LTD_CADENCE_AND_FOLLOWTHROUGH_REGISTRY.yaml` -> `TEABLE_ADMIN_PROJECTION_AND_INTENT_LAYER.md` -> `ADMIN_INTENT_AND_PROJECTION_RECEIPTS.yaml` -> `EMAILIT_OUTBOUND_DELIVERY_PROVIDER.md` -> `OUTBOUND_NOTIFICATION_TEMPLATE_REGISTRY.yaml` -> `EMAIL_DELIVERY_RECEIPT_MODEL.md` -> `PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md` -> `JOURNEY_PROOF_EVENTS.yaml` -> `ARTIFACT_FACTORY_PIPELINE_MODEL.md` -> `MEDIA_RECIPE_EXECUTION_AND_CLOSEOUT.yaml` -> `BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md` -> `BLACK_LEDGER_SEASON_OPERATOR_PLAYBOOK.md` -> `WORLD_TICK_AND_OPEN_RUN_CLOSEOUT_SOPS.yaml` -> `COMMUNITY_HUB_OPERATIONS_MODEL.md` -> `KARMA_FORGE_DISCOVERY_LAB_WORKFLOWS.yaml` -> `TABLE_PULSE_DEBRIEF_STUDIO_WORKFLOWS.yaml` -> `COMPANION_LINE_PACK_AND_TRIGGER_OPERATIONS.md` -> `COMPANION_LINE_PACK_REGISTRY.yaml` -> `USER_CONTRIBUTION_PRIVACY_AND_IP_POLICY.md` -> `USER_CONTRIBUTION_VISIBILITY_REGISTRY.yaml` -> `PREMIUM_AND_COMMUNITY_PACKAGING_MODEL.md` -> `PREMIUM_CAPABILITY_REGISTRY.yaml`
+   `EXTERNAL_TOOLS_PLANE.md` -> `LTD_CAPABILITY_MAP.md` -> `LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml` -> `HORIZON_AND_FEATURE_LTD_INTEGRATION_GUIDE.md` -> `LTD_CADENCE_AND_FOLLOWTHROUGH_SYSTEM.md` -> `LTD_CADENCE_AND_FOLLOWTHROUGH_REGISTRY.yaml` -> `TEABLE_ADMIN_PROJECTION_AND_INTENT_LAYER.md` -> `ADMIN_INTENT_AND_PROJECTION_RECEIPTS.yaml` -> `EMAILIT_OUTBOUND_DELIVERY_PROVIDER.md` -> `OUTBOUND_NOTIFICATION_TEMPLATE_REGISTRY.yaml` -> `EMAIL_DELIVERY_RECEIPT_MODEL.md` -> `PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md` -> `JOURNEY_PROOF_EVENTS.yaml` -> `ARTIFACT_FACTORY_PIPELINE_MODEL.md` -> `MEDIA_RECIPE_EXECUTION_AND_CLOSEOUT.yaml` -> `BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md` -> `BLACK_LEDGER_SEASON_OPERATOR_PLAYBOOK.md` -> `WORLD_TICK_AND_OPEN_RUN_CLOSEOUT_SOPS.yaml` -> `COMMUNITY_HUB_OPERATIONS_MODEL.md` -> `KARMA_FORGE_DISCOVERY_LAB_WORKFLOWS.yaml` -> `TABLE_PULSE_DEBRIEF_STUDIO_WORKFLOWS.yaml` -> `COMPANION_LINE_PACK_AND_TRIGGER_OPERATIONS.md` -> `COMPANION_LINE_PACK_REGISTRY.yaml` -> `USER_CONTRIBUTION_PRIVACY_AND_IP_POLICY.md` -> `USER_CONTRIBUTION_VISIBILITY_REGISTRY.yaml` -> `PREMIUM_AND_COMMUNITY_PACKAGING_MODEL.md` -> `PREMIUM_CAPABILITY_REGISTRY.yaml`
 
 ### Full canonical set
 
@@ -145,29 +145,31 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 109. `ICANPRENEUR_DISCOVERY_AND_VALIDATION_LANE.md`
 110. `KARMA_FORGE_DISCOVERY_AND_HOUSE_RULE_INTAKE.md`
 111. `HOUSE_RULE_DISCOVERY_REGISTRY.yaml`
-112. `PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md`
-113. `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md`
-114. `PUBLIC_SIGNAL_TO_CANON_PIPELINE.md`
-115. `PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml`
-116. `PUBLIC_FEEDBACK_TAXONOMY.yaml`
-117. `PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md`
-118. `SIGNITIC_FACTION_WAR_AND_WORLD_TICK_CAMPAIGNS.md`
-119. `LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml`
-120. `TEABLE_ADMIN_PROJECTION_AND_INTENT_LAYER.md`
-121. `ADMIN_INTENT_AND_PROJECTION_RECEIPTS.yaml`
-122. `EMAILIT_OUTBOUND_DELIVERY_PROVIDER.md`
-123. `OUTBOUND_NOTIFICATION_TEMPLATE_REGISTRY.yaml`
-124. `EMAIL_DELIVERY_RECEIPT_MODEL.md`
-125. `PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md`
-126. `JOURNEY_PROOF_EVENTS.yaml`
-127. `ARTIFACT_FACTORY_PIPELINE_MODEL.md`
-128. `MEDIA_RECIPE_EXECUTION_AND_CLOSEOUT.yaml`
-129. `BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md`
-130. `BLACK_LEDGER_SEASON_OPERATOR_PLAYBOOK.md`
-131. `WORLD_TICK_AND_OPEN_RUN_CLOSEOUT_SOPS.yaml`
-132. `COMMUNITY_HUB_OPERATIONS_MODEL.md`
-133. `KARMA_FORGE_DISCOVERY_LAB_WORKFLOWS.yaml`
-134. `TABLE_PULSE_DEBRIEF_STUDIO_WORKFLOWS.yaml`
+112. `HORIZON_AND_FEATURE_LTD_INTEGRATION_GUIDE.md`
+113. `BUILD_GHOST_MVP_001.md`
+114. `PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md`
+115. `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md`
+116. `PUBLIC_SIGNAL_TO_CANON_PIPELINE.md`
+117. `PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml`
+118. `PUBLIC_FEEDBACK_TAXONOMY.yaml`
+119. `PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md`
+120. `SIGNITIC_FACTION_WAR_AND_WORLD_TICK_CAMPAIGNS.md`
+121. `LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml`
+122. `TEABLE_ADMIN_PROJECTION_AND_INTENT_LAYER.md`
+123. `ADMIN_INTENT_AND_PROJECTION_RECEIPTS.yaml`
+124. `EMAILIT_OUTBOUND_DELIVERY_PROVIDER.md`
+125. `OUTBOUND_NOTIFICATION_TEMPLATE_REGISTRY.yaml`
+126. `EMAIL_DELIVERY_RECEIPT_MODEL.md`
+127. `PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md`
+128. `JOURNEY_PROOF_EVENTS.yaml`
+129. `ARTIFACT_FACTORY_PIPELINE_MODEL.md`
+130. `MEDIA_RECIPE_EXECUTION_AND_CLOSEOUT.yaml`
+131. `BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md`
+132. `BLACK_LEDGER_SEASON_OPERATOR_PLAYBOOK.md`
+133. `WORLD_TICK_AND_OPEN_RUN_CLOSEOUT_SOPS.yaml`
+134. `COMMUNITY_HUB_OPERATIONS_MODEL.md`
+135. `KARMA_FORGE_DISCOVERY_LAB_WORKFLOWS.yaml`
+136. `TABLE_PULSE_DEBRIEF_STUDIO_WORKFLOWS.yaml`
 135. `PUBLIC_GROWTH_AND_VISIBILITY_STACK.md`
 136. `USER_CONTRIBUTION_PRIVACY_AND_IP_POLICY.md`
 137. `USER_CONTRIBUTION_VISIBILITY_REGISTRY.yaml`
@@ -192,17 +194,18 @@ Use `PRODUCT_HEALTH_SCORECARD.yaml` when the question is "how does whole-product
 156. `WORLD_BROADCAST_AND_FACTION_PROPAGANDA_CADENCE.md`
 157. `WORLD_BROADCAST_RECIPE_REGISTRY.yaml`
 158. `CREATOR_DASHBOARD_AND_ADOPTION_ANALYTICS.md`
-159. `CREATOR_PUBLICATION_ANALYTICS_SCHEMA.yaml`
-160. `ACCESSIBILITY_AND_COGNITIVE_LOAD_RELEASE_BAR.md`
-161. `ACCESSIBILITY_COGNITIVE_LOAD_GATES.yaml`
-162. `RUNNER_PASSPORT_AND_CROSS_COMMUNITY_TRUST.md`
-163. `RUNNER_PASSPORT_ACCEPTANCE.yaml`
-164. `WORLD_DISPATCH_AND_REACTIVATION_LOOP.md`
-165. `WORLD_DISPATCH_REACTIVATION_GATES.yaml`
-166. `CREATOR_OPERATING_SYSTEM.md`
-167. `LTD_CADENCE_AND_FOLLOWTHROUGH_SYSTEM.md`
-168. `LTD_CADENCE_AND_FOLLOWTHROUGH_REGISTRY.yaml`
-169. `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md`
+159. `CREATOR_PUBLICATION_TRUST_AND_COMPATIBILITY_POLICY.md`
+160. `CREATOR_PUBLICATION_ANALYTICS_SCHEMA.yaml`
+161. `ACCESSIBILITY_AND_COGNITIVE_LOAD_RELEASE_BAR.md`
+162. `ACCESSIBILITY_COGNITIVE_LOAD_GATES.yaml`
+163. `RUNNER_PASSPORT_AND_CROSS_COMMUNITY_TRUST.md`
+164. `RUNNER_PASSPORT_ACCEPTANCE.yaml`
+165. `WORLD_DISPATCH_AND_REACTIVATION_LOOP.md`
+166. `WORLD_DISPATCH_REACTIVATION_GATES.yaml`
+167. `CREATOR_OPERATING_SYSTEM.md`
+168. `LTD_CADENCE_AND_FOLLOWTHROUGH_SYSTEM.md`
+169. `LTD_CADENCE_AND_FOLLOWTHROUGH_REGISTRY.yaml`
+170. `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md`
 
 The current high-leverage hero-path additions are `READY_FOR_TONIGHT_MODE.md`, `READY_FOR_TONIGHT_GATES.yaml`, `PUBLIC_ONBOARDING_PATHS_FOR_NO_DESKTOP_USERS.md`, `ROLE_KITS_AND_STARTER_LOADOUTS.md`, `ROLE_KIT_REGISTRY.yaml`, `SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md`, `EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md`, `CAMPAIGN_ADOPTION_START_FROM_TODAY_FLOW.md`, `FOUNDRY_FIRST_VTT_HANDOFF_PROOF.md`, `VTT_EXPORT_TARGET_ACCEPTANCE.yaml`, `COMMUNITY_SAFETY_MODERATION_AND_APPEALS.md`, `COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES.yaml`, `WORLD_BROADCAST_AND_FACTION_PROPAGANDA_CADENCE.md`, `WORLD_BROADCAST_RECIPE_REGISTRY.yaml`, `CREATOR_DASHBOARD_AND_ADOPTION_ANALYTICS.md`, `CREATOR_PUBLICATION_ANALYTICS_SCHEMA.yaml`, `ACCESSIBILITY_AND_COGNITIVE_LOAD_RELEASE_BAR.md`, and `ACCESSIBILITY_COGNITIVE_LOAD_GATES.yaml`.
 They exist so the product cannot mistake canonical depth for immediate user value: the design must still prove readiness tonight, no-desktop participation, role-kit clarity, start-from-today adoption, Foundry-first handoff, world cadence, community safety, creator feedback, and reduced cognitive load.
@@ -226,11 +229,15 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `USER_JOURNEYS.md` is the top-level product map for Build, Explain, Run, Publish, and Improve, with the detailed happy-path/failure-mode canon still living under `journeys/*.md`.
 `GOLDEN_JOURNEY_RELEASE_GATES.yaml` is the machine-readable proof contract for the six journeys every release wave must keep passable enough to promote honestly.
 `CAMPAIGN_AUTHORITY_AND_PERMISSIONS.md` is the canonical campaign and community authority matrix for campaign roster, run, workspace, publication, and escalation actions across player, organizer, support, and operator roles.
+`ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md` defines the role split, truth order, operation families, and hard boundaries for organizer, league, convention, and season operations.
+`COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml` is the machine-readable audit packet contract that organizer actions, publication moves, moderation events, and support escalations must satisfy before Fleet, EA, or external mirrors can project them.
 `EXPERIENCE_SUCCESS_METRICS.md` translates repo and release gates back into user-facing promises so the product is measured as a lived system, not only as a clean repo graph.
+`FIRST_PLAYABLE_SESSION_ONBOARDING_METRICS.md` defines the first-playable-session success contract, lane scorecards, and bounded onboarding claims for desktop, no-desktop, and recovery entry paths.
 `RELEASE_PIPELINE.md` is the canonical source for where release orchestration, desktop packaging, runtime-bundle production, registry publication truth, updater feeds, and public download/install rendering belong.
 `DESKTOP_CLIENT_PRODUCT_CUT.md` names the shipped flagship desktop head, the fallback head, the current preview cut, and the explicit platform posture so delivery focus does not drift with repo shape.
 `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` is the machine-readable release truth for Windows, Linux, and macOS package posture, smoke gating, signing/notarization expectations, updater mode, and supportability.
 `PUBLIC_DOWNLOADS_POLICY.md` and `PUBLIC_AUTO_UPDATE_POLICY.md` are the public copy and CTA truth for `/downloads` and in-app update promises, so landing/help/guide surfaces cannot drift away from the install/update contract.
+`ARTIFACT_SHELF_POLICY.md` defines how personal, campaign, creator, and public artifact shelves stay tied to audience, locale, retention, and inspectable source truth instead of turning into detached media buckets.
 `DESKTOP_AUTO_UPDATE_SYSTEM.md` is the canonical source for the first desktop self-update wave, including the split between install media, machine update payloads, registry-owned release heads, rollout states, and UI-owned apply helpers.
 `LOCALIZATION_AND_LANGUAGE_SYSTEM.md` defines the shipping locale set, translation domains, fallback rules, restart behavior, carried-corpus bridge strategy, and localization acceptance gates for desktop and hosted surfaces.
 `LOCALIZATION_PARITY_MATRIX.yaml` is the machine-readable parity target for locale-by-domain coverage across app chrome, install/update/support, explain/receipts, data/rules names, and generated artifacts.
@@ -254,7 +261,8 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `PUBLIC_TRUST_CONTENT.yaml` is the canonical trust-content manifest for help, contact, and support statements surfaced at `/help`, `/contact`, and `/downloads`.
 `PUBLIC_VIDEO_BRIEFS.yaml`, `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml`, `STRUCTURED_VIDEO_AND_NARRATED_MEDIA_MODEL.md`, and `VIDBOARD_AND_LTD_WOW_FACTOR_WORKFLOWS.md` are the media/publication canon that turns owned LTD posture into repeatable artifact-factory workflows rather than isolated vendor notes.
 `ARTIFACT_FACTORY_PIPELINE_MODEL.md` and `MEDIA_RECIPE_EXECUTION_AND_CLOSEOUT.yaml` define the cross-tool artifact factory from approved source packet to rendered video, document, card, audio, social, signature, email, and closeout receipts.
-`LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml` composes owned tools into governed operating systems: public growth, discovery, artifact factory, BLACK LEDGER ops, Table Pulse/companion lab, and trust/closure. It also keeps optional buys such as SendFox, Flonnect, CutMe Short, Backona AI, and Visby as watchlist candidates rather than product truth.
+`LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml` composes owned tools into governed operating systems: continuity/recovery, Build Ghost, knowledge projection, public growth, discovery, artifact factory, BLACK LEDGER ops, Community Hub ops, runsite spatial factory, Ghostwire forensics, Table Pulse/companion lab, local acceleration research, and trust/closure. It also keeps optional buys such as SendFox, Flonnect, CutMe Short, Backona AI, and Visby as watchlist candidates rather than product truth.
+`HORIZON_AND_FEATURE_LTD_INTEGRATION_GUIDE.md` is the cross-check that asks every canonical horizon and live feature system whether an LTD materially helps, and records the answer without letting discovery, media, concierge, or delivery tools silently become truth owners.
 `TEABLE_ADMIN_PROJECTION_AND_INTENT_LAYER.md`, `BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md`, and `ADMIN_INTENT_AND_PROJECTION_RECEIPTS.yaml` define Teable as an operator workbench and intent-entry layer, never as canonical world, run, support, rule, release, or entitlement truth.
 `EMAILIT_OUTBOUND_DELIVERY_PROVIDER.md`, `OUTBOUND_NOTIFICATION_TEMPLATE_REGISTRY.yaml`, and `EMAIL_DELIVERY_RECEIPT_MODEL.md` define Emailit as an outbound delivery candidate downstream of Hub-owned notification truth, template refs, suppression, and receipts.
 `PRODUCT_ANALYTICS_AND_JOURNEY_PROOF_MODEL.md` and `JOURNEY_PROOF_EVENTS.yaml` extend product telemetry into golden-journey proof so Chummer measures whether users succeed, not only whether artifacts were published.
@@ -340,11 +348,15 @@ These inform the program but are not part of the main release train:
 10. Keep no-step-back parity release-blocking: modernization is allowed, but the active registry must close every in-scope legacy or adjacent client feature family with a first-class successor or bounded receipt before flagship claims are allowed.
 11. Treat `chummer-product` as the primary integration workspace: product-model modules, parity lab, classic dense workbench, and desktop-native registry/update flow now converge there before any future repo split gets to define the user experience.
 
-The foundational closure wave is materially finished. The Account-Aware Front Door wave, the Next 20 additive wave, and the Post-Audit Next 20 wave are all materially closed on public `main`, with their closeout records preserved in `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`, `NEXT_20_BIG_WINS_REGISTRY.yaml`, and `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md`. Campaign workspace / GM runboard, rule-environment posture, package-owned campaign contracts, roaming restore, Build Lab handoff UX, Rules Navigator, creator publication posture, and the first organizer/operator layer now count as shipped product surfaces instead of only design intent. Remaining growth tracks such as campaign indispensability, publication depth, install-aware trust posture, broader public promotion, and live operator cadence now sit on top of finished release-governance and boundary truth instead of reopening it. Flagship closeout is still not complete: `BLK-009` flagship localization proof and `BLK-010` campaign-OS lived-system proof remain active.
+The foundational closure wave is materially finished. The Account-Aware Front Door wave, the Next 20 additive wave, and the Post-Audit Next 20 wave are all materially closed on public `main`, with their closeout records preserved in `ACCOUNT_AWARE_FRONT_DOOR_CLOSEOUT.md`, `NEXT_20_BIG_WINS_EXECUTION_PLAN.md`, `NEXT_20_BIG_WINS_REGISTRY.yaml`, and `POST_AUDIT_NEXT_20_BIG_WINS_CLOSEOUT.md`. Campaign workspace / GM runboard, rule-environment posture, package-owned campaign contracts, roaming restore, Build Lab handoff UX, Rules Navigator, creator publication posture, and the first organizer/operator layer now count as shipped product surfaces instead of only design intent. Remaining growth tracks such as campaign indispensability, publication depth, install-aware trust posture, broader public promotion, and live operator cadence now sit on top of finished release-governance and boundary truth instead of reopening it. Flagship closeout is substantively complete in the front-door plane; campaign-OS proof depth and campaign continuity reliability remain the active substrate workstream.
+
+For progress reporting, the team treats closeout as dual-plane:
+- "Front-door closeout complete" means public release plumbing, route/shelf/release truth, and registry truth are closed.
+- "Campaign-OS substrate in progress" means living-world/community/admin proof lanes are still being proven in `CONTRACT_SETS.yaml` and `GOLDEN_JOURNEY_RELEASE_GATES.yaml`.
 
 The current risk is no longer missing architecture. The current risk is that the campaign OS can be described better than it can be proven as a lived system across install, continuity, play, publication, closure, and no-step-back client parity. `CAMPAIGN_OS_GAP_AND_CHANGE_GUIDE.md` and `LEGACY_CLIENT_AND_ADJACENT_PARITY.md` are the active correction layers for that gap.
 
-The queued successor wave after the current flagship closeout is `NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md`, with machine-readable staging in `NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml` and `NEXT_90_DAY_QUEUE_STAGING.generated.yaml`. It keeps the next quarter focused on repeatable desktop release truth, parity-lab proof, boring continuity, first-party artifact proof, premium campaign orientation bundles, bounded public concierge and trust-surface guidance, install-aware release and support concierge flow, campaign operations, rule-environment studio, portable exchange, creator publication, artifact shelves, organizer/community operations, guided onboarding, public launch-health packets, and product-governor cadence rather than reopening architecture cleanup.
+The queued successor wave after the current flagship closeout is `NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md`, with machine-readable registry and staged successor queue inputs in `NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml` and `NEXT_90_DAY_QUEUE_STAGING.generated.yaml`. Those staged rows are pre-authored spare-capacity queue inputs, not a manual-promotion parking lot. Every successor wave in the registry is now queue-materialized, W22P is the lead current successor frontier, the staged successor queue now drives current frontier selection, and W23-W27 remain staged behind it without automatic preemption of already-running flagship closeout shards. The wave keeps the next quarter focused on repeatable desktop release truth, parity-lab proof, boring continuity, first-party artifact proof, premium campaign orientation bundles, bounded public concierge and trust-surface guidance, install-aware release and support concierge flow, campaign operations, rule-environment studio, portable exchange, creator publication, artifact shelves, organizer/community operations, guided onboarding, public launch-health packets, and product-governor cadence rather than reopening architecture cleanup.
 
 `PUBLIC_CONCIERGE_AND_TRUST_WIDGET_MODEL.md`, `PUBLIC_CONCIERGE_WORKFLOWS.yaml`, and `EXTERNAL_TOOLS_BLOCKING_POLICY_REWORK.md` are the current canon for bounded public trust widgets, structured intake and booking handoff, and the narrow policy exception that allows those flows on Hub-owned public surfaces without weakening first-party truth boundaries.
 

@@ -37,6 +37,44 @@ def _preview_text(text: str, *, limit: int = 280) -> str:
     return cleaned[:limit]
 
 
+def _normalize_cli_model_name(raw_model: str) -> str:
+    model = str(raw_model or "").strip()
+    if not model:
+        return ""
+    prefix = "gemini_vortex:"
+    if model.startswith(prefix):
+        candidate = model[len(prefix) :].strip()
+        if candidate:
+            return candidate
+    return model
+
+
+def _clean_cli_failure_detail(raw_detail: str) -> str:
+    text = str(raw_detail or "").strip()
+    if not text:
+        return "gemini_vortex_failed"
+    filtered: list[str] = []
+    skip_trace_hint = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("(node:") and "DeprecationWarning:" in stripped and "punycode" in stripped:
+            skip_trace_hint = True
+            continue
+        if skip_trace_hint and stripped.startswith("(Use `node --trace-deprecation"):
+            skip_trace_hint = False
+            continue
+        skip_trace_hint = False
+        if stripped == "YOLO mode is enabled. All tool calls will be automatically approved.":
+            continue
+        if stripped == "Loaded cached credentials.":
+            continue
+        filtered.append(stripped)
+    cleaned = "\n".join(filtered).strip()
+    return cleaned or text
+
+
 def _provider_ledger_dir() -> Path | None:
     raw = _env_value("EA_RESPONSES_PROVIDER_LEDGER_DIR") or "/tmp/ea_provider_ledger"
     if not raw:
@@ -201,6 +239,7 @@ def gemini_vortex_slot_status() -> list[dict[str, Any]]:
                 "last_used_principal_id": str(entry.get("lease_holder") or ""),
                 "last_used_at": str(entry.get("last_used_at") or ""),
                 "last_result": str(entry.get("last_result") or ""),
+                "last_result_detail": str(entry.get("last_result_detail") or ""),
             }
         )
     return payload
@@ -281,7 +320,14 @@ class GeminiVortexToolAdapter:
             return tuple([available, *[slot for slot in ordered if slot.slot != available.slot]])
         return tuple(ordered)
 
-    def _record_slot_usage(self, slot: GeminiAuthSlot, *, principal_id: str, success: bool) -> dict[str, str]:
+    def _record_slot_usage(
+        self,
+        slot: GeminiAuthSlot,
+        *,
+        principal_id: str,
+        success: bool,
+        detail: str = "",
+    ) -> dict[str, str]:
         now = datetime.now(_UTC)
         lease_holder = str(principal_id or "").strip()
         lease_expires_at = (
@@ -298,6 +344,7 @@ class GeminiVortexToolAdapter:
             "lease_expires_at": lease_expires_at,
             "last_used_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "last_result": "ready" if success else "failed",
+            "last_result_detail": str(detail or "").strip()[:400],
         }
         _save_slot_ledger(ledger)
         return {
@@ -386,7 +433,7 @@ class GeminiVortexToolAdapter:
     def execute(self, request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         payload = dict(request.payload_json or {})
         prompt = self._build_prompt(payload)
-        model = str(payload.get("model") or self._default_model()).strip() or self._default_model()
+        model = _normalize_cli_model_name(str(payload.get("model") or self._default_model()).strip()) or self._default_model()
         principal_id = str((request.context_json or {}).get("principal_id") or payload.get("principal_id") or "").strip()
         command = self._command_base() + [
             "-p",
@@ -426,8 +473,10 @@ class GeminiVortexToolAdapter:
             except subprocess.TimeoutExpired as exc:
                 raise ToolExecutionError("gemini_vortex_timeout") from exc
             except subprocess.CalledProcessError as exc:
-                detail = (exc.stderr or exc.stdout or "").strip() or "gemini_vortex_failed"
-                self._record_slot_usage(slot, principal_id=principal_id, success=False)
+                detail = _clean_cli_failure_detail(exc.stderr or "")
+                if detail == "gemini_vortex_failed":
+                    detail = _clean_cli_failure_detail(exc.stdout or "")
+                self._record_slot_usage(slot, principal_id=principal_id, success=False, detail=detail)
                 failures.append(f"{slot.account_name}:{detail[:160]}")
         if completed is None:
             summary = " | ".join(failures) if failures else "gemini_vortex_failed"

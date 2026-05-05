@@ -7,7 +7,7 @@ trust_pages:
     heading: "Get help without guessing"
     intro: "Start here for downloads, sign-in recovery, and support."
     effective_date: "2026-03-25"
-    updated_date: "2026-03-25"
+    updated_date: "2026-05-03"
     summary_points:
       - "First-party help comes first"
       - "Support is separate from participation"
@@ -34,7 +34,7 @@ trust_pages:
           - "Check the release page before assuming another platform is on the public shelf."
       - id: sign-in-recovery
         eyebrow: "Sign-in or account recovery"
-        heading: "Keep access and recovery on one calm path"
+        heading: "Sign in and recover access"
         body: "Account creation, sign-in, and recovery should stay boring. Use the account page and the recovery flow before you fall back to manual troubleshooting."
         bullets:
           - "Create an account when you want recovery, tracked support, and a cleaner return path for future downloads."
@@ -42,7 +42,7 @@ trust_pages:
           - "Devices and access stay separate from identity recovery."
       - id: product-bug
         eyebrow: "Product bug"
-        heading: "Product help should become a support case, not a rumor"
+        heading: "Report a problem without guessing"
         body: "Use Contact first for install trouble, product bugs, and practical feedback. GitHub is there when you want a public bug thread, not as the normal support door."
         bullets:
           - "Use Contact for install trouble, product bugs, or UX friction."
@@ -50,7 +50,7 @@ trust_pages:
           - "Use GitHub only when you want a public bug thread."
       - id: product-question
         eyebrow: "Product question or UX confusion"
-        heading: "Ask from inside Chummer first"
+        heading: "Product questions in plain language"
         body: "Normal preview questions should be answerable from inside the product. Support and FAQ exist so you do not have to dig through project details just to get a clear answer."
         bullets:
           - "FAQ answers the normal preview and product questions in plain language."
@@ -61,11 +61,12 @@ trust_pages:
     heading: "What Chummer stores, and what it does not"
     intro: "This is the simple privacy picture right now: what your account stores, what stays out, and how support and linked installs work."
     effective_date: "2026-03-25"
-    updated_date: "2026-03-28"
+    updated_date: "2026-05-03"
     summary_points:
       - "The download file stays the same for everyone"
       - "Your account stores sign-in and support history"
       - "Raw secret keys stay out of your account record"
+      - "Telemetry is opt-out by default and can be paused in settings."
     actions:
       - label: "Open account"
         href: "/account"
@@ -84,7 +85,7 @@ trust_pages:
       - id: install-linking
         eyebrow: "Install linking"
         heading: "The download file is the same for everyone"
-        body: "When Chummer publishes a download, everyone gets the same file. Chummer does not build a private installer just for your account. If linked handoff is available, the account-aware piece is the short-lived receipt or code that reconnects a local copy back to your account."
+        body: "When Chummer publishes a download, everyone gets the same file. Chummer does not build a private installer just for your account. If linked handoff is available, the account-aware piece is the short-lived handoff code that reconnects a local copy back to your account."
       - id: not-in-hub
         eyebrow: "What stays out"
         heading: "Temporary sign-in tokens and raw secrets stay out of your account record"
@@ -93,12 +94,20 @@ trust_pages:
         eyebrow: "Privacy and recognition"
         heading: "Recognition should not force publicity"
         body: "Participation and recognition remain optional layers. Private product use, private support, and a quiet account setup remain valid even while community pages exist."
+      - id: telemetry-transparency
+        eyebrow: "Telemetry and diagnostics"
+        heading: "What is collected and how to stop it"
+        body: "Chummer keeps hosted Tier-2 telemetry opt-out by default for normal releases. You can disable hosted telemetry on first run and later in settings. Support and crash uploads remain explicit opt-in workflows."
+        bullets:
+          - "What we collect is bounded to install-level health and usability fields, not private campaign names or raw runner sheets."
+          - "Opting out stops hosted telemetry emission while local install and support history remain on-device."
+          - "Critical support workflows and explicit crash diagnostics stay explicit opt-in."
   - id: terms
     eyebrow: "Terms"
     heading: "Preview terms in plain language"
     intro: "These are the plain rules for the current preview: early access, honest labels, real downloads, and straightforward support."
     effective_date: "2026-03-25"
-    updated_date: "2026-03-25"
+    updated_date: "2026-05-03"
     summary_points:
       - "Early access, not finished breadth"
       - "Current downloads when available"
@@ -125,13 +134,13 @@ trust_pages:
       - id: delivery
         eyebrow: "Delivery"
         heading: "Use the current public download first; advanced packages only when necessary"
-        body: "Public downloads should match what is honestly available right now. If a regular installer exists later, it becomes the normal path, while manual packages stay as fallback for edge cases or support-directed setup."
+        body: "Public downloads should match what is honestly available right now. Public-copy remains explicitly labeled with explicit preview labels, and these terms stay consistent across help, release, and trust surfaces. If a regular installer exists later, it becomes the normal path, while manual packages stay as fallback for edge cases or support-directed setup."
   - id: contact
     eyebrow: "Contact"
     heading: "Open the right support case"
     intro: "Chummer should not make you guess where to send a problem. Start here for install help, bugs, and practical feedback."
     effective_date: "2026-03-25"
-    updated_date: "2026-03-25"
+    updated_date: "2026-05-03"
     summary_points:
       - "Direct support intake"
       - "Guest submissions allowed"
@@ -186,9 +195,9 @@ faq_pages:
       - title: "Downloads and installs"
         entries:
           - question: "Do I need an account to download the current preview?"
-            answer: "No. The current Linux package is open public. Create an account when you want recovery, tracked support, and a cleaner return path when linked downloads are available."
+            answer: "No. The current public preview download is Windows desktop. Linux and macOS are not public yet. Create an account when you want recovery, tracked support, and a cleaner return path when linked downloads are available."
           - question: "Do I get a personalized download?"
-            answer: "No. The published package stays the same for everyone. Any account-aware receipt or handoff is separate from the file itself."
+            answer: "No. The published package stays the same for everyone. Any account-aware handoff is separate from the file itself."
           - question: "Where do I go if install or update goes sideways?"
             answer: "Start with Downloads, then use Contact or Account > Support. GitHub is the advanced public issue path, not the default support door."
       - title: "Participation and support"

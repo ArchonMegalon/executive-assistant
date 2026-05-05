@@ -1,0 +1,68 @@
+package_id: next90-m118-ea-organizer-followthrough
+milestone_id: 118
+status: task_proven
+shared_truth_bundle_id: ea-m118-organizer-followthrough-v1
+packet_specimens:
+  organizer_followthrough:ea:
+    state: ready
+    packet_kind: organizer_followthrough:ea
+    packet_id_template: ea-organizer-followthrough-{yyyy-mm-dd}
+    required_fields:
+      - packet_id
+      - truth_bundle_id
+      - source_packet_ids
+      - operation_family
+      - event_or_roster_summary
+      - publication_posture
+      - support_followthrough_gate
+      - next_safe_action
+    source_packet_fields:
+      - CommunityScaleAuditPacket.packet_id
+      - CommunityScaleAuditPacket.operation_family
+      - CommunityScaleAuditPacket.support_case_ref
+      - SUPPORT_CASE_PACKETS.generated.json.followthrough_receipt_gates.required_gates
+      - SUPPORT_CASE_PACKETS.generated.json.packets[].packet_id
+    example:
+      packet_id: ea-organizer-followthrough-2026-05-05
+      truth_bundle_id: ea-m118-organizer-followthrough-v1
+      source_packet_ids:
+        - csaudit-group-42-event-7
+        - support-case-packet-314
+      operation_family: support_escalation
+      event_or_roster_summary: Convention table seven is ready to launch once the organizer-linked support clarification clears.
+      publication_posture: Audience and retention posture remain receipt-backed through the artifact publication sibling lane.
+      support_followthrough_gate: waiting_for_reporter
+      next_safe_action: Route the organizer back to the linked support packet and keep launch copy on hold until the same case window clears.
+  event_prep_packets:
+    state: ready
+    packet_kind: event_prep_packets
+    packet_id_template: ea-event-prep-{yyyy-mm-dd}
+    required_fields:
+      - packet_id
+      - truth_bundle_id
+      - source_packet_ids
+      - prep_scope
+      - dependency_window
+      - publication_readiness
+      - blocker_holds
+      - handoff_receipts
+    source_packet_fields:
+      - CommunityScaleAuditPacket.packet_id
+      - WEEKLY_GOVERNOR_PACKET.generated.json.decision_alignment.actual_action
+      - WEEKLY_GOVERNOR_PACKET.generated.json.public_status_copy.state
+      - SUPPORT_CASE_PACKETS.generated.json.summary.needs_human_response
+      - CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml.packet_families.gm_prep_packets.state
+    example:
+      packet_id: ea-event-prep-2026-05-05
+      truth_bundle_id: ea-m118-organizer-followthrough-v1
+      source_packet_ids:
+        - csaudit-season-9-round-3
+        - artifact_shelf:v2
+      prep_scope: League finals round three staffing, publication, and support readiness.
+      dependency_window: Expand only if the weekly governor window remains aligned with the same publication and support packet truth.
+      publication_readiness: watch
+      blocker_holds:
+        - Keep organizer packet on hold while one support packet still needs a reporter-visible response.
+      handoff_receipts:
+        - hub-organizer-ops
+        - fleet-support-followthrough

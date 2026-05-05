@@ -180,7 +180,7 @@ def test_readiness_service_rejects_prod_postgres_without_database_url() -> None:
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
         storage=SimpleNamespace(backend="postgres", database_url=""),
-        auth=SimpleNamespace(api_token="secret-token"),
+        auth=SimpleNamespace(api_token="secret-token", signing_secret="signing-secret"),
     )
     ready, reason = ReadinessService(settings).check()
     assert ready is False
@@ -198,7 +198,7 @@ def test_readiness_service_rejects_missing_psycopg_dependency(monkeypatch: pytes
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
         storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
-        auth=SimpleNamespace(api_token="secret-token"),
+        auth=SimpleNamespace(api_token="secret-token", signing_secret="signing-secret"),
     )
     try:
         monkeypatch.setattr(builtins, "__import__", _raise_for_psycopg)
@@ -220,7 +220,7 @@ def test_readiness_service_rejects_unavailable_postgres_dependency(
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
         storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
-        auth=SimpleNamespace(api_token="secret-token"),
+        auth=SimpleNamespace(api_token="secret-token", signing_secret="signing-secret"),
     )
     fake_psycopg = types.SimpleNamespace(connect=_BadPsycopg.connect)
     try:

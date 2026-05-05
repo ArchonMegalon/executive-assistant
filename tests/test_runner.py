@@ -359,7 +359,7 @@ def test_scheduler_google_signal_sync_runs_for_enabled_google_bindings(
 
     summary = runner._run_scheduler_google_signal_sync(container, logging.getLogger("test.runner"))
 
-    assert summary == {"ran": True, "attempted": 1, "synced": 1, "errors": 0}
+    assert summary == {"ran": True, "attempted": 1, "synced": 1, "errors": 0, "skipped": 0}
     assert calls == ["principal-google-1|scheduler|5|5"]
 
 

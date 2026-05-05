@@ -547,6 +547,128 @@ def test_signal_ingest_willhaben_search_agent_mail_skips_commitment_staging_but_
     assert handoff["summary"].startswith("Review apartment alert:")
 
 
+def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_tibor(monkeypatch) -> None:
+    from app.domain.models import Artifact
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "tibor.girschele@gmail.com")
+    monkeypatch.setenv(
+        "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
+        '{"elisabeth.girschele@gmail.com":"tibor.girschele@gmail.com"}',
+    )
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+
+    principal_id = "cf-email:elisabeth.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Willhaben Auto Tour Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "listing-auto-555",
+            "title": "Search agent apartment",
+            "property_facts_json": {},
+            "media_urls_json": ["https://cdn.example.com/apartment-auto/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [
+                {
+                    "variant_key": "layout_first",
+                    "scene_strategy": "layout_first",
+                    "theme_name": "clean_light",
+                    "tour_style": "guided_layout_walkthrough",
+                    "audience": "tenant_screening",
+                    "creative_brief": "Lead with the floor plan.",
+                    "call_to_action": "Open the tour.",
+                    "scene_selection_json": {},
+                    "tour_settings_json": {},
+                }
+            ],
+        },
+    )
+
+    observed_email: dict[str, object] = {}
+
+    def _fake_send_property_tour_email(**kwargs) -> RegistrationEmailReceipt:
+        observed_email.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="property-tour-message-auto-agent",
+            accepted_at="2026-05-02T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(product_service, "send_property_tour_email", _fake_send_property_tour_email)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.input_json["binding_id"] == "browseract-binding-auto-agent"
+        return Artifact(
+            artifact_id="artifact-property-tour-auto-agent",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-auto-agent",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/search-agent-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/search-agent-apartment",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "summary": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "text": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "counterparty": "willhaben-Suchagent",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:auto-willhaben-agent-1",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:auto-willhaben-agent-1",
+            "payload": {
+                "from_email": "no-reply@agent.willhaben.at",
+                "from_name": "willhaben-Suchagent",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "body_text_excerpt": (
+                    "Neue Anzeige gefunden. "
+                    "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-555"
+                ),
+                "binding_id": "browseract-binding-auto-agent",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+    body = signal.json()
+    assert body["staged_count"] == 0
+    assert body["draft_count"] == 0
+    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["property_url"] == (
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-555"
+    )
+    automated_actions = body["ooda_loop"]["act"]["automated_actions"]
+    assert not any(item.get("task_type") == "property_alert_review" for item in automated_actions)
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_email_sent"},
+    )
+    assert events.status_code == 200
+    sent = next(
+        item
+        for item in events.json()["items"]
+        if item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:auto-willhaben-agent-1"
+    )
+    assert sent["payload"]["delivery_email"] == "tibor.girschele@gmail.com"
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    assert not any(item["task_type"] == "property_alert_review" for item in handoffs.json())
+
+
 def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatch) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt

@@ -16,15 +16,11 @@ services:
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - HOME=/home/ea
-      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
-      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
-      - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
-      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
-      - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
-      - EA_AVOMAP_FLYOVER_WORKER=/docker/EA/scripts/avomap_flyover_worker.py
-      - EA_BOOKA_BOOK_WORKER=/docker/EA/scripts/booka_book_worker.py
-      - EA_PUBLIC_RESULT_PUBLISHER=/docker/EA/scripts/publish_browseract_ui_results.py
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
       - TZ=Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
@@ -33,13 +29,6 @@ services:
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
-      - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/node:/usr/bin/node:ro
-      - /usr/lib/node_modules:/usr/lib/node_modules:ro
-      - ${HOME}/.gemini:/home/ea/.gemini:rw
-      - /etc/passwd:/etc/passwd:ro
-      - /etc/group:/etc/group:ro
     depends_on:
       ea-db:
         condition: service_healthy
@@ -56,9 +45,7 @@ services:
       - EA_ROLE=api
       - EA_RESPONSES_PROXY_PORT=8091
       - HOME=/home/ea
-      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
-      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
+      - PYTHONPATH=/app
       - TZ=Europe/Vienna
     ports:
       - "${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
@@ -67,18 +54,9 @@ services:
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
-      - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/node:/usr/bin/node:ro
-      - /usr/lib/node_modules:/usr/lib/node_modules:ro
-      - ${HOME}/.gemini:/home/ea/.gemini:rw
-      - /etc/passwd:/etc/passwd:ro
-      - /etc/group:/etc/group:ro
     command:
-      - env
-      - PYTHONPATH=/docker/EA/ea
       - python
-      - /docker/EA/scripts/ea_responses_proxy.py
+      - /app/scripts/ea_responses_proxy.py
     healthcheck:
       test:
         - CMD-SHELL
@@ -104,28 +82,17 @@ services:
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - HOME=/home/ea
-      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
-      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
-      - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
-      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
-      - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
-      - EA_AVOMAP_FLYOVER_WORKER=/docker/EA/scripts/avomap_flyover_worker.py
-      - EA_BOOKA_BOOK_WORKER=/docker/EA/scripts/booka_book_worker.py
-      - EA_PUBLIC_RESULT_PUBLISHER=/docker/EA/scripts/publish_browseract_ui_results.py
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
-      - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/node:/usr/bin/node:ro
-      - /usr/lib/node_modules:/usr/lib/node_modules:ro
-      - ${HOME}/.gemini:/home/ea/.gemini:rw
-      - /etc/passwd:/etc/passwd:ro
-      - /etc/group:/etc/group:ro
     depends_on:
       ea-db:
         condition: service_healthy
@@ -144,43 +111,20 @@ services:
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - HOME=/home/ea
-      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
-      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-      - EA_GEMINI_VORTEX_COMMAND=node /usr/lib/node_modules/@google/gemini-cli/dist/index.js
-      - EA_CREZLO_PROPERTY_TOUR_WORKER=/docker/EA/scripts/crezlo_property_tour_worker.py
-      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
-      - EA_MOOTION_MOVIE_WORKER=/docker/EA/scripts/mootion_movie_worker.py
-      - EA_AVOMAP_FLYOVER_WORKER=/docker/EA/scripts/avomap_flyover_worker.py
-      - EA_BOOKA_BOOK_WORKER=/docker/EA/scripts/booka_book_worker.py
-      - EA_PUBLIC_RESULT_PUBLISHER=/docker/EA/scripts/publish_browseract_ui_results.py
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
-      - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/node:/usr/bin/node:ro
-      - /usr/lib/node_modules:/usr/lib/node_modules:ro
-      - ${HOME}/.gemini:/home/ea/.gemini:rw
-      - /etc/passwd:/etc/passwd:ro
-      - /etc/group:/etc/group:ro
     depends_on:
       ea-db:
         condition: service_healthy
-
-  ea-cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: ea-cloudflared
-    restart: unless-stopped
-    command: tunnel run
-    environment:
-      - TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - ea-api
 
   ea-db:
     image: postgres:16-alpine

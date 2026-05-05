@@ -1,0 +1,81 @@
+contract_name: ea.chummer_explain_narration_packs_successor_handoff
+package_id: next90-m145-ea-grounded-explain-narration-packs
+milestone_id: 145
+frontier_id: 1454045404
+status: ea_scope_complete
+closed_surfaces:
+  - explain_packet_narration:ea
+  - grounded_follow_up_compile:ea
+scope_boundary:
+  active_package_only: next90-m145-ea-grounded-explain-narration-packs
+  allowed_paths:
+    - skills
+    - tests
+    - feedback
+    - docs
+  remaining_milestone_work_belongs_to:
+    - chummer6-core
+    - chummer6-ui
+    - chummer6-mobile
+    - chummer6-media-factory
+    - fleet
+    - chummer6-design
+completed_outputs:
+  - docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+  - docs/chummer_explain_narration_packs/GROUNDED_FOLLOW_UP_SPECIMENS.yaml
+  - docs/chummer_explain_narration_packs/README.md
+  - docs/chummer_explain_narration_packs/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - skills/chummer_grounded_explain_narration/SKILL.md
+  - feedback/2026-05-05-ea-grounded-explain-narration-packs-package-closeout.md
+proof_command:
+  command: python3 tests/test_next90_m145_grounded_explain_narration_packs.py
+  expected_result: ran=7 failed=0
+proof_artifacts:
+  - docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+  - docs/chummer_explain_narration_packs/GROUNDED_FOLLOW_UP_SPECIMENS.yaml
+  - docs/chummer_explain_narration_packs/README.md
+  - docs/chummer_explain_narration_packs/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - skills/chummer_grounded_explain_narration/SKILL.md
+  - tests/test_next90_m145_grounded_explain_narration_packs.py
+  - feedback/2026-05-05-ea-grounded-explain-narration-packs-package-closeout.md
+shared_truth_runtime_sources:
+  - source_anchor_id: explain_truth_contract
+    path: /docker/chummercomplete/chummer-design/products/chummer/EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md
+    use_rule: EA narration and follow-up compile must stay subordinate to the design-owned explain packet and counterfactual truth contract.
+  - source_anchor_id: public_trust_hook
+    path: /docker/chummercomplete/chummer-design/products/chummer/SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md
+    use_rule: Packet-to-source-anchor-to-follow-up ordering must survive every EA wording layer.
+canonical_authority:
+  successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  design_successor_queue_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue_package: next90-m145-ea-grounded-explain-narration-packs status=done
+  registry_work_task: 145.4 status=done owner=executive-assistant
+  queue_proof_required_entries:
+    - /docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+    - /docker/EA/docs/chummer_explain_narration_packs/GROUNDED_FOLLOW_UP_SPECIMENS.yaml
+    - /docker/EA/docs/chummer_explain_narration_packs/README.md
+    - /docker/EA/docs/chummer_explain_narration_packs/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+    - /docker/EA/skills/chummer_grounded_explain_narration/SKILL.md
+    - /docker/EA/tests/test_next90_m145_grounded_explain_narration_packs.py
+    - /docker/EA/feedback/2026-05-05-ea-grounded-explain-narration-packs-package-closeout.md
+    - python3 tests/test_next90_m145_grounded_explain_narration_packs.py exits 0 with ran=7 failed=0
+repeat_prevention:
+  worker_rule: Treat this package as an active but bounded EA compile lane until core, UI, mobile, media-factory, Fleet, and design sibling receipts are complete; do not widen it into arithmetic, trigger, or presenter-authority work.
+  do_not_reopen_for:
+    - Core-owned explanation packet, coverage-registry, or counterfactual emitter implementation.
+    - UI-owned explain drawer, source-anchor launch, or stale-state interaction work.
+    - Mobile-owned quick-explain and live-play packet rendering work.
+    - Media-factory-owned presenter or audio rendering work.
+    - Fleet-owned explain coverage release gates.
+runtime_safety_posture:
+  forbidden_proof_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  generated_receipt_refresh_rule: This package now proves compile policy, all bounded follow-up classes, and worker-safe instructions; future proof refreshes must come from packet-grounded sibling receipts rather than timestamp-only note churn.

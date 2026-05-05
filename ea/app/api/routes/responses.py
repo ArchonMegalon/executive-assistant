@@ -4,6 +4,7 @@ import abc
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import queue
 import re
@@ -56,6 +57,8 @@ from app.services.responses_upstream import (
     stream_text,
 )
 from app.services.survival_lane import SurvivalLaneService, survival_route_health_snapshot
+
+logger = logging.getLogger("ea.responses.route")
 
 
 router = APIRouter(tags=["responses"])
@@ -960,7 +963,19 @@ def _provider_health_snapshot(*, lightweight: bool) -> dict[str, object]:
         payload = _provider_health_report(lightweight=lightweight)
     except TypeError:
         payload = _provider_health_report()
-    return dict(payload or {}) if isinstance(payload, dict) else {}
+    except Exception as exc:
+        return _minimal_provider_health_snapshot(
+            lightweight=lightweight,
+            status="degraded",
+            reason=f"provider-health report exception: {type(exc).__name__}",
+        )
+    if isinstance(payload, dict):
+        return dict(payload)
+    return _minimal_provider_health_snapshot(
+        lightweight=lightweight,
+        status="degraded",
+        reason="provider-health report returned non-dict payload",
+    )
 
 
 def _float_env(name: str, default: float, *, minimum: float = 0.1, maximum: float = 3600.0) -> float:
@@ -1213,7 +1228,14 @@ def _minimal_provider_slots(names: list[str], *, configured_state: str = "unknow
     ]
 
 
-def _minimal_provider_health_snapshot(*, lightweight: bool, reason: str) -> dict[str, object]:
+def _minimal_provider_health_snapshot(
+    *,
+    lightweight: bool,
+    reason: str,
+    status: str = "degraded",
+    age_seconds: float | None = None,
+    stale: bool | None = None,
+) -> dict[str, object]:
     onemin_names = _provider_env_slot_names("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK")
     if str(os.environ.get("EA_RESPONSES_ONEMIN_API_KEY") or "").strip() and "EA_RESPONSES_ONEMIN_API_KEY" not in onemin_names:
         onemin_names.insert(0, "EA_RESPONSES_ONEMIN_API_KEY")
@@ -1242,7 +1264,7 @@ def _minimal_provider_health_snapshot(*, lightweight: bool, reason: str) -> dict
     magix_slots = _minimal_provider_slots(magix_names)
     gemini_slots = _minimal_provider_slots(gemini_names)
     provider_order = list(_provider_order())
-    return {
+    payload = {
         "providers": {
             "onemin": {
                 "provider_key": "onemin",
@@ -1284,12 +1306,23 @@ def _minimal_provider_health_snapshot(*, lightweight: bool, reason: str) -> dict
             "hard_queue_timeout_seconds": os.environ.get("EA_RESPONSES_HARD_QUEUE_TIMEOUT_SECONDS"),
         },
         "provider_health_snapshot": {
-            "status": "fallback",
-            "source": "env_minimal",
+            "status": status,
+            "source": "provider_health_fallback",
             "reason": reason,
             "lightweight": bool(lightweight),
         },
     }
+    payload["provider_health_snapshot"]["age_seconds"] = round(float(age_seconds), 3) if age_seconds is not None else None
+    if stale is not None:
+        payload["provider_health_snapshot"]["stale"] = bool(stale)
+    else:
+        payload["provider_health_snapshot"]["stale"] = None
+    return payload
+
+
+def _provider_health_is_fallback(payload: dict[str, object]) -> bool:
+    source = str((dict(payload.get("provider_health_snapshot") or {}).get("source") or "").strip().lower())
+    return source in {"provider_health_fallback"}
 
 
 def _mark_provider_health_snapshot(
@@ -1374,10 +1407,17 @@ async def _provider_health_snapshot_async(*, lightweight: bool, wait_on_stale: b
                     )
                     if isinstance(payload, dict) and payload:
                         _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
+                        status = "degraded" if _provider_health_is_fallback(payload) else "live"
+                        reason = ""
+                        if status == "degraded":
+                            reason = str(
+                                (dict(payload.get("provider_health_snapshot") or {}).get("reason") or ""
+                                ).strip()
+                            )
                         return _mark_provider_health_snapshot(
                             payload,
-                            status="live",
-                            reason="waited for stale provider-health refresh",
+                            status=status,
+                            reason=reason or "waited for stale provider-health refresh",
                             stale=False,
                             lightweight=lightweight,
                         )
@@ -1414,12 +1454,28 @@ async def _provider_health_snapshot_async(*, lightweight: bool, wait_on_stale: b
                 stale=True if age_seconds is not None else None,
                 lightweight=lightweight,
             )
-        return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live refresh already in flight")
+        return _minimal_provider_health_snapshot(
+            lightweight=lightweight,
+            status="degraded",
+            reason="live refresh already in flight",
+        )
     try:
-        payload = await asyncio.wait_for(asyncio.shield(future), timeout=_provider_health_route_timeout_seconds(lightweight=lightweight))
+        payload = await asyncio.wait_for(
+            asyncio.shield(future),
+            timeout=_provider_health_route_timeout_seconds(lightweight=lightweight),
+        )
         if isinstance(payload, dict) and payload:
             _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
-            return _mark_provider_health_snapshot(payload, status="live", lightweight=lightweight)
+            status = "degraded" if _provider_health_is_fallback(payload) else "live"
+            reason = ""
+            if status == "degraded":
+                reason = str((dict(payload.get("provider_health_snapshot") or {}).get("reason") or "").strip())
+            return _mark_provider_health_snapshot(
+                payload,
+                status=status,
+                reason=reason,
+                lightweight=lightweight,
+            )
     except asyncio.TimeoutError:
         cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight, allow_stale=True)
         if cached is not None:
@@ -1431,7 +1487,11 @@ async def _provider_health_snapshot_async(*, lightweight: bool, wait_on_stale: b
                 stale=True if age_seconds is not None else None,
                 lightweight=lightweight,
             )
-        return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live provider-health refresh timed out")
+        return _minimal_provider_health_snapshot(
+            lightweight=lightweight,
+            status="degraded",
+            reason="live provider-health refresh timed out",
+        )
     except Exception as exc:
         cached, age_seconds = _cached_provider_health_snapshot(lightweight=lightweight, allow_stale=True)
         if cached is not None:
@@ -1445,9 +1505,14 @@ async def _provider_health_snapshot_async(*, lightweight: bool, wait_on_stale: b
             )
         return _minimal_provider_health_snapshot(
             lightweight=lightweight,
+            status="degraded",
             reason=f"live provider-health refresh failed: {type(exc).__name__}",
         )
-    return _minimal_provider_health_snapshot(lightweight=lightweight, reason="live provider-health returned empty payload")
+    return _minimal_provider_health_snapshot(
+        lightweight=lightweight,
+        status="degraded",
+        reason="live provider-health returned empty payload",
+    )
 
 
 async def prewarm_provider_health_snapshot_cache(*, lightweight: bool = True, timeout_seconds: float | None = None) -> None:
@@ -2014,13 +2079,21 @@ def _capture_responses_debug(*, name: str, payload: object) -> None:
     target_dir = _responses_debug_capture_dir()
     if target_dir is None:
         return
+
+    def _write_snapshot() -> None:
+        try:
+            stamp = int(time.time() * 1000)
+            serialized = json.dumps(payload, ensure_ascii=True, indent=2)
+            target = target_dir / f"{stamp}_{name}.json"
+            target.write_text(serialized, encoding="utf-8")
+            latest = target_dir / f"latest_{name}.json"
+            latest.write_text(serialized, encoding="utf-8")
+            _prune_responses_debug_capture(target_dir)
+        except Exception:
+            return
+
     try:
-        stamp = int(time.time() * 1000)
-        target = target_dir / f"{stamp}_{name}.json"
-        target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-        latest = target_dir / f"latest_{name}.json"
-        latest.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-        _prune_responses_debug_capture(target_dir)
+        threading.Thread(target=_write_snapshot, daemon=True).start()
     except Exception:
         return
 
@@ -4204,6 +4277,71 @@ def _generate_upstream_text(
         raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
 
 
+def _tool_shim_generate_upstream_text_with_timeout(
+    *,
+    prompt: str,
+    messages: list[dict[str, str]] | None,
+    requested_model: str,
+    max_output_tokens: int | None,
+    chatplayground_audit_callback: Callable[..., Any] | None = None,
+    chatplayground_audit_callback_only: bool = False,
+    chatplayground_audit_principal_id: str = "",
+    preferred_onemin_labels: tuple[str, ...] = (),
+    request_deadline_monotonic: float | None = None,
+) -> UpstreamResult:
+    if request_deadline_monotonic is None:
+        return _generate_upstream_text(
+            prompt=prompt,
+            messages=messages,
+            requested_model=requested_model,
+            max_output_tokens=max_output_tokens,
+            chatplayground_audit_callback=chatplayground_audit_callback,
+            chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+            chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+            preferred_onemin_labels=preferred_onemin_labels,
+            request_deadline_monotonic=None,
+        )
+    timeout_seconds = max(1.0, request_deadline_monotonic - time.monotonic())
+    result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+    def _run() -> None:
+        try:
+            result_queue.put(
+                (
+                    "result",
+                    _generate_upstream_text(
+                        prompt=prompt,
+                        messages=messages,
+                        requested_model=requested_model,
+                        max_output_tokens=max_output_tokens,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                        preferred_onemin_labels=preferred_onemin_labels,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    ),
+                )
+            )
+        except Exception as exc:
+            result_queue.put(("error", exc))
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    try:
+        status, payload = result_queue.get(timeout=timeout_seconds)
+    except queue.Empty as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"upstream_unavailable:tool_shim_planner_timeout:{max(1, int(timeout_seconds))}s",
+        ) from exc
+    if status == "error":
+        failure = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
+        raise failure
+    if isinstance(payload, UpstreamResult):
+        return payload
+    raise HTTPException(status_code=502, detail="upstream_unavailable:invalid_tool_shim_planner_result")
+
+
 @dataclass(frozen=True)
 class _ToolShimDecision:
     kind: str
@@ -4326,6 +4464,7 @@ def _tool_shim_planner_model(model: str, *, prompt: str | None = None) -> str:
         or _tool_shim_is_operator_gap_fix_prompt(normalized_prompt)
         or _tool_shim_is_operator_gap_audit_prompt(normalized_prompt)
         or _tool_shim_is_operator_readiness_remedy_prompt(normalized_prompt)
+        or _tool_shim_is_package_work_prompt(normalized_prompt)
     ):
         fast_planner = str(FAST_PUBLIC_MODEL or "").strip() or "ea-coder-fast"
         if fast_planner:
@@ -4365,6 +4504,32 @@ def _tool_shim_planner_max_output_tokens(max_output_tokens: int | None) -> int:
     except Exception:
         return 256
     return max(96, min(256, value))
+
+
+def _tool_shim_planner_deadline_monotonic(
+    request_deadline_monotonic: float | None,
+    *,
+    prompt: str | None = None,
+) -> float | None:
+    if request_deadline_monotonic is None:
+        return None
+    normalized_prompt = str(prompt or "").strip()
+    if not normalized_prompt:
+        return request_deadline_monotonic
+    deadline_budget_seconds = 0.0
+    if _tool_shim_is_package_work_prompt(normalized_prompt):
+        deadline_budget_seconds = 75.0
+    elif (
+        _tool_shim_is_staged_local_orientation_prompt(normalized_prompt)
+        or _tool_shim_is_operator_fleet_unblock_prompt(normalized_prompt)
+        or _tool_shim_is_operator_gap_fix_prompt(normalized_prompt)
+        or _tool_shim_is_operator_gap_audit_prompt(normalized_prompt)
+        or _tool_shim_is_operator_readiness_remedy_prompt(normalized_prompt)
+    ):
+        deadline_budget_seconds = 30.0
+    if deadline_budget_seconds <= 0:
+        return request_deadline_monotonic
+    return min(request_deadline_monotonic, time.monotonic() + deadline_budget_seconds)
 
 
 def _tool_shim_truncate_text(text: str, *, limit: int) -> str:
@@ -4479,6 +4644,33 @@ def _tool_shim_latest_user_text(history_items: list[dict[str, object]]) -> str:
     return ""
 
 
+def _tool_shim_latest_package_work_prompt(history_items: list[dict[str, object]]) -> str:
+    for item in reversed(history_items):
+        item_type = str(item.get("type") or "").strip().lower()
+        if item_type == "input_text":
+            text = _extract_textish(item.get("text"))
+            if text and _tool_shim_is_package_work_prompt(text):
+                return text
+            continue
+        if item_type != "message":
+            continue
+        role = _normalize_message_role(item.get("role"))
+        if role != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, list):
+            text = "\n\n".join(
+                _extract_textish(part.get("text"))
+                for part in content
+                if isinstance(part, dict) and _extract_textish(part.get("text"))
+            ).strip()
+        else:
+            text = _extract_textish(content)
+        if text and _tool_shim_is_package_work_prompt(text):
+            return text
+    return ""
+
+
 def _tool_shim_is_staged_local_orientation_prompt(text: str) -> bool:
     prompt = str(text or "")
     if not prompt:
@@ -4489,6 +4681,7 @@ def _tool_shim_is_staged_local_orientation_prompt(text: str) -> bool:
             "Run these exact commands first:",
             "Safe first commands if you need orientation",
             "Read these files directly first:",
+            "Read from disk before coding:",
         )
     )
 
@@ -4502,6 +4695,28 @@ def _tool_shim_is_operator_fleet_unblock_prompt(text: str) -> bool:
         or (
             "scope: patch only the codexea shim, ea endpoints, and the 1min manager." in normalized
             and "do not work shard backlog content" in normalized
+        )
+    )
+
+
+def _tool_shim_is_package_work_prompt(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "system re-entry.",
+            "read from disk before coding:",
+            "then inspect the current repository state before changing anything.",
+            "current slice:",
+            "package scope:",
+            "isolated worktree:",
+            "allowed paths:",
+            "denied paths:",
+            "owned surfaces:",
+            "spider routing notes:",
+            "unread feedback files to incorporate in order:",
         )
     )
 
@@ -4553,6 +4768,8 @@ def _tool_shim_is_operator_fleet_unblock_context(
 ) -> bool:
     if _tool_shim_is_operator_fleet_unblock_prompt(latest_user_text):
         return True
+    if _tool_shim_is_package_work_prompt(latest_user_text):
+        return False
     commands = _tool_shim_exec_command_history(history_items)
     saw_shim_hotspot = any(
         "/docker/fleet/scripts/codex-shims/codexea" in command
@@ -5089,6 +5306,22 @@ def _tool_shim_gap_fix_final_text(summary: dict[str, object]) -> str | None:
 
 def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str | None:
     latest_user_text = _tool_shim_latest_user_text(history_items)
+    local_unblock_summary = _tool_shim_latest_exec_json_output(history_items)
+    if isinstance(local_unblock_summary, dict):
+        local_unblock_final = _tool_shim_local_unblock_final_text(local_unblock_summary)
+        if local_unblock_final:
+            return local_unblock_final
+    local_unblock_command = _tool_shim_local_unblock_command_for_prompt(latest_user_text)
+    if local_unblock_command:
+        local_unblock_summary = _tool_shim_latest_exec_json_output_for_command(
+            history_items,
+            command_substring="fleet_local_unblock.py",
+            probe_kind="fleet_local_unblock",
+        )
+        if isinstance(local_unblock_summary, dict):
+            local_unblock_final = _tool_shim_local_unblock_final_text(local_unblock_summary)
+            if local_unblock_final:
+                return local_unblock_final
     parity_build_summary = _tool_shim_latest_exec_json_output(history_items)
     if _tool_shim_is_operator_parity_build_prompt(latest_user_text) and isinstance(parity_build_summary, dict):
         parity_build_final = _tool_shim_parity_build_final_text(parity_build_summary)
@@ -5215,6 +5448,8 @@ def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str 
 
 
 def _tool_shim_staged_first_command_max_output_tokens(latest_user_text: str) -> int:
+    if _tool_shim_is_package_work_prompt(latest_user_text):
+        return 5000
     if _tool_shim_is_operator_parity_build_prompt(latest_user_text):
         return 7000
     if _tool_shim_is_operator_ui_parity_audit_prompt(latest_user_text):
@@ -5232,6 +5467,8 @@ def _tool_shim_direct_local_fleet_command(
 ) -> str | None:
     normalized = " ".join(str(latest_user_text or "").strip().lower().split())
     if "fleet" not in normalized:
+        return None
+    if _tool_shim_is_package_work_prompt(latest_user_text):
         return None
     if _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items or []):
         return None
@@ -5270,7 +5507,13 @@ def _tool_shim_direct_local_fleet_command(
             eta_cmd,
             "print((payload or {}).get('summary') or (payload or {}).get('eta_human') or json.dumps(payload,separators=(',',':')))"
         )
-    if "fleet" in normalized and any(token in normalized for token in ("status", "running", "milestone", "shard")):
+    if (
+        any(
+            normalized.startswith(prefix)
+            for prefix in ("fleet ", "status ", "show ", "list ", "what ", "how many ", "are ")
+        )
+        and any(token in normalized for token in ("status", "running", "milestone", "shard"))
+    ):
         return (
             f"{status_cmd} | "
             "python3 -c "
@@ -5333,12 +5576,33 @@ def _tool_shim_staged_commands(latest_user_text: str) -> list[str]:
         if commands:
             return commands
 
-    file_marker = "Read these files directly first:"
-    file_marker_index = text.find(file_marker)
-    if file_marker_index < 0:
+    file_markers = (
+        "Read these files directly first:",
+        "Read from disk before coding:",
+    )
+    file_marker_index = -1
+    file_marker = ""
+    for candidate_marker in file_markers:
+        file_marker_index = text.find(candidate_marker)
+        if file_marker_index >= 0:
+            file_marker = candidate_marker
+            break
+    if file_marker_index < 0 or not file_marker:
         return []
     shell_commands: list[str] = []
     paths: list[str] = []
+    package_worktree = ""
+    max_paths = 6
+    package_worktree_match = re.search(
+        r"^[ \t]*Isolated worktree:\s+([^\s].*)$",
+        text,
+        flags=re.MULTILINE,
+    )
+    if package_worktree_match:
+        raw_worktree = str(package_worktree_match.group(1) or "").strip()
+        if raw_worktree.startswith("/"):
+            package_worktree = raw_worktree
+            max_paths = 3
     trailing_lines = text[file_marker_index + len(file_marker):].splitlines()
     for raw_line in trailing_lines:
         line = str(raw_line or "").strip()
@@ -5361,27 +5625,60 @@ def _tool_shim_staged_commands(latest_user_text: str) -> list[str]:
                 shell_commands.append(candidate)
             continue
         path_token = candidate.split()[0] if candidate else ""
-        if not path_token.startswith("/"):
+        path_token = path_token.rstrip(",:;")
+        if not path_token:
             break
+        if not path_token.startswith("/"):
+            if not package_worktree:
+                break
+            if path_token.startswith(("http://", "https://")):
+                break
+            relative_candidate = path_token[2:] if path_token.startswith("./") else path_token
+            if not relative_candidate:
+                break
+            path_token = str((Path(package_worktree) / relative_candidate).resolve())
         if "..." in path_token:
             continue
         if path_token in paths:
             continue
         paths.append(path_token)
-        if len(paths) >= 6:
+        if len(paths) >= max_paths:
             break
     if shell_commands:
         return shell_commands
     if not paths:
         return []
     commands = []
+    package_preview_lines = 20 if package_worktree else 220
     for index, path_text in enumerate(paths):
+        prefer_cat = path_text.lower().endswith(".json")
+        if not package_worktree and index == 0:
+            prefer_cat = True
         commands.append(
             _tool_shim_direct_file_read_command(
                 path_text,
-                prefer_cat=index == 0 or path_text.lower().endswith(".json"),
+                prefer_cat=prefer_cat,
+                max_lines=package_preview_lines,
             )
         )
+    if package_worktree and _tool_shim_is_package_work_prompt(text):
+        bundled_parts = [
+            str(command or "").strip()
+            for command in (
+                _tool_shim_build_package_scope_search_command(text),
+                _tool_shim_build_package_scope_repo_diff_command(text),
+                _tool_shim_build_package_scope_repo_hunks_command(text),
+            )
+            if str(command or "").strip()
+        ]
+        bundled_parts.extend(
+            command.strip()
+            for command in commands
+            if str(command or "").strip()
+        )
+        if bundled_parts:
+            return [" ; ".join(bundled_parts)]
+        return []
     return commands
 
 
@@ -5472,11 +5769,20 @@ def _tool_shim_direct_staged_git_commit_push_final_text(
     return f"Pushed commit {head_hash}"
 
 
-def _tool_shim_direct_file_read_command(path_text: str, *, prefer_cat: bool = False) -> str:
+def _tool_shim_direct_file_read_command(
+    path_text: str,
+    *,
+    prefer_cat: bool = False,
+    max_lines: int = 220,
+) -> str:
     quoted_path = shlex.quote(path_text)
     if prefer_cat or path_text.lower().endswith(".json"):
         return f"cat {quoted_path}"
-    return f"sed -n '1,220p' {quoted_path}"
+    try:
+        line_limit = max(1, int(max_lines))
+    except Exception:
+        line_limit = 220
+    return f"sed -n '1,{line_limit}p' {quoted_path}"
 
 
 def _tool_shim_resolve_equivalent_shard_runtime_path(path_text: str) -> str:
@@ -5614,6 +5920,17 @@ def _tool_shim_exec_command_expanded_sequence(history_items: list[dict[str, obje
     for command in _tool_shim_exec_command_history(history_items):
         sequence.extend(_tool_shim_command_identity_sequence(command))
     return sequence
+
+
+def _tool_shim_command_sequence_executed(
+    history_items: list[dict[str, object]],
+    command: str,
+) -> bool:
+    expected_identities = _tool_shim_command_identity_sequence(command)
+    if not expected_identities:
+        return False
+    executed_identities = set(_tool_shim_exec_command_identity_history(history_items))
+    return all(identity in executed_identities for identity in expected_identities)
 
 
 def _tool_shim_exec_command_output_history(history_items: list[dict[str, object]]) -> list[dict[str, str]]:
@@ -5783,15 +6100,35 @@ def _tool_shim_direct_post_staged_command(
     if not commands:
         return None
     rewritten_commands = [_tool_shim_rewrite_operator_unblock_command(command) for command in commands]
-    executed_commands = _tool_shim_exec_command_expanded_sequence(history_items)
+    executed_sequence = _tool_shim_exec_command_expanded_sequence(history_items)
     expected_commands: list[str] = []
     for command in rewritten_commands:
         expected_commands.extend(_tool_shim_command_identity_sequence(command))
-    if len(executed_commands) != len(expected_commands):
+    if _tool_shim_is_package_work_prompt(latest_user_text):
+        package_scope_command = _tool_shim_build_package_scope_repo_diff_command(latest_user_text)
+        expected_identity_set = {
+            identity
+            for identity in expected_commands
+            if identity
+        }
+        executed_identity_set = {
+            identity
+            for identity in executed_sequence
+            if identity
+        }
+        if (
+            package_scope_command
+            and expected_identity_set
+            and expected_identity_set.issubset(executed_identity_set)
+            and not _tool_shim_command_sequence_executed(history_items, package_scope_command)
+        ):
+            return package_scope_command
+    if len(executed_sequence) < len(expected_commands):
         return None
+    recent_sequence = executed_sequence[-len(expected_commands):]
     if any(
         executed != _tool_shim_command_identity(expected)
-        for executed, expected in zip(executed_commands, expected_commands)
+        for executed, expected in zip(recent_sequence, expected_commands)
     ):
         return None
     return _tool_shim_build_staged_repo_diff_command(commands)
@@ -5806,14 +6143,39 @@ def _tool_shim_direct_post_staged_repo_hunks_command(
         return None
     repo_diff_command = _tool_shim_build_staged_repo_diff_command(commands)
     repo_hunks_command = _tool_shim_build_staged_repo_hunks_command(commands)
+    if _tool_shim_is_package_work_prompt(latest_user_text):
+        package_repo_diff_command = _tool_shim_build_package_scope_repo_diff_command(latest_user_text)
+        package_repo_hunks_command = _tool_shim_build_package_scope_repo_hunks_command(latest_user_text)
+        if package_repo_diff_command and package_repo_hunks_command:
+            if not _tool_shim_command_sequence_executed(history_items, package_repo_diff_command):
+                return None
+            if _tool_shim_command_sequence_executed(history_items, package_repo_hunks_command):
+                return None
+            return package_repo_hunks_command
     if not repo_diff_command or not repo_hunks_command:
         return None
-    executed_commands = set(_tool_shim_exec_command_identity_history(history_items))
-    if _tool_shim_command_identity(repo_diff_command) not in executed_commands:
+    if not _tool_shim_command_sequence_executed(history_items, repo_diff_command):
         return None
-    if _tool_shim_command_identity(repo_hunks_command) in executed_commands:
+    if _tool_shim_command_sequence_executed(history_items, repo_hunks_command):
         return None
     return repo_hunks_command
+
+
+def _tool_shim_direct_post_package_scope_repo_hunks_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_package_work_prompt(latest_user_text):
+        return None
+    repo_hunks_command = _tool_shim_build_package_scope_repo_hunks_command(latest_user_text)
+    search_command = _tool_shim_build_package_scope_search_command(latest_user_text)
+    if not repo_hunks_command or not search_command:
+        return None
+    if not _tool_shim_command_sequence_executed(history_items, repo_hunks_command):
+        return None
+    if _tool_shim_command_sequence_executed(history_items, search_command):
+        return None
+    return search_command
 
 
 def _tool_shim_direct_post_readiness_materialize_command(
@@ -5834,6 +6196,369 @@ def _tool_shim_direct_post_readiness_materialize_command(
     return command
 
 
+def _tool_shim_package_scope_text(latest_user_text: str) -> str:
+    match = re.search(
+        r"^[ \t]*Package scope:\s+([^\n]+)$",
+        str(latest_user_text or ""),
+        flags=re.MULTILINE,
+    )
+    if not match:
+        return ""
+    return str(match.group(1) or "").strip()
+
+
+def _tool_shim_package_current_slice_text(latest_user_text: str) -> str:
+    prompt = str(latest_user_text or "")
+    if not prompt:
+        return ""
+    match = re.search(
+        r"^[ \t]*Current slice:\s*(.*?)^\s*Package scope:\s+",
+        prompt,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return ""
+    return " ".join(str(match.group(1) or "").split())
+
+
+def _tool_shim_package_worktree(latest_user_text: str) -> str:
+    match = re.search(
+        r"^[ \t]*Isolated worktree:\s+([^\s].*)$",
+        str(latest_user_text or ""),
+        flags=re.MULTILINE,
+    )
+    if not match:
+        return ""
+    worktree = str(match.group(1) or "").strip()
+    return worktree if worktree.startswith("/") else ""
+
+
+def _tool_shim_package_allowed_scope_tokens(latest_user_text: str) -> list[str]:
+    match = re.search(
+        r"^[ \t]*Allowed paths:\s+([^\n]+)$",
+        str(latest_user_text or ""),
+        flags=re.MULTILINE,
+    )
+    if not match:
+        return []
+    tokens: list[str] = []
+    seen_tokens: set[str] = set()
+    for raw_token in str(match.group(1) or "").split(","):
+        token = str(raw_token or "").strip().strip("/")
+        if (
+            not token
+            or token in seen_tokens
+            or "*" in token
+            or "?" in token
+            or token.startswith(".")
+        ):
+            continue
+        tokens.append(token)
+        seen_tokens.add(token)
+    return tokens
+
+
+def _tool_shim_package_allowed_scope_paths(latest_user_text: str) -> list[str]:
+    worktree = _tool_shim_package_worktree(latest_user_text)
+    if not worktree:
+        return []
+    worktree_path = Path(worktree)
+    scope_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for token in _tool_shim_package_allowed_scope_tokens(latest_user_text):
+        candidate = str((worktree_path / token).resolve())
+        if candidate in seen_paths:
+            continue
+        scope_paths.append(candidate)
+        seen_paths.add(candidate)
+    if scope_paths:
+        return scope_paths
+    return [str(worktree_path)]
+
+
+def _tool_shim_package_scope_pathspecs(latest_user_text: str) -> list[str]:
+    worktree = _tool_shim_package_worktree(latest_user_text)
+    if not worktree:
+        return []
+    worktree_path = Path(worktree)
+    pathspecs: list[str] = []
+    seen_specs: set[str] = set()
+    for absolute_path in _tool_shim_package_allowed_scope_paths(latest_user_text):
+        try:
+            rel_path = str(Path(absolute_path).relative_to(worktree_path))
+        except Exception:
+            continue
+        if rel_path.startswith("./"):
+            rel_path = rel_path[2:]
+        rel_path = rel_path.strip()
+        if not rel_path or rel_path in seen_specs:
+            continue
+        pathspecs.append(rel_path)
+        seen_specs.add(rel_path)
+    return pathspecs
+
+
+def _tool_shim_build_package_scope_repo_diff_command(latest_user_text: str) -> str | None:
+    worktree = _tool_shim_package_worktree(latest_user_text)
+    pathspecs = _tool_shim_package_scope_pathspecs(latest_user_text)
+    if not worktree or not pathspecs:
+        return None
+    quoted_worktree = shlex.quote(worktree)
+    quoted_paths = " ".join(shlex.quote(pathspec) for pathspec in pathspecs)
+    return (
+        f"git -C {quoted_worktree} status --short -- {quoted_paths}"
+        f" ; git -C {quoted_worktree} diff --stat -- {quoted_paths}"
+    )
+
+
+def _tool_shim_build_package_scope_repo_hunks_command(latest_user_text: str) -> str | None:
+    worktree = _tool_shim_package_worktree(latest_user_text)
+    pathspecs = _tool_shim_package_scope_pathspecs(latest_user_text)
+    if not worktree or not pathspecs:
+        return None
+    quoted_worktree = shlex.quote(worktree)
+    quoted_paths = " ".join(shlex.quote(pathspec) for pathspec in pathspecs)
+    return f"git -C {quoted_worktree} diff --unified=0 -- {quoted_paths} | sed -n '1,120p'"
+
+
+def _tool_shim_package_scope_search_terms(latest_user_text: str) -> list[str]:
+    current_slice = _tool_shim_package_current_slice_text(latest_user_text)
+    if not current_slice:
+        return []
+    stop_words = {
+        "and",
+        "artifact",
+        "before",
+        "coding",
+        "compare",
+        "compile",
+        "current",
+        "export",
+        "for",
+        "from",
+        "house",
+        "print",
+        "proof",
+        "proofs",
+        "route",
+        "routes",
+        "specific",
+        "supplement",
+        "the",
+        "then",
+        "workflow",
+        "workflows",
+    }
+    terms: list[str] = []
+    seen_terms: set[str] = set()
+    normalized_slice = current_slice.lower().replace("-", " ")
+    for token in re.findall(r"[a-z0-9]{3,}", normalized_slice):
+        if token in stop_words or token in seen_terms:
+            continue
+        terms.append(token)
+        seen_terms.add(token)
+        if len(terms) >= 8:
+            break
+    if "sr6" in normalized_slice and "sr6" not in seen_terms:
+        terms.append("sr6")
+        seen_terms.add("sr6")
+    if "house rule" in normalized_slice and "house rule" not in seen_terms:
+        terms.append("house rule")
+    return terms
+
+
+def _tool_shim_build_package_scope_search_command(latest_user_text: str) -> str | None:
+    scope_paths = _tool_shim_package_allowed_scope_paths(latest_user_text)
+    search_terms = _tool_shim_package_scope_search_terms(latest_user_text)
+    if not scope_paths or not search_terms:
+        return None
+    pattern_args = " ".join(
+        f"-e {shlex.quote(term)}"
+        for term in search_terms
+        if str(term or "").strip()
+    )
+    if not pattern_args:
+        return None
+    quoted_paths = " ".join(shlex.quote(path_text) for path_text in scope_paths)
+    return f"rg -n -i -F -m 80 {pattern_args} -- {quoted_paths} | sed -n '1,120p'"
+
+
+def _tool_shim_package_planner_blocked_final_text(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+    *,
+    failure_message: str,
+) -> str | None:
+    if not _tool_shim_is_package_work_prompt(latest_user_text):
+        return None
+    progress_markers: list[str] = []
+    executed_commands = set(_tool_shim_exec_command_identity_history(history_items))
+    staged_commands = _tool_shim_staged_commands(latest_user_text)
+    if staged_commands:
+        expected_commands: list[str] = []
+        for command in staged_commands:
+            expected_commands.extend(_tool_shim_command_identity_sequence(command))
+        if expected_commands and all(command in executed_commands for command in expected_commands):
+            progress_markers.append("completed staged repo reads")
+    package_scope_diff_command = _tool_shim_build_package_scope_repo_diff_command(latest_user_text)
+    if package_scope_diff_command and _tool_shim_command_identity(package_scope_diff_command) in executed_commands:
+        progress_markers.append("inspected package-scope git status and diff")
+    package_scope_hunks_command = _tool_shim_build_package_scope_repo_hunks_command(latest_user_text)
+    if package_scope_hunks_command and _tool_shim_command_identity(package_scope_hunks_command) in executed_commands:
+        progress_markers.append("inspected package-scope diff hunks")
+    package_scope_search_command = _tool_shim_build_package_scope_search_command(latest_user_text)
+    if package_scope_search_command and _tool_shim_command_identity(package_scope_search_command) in executed_commands:
+        progress_markers.append("searched the allowed package paths for slice-specific matches")
+    shipped = "; ".join(progress_markers) if progress_markers else "completed local package orientation"
+    package_scope = _tool_shim_package_scope_text(latest_user_text)
+    current_slice = _tool_shim_package_current_slice_text(latest_user_text)
+    remains = f"retry {package_scope or 'this package'} after planner capacity recovers"
+    if current_slice:
+        remains += f" for slice `{current_slice}`"
+    return (
+        f"Error: {failure_message}\n\n"
+        f"What shipped: {shipped}\n\n"
+        f"What remains: {remains}\n\n"
+        f"Exact blocker: {failure_message}"
+    )
+
+
+def _tool_shim_package_planner_blocked_decision(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+    *,
+    failure_message: str,
+) -> _ToolShimDecision | None:
+    final_text = _tool_shim_package_planner_blocked_final_text(
+        latest_user_text,
+        history_items,
+        failure_message=failure_message,
+    )
+    if not final_text:
+        return None
+    return _ToolShimDecision(
+        kind="final",
+        text=final_text,
+        upstream_result=_tool_shim_local_upstream_result(
+            final_text,
+            reason="tool_shim_package_planner_blocked",
+        ),
+    )
+
+
+def _tool_shim_local_unblock_command_for_prompt(latest_user_text: str) -> str | None:
+    normalized = " ".join(str(latest_user_text or "").strip().lower().split())
+    if not normalized:
+        return None
+    command = "python3 /docker/fleet/scripts/fleet_local_unblock.py"
+    if "execute wl-d014-01" in normalized or (
+        "review_template_mirror_publish_evidence.md" in normalized
+        and "compute source and destination sha-256" in normalized
+    ):
+        return f"{command} --task review_template_parity"
+    if "surface campaign memory and consequences on desktop" in normalized:
+        return f"{command} --task verify_ui_campaign_memory"
+    if "finish milestone coverage modeling for ui so eta and completion truth are no longer partial" in normalized:
+        return f"{command} --task verify_ui_milestone_coverage"
+    if "finish milestone coverage modeling for media-factory so eta and completion truth are no longer partial" in normalized:
+        return f"{command} --task verify_media_factory_coverage"
+    mirror_repo_markers = (
+        ("chummer6-mobile", ("recurring `mobile` mirror drift", "sync the approved chummer design bundle into `mobile`")),
+        ("chummer6-ui-kit", ("recurring `ui-kit` mirror drift", "sync the approved chummer design bundle into `ui-kit`")),
+        ("chummer6-hub-registry", ("recurring `hub-registry` mirror drift", "sync the approved chummer design bundle into `hub-registry`")),
+        ("chummer6-media-factory", ("recurring `media-factory` mirror drift", "sync the approved chummer design bundle into `media-factory`")),
+        ("chummer6-ui", ("recurring `ui` mirror drift", "sync the approved chummer design bundle into `ui`")),
+    )
+    for repo_id, markers in mirror_repo_markers:
+        if any(marker in normalized for marker in markers):
+            return f"{command} --task mirror_sync --repo {repo_id}"
+    return None
+
+
+def _tool_shim_direct_local_unblock_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    command = _tool_shim_local_unblock_command_for_prompt(latest_user_text)
+    if not command:
+        return None
+    if _tool_shim_command_sequence_executed(history_items, command):
+        return None
+    return command
+
+
+def _tool_shim_local_unblock_final_text(summary: dict[str, object]) -> str | None:
+    if str(summary.get("probe_kind") or "").strip().lower() != "fleet_local_unblock":
+        return None
+    task = str(summary.get("task") or "").strip() or "local_unblock"
+    ok = bool(summary.get("ok"))
+    message = str(summary.get("message") or "").strip()
+    details = str(summary.get("details") or "").strip()
+    if ok:
+        shipped = message or f"completed {task}"
+        if details:
+            return f"Completed local unblock task `{task}`.\n\nWhat shipped: {shipped}\n\nEvidence: {details}"
+        return f"Completed local unblock task `{task}`.\n\nWhat shipped: {shipped}"
+    error = str(summary.get("error") or "").strip()
+    if not error:
+        exit_code = str(summary.get("exit_code") or "").strip()
+        error = f"{task}:exit_{exit_code}" if exit_code else task
+    result = f"Error: local_unblock_failed:{error}"
+    if details:
+        result += f"\n\nWhat remains: {details}"
+    return result
+
+
+def _tool_shim_provider_row_is_ready(provider: dict[str, object]) -> bool:
+    state = str(provider.get("state") or "").strip().lower()
+    if state == "ready":
+        return True
+    slots = [dict(item) for item in (provider.get("slots") or []) if isinstance(item, dict)]
+    return any(str(slot.get("state") or "").strip().lower() == "ready" for slot in slots)
+
+
+def _tool_shim_provider_row_is_dispatchable(provider: dict[str, object]) -> bool:
+    if not isinstance(provider, dict) or not provider:
+        return False
+    for field_name in ("live_dispatchable_slot_count", "live_ready_slot_count", "ready_slot_count"):
+        value = provider.get(field_name)
+        if value in (None, ""):
+            continue
+        try:
+            return int(value) > 0
+        except Exception:
+            continue
+    return _tool_shim_provider_row_is_ready(provider)
+
+
+def _tool_shim_package_planner_preflight_failure_message() -> str | None:
+    snapshot = _provider_health_snapshot(lightweight=True)
+    providers = dict((snapshot.get("providers") or {})) if isinstance(snapshot, dict) else {}
+    if not providers:
+        return None
+    onemin = dict(providers.get("onemin") or {})
+    gemini = dict(providers.get("gemini_vortex") or {})
+    magix = dict(providers.get("magixai") or {})
+    onemin_ready = _tool_shim_provider_row_is_dispatchable(onemin)
+    gemini_ready = _tool_shim_provider_row_is_ready(gemini)
+    magix_ready = _tool_shim_provider_row_is_ready(magix)
+    if onemin_ready or gemini_ready or magix_ready:
+        return None
+    reasons: list[str] = []
+    onemin_dispatchable = onemin.get("live_dispatchable_slot_count")
+    if onemin_dispatchable in (None, ""):
+        reasons.append("onemin_dispatchable=0")
+    else:
+        reasons.append(f"onemin_dispatchable={onemin_dispatchable}")
+    gemini_state = str(gemini.get("state") or "").strip().lower() or "unknown"
+    gemini_detail = " ".join(str(gemini.get("detail") or "").split()).strip()
+    reasons.append(f"gemini_vortex={gemini_state}{':' + gemini_detail if gemini_detail else ''}")
+    magix_state = str(magix.get("state") or "").strip().lower() or "unknown"
+    magix_detail = " ".join(str(magix.get("detail") or "").split()).strip()
+    reasons.append(f"magixai={magix_state}{':' + magix_detail if magix_detail else ''}")
+    return "upstream_unavailable:planner_capacity_preflight:" + "; ".join(reasons[:3])
+
+
 def _tool_shim_collect_staged_commands(text: str) -> list[str]:
     prompt = str(text or "")
     if not prompt:
@@ -5843,6 +6568,7 @@ def _tool_shim_collect_staged_commands(text: str) -> list[str]:
         "Run these exact commands first:",
         "Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:",
         "Read these files directly first:",
+        "Read from disk before coding:",
     )
     for marker in stage_markers:
         marker_index = prompt.find(marker)
@@ -5914,6 +6640,13 @@ def _tool_shim_build_staged_repo_diff_command(commands: list[str]) -> str | None
                 continue
             extracted_paths.append(raw_path)
             seen_paths.add(raw_path)
+    worktree_paths = [
+        path_text
+        for path_text in extracted_paths
+        if "/var/lib/codex-fleet/worktrees/" in path_text or "/docker/fleet/worktrees/" in path_text
+    ]
+    if worktree_paths:
+        extracted_paths = worktree_paths
     return _tool_shim_build_repo_diff_command_for_paths(extracted_paths)
 
 
@@ -5929,6 +6662,13 @@ def _tool_shim_build_staged_repo_hunks_command(commands: list[str]) -> str | Non
                 continue
             extracted_paths.append(raw_path)
             seen_paths.add(raw_path)
+    worktree_paths = [
+        path_text
+        for path_text in extracted_paths
+        if "/var/lib/codex-fleet/worktrees/" in path_text or "/docker/fleet/worktrees/" in path_text
+    ]
+    if worktree_paths:
+        extracted_paths = worktree_paths
     return _tool_shim_build_repo_hunks_command_for_paths(extracted_paths)
 
 
@@ -6170,7 +6910,12 @@ def _tool_shim_telemetry_followup_commands(
     if isinstance(raw_first_commands, list):
         for raw_command in raw_first_commands:
             rewritten_command = _tool_shim_rewrite_operator_unblock_command(str(raw_command or "").strip())
-            if not _tool_shim_is_safe_worker_followup_command(rewritten_command):
+            if not _tool_shim_is_safe_worker_followup_command(
+                rewritten_command
+            ) and not _tool_shim_is_allowed_package_followup_command(
+                latest_user_text,
+                rewritten_command,
+            ):
                 continue
             if rewritten_command not in commands:
                 commands.append(rewritten_command)
@@ -6204,10 +6949,10 @@ def _tool_shim_recent_nested_telemetry_commands(
     latest_user_text: str,
     history_items: list[dict[str, object]],
 ) -> list[str]:
-    if not _tool_shim_is_operator_fleet_unblock_context(
-        latest_user_text,
-        history_items,
-    ) and not _tool_shim_history_has_fleet_shard_runtime_context(history_items):
+    if not (
+        _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items)
+        or _tool_shim_history_has_fleet_shard_runtime_context(history_items)
+    ):
         return []
     for record in reversed(_tool_shim_exec_command_output_history(history_items)):
         command = str(record.get("cmd") or "").strip()
@@ -6407,6 +7152,29 @@ def _tool_shim_is_safe_worker_followup_command(command: str) -> bool:
     return all(path.startswith(("/docker/", "/var/")) for path in abs_paths)
 
 
+def _tool_shim_is_allowed_package_followup_command(
+    latest_user_text: str,
+    command: str,
+) -> bool:
+    if not _tool_shim_is_package_work_prompt(latest_user_text):
+        return False
+    candidate_identities = {
+        identity
+        for identity in _tool_shim_command_identity_sequence(command)
+        if identity
+    }
+    if not candidate_identities:
+        return False
+    allowed_identities: set[str] = set()
+    for staged_command in _tool_shim_staged_commands(latest_user_text):
+        allowed_identities.update(
+            identity
+            for identity in _tool_shim_command_identity_sequence(staged_command)
+            if identity
+        )
+    return bool(allowed_identities) and candidate_identities.issubset(allowed_identities)
+
+
 def _tool_shim_command_identity(command: str) -> str:
     normalized = _tool_shim_normalize_equivalent_command_paths(str(command or "").strip())
     if "TASK_LOCAL_TELEMETRY.generated.json" not in normalized:
@@ -6428,8 +7196,9 @@ def _tool_shim_recent_nested_staged_commands(
         latest_user_text,
         history_items,
     )
-    if not operator_unblock_context and not _tool_shim_history_has_fleet_shard_runtime_context(
-        history_items
+    if not (
+        operator_unblock_context
+        or _tool_shim_history_has_fleet_shard_runtime_context(history_items)
     ):
         return []
 
@@ -6459,6 +7228,9 @@ def _tool_shim_recent_nested_staged_commands(
                 continue
             if not operator_unblock_context and not _tool_shim_is_safe_worker_followup_command(
                 rewritten_command
+            ) and not _tool_shim_is_allowed_package_followup_command(
+                latest_user_text,
+                rewritten_command,
             ) and "TASK_LOCAL_TELEMETRY.generated.json" not in command:
                 continue
             allowed_commands.append(rewritten_command)
@@ -7134,6 +7906,10 @@ def _tool_shim_retry_payload(
     )
     planner_model = _tool_shim_planner_model(model, prompt=latest_user_text)
     planner_max_output_tokens = _tool_shim_planner_max_output_tokens(max_output_tokens)
+    planner_request_deadline_monotonic = _tool_shim_planner_deadline_monotonic(
+        request_deadline_monotonic,
+        prompt=latest_user_text,
+    )
     retry_messages = list(shim_messages)
     retry_messages.append({"role": "assistant", "content": _json_compact(prior_payload)})
     retry_messages.append(
@@ -7142,7 +7918,7 @@ def _tool_shim_retry_payload(
             "content": f"{retry_reason}\nReturn a corrected next action as JSON only.",
         }
     )
-    retry_result = _generate_upstream_text(
+    retry_result = _tool_shim_generate_upstream_text_with_timeout(
         prompt=retry_messages[-1]["content"],
         messages=retry_messages,
         requested_model=planner_model,
@@ -7150,7 +7926,7 @@ def _tool_shim_retry_payload(
         chatplayground_audit_callback=chatplayground_audit_callback,
         chatplayground_audit_callback_only=chatplayground_audit_callback_only,
         chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-        request_deadline_monotonic=request_deadline_monotonic,
+        request_deadline_monotonic=planner_request_deadline_monotonic,
     )
     return _extract_json_object(retry_result.text), retry_result
 
@@ -7168,6 +7944,9 @@ def _tool_shim_decision(
     request_deadline_monotonic: float | None = None,
 ) -> _ToolShimDecision:
     latest_user_text = _tool_shim_latest_user_text(history_items)
+    package_prompt_text = latest_user_text if _tool_shim_is_package_work_prompt(latest_user_text) else _tool_shim_latest_package_work_prompt(history_items)
+    package_work_context = bool(package_prompt_text)
+    staged_prompt_text = package_prompt_text or latest_user_text
     direct_final_text = _tool_shim_direct_final_text(history_items)
     if direct_final_text is not None:
         return _ToolShimDecision(
@@ -7180,21 +7959,32 @@ def _tool_shim_decision(
         )
     tool_names = {str(tool.get("name") or "").strip() for tool in tools}
     if "exec_command" in tool_names:
-        staged_first_cmd = _tool_shim_direct_staged_first_command(latest_user_text, history_items)
+        local_unblock_command = _tool_shim_direct_local_unblock_command(staged_prompt_text, history_items)
+        if local_unblock_command:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": local_unblock_command, "max_output_tokens": 1200},
+                upstream_result=_tool_shim_local_upstream_result(
+                    local_unblock_command,
+                    reason="fleet_local_unblock_task",
+                ),
+            )
+        staged_first_cmd = _tool_shim_direct_staged_first_command(staged_prompt_text, history_items)
         if staged_first_cmd:
             return _ToolShimDecision(
                 kind="function_call",
                 tool_name="exec_command",
                 arguments={
                     "cmd": staged_first_cmd,
-                    "max_output_tokens": _tool_shim_staged_first_command_max_output_tokens(latest_user_text),
+                    "max_output_tokens": _tool_shim_staged_first_command_max_output_tokens(staged_prompt_text),
                 },
                 upstream_result=_tool_shim_local_upstream_result(
                     staged_first_cmd,
                     reason="task_local_staged_first_command",
                 ),
             )
-        staged_followup_cmd = _tool_shim_direct_post_staged_command(latest_user_text, history_items)
+        staged_followup_cmd = _tool_shim_direct_post_staged_command(staged_prompt_text, history_items)
         if staged_followup_cmd:
             return _ToolShimDecision(
                 kind="function_call",
@@ -7206,7 +7996,7 @@ def _tool_shim_decision(
                 ),
             )
         staged_repo_hunks_cmd = _tool_shim_direct_post_staged_repo_hunks_command(
-            latest_user_text,
+            staged_prompt_text,
             history_items,
         )
         if staged_repo_hunks_cmd:
@@ -7219,8 +8009,22 @@ def _tool_shim_decision(
                     reason="task_local_staged_followup_hunks",
                 ),
             )
+        package_scope_search_cmd = _tool_shim_direct_post_package_scope_repo_hunks_command(
+            staged_prompt_text,
+            history_items,
+        )
+        if package_scope_search_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": package_scope_search_cmd, "max_output_tokens": 1600},
+                upstream_result=_tool_shim_local_upstream_result(
+                    package_scope_search_cmd,
+                    reason="task_local_package_scope_search",
+                ),
+            )
         readiness_materialize_cmd = _tool_shim_direct_post_readiness_materialize_command(
-            latest_user_text,
+            staged_prompt_text,
             history_items,
         )
         if readiness_materialize_cmd:
@@ -7355,8 +8159,23 @@ def _tool_shim_decision(
                 reason="fleet_local_telemetry_tool",
             ),
         )
-    planner_model = _tool_shim_planner_model(model, prompt=latest_user_text)
+    if package_work_context:
+        planner_preflight_failure = _tool_shim_package_planner_preflight_failure_message()
+        if planner_preflight_failure:
+            blocked_decision = _tool_shim_package_planner_blocked_decision(
+                staged_prompt_text,
+                history_items,
+                failure_message=planner_preflight_failure,
+            )
+            if blocked_decision is not None:
+                return blocked_decision
+    planner_prompt_text = package_prompt_text or latest_user_text
+    planner_model = _tool_shim_planner_model(model, prompt=planner_prompt_text)
     planner_max_output_tokens = _tool_shim_planner_max_output_tokens(max_output_tokens)
+    planner_request_deadline_monotonic = _tool_shim_planner_deadline_monotonic(
+        request_deadline_monotonic,
+        prompt=planner_prompt_text,
+    )
     requires_immediate_tool = _tool_shim_requires_immediate_tool(
         latest_user_text=latest_user_text,
         available_tools=tools,
@@ -7368,15 +8187,47 @@ def _tool_shim_decision(
         compact_for_audit=chatplayground_audit_callback_only,
     )
     shim_prompt = shim_messages[-1]["content"]
-    result = _generate_upstream_text(
-        prompt=shim_prompt,
-        messages=shim_messages,
-        requested_model=planner_model,
-        max_output_tokens=planner_max_output_tokens,
-        chatplayground_audit_callback=chatplayground_audit_callback,
-        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-        request_deadline_monotonic=request_deadline_monotonic,
+    planner_started_monotonic = time.monotonic()
+    planner_deadline_seconds = None
+    if planner_request_deadline_monotonic is not None:
+        planner_deadline_seconds = max(0.0, planner_request_deadline_monotonic - planner_started_monotonic)
+    logger.info(
+        "tool_shim_planner_start requested_model=%s planner_model=%s package_prompt=%s immediate_tool=%s prompt_chars=%s deadline_seconds=%s",
+        model,
+        planner_model,
+        package_work_context,
+        requires_immediate_tool,
+        len(shim_prompt),
+        None if planner_deadline_seconds is None else round(planner_deadline_seconds, 3),
+    )
+    try:
+        result = _tool_shim_generate_upstream_text_with_timeout(
+            prompt=shim_prompt,
+            messages=shim_messages,
+            requested_model=planner_model,
+            max_output_tokens=planner_max_output_tokens,
+            chatplayground_audit_callback=chatplayground_audit_callback,
+            chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+            chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+            request_deadline_monotonic=planner_request_deadline_monotonic,
+        )
+    except HTTPException as exc:
+        blocked_decision = _tool_shim_package_planner_blocked_decision(
+            staged_prompt_text,
+            history_items,
+            failure_message=str(exc.detail or exc),
+        )
+        if blocked_decision is not None:
+            return blocked_decision
+        raise
+    logger.info(
+        "tool_shim_planner_completed requested_model=%s planner_model=%s package_prompt=%s duration_seconds=%.3f upstream_provider=%s upstream_model=%s",
+        model,
+        planner_model,
+        package_work_context,
+        time.monotonic() - planner_started_monotonic,
+        result.provider_key,
+        result.model,
     )
     payload = _extract_json_object(result.text)
     if not isinstance(payload, dict):
@@ -7385,17 +8236,27 @@ def _tool_shim_decision(
             requires_tool=requires_immediate_tool,
         )
         if retry_reason:
-            retry_payload, retry_result = _tool_shim_retry_payload(
-                model=model,
-                max_output_tokens=max_output_tokens,
-                shim_messages=shim_messages,
-                prior_payload={"decision": "final", "text": result.text},
-                retry_reason=retry_reason,
-                chatplayground_audit_callback=chatplayground_audit_callback,
-                chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                request_deadline_monotonic=request_deadline_monotonic,
-            )
+            try:
+                retry_payload, retry_result = _tool_shim_retry_payload(
+                    model=model,
+                    max_output_tokens=max_output_tokens,
+                    shim_messages=shim_messages,
+                    prior_payload={"decision": "final", "text": result.text},
+                    retry_reason=retry_reason,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
+                )
+            except HTTPException as exc:
+                blocked_decision = _tool_shim_package_planner_blocked_decision(
+                    staged_prompt_text,
+                    history_items,
+                    failure_message=str(exc.detail or exc),
+                )
+                if blocked_decision is not None:
+                    return blocked_decision
+                raise
             if isinstance(retry_payload, dict):
                 payload = retry_payload
                 result = retry_result
@@ -7413,17 +8274,27 @@ def _tool_shim_decision(
             requires_tool=requires_immediate_tool,
         )
         if retry_reason:
-            retry_payload, retry_result = _tool_shim_retry_payload(
-                model=model,
-                max_output_tokens=max_output_tokens,
-                shim_messages=shim_messages,
-                prior_payload=payload,
-                retry_reason=retry_reason,
-                chatplayground_audit_callback=chatplayground_audit_callback,
-                chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                request_deadline_monotonic=request_deadline_monotonic,
-            )
+            try:
+                retry_payload, retry_result = _tool_shim_retry_payload(
+                    model=model,
+                    max_output_tokens=max_output_tokens,
+                    shim_messages=shim_messages,
+                    prior_payload=payload,
+                    retry_reason=retry_reason,
+                    chatplayground_audit_callback=chatplayground_audit_callback,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                    request_deadline_monotonic=request_deadline_monotonic,
+                )
+            except HTTPException as exc:
+                blocked_decision = _tool_shim_package_planner_blocked_decision(
+                    staged_prompt_text,
+                    history_items,
+                    failure_message=str(exc.detail or exc),
+                )
+                if blocked_decision is not None:
+                    return blocked_decision
+                raise
             if isinstance(retry_payload, dict):
                 payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
                 result = retry_result
@@ -7439,17 +8310,27 @@ def _tool_shim_decision(
                 available_tools=tools,
             )
             if retry_reason:
-                retry_payload, retry_result = _tool_shim_retry_payload(
-                    model=model,
-                    max_output_tokens=max_output_tokens,
-                    shim_messages=shim_messages,
-                    prior_payload=payload,
-                    retry_reason=retry_reason,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
+                try:
+                    retry_payload, retry_result = _tool_shim_retry_payload(
+                        model=model,
+                        max_output_tokens=max_output_tokens,
+                        shim_messages=shim_messages,
+                        prior_payload=payload,
+                        retry_reason=retry_reason,
+                        chatplayground_audit_callback=chatplayground_audit_callback,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
+                        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
+                        request_deadline_monotonic=request_deadline_monotonic,
+                    )
+                except HTTPException as exc:
+                    blocked_decision = _tool_shim_package_planner_blocked_decision(
+                        staged_prompt_text,
+                        history_items,
+                        failure_message=str(exc.detail or exc),
+                    )
+                    if blocked_decision is not None:
+                        return blocked_decision
+                    raise
                 if isinstance(retry_payload, dict):
                     payload = _normalize_tool_shim_payload(retry_payload, available_tools=tools)
                     result = retry_result
@@ -8565,6 +9446,9 @@ def _run_response(
     codex_profile: str | None = None,
     preferred_onemin_labels: tuple[str, ...] = (),
 ) -> Response:
+    request_trace_metadata = dict(request_payload.get("metadata") or {}) if isinstance(request_payload.get("metadata"), dict) else {}
+    trace_correlation_id = str(request_trace_metadata.get("ea_correlation_id") or "").strip()
+    started_monotonic = time.monotonic()
     _capture_responses_debug(
         name="request",
         payload={
@@ -8612,6 +9496,7 @@ def _run_response(
     is_review_light_profile = effective_codex_profile == "review_light"
     is_review_light_model = requested_model == REVIEW_LIGHT_PUBLIC_MODEL or model == REVIEW_LIGHT_PUBLIC_MODEL
     audit_profile_or_model = is_audit_profile or is_audit_model
+    chatplayground_audit_callback_only = audit_profile_or_model
     chatplayground_profile_or_model = audit_profile_or_model or is_review_light_profile or is_review_light_model
     chatplayground_audit_callback = None
     if chatplayground_profile_or_model:
@@ -8684,6 +9569,23 @@ def _run_response(
     created_at = _now_unix()
     response_id = "resp_" + uuid.uuid4().hex[:24]
     item_id = "msg_" + uuid.uuid4().hex[:24]
+    trace_logging_enabled = bool(trace_correlation_id) or model in {
+        "ea-coder-hard",
+        "ea-coder-hard-batch",
+        "ea-audit-jury",
+    }
+    if trace_logging_enabled:
+        logger.info(
+            "responses_request_start correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s codex_profile=%s effective_codex_profile=%s stream=%s",
+            trace_correlation_id,
+            context.principal_id,
+            response_id,
+            requested_model,
+            model,
+            codex_profile or "",
+            effective_codex_profile or "",
+            stream,
+        )
 
     response_metadata = {
         **metadata,
@@ -8769,7 +9671,7 @@ def _run_response(
             messages=messages,
             supported_tools=supported_tools,
             chatplayground_audit_callback=chatplayground_audit_callback,
-            chatplayground_audit_callback_only=audit_profile_or_model,
+            chatplayground_audit_callback_only=chatplayground_audit_callback_only,
             chatplayground_audit_principal_id=context.principal_id,
             prompt_route_trace_line=prompt_route.trace_line,
             effective_codex_profile=effective_codex_profile,
@@ -8795,7 +9697,7 @@ def _run_response(
                         tools=supported_tools,
                         history_items=history_items,
                         chatplayground_audit_callback=chatplayground_audit_callback,
-                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=context.principal_id,
                         request_deadline_monotonic=request_deadline_monotonic,
                     )
@@ -8807,7 +9709,7 @@ def _run_response(
                     requested_model=model,
                     max_output_tokens=max_output_tokens,
                     chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=audit_profile_or_model,
+                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                     chatplayground_audit_principal_id=context.principal_id,
                     preferred_onemin_labels=preferred_onemin_labels,
                     request_deadline_monotonic=request_deadline_monotonic,
@@ -8822,6 +9724,17 @@ def _run_response(
             status, result_payload = result_queue.get(timeout=upstream_idle_timeout_seconds)
         except queue.Empty:
             failure_message = f"upstream_timeout:{int(upstream_idle_timeout_seconds)}s"
+            if trace_logging_enabled:
+                logger.warning(
+                    "responses_request_timeout correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s duration_seconds=%.3f timeout_seconds=%.3f",
+                    trace_correlation_id,
+                    context.principal_id,
+                    response_id,
+                    requested_model,
+                    model,
+                    time.monotonic() - started_monotonic,
+                    upstream_idle_timeout_seconds,
+                )
             failed_obj = _build_failed_response(
                 response_id=response_id,
                 created_at=created_at,
@@ -8857,6 +9770,17 @@ def _run_response(
         if status == "error":
             failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
             failure_message = str(failure)[:500]
+            if trace_logging_enabled:
+                logger.warning(
+                    "responses_request_error correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s duration_seconds=%.3f detail=%s",
+                    trace_correlation_id,
+                    context.principal_id,
+                    response_id,
+                    requested_model,
+                    model,
+                    time.monotonic() - started_monotonic,
+                    failure_message,
+                )
             failed_obj = _build_failed_response(
                 response_id=response_id,
                 created_at=created_at,
@@ -8909,6 +9833,20 @@ def _run_response(
             "provider_key_slot": result.provider_key_slot,
             "upstream_fallback_reason": result.fallback_reason,
         }
+        if trace_logging_enabled:
+            logger.info(
+                "responses_request_completed correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s upstream_provider=%s upstream_model=%s duration_seconds=%.3f tokens_in=%s tokens_out=%s",
+                trace_correlation_id,
+                context.principal_id,
+                response_id,
+                requested_model,
+                model,
+                result.provider_key,
+                result.model,
+                time.monotonic() - started_monotonic,
+                result.tokens_in,
+                result.tokens_out,
+            )
         output_items: list[dict[str, object]]
         output_text = ""
         history_items_to_store = list(history_items)
@@ -9049,7 +9987,7 @@ def _run_response(
                         tools=supported_tools,
                         history_items=history_items,
                         chatplayground_audit_callback=chatplayground_audit_callback,
-                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=context.principal_id,
                         request_deadline_monotonic=request_deadline_monotonic,
                     )
@@ -9062,7 +10000,7 @@ def _run_response(
                         requested_model=model,
                         max_output_tokens=max_output_tokens,
                         chatplayground_audit_callback=chatplayground_audit_callback,
-                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=context.principal_id,
                         preferred_onemin_labels=preferred_onemin_labels,
                         request_deadline_monotonic=request_deadline_monotonic,
@@ -9074,7 +10012,7 @@ def _run_response(
                         requested_model=model,
                         max_output_tokens=max_output_tokens,
                         chatplayground_audit_callback=chatplayground_audit_callback,
-                        chatplayground_audit_callback_only=audit_profile_or_model,
+                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
                         chatplayground_audit_principal_id=context.principal_id,
                         preferred_onemin_labels=preferred_onemin_labels,
                         request_deadline_monotonic=request_deadline_monotonic,
@@ -9095,6 +10033,17 @@ def _run_response(
             except queue.Empty:
                 if (time.monotonic() - last_upstream_activity) >= upstream_idle_timeout_seconds:
                     failure_message = f"upstream_timeout:{int(upstream_idle_timeout_seconds)}s"
+                    if trace_logging_enabled:
+                        logger.warning(
+                            "responses_request_timeout correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s duration_seconds=%.3f timeout_seconds=%.3f",
+                            trace_correlation_id,
+                            context.principal_id,
+                            response_id,
+                            requested_model,
+                            model,
+                            time.monotonic() - started_monotonic,
+                            upstream_idle_timeout_seconds,
+                        )
                     failed_obj = _build_failed_response(
                         response_id=response_id,
                         created_at=created_at,
@@ -9199,6 +10148,17 @@ def _run_response(
         if status == "error":
             failure = result_payload if isinstance(result_payload, Exception) else RuntimeError(str(result_payload))
             failure_message = str(failure)[:500]
+            if trace_logging_enabled:
+                logger.warning(
+                    "responses_request_error correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s duration_seconds=%.3f detail=%s",
+                    trace_correlation_id,
+                    context.principal_id,
+                    response_id,
+                    requested_model,
+                    model,
+                    time.monotonic() - started_monotonic,
+                    failure_message,
+                )
             failed_obj = _build_failed_response(
                 response_id=response_id,
                 created_at=created_at,
@@ -9233,6 +10193,17 @@ def _run_response(
         if status == "decision":
             if not isinstance(result_payload, _ToolShimDecision) or not isinstance(result_payload.upstream_result, UpstreamResult):
                 failure_message = "invalid_upstream_result"
+                if trace_logging_enabled:
+                    logger.warning(
+                        "responses_request_error correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s duration_seconds=%.3f detail=%s",
+                        trace_correlation_id,
+                        context.principal_id,
+                        response_id,
+                        requested_model,
+                        model,
+                        time.monotonic() - started_monotonic,
+                        failure_message,
+                    )
                 failed_obj = _build_failed_response(
                     response_id=response_id,
                     created_at=created_at,
@@ -9266,6 +10237,17 @@ def _run_response(
             result = result_payload.upstream_result
         elif not isinstance(result_payload, UpstreamResult):
             failure_message = "invalid_upstream_result"
+            if trace_logging_enabled:
+                logger.warning(
+                    "responses_request_error correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s duration_seconds=%.3f detail=%s",
+                    trace_correlation_id,
+                    context.principal_id,
+                    response_id,
+                    requested_model,
+                    model,
+                    time.monotonic() - started_monotonic,
+                    failure_message,
+                )
             failed_obj = _build_failed_response(
                 response_id=response_id,
                 created_at=created_at,
@@ -9298,6 +10280,20 @@ def _run_response(
 
         else:
             result = result_payload
+        if trace_logging_enabled:
+            logger.info(
+                "responses_request_completed correlation_id=%s principal_id=%s response_id=%s requested_model=%s effective_model=%s upstream_provider=%s upstream_model=%s duration_seconds=%.3f tokens_in=%s tokens_out=%s",
+                trace_correlation_id,
+                context.principal_id,
+                response_id,
+                requested_model,
+                model,
+                result.provider_key,
+                result.model,
+                time.monotonic() - started_monotonic,
+                result.tokens_in,
+                result.tokens_out,
+            )
         stream_metadata = {
             **response_metadata,
             "upstream_provider": result.provider_key,
@@ -9556,12 +10552,22 @@ async def get_provider_health(
     include_sensitive = is_operator_context(context)
     provider_health = await _provider_health_snapshot_async(lightweight=lightweight, wait_on_stale=wait_on_stale)
     safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
-    provider_registry = await _provider_registry_payload_async(
-        container=container,
-        principal_id=context.principal_id,
-        provider_health=safe_provider_health,
-        include_sensitive=include_sensitive,
-    )
+    if lightweight and not include_sensitive:
+        provider_registry = _fallback_provider_registry_payload(
+            safe_provider_health,
+            browseract_binding_available=(
+                bool(_browseract_binding_id(container=container, principal_id=context.principal_id))
+                if context.principal_id
+                else None
+            ),
+        )
+    else:
+        provider_registry = await _provider_registry_payload_async(
+            container=container,
+            principal_id=context.principal_id,
+            provider_health=safe_provider_health,
+            include_sensitive=include_sensitive,
+        )
     return JSONResponse(
         {
             **safe_provider_health,
@@ -9649,6 +10655,13 @@ async def create_response(
 ) -> Response:
     header_profile = str(request.headers.get("X-EA-Codex-Profile") or request.headers.get("X-CodexEA-Profile") or "").strip().lower()
     preferred_onemin_labels = _preferred_onemin_labels_from_request(request)
+    normalized_payload = dict(payload or {})
+    trace_metadata = dict(normalized_payload.get("metadata") or {}) if isinstance(normalized_payload.get("metadata"), dict) else {}
+    correlation_id = str(getattr(request.state, "correlation_id", "") or "").strip()
+    if correlation_id:
+        trace_metadata["ea_correlation_id"] = correlation_id
+    if trace_metadata:
+        normalized_payload["metadata"] = trace_metadata
     if header_profile == "jury":
         header_profile = "audit"
     if header_profile == "review-light":
@@ -9656,7 +10669,7 @@ async def create_response(
     if header_profile not in {"core", "core_batch", "core_rescue", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
         header_profile = ""
     return await _run_response_in_executor(
-        payload,
+        normalized_payload,
         context=context,
         container=container,
         codex_profile=header_profile or None,

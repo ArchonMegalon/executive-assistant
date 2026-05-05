@@ -46,6 +46,31 @@ the next tick starts from the new reality
 
 The result is a Shadowrun world that feels less like a static backdrop and more like a living machine.
 
+## Table pain
+
+GMs want the city to matter between sessions, but most prep still starts from a blank page and scattered notes instead of a visible, governed world memory.
+
+## Bounded product move
+
+BLACK LEDGER turns campaign-adjacent world pressure into one bounded loop: district state, mission seeds, approvals, world-tick outputs, and player-safe fallout that all point back to first-party receipts instead of improvised lore.
+
+---
+
+## Key tool posture
+
+BLACK LEDGER benefits from a split between operator lanes and downstream world-output lanes.
+
+* `Teable` - operator projection and AdminIntent workbench for review queues, world-tick prep, and curation
+* `NextStep` - governed world-tick, closeout, and operator checklist discipline
+* `ApproveThis` - bounded external approval edge where shared-city or guest review matters
+* `Signitic` - passive world-tick, faction, and season projection into first-party destinations
+* `Emailit` - digest, closeout, and notification delivery after Hub decides the message should exist
+* bounded `vidBoard`, `MarkupGo`, `PeekShot`, `Soundmadeseen`, and `Taja` - approved world-output and recap lanes only
+* bounded `MetaSurvey`, `Deftform`, `Lunacal`, `BrowserAct`, and `Documentation.AI` - discovery, intake, scheduling, capture, and support helpers only
+
+Those tools can help operate, publish, and close the loop.
+They do not own world truth, campaign truth, faction state, mission-market truth, or operator authority.
+
 ---
 
 ## The world map
@@ -198,6 +223,39 @@ After the GM accepts players, Chummer can route them to the right place: Discord
 
 Chummer does not replace your table tools.
 It makes the table flow structured, visible, and remembered.
+
+## Likely owners
+
+* `chummer6-hub`
+* `chummer6-core`
+* `chummer6-ui`
+* `chummer6-mobile`
+* `chummer6-media-factory`
+* `chummer6-hub-registry`
+* `executive-assistant`
+
+## Foundations
+
+* campaign and world truth must stay separate even when one event influences both
+* job packets, opposition, and prep hooks need receipt-backed provenance
+* review and approval posture must exist before shared-city effects widen
+* publication, recap, and world-output lanes must preserve permissions and safe audiences
+* world-memory loops must stay explainable enough that players and operators can understand why the city changed
+
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
+
+## Owner handoff gate
+
+Keep campaign truth and world truth separate; GM or organizer authority must be explicit before shared-city scale features are promoted.
+
+## Why still a horizon
+
+The value is obvious only if one world-tick loop, one prep loop, and one fallout loop can stay grounded without collapsing into improvised lore or admin-only mystery.
+Until those operator, authority, and provenance seams are boringly trustworthy, BLACK LEDGER remains a horizon instead of live release truth.
 
 ---
 

@@ -1,0 +1,61 @@
+{
+  "contract_name": "ea.next90_m113_operator_safe_packets",
+  "generated_at": "2026-04-24T13:12:00Z",
+  "package_proof": {
+    "allowed_paths": [
+      "scripts",
+      "feedback",
+      "docs"
+    ],
+    "frontier_id": 4554903920,
+    "milestone_id": 113,
+    "owned_surfaces": [
+      "gm_prep_packets",
+      "roster_movement_followthrough"
+    ],
+    "package_id": "next90-m113-executive-assistant-operator-safe-packets",
+    "task": "Produce operator-safe GM prep and roster movement packets from governed campaign truth.",
+    "title": "Produce operator-safe GM prep and roster movement packets"
+  },
+  "packets": {
+    "gm_prep_packets": {
+      "proof_artifacts": [
+        "docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml",
+        "docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml",
+        "docs/chummer_operator_safe_packets/README.md",
+        "docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m113_operator_safe_packets.py",
+        "scripts/verify_next90_m113_operator_safe_packets.py",
+        "tests/test_next90_m113_operator_safe_packets.py",
+        ".codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+        "feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md"
+      ],
+      "state": "ready",
+      "truth_bundle_id": "ea-m113-operator-safe-packets-v1"
+    },
+    "roster_movement_followthrough": {
+      "proof_artifacts": [
+        "docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml",
+        "docs/chummer_operator_safe_packets/OPERATOR_SAFE_PACKET_SPECIMENS.yaml",
+        "docs/chummer_operator_safe_packets/README.md",
+        "docs/chummer_operator_safe_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m113_operator_safe_packets.py",
+        "scripts/verify_next90_m113_operator_safe_packets.py",
+        "tests/test_next90_m113_operator_safe_packets.py",
+        ".codex-studio/published/NEXT90_M113_OPERATOR_SAFE_PACKETS.generated.json",
+        "feedback/2026-04-24-ea-operator-safe-packets-package-closeout.md"
+      ],
+      "state": "ready",
+      "truth_bundle_id": "ea-m113-operator-safe-packets-v1"
+    }
+  },
+  "proof_kind": "repo_local_packet_contract",
+  "status": "passed",
+  "truth_bundle": {
+    "bundle_id": "ea-m113-operator-safe-packets-v1",
+    "source_anchor_ids": [
+      "hub_roster_ops_receipt",
+      "ui_gm_prep_roster_surface_receipt"
+    ]
+  }
+}

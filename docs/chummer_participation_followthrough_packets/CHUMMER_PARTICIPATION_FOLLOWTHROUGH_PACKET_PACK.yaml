@@ -1,0 +1,104 @@
+contract_name: ea.chummer_participation_followthrough_packet_pack
+package_id: next90-m129-ea-compile-contribution-participation-entitlement-channel-a
+milestone_id: 129
+wave: W19
+generated_at: "2026-05-05T16:00:00Z"
+status: task_proven
+title: Compile contribution, participation, entitlement, channel, and reward followthrough packets from Hub/Fleet receipts only.
+owned_surfaces:
+  - compile_contribution_participation_entitlement_channel:executive_assistant
+governed_truth_bundle:
+  bundle_id: ea-m129-participation-followthrough-v1
+  purpose: Bind EA contribution, participation, entitlement, channel, and reward followthrough packets to governed Hub reusable-account proof and Fleet participant-lane receipt proof only; if the current Hub/Fleet receipt window does not project a needed ref, EA must hold the packet instead of inventing state.
+  consumer_surfaces:
+    - contribution_followthrough:participant
+    - participation_entitlement_followthrough
+    - channel_reward_followthrough
+  source_anchor_ids:
+    - hub_reusable_account_flows_receipt
+    - fleet_participation_lane_receipts
+source_truth:
+  hub_reusable_account_flows_receipt:
+    path: /docker/chummercomplete/chummer6-hub-m112/.codex-studio/published/NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json
+    required: true
+    use_rule: Participation, entitlement, and reward followthrough may only cite the governed Hub reusable-account receipt window, especially the reward-journal and entitlement-journal rails, before EA drafts a participant-facing next action.
+  fleet_participation_lane_receipts:
+    path: /docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json
+    required: true
+    use_rule: Contribution and participation followthrough must stay downstream of Fleet's lane-local auth boundary proof, signed receipt posture, sponsor-session execution metadata, and current runtime blockers.
+proof_guardrails:
+  canonical_package_verification:
+    queue_package_id: next90-m129-ea-compile-contribution-participation-entitlement-channel-a
+    queue_allowed_paths:
+      - scripts
+      - feedback
+      - docs
+    registry_milestone_id: 129
+    registry_work_task_id: 129.5
+  startup_context_rule: Task-local telemetry, active-run handoff text, and prompt-mandated startup reads may confirm assignment shape only; they are never contribution, participation, entitlement, channel, or reward followthrough proof.
+  runtime_safety_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  claim_guard_rules:
+    - contribution_followthrough_must_cite_fleet_participation_receipt_window
+    - participation_and_entitlement_followthrough_must_cite_hub_reusable_account_rails
+    - channel_or_reward_followthrough_must_hold_without_hub_or_fleet_projected_refs
+    - sponsor_session_or_reward_claims_must_not_be_inferred_from_local_auth_or_browser_state
+packet_families:
+  contribution_followthrough:participant:
+    state: hold
+    audience: participant_and_operator
+    required_source_anchors:
+      - fleet_participation_lane_receipts
+    required_sections:
+      - packet_identity
+      - source_receipt_window
+      - contribution_summary
+      - sponsor_session_posture
+      - hold_reason
+      - next_safe_action
+    use_rule: Summarize contribution followthrough only while the Fleet participant-lane receipt window still proves lane-local auth boundaries, signed contribution receipts, and sponsor-session execution posture.
+  participation_entitlement_followthrough:
+    state: hold
+    audience: participant_and_support
+    required_source_anchors:
+      - fleet_participation_lane_receipts
+      - hub_reusable_account_flows_receipt
+    required_sections:
+      - packet_identity
+      - source_receipt_window
+      - participation_posture
+      - entitlement_journal_gate
+      - hold_reason
+      - next_safe_action
+    use_rule: Participation and entitlement followthrough must reuse the same Fleet receipt window plus Hub reusable-account proof; EA must not improvise account or entitlement status from local state.
+  channel_reward_followthrough:
+    state: hold
+    audience: participant_and_release_ops
+    required_source_anchors:
+      - fleet_participation_lane_receipts
+      - hub_reusable_account_flows_receipt
+    required_sections:
+      - packet_identity
+      - source_receipt_window
+      - missing_upstream_receipts
+      - reward_or_channel_hold
+      - required_projection_request
+      - next_safe_action
+    use_rule: Hold channel and reward followthrough until Hub or Fleet projects explicit channel and reward-publication refs into the governed receipt window; registry-only refs are insufficient for this Hub/Fleet-only package.
+fail_closed_posture:
+  missing_hub_reusable_account_proof: Refuse participation, entitlement, or reward followthrough when the Hub reusable-account receipt proof is missing or no longer proves the reward-journal and entitlement-journal rails.
+  fleet_participation_blocked: Keep contribution and participation followthrough on hold when Fleet participation proof reports runtime blockers or unresolved design-canon drift.
+  missing_channel_ref_projection: Hold channel followthrough when Hub or Fleet has not yet projected an explicit channel ref into the governed receipt window.
+  missing_reward_publication_projection: Hold reward followthrough when Hub or Fleet has not yet projected an explicit reward-publication ref into the governed receipt window.
+prohibited_behaviors:
+  - Inventing account, sponsor-session, entitlement, channel, or reward state from local auth, browser cache, queue chatter, or worker context.
+  - Treating registry-only desktop channel or reward refs as sufficient for this Hub/Fleet-only package.
+  - Promoting a held packet to ready while Fleet participation proof remains blocked.
+  - Copying task-local telemetry, helper output, or startup command receipts into followthrough evidence.

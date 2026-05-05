@@ -1,0 +1,87 @@
+package_id: next90-m129-ea-compile-contribution-participation-entitlement-channel-a
+milestone_id: 129
+status: task_proven
+shared_truth_bundle_id: ea-m129-participation-followthrough-v1
+packet_specimens:
+  contribution_followthrough:participant:
+    state: hold
+    packet_kind: contribution_followthrough:participant
+    packet_id_template: ea-contribution-followthrough-{yyyy-mm-dd}
+    required_fields:
+      - packet_id
+      - truth_bundle_id
+      - source_packet_ids
+      - contribution_summary
+      - sponsor_session_posture
+      - hold_reason
+      - next_safe_action
+    source_packet_fields:
+      - NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.package_id
+      - NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.monitor_summary.participation_status
+      - NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.runtime_monitors.controller_receipts.matched_receipt_markers
+      - NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.runtime_monitors.controller_receipts.runtime_blockers
+    example:
+      packet_id: ea-contribution-followthrough-2026-05-05
+      truth_bundle_id: ea-m129-participation-followthrough-v1
+      source_packet_ids:
+        - next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig
+      contribution_summary: Fleet still exposes signed contribution receipts on the participant lane, but the current receipt window remains held until its blocker list clears.
+      sponsor_session_posture: Keep sponsor-session followthrough on hold while the Fleet receipt proof still reports missing sponsor-session projection or unresolved design canon coverage.
+      hold_reason:
+        - fleet_participation_receipt_window_blocked
+      next_safe_action: Route the participant back to the current Fleet receipt proof and clear the cited runtime blockers before claiming contribution completion.
+  participation_entitlement_followthrough:
+    state: hold
+    packet_kind: participation_entitlement_followthrough
+    packet_id_template: ea-participation-entitlement-followthrough-{yyyy-mm-dd}
+    required_fields:
+      - packet_id
+      - truth_bundle_id
+      - source_packet_ids
+      - participation_posture
+      - entitlement_journal_gate
+      - hold_reason
+      - next_safe_action
+    source_packet_fields:
+      - NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.monitor_summary.receipt_artifact_match_count
+      - NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[6]
+      - NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[7]
+    example:
+      packet_id: ea-participation-entitlement-followthrough-2026-05-05
+      truth_bundle_id: ea-m129-participation-followthrough-v1
+      source_packet_ids:
+        - next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig
+        - next90-m129-hub-build-reusable-account-profile-group-membership-join-cod
+      participation_posture: Fleet still owns the participant receipt window and Hub still proves the reusable entitlement rail, but the shared window is not yet clear for promotion.
+      entitlement_journal_gate: Use the governed Hub entitlement-journal rail only after the Fleet participation blockers clear.
+      hold_reason:
+        - fleet_participation_receipt_window_blocked
+      next_safe_action: Keep entitlement followthrough on hold and point the user back to the blocked Fleet participation receipt window.
+  channel_reward_followthrough:
+    state: hold
+    packet_kind: channel_reward_followthrough
+    packet_id_template: ea-channel-reward-followthrough-{yyyy-mm-dd}
+    required_fields:
+      - packet_id
+      - truth_bundle_id
+      - source_packet_ids
+      - missing_upstream_receipts
+      - reward_or_channel_hold
+      - required_projection_request
+      - next_safe_action
+    source_packet_fields:
+      - NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[6]
+      - NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[7]
+      - NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.monitor_summary.participation_status
+    example:
+      packet_id: ea-channel-reward-followthrough-2026-05-05
+      truth_bundle_id: ea-m129-participation-followthrough-v1
+      source_packet_ids:
+        - next90-m129-hub-build-reusable-account-profile-group-membership-join-cod
+        - next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig
+      missing_upstream_receipts:
+        - desktopChannelRef projected from Hub or Fleet
+        - rewardPublicationRef projected from Hub or Fleet
+      reward_or_channel_hold: Hub and Fleet currently prove entitlement and contribution rails, but they do not yet project explicit channel or reward-publication refs for this packet family.
+      required_projection_request: Mirror the channel and reward-publication refs into a Hub or Fleet governed receipt before EA compiles this packet.
+      next_safe_action: Keep channel and reward followthrough blocked and request a governed Hub/Fleet projection instead of reading Registry-only refs.

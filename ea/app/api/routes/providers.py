@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import inspect
 import json
+import logging
 import os
 import re
 import subprocess
@@ -14,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context as shared_is_operator_context, resolve_principal_id
@@ -26,9 +28,14 @@ from app.services.responses_upstream import onemin_owner_account_names_for_email
 from app.services.tool_execution_common import ToolExecutionError
 
 router = APIRouter(prefix="/v1/providers", tags=["providers"])
+logger = logging.getLogger("ea.providers")
 
 _ONEMIN_DIRECT_API_QUARANTINED_UNTIL = 0.0
 _ONEMIN_DIRECT_API_QUARANTINE_REASON = ""
+_ONEMIN_DIRECT_API_RETRY_AFTER_RE = re.compile(
+    r'"retryAfter"\s*:\s*(\d+)|after\s+(\d+)\s+seconds',
+    re.IGNORECASE,
+)
 _MEDIA_CHALLENGER_LEDGER_PATH = Path(os.getenv("EA_MEDIA_CHALLENGER_LEDGER_PATH", "/docker/fleet/state/chummer6/ea_challenger_ledger.json"))
 _MEDIA_PROVIDER_SCHEDULER_PATH = Path(os.getenv("EA_MEDIA_PROVIDER_SCHEDULER_PATH", "/docker/fleet/state/chummer6/ea_provider_scheduler.json"))
 
@@ -510,9 +517,19 @@ def _resolve_onemin_snapshot_scope(
     container: AppContainer,
     context: RequestContext,
     scope: Literal["principal", "global"],
+    request: Request | None = None,
 ) -> tuple[list[object], str]:
     if scope == "global":
         if not _is_operator_context(context):
+            if request is not None:
+                logger.warning(
+                    "onemin_global_scope_denied correlation_id=%s principal_id=%s path=%s user_agent=%s authorization_present=%s",
+                    str(getattr(request.state, "correlation_id", "") or "").strip(),
+                    context.principal_id,
+                    str(request.url.path or "").strip(),
+                    str(request.headers.get("user-agent") or "").strip(),
+                    bool(str(request.headers.get("authorization") or "").strip()),
+                )
             raise HTTPException(status_code=403, detail="operator_scope_required")
         return _all_enabled_browseract_bindings(container), ""
     return _enabled_browseract_bindings(container, context.principal_id), context.principal_id
@@ -626,6 +643,7 @@ def _upsert_recorded_onemin_snapshot_into_repo(
 
 @router.get("/onemin/aggregate", response_model=None)
 def get_onemin_aggregate(
+    request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     scope: Literal["principal", "global"] = Query(default="principal"),
@@ -634,6 +652,7 @@ def get_onemin_aggregate(
         container=container,
         context=context,
         scope=scope,
+        request=request,
     )
     return container.onemin_manager.aggregate_snapshot(
         provider_health=upstream._provider_health_report(),
@@ -731,6 +750,7 @@ def record_onemin_billing_snapshot(
 
 @router.get("/onemin/runway", response_model=None)
 def get_onemin_runway(
+    request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     scope: Literal["principal", "global"] = Query(default="principal"),
@@ -739,6 +759,7 @@ def get_onemin_runway(
         container=container,
         context=context,
         scope=scope,
+        request=request,
     )
     return {
         "provider_key": "onemin",
@@ -1069,6 +1090,33 @@ def _onemin_direct_api_quarantine_seconds() -> float:
     return max(300.0, seconds)
 
 
+def _onemin_direct_api_quarantine_seconds_for_reason(reason: str) -> float:
+    default_seconds = _onemin_direct_api_quarantine_seconds()
+    text = str(reason or "").strip()
+    if not text:
+        return default_seconds
+    matched_retry_after = 0.0
+    for match in _ONEMIN_DIRECT_API_RETRY_AFTER_RE.finditer(text):
+        for group in match.groups():
+            if not group:
+                continue
+            try:
+                matched_retry_after = max(matched_retry_after, float(group))
+            except Exception:
+                continue
+    if matched_retry_after > 0:
+        return max(60.0, min(default_seconds, matched_retry_after + 15.0))
+    lowered = text.lower()
+    if (
+        "onemin_login_http_429" in lowered
+        or "onemin_api_http_429" in lowered
+        or "error 1015" in lowered
+        or "error code: 1015" in lowered
+    ):
+        return min(default_seconds, 300.0)
+    return default_seconds
+
+
 def _onemin_direct_api_batch_size() -> int:
     raw = str(upstream._env("ONEMIN_DIRECT_API_BATCH_SIZE") or "").strip()  # type: ignore[attr-defined]
     try:
@@ -1107,6 +1155,23 @@ def _onemin_direct_api_uses_fastestvpn_proxy(*, account_name: str = "") -> bool:
         or ""
     ).strip().lower()
     return bool(proxy_url and "fastestvpn" in proxy_url)
+
+
+def _fastestvpn_service_name_for_proxy_url(proxy_url: str) -> str:
+    parsed = urlsplit(str(proxy_url or "").strip())
+    host = str(parsed.hostname or "").strip().lower()
+    if host.startswith("ea-fastestvpn-proxy"):
+        return host
+    return ""
+
+
+def _onemin_direct_api_fastestvpn_service_name(*, account_name: str = "") -> str:
+    proxy_url = str(
+        upstream._onemin_direct_api_proxy_url_for_subject(account_name)  # type: ignore[attr-defined]
+        or upstream._onemin_direct_api_proxy_url_for_subject("")  # type: ignore[attr-defined]
+        or ""
+    ).strip()
+    return _fastestvpn_service_name_for_proxy_url(proxy_url)
 
 
 def _onemin_browseract_max_accounts_per_refresh() -> int:
@@ -1311,11 +1376,20 @@ def _job_uses_fastestvpn_proxy(job: dict[str, object]) -> bool:
     return bool(proxy_server and "fastestvpn" in proxy_server)
 
 
-def _rotate_fastestvpn_proxy(*, reason: str) -> dict[str, object]:
+def _job_fastestvpn_service_name(job: dict[str, object]) -> str:
+    proxy_server = str(
+        _browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})).get("browser_proxy_server") or ""
+    ).strip()
+    return _fastestvpn_service_name_for_proxy_url(proxy_server)
+
+
+def _rotate_fastestvpn_proxy(*, reason: str, service_name: str = "") -> dict[str, object]:
     script_path = _fastestvpn_rotate_script_path()
+    requested_service_name = str(service_name or "").strip()
     event: dict[str, object] = {
         "reason": str(reason or "").strip(),
         "script_path": str(script_path),
+        "service_name": requested_service_name or "ea-fastestvpn-proxy",
     }
     if not script_path.is_file():
         event.update(
@@ -1336,8 +1410,11 @@ def _rotate_fastestvpn_proxy(*, reason: str) -> dict[str, object]:
         timeout_seconds = 300
     timeout_seconds = max(30, min(timeout_seconds, 900))
     try:
+        command = [str(script_path)]
+        if requested_service_name:
+            command.extend(["--service", requested_service_name])
         completed = subprocess.run(
-            [str(script_path)],
+            command,
             cwd=str(script_path.parent.parent),
             capture_output=True,
             text=True,
@@ -1444,7 +1521,8 @@ def _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
         if not retry_keys:
             break
         rotation_event = _rotate_fastestvpn_proxy(
-            reason=f"{tool_name}:attempt_{attempt}:{','.join(key[1] for key in retry_keys[:3])}"
+            reason=f"{tool_name}:attempt_{attempt}:{','.join(key[1] for key in retry_keys[:3])}",
+            service_name=_job_fastestvpn_service_name(job_by_key[retry_keys[0]]) if retry_keys else "",
         )
         rotation_event["attempt"] = attempt
         rotation_event["tool_name"] = tool_name
@@ -1515,9 +1593,10 @@ def _onemin_direct_api_quarantine_remaining() -> tuple[float, str]:
 def _quarantine_onemin_direct_api(reason: str) -> None:
     global _ONEMIN_DIRECT_API_QUARANTINED_UNTIL, _ONEMIN_DIRECT_API_QUARANTINE_REASON
     _ONEMIN_DIRECT_API_QUARANTINE_REASON = str(reason or "cloudflare_quarantine")
+    quarantine_seconds = _onemin_direct_api_quarantine_seconds_for_reason(_ONEMIN_DIRECT_API_QUARANTINE_REASON)
     _ONEMIN_DIRECT_API_QUARANTINED_UNTIL = max(
         _ONEMIN_DIRECT_API_QUARANTINED_UNTIL,
-        time.time() + _onemin_direct_api_quarantine_seconds(),
+        time.time() + quarantine_seconds,
     )
 
 
@@ -1937,6 +2016,31 @@ def _onemin_api_get_json(
     return payload
 
 
+def _onemin_api_get_json_compat(
+    *,
+    url: str,
+    headers: dict[str, str],
+    timeout_seconds: int,
+    proxy_subject: str = "",
+) -> dict[str, object]:
+    try:
+        parameters = inspect.signature(_onemin_api_get_json).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    supports_proxy_subject = "proxy_subject" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    kwargs = {
+        "url": url,
+        "headers": headers,
+        "timeout_seconds": timeout_seconds,
+    }
+    if supports_proxy_subject:
+        kwargs["proxy_subject"] = proxy_subject
+    return _onemin_api_get_json(**kwargs)
+
+
 def _onemin_api_login(
     *,
     login_email: str,
@@ -2069,19 +2173,19 @@ def _refresh_onemin_api_account(
     if not team_id or not token:
         raise RuntimeError("onemin_login_incomplete")
     headers = _onemin_request_headers(token=token)
-    topups_payload = _onemin_api_get_json(
+    topups_payload = _onemin_api_get_json_compat(
         url=f"{_onemin_rest_host()}/teams/{team_id}/topups",
         headers=headers,
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
     )
-    usages_payload = _onemin_api_get_json(
+    usages_payload = _onemin_api_get_json_compat(
         url=f"{_onemin_rest_host()}/teams/{team_id}/usages",
         headers=headers,
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
     )
-    invoices_payload = _onemin_api_get_json(
+    invoices_payload = _onemin_api_get_json_compat(
         url=f"{_onemin_rest_host()}/billings/teams/{team_id}/invoices",
         headers=headers,
         timeout_seconds=timeout_seconds,
@@ -2138,7 +2242,7 @@ def _refresh_onemin_api_account(
     if not include_members:
         return billing_result, None
 
-    members_payload = _onemin_api_get_json(
+    members_payload = _onemin_api_get_json_compat(
         url=_onemin_members_url(team_id=team_id),
         headers=headers,
         timeout_seconds=timeout_seconds,
@@ -2314,7 +2418,8 @@ def _refresh_onemin_via_provider_api(
                         batch_rate_limited = True
                         proxy_rotation_attempts_remaining -= 1
                         rotation_event = _rotate_fastestvpn_proxy(
-                            reason=f"onemin.api.billing_refresh:{account_name}"
+                            reason=f"onemin.api.billing_refresh:{account_name}",
+                            service_name=_onemin_direct_api_fastestvpn_service_name(account_name=account_name),
                         )
                         if int(rotation_event.get("returncode") or 0) == 0:
                             _clear_onemin_direct_api_quarantine()
@@ -2342,6 +2447,13 @@ def _refresh_onemin_via_provider_api(
                 ):
                     stop_processing = True
                     break
+                if (
+                    ("onemin_login_http_429" in final_error_text or "onemin_api_http_429" in final_error_text or "error code: 1010" in final_error_text or "error code: 1015" in final_error_text)
+                    and continue_on_rate_limit
+                    and _onemin_direct_api_quarantine_remaining()[0] > 0
+                ):
+                    stop_processing = True
+                    break
             elif recovered_after_rotation:
                 rate_limited = True
                 batch_rate_limited = True
@@ -2365,6 +2477,184 @@ def _refresh_onemin_via_provider_api(
         skipped_count,
         rate_limited,
     )
+
+
+def _provider_health_report_compat(*, lightweight: bool = False) -> dict[str, object]:
+    try:
+        parameters = inspect.signature(upstream._provider_health_report).parameters  # type: ignore[attr-defined]
+    except (TypeError, ValueError, AttributeError):
+        parameters = {}
+    supports_lightweight = "lightweight" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if supports_lightweight:
+        return upstream._provider_health_report(lightweight=lightweight)
+    return upstream._provider_health_report()
+
+
+def _resolve_onemin_provider_api_plan(
+    *,
+    requested_account_labels: set[str],
+    refresh_needed_label_set: set[str],
+    browseract_failed_labels: set[str],
+    browseract_gap_labels: set[str],
+    browseract_billing_attempted_labels: set[str],
+    browseract_target_labels: set[str],
+    all_api_account_rows: list[dict[str, str]],
+    effective_include_provider_api: bool,
+    allow_global_provider_api: bool,
+    force_provider_api_targeted_refresh: bool,
+) -> tuple[bool, set[str], str, str, int]:
+    provider_api_target_labels: set[str] = set()
+    provider_api_skip_reason = ""
+    provider_api_recovery_mode = ""
+    api_skipped_count = 0
+
+    if effective_include_provider_api and not allow_global_provider_api and not browseract_target_labels:
+        effective_include_provider_api = False
+    if effective_include_provider_api:
+        if force_provider_api_targeted_refresh:
+            provider_api_target_labels = set(requested_account_labels) & refresh_needed_label_set
+            if provider_api_target_labels:
+                provider_api_recovery_mode = "operator_targeted_provider_api"
+            else:
+                effective_include_provider_api = False
+                provider_api_skip_reason = "fresh_actual_billing"
+                api_skipped_count = len(requested_account_labels)
+        elif browseract_failed_labels:
+            provider_api_target_labels = set(browseract_failed_labels | browseract_gap_labels) & refresh_needed_label_set
+            if provider_api_target_labels:
+                provider_api_recovery_mode = "browseract_failure_recovery"
+        elif browseract_gap_labels:
+            provider_api_target_labels = set(browseract_gap_labels) & refresh_needed_label_set
+            if provider_api_target_labels:
+                provider_api_recovery_mode = "browseract_gap_recovery"
+        elif browseract_billing_attempted_labels:
+            effective_include_provider_api = False
+            provider_api_skip_reason = "browseract_login_refresh"
+            api_skipped_count = len(browseract_target_labels) if browseract_target_labels else len(all_api_account_rows)
+        elif not allow_global_provider_api:
+            provider_api_target_labels = set(refresh_needed_label_set)
+        if effective_include_provider_api and not allow_global_provider_api and not provider_api_target_labels:
+            effective_include_provider_api = False
+            provider_api_skip_reason = "fresh_actual_billing"
+            api_skipped_count = len(browseract_target_labels) if browseract_target_labels else len(all_api_account_rows)
+    return (
+        effective_include_provider_api,
+        provider_api_target_labels,
+        provider_api_skip_reason,
+        provider_api_recovery_mode,
+        api_skipped_count,
+    )
+
+
+def _build_onemin_billing_refresh_note(
+    *,
+    refresh_allowed: bool,
+    throttle_seconds_remaining: float,
+    throttle_reason: str,
+    provider_api_recovery_mode: str,
+    recovered_browseract_labels: set[str],
+    browseract_failed_labels: set[str],
+    unrecovered_browseract_errors: list[dict[str, object]],
+    api_rate_limited: bool,
+    api_billing_results: list[dict[str, object]],
+    browseract_gap_labels: set[str],
+    provider_api_skip_reason: str,
+    browseract_scope: str,
+    browseract_billing_attempted_labels: set[str],
+    browseract_target_labels: set[str],
+    include_provider_api: bool,
+    effective_include_provider_api: bool,
+    bindings: list[object],
+    billing_results: list[dict[str, object]],
+    member_results: list[dict[str, object]],
+    errors: list[dict[str, object]],
+    browseract_proxy_rotations: list[dict[str, object]],
+    browseract_proxy_recovered_labels: set[str],
+) -> str:
+    browseract_scope_label = (
+        "owner-ledger 1min account(s)"
+        if browseract_scope != "bound_accounts_only"
+        else "bound 1min account(s)"
+    )
+    note = ""
+    if not refresh_allowed:
+        throttle_window = max(int(round(throttle_seconds_remaining)), 1)
+        if throttle_reason == "in_flight":
+            note = f"Live 1min billing refresh is already in progress; retry in about {throttle_window}s."
+        else:
+            note = f"Live 1min billing refresh is throttled to one run per minute; retry in about {throttle_window}s."
+    elif provider_api_recovery_mode == "browseract_failure_recovery":
+        recovered_count = len(recovered_browseract_labels & browseract_failed_labels)
+        failed_count = len(browseract_failed_labels)
+        unrecovered_count = len(unrecovered_browseract_errors)
+        if api_rate_limited:
+            note = (
+                f"BrowserAct failed for {failed_count} {browseract_scope_label}; direct 1min API fallback was rate-limited or quarantined. "
+                "Aggregate balances reflect the latest known snapshots and estimates."
+            )
+        elif recovered_count and unrecovered_count:
+            note = (
+                f"BrowserAct failed for {failed_count} {browseract_scope_label}; direct 1min API fallback recovered "
+                f"{recovered_count} and {unrecovered_count} remain unrecovered."
+            )
+        elif recovered_count:
+            note = f"BrowserAct failures were recovered through the direct 1min API for {recovered_count} {browseract_scope_label}."
+        elif failed_count:
+            note = (
+                f"BrowserAct failed for {failed_count} {browseract_scope_label}, and direct 1min API fallback did not recover any account this cycle."
+            )
+    elif provider_api_recovery_mode == "browseract_gap_recovery":
+        recovered_count = len(api_billing_results)
+        gap_count = len(browseract_gap_labels)
+        if recovered_count:
+            note = (
+                f"BrowserAct did not attempt {gap_count} {browseract_scope_label}; direct 1min API covered "
+                f"{recovered_count} account(s) that were outside the live browser pass."
+            )
+        else:
+            note = (
+                f"BrowserAct skipped {gap_count} {browseract_scope_label}, and direct 1min API did not recover any skipped account this cycle."
+            )
+    elif provider_api_skip_reason == "browseract_login_refresh":
+        if len(browseract_billing_attempted_labels) < len(browseract_target_labels):
+            note = (
+                f"{'Owner-ledger' if browseract_scope != 'bound_accounts_only' else 'Bound'} 1min account telemetry refreshed through BrowserAct login-backed billing pages "
+                f"for {len(browseract_billing_attempted_labels)} of {len(browseract_target_labels)} "
+                f"{'owner-ledger' if browseract_scope != 'bound_accounts_only' else 'bound'} accounts this cycle; "
+                "direct 1min API refresh was skipped to avoid provider rate limiting."
+            )
+        else:
+            note = (
+                f"{'Owner-ledger' if browseract_scope != 'bound_accounts_only' else 'Bound'} 1min account telemetry refreshed through BrowserAct login-backed billing pages; "
+                "direct 1min API refresh was skipped to avoid provider rate limiting."
+            )
+    elif provider_api_skip_reason == "fresh_actual_billing":
+        note = (
+            "Selected 1min accounts already have fresh actual billing snapshots with a future top-up on record; "
+            "active BrowserAct/direct API refresh was skipped."
+        )
+    elif include_provider_api and not effective_include_provider_api:
+        note = "Direct 1min API refresh is disabled without operator scope or an eligible 1min account selection."
+    elif not bindings and api_billing_results:
+        note = "No BrowserAct connector bindings were configured; refreshed 1min account telemetry through the direct 1min API."
+    elif not bindings and api_rate_limited:
+        note = "No enabled BrowserAct connector bindings were configured, and direct 1min API calls were rate-limited. Retry later or add BrowserAct bindings for browser-backed billing probes."
+    elif not bindings:
+        note = "No enabled BrowserAct connector bindings were configured for this principal."
+    elif not billing_results and not member_results and not errors:
+        note = "No BrowserAct 1min billing or member workflows were configured on the selected bindings."
+    if browseract_proxy_rotations:
+        rotation_summary = (
+            f"FastestVPN proxy rotated {len(browseract_proxy_rotations)} time(s)"
+            f" and recovered {len(browseract_proxy_recovered_labels)} account(s)."
+            if browseract_proxy_recovered_labels
+            else f"FastestVPN proxy rotated {len(browseract_proxy_rotations)} time(s) during BrowserAct recovery."
+        )
+        note = f"{note} {rotation_summary}".strip() if note else rotation_summary
+    return note
 
 
 @router.post("/onemin/billing-refresh", response_model=None)
@@ -2855,38 +3145,25 @@ def refresh_onemin_billing(
         }
         recovered_browseract_labels: set[str] = set()
         effective_include_provider_api = bool(payload.include_provider_api)
-        provider_api_skip_reason = ""
-        provider_api_recovery_mode = ""
         browseract_gap_labels = browseract_target_labels - browseract_billing_attempted_labels
-        if effective_include_provider_api and not allow_global_provider_api and not browseract_target_labels:
-            effective_include_provider_api = False
-        if effective_include_provider_api:
-            if force_provider_api_targeted_refresh:
-                provider_api_target_labels = set(requested_account_labels) & refresh_needed_label_set
-                if provider_api_target_labels:
-                    provider_api_recovery_mode = "operator_targeted_provider_api"
-                else:
-                    effective_include_provider_api = False
-                    provider_api_skip_reason = "fresh_actual_billing"
-                    api_skipped_count = len(requested_account_labels)
-            elif browseract_failed_labels:
-                provider_api_target_labels = set(browseract_failed_labels | browseract_gap_labels) & refresh_needed_label_set
-                if provider_api_target_labels:
-                    provider_api_recovery_mode = "browseract_failure_recovery"
-            elif browseract_gap_labels:
-                provider_api_target_labels = set(browseract_gap_labels) & refresh_needed_label_set
-                if provider_api_target_labels:
-                    provider_api_recovery_mode = "browseract_gap_recovery"
-            elif browseract_billing_attempted_labels:
-                effective_include_provider_api = False
-                provider_api_skip_reason = "browseract_login_refresh"
-                api_skipped_count = len(browseract_target_labels) if browseract_target_labels else len(all_api_account_rows)
-            elif not allow_global_provider_api:
-                provider_api_target_labels = set(refresh_needed_label_set)
-            if effective_include_provider_api and not allow_global_provider_api and not provider_api_target_labels:
-                effective_include_provider_api = False
-                provider_api_skip_reason = "fresh_actual_billing"
-                api_skipped_count = len(browseract_target_labels) if browseract_target_labels else len(all_api_account_rows)
+        (
+            effective_include_provider_api,
+            provider_api_target_labels,
+            provider_api_skip_reason,
+            provider_api_recovery_mode,
+            api_skipped_count,
+        ) = _resolve_onemin_provider_api_plan(
+            requested_account_labels=requested_account_labels,
+            refresh_needed_label_set=refresh_needed_label_set,
+            browseract_failed_labels=browseract_failed_labels,
+            browseract_gap_labels=browseract_gap_labels,
+            browseract_billing_attempted_labels=browseract_billing_attempted_labels,
+            browseract_target_labels=browseract_target_labels,
+            all_api_account_rows=all_api_account_rows,
+            effective_include_provider_api=effective_include_provider_api,
+            allow_global_provider_api=allow_global_provider_api,
+            force_provider_api_targeted_refresh=force_provider_api_targeted_refresh,
+        )
         if refresh_allowed and effective_include_provider_api:
             effective_api_all_accounts = bool(allow_global_provider_api and not provider_api_target_labels)
             effective_api_account_labels = None if effective_api_all_accounts else provider_api_target_labels
@@ -2949,8 +3226,8 @@ def refresh_onemin_billing(
         errors.extend(unrecovered_browseract_errors)
         errors.extend(api_errors)
 
-        provider_health = upstream._provider_health_report()
-        lightweight_provider_health = upstream._provider_health_report(lightweight=True)
+        provider_health = _provider_health_report_compat()
+        lightweight_provider_health = _provider_health_report_compat(lightweight=True)
         principal_binding_rows = _enabled_browseract_bindings(container, context.principal_id)
         aggregate_snapshot = container.onemin_manager.aggregate_snapshot(
             provider_health=provider_health,
@@ -2972,83 +3249,30 @@ def refresh_onemin_billing(
             else {}
         )
         api_quarantine_remaining, api_quarantine_reason = _onemin_direct_api_quarantine_remaining()
-        browseract_scope_label = "owner-ledger 1min account(s)" if browseract_scope != "bound_accounts_only" else "bound 1min account(s)"
-
-        note = ""
-        if not refresh_allowed:
-            throttle_window = max(int(round(throttle_seconds_remaining)), 1)
-            if throttle_reason == "in_flight":
-                note = f"Live 1min billing refresh is already in progress; retry in about {throttle_window}s."
-            else:
-                note = f"Live 1min billing refresh is throttled to one run per minute; retry in about {throttle_window}s."
-        elif provider_api_recovery_mode == "browseract_failure_recovery":
-            recovered_count = len(recovered_browseract_labels & browseract_failed_labels)
-            failed_count = len(browseract_failed_labels)
-            unrecovered_count = len(unrecovered_browseract_errors)
-            if api_rate_limited:
-                note = (
-                    f"BrowserAct failed for {failed_count} {browseract_scope_label}; direct 1min API fallback was rate-limited or quarantined. "
-                    "Aggregate balances reflect the latest known snapshots and estimates."
-                )
-            elif recovered_count and unrecovered_count:
-                note = (
-                    f"BrowserAct failed for {failed_count} {browseract_scope_label}; direct 1min API fallback recovered "
-                    f"{recovered_count} and {unrecovered_count} remain unrecovered."
-                )
-            elif recovered_count:
-                note = f"BrowserAct failures were recovered through the direct 1min API for {recovered_count} {browseract_scope_label}."
-            elif failed_count:
-                note = (
-                    f"BrowserAct failed for {failed_count} {browseract_scope_label}, and direct 1min API fallback did not recover any account this cycle."
-                )
-        elif provider_api_recovery_mode == "browseract_gap_recovery":
-            recovered_count = len(api_billing_results)
-            gap_count = len(browseract_gap_labels)
-            if recovered_count:
-                note = (
-                    f"BrowserAct did not attempt {gap_count} {browseract_scope_label}; direct 1min API covered "
-                    f"{recovered_count} account(s) that were outside the live browser pass."
-                )
-            else:
-                note = (
-                    f"BrowserAct skipped {gap_count} {browseract_scope_label}, and direct 1min API did not recover any skipped account this cycle."
-                )
-        elif provider_api_skip_reason == "browseract_login_refresh":
-            if len(browseract_billing_attempted_labels) < len(browseract_target_labels):
-                note = (
-                    f"{'Owner-ledger' if browseract_scope != 'bound_accounts_only' else 'Bound'} 1min account telemetry refreshed through BrowserAct login-backed billing pages "
-                    f"for {len(browseract_billing_attempted_labels)} of {len(browseract_target_labels)} "
-                    f"{'owner-ledger' if browseract_scope != 'bound_accounts_only' else 'bound'} accounts this cycle; "
-                    "direct 1min API refresh was skipped to avoid provider rate limiting."
-                )
-            else:
-                note = (
-                    f"{'Owner-ledger' if browseract_scope != 'bound_accounts_only' else 'Bound'} 1min account telemetry refreshed through BrowserAct login-backed billing pages; "
-                    "direct 1min API refresh was skipped to avoid provider rate limiting."
-                )
-        elif provider_api_skip_reason == "fresh_actual_billing":
-            note = (
-                "Selected 1min accounts already have fresh actual billing snapshots with a future top-up on record; "
-                "active BrowserAct/direct API refresh was skipped."
-            )
-        elif bool(payload.include_provider_api) and not effective_include_provider_api:
-            note = "Direct 1min API refresh is disabled without operator scope or an eligible 1min account selection."
-        elif not bindings and api_billing_results:
-            note = "No BrowserAct connector bindings were configured; refreshed 1min account telemetry through the direct 1min API."
-        elif not bindings and api_rate_limited:
-            note = "No enabled BrowserAct connector bindings were configured, and direct 1min API calls were rate-limited. Retry later or add BrowserAct bindings for browser-backed billing probes."
-        elif not bindings:
-            note = "No enabled BrowserAct connector bindings were configured for this principal."
-        elif not billing_results and not member_results and not errors:
-            note = "No BrowserAct 1min billing or member workflows were configured on the selected bindings."
-        if browseract_proxy_rotations:
-            rotation_summary = (
-                f"FastestVPN proxy rotated {len(browseract_proxy_rotations)} time(s)"
-                f" and recovered {len(browseract_proxy_recovered_labels)} account(s)."
-                if browseract_proxy_recovered_labels
-                else f"FastestVPN proxy rotated {len(browseract_proxy_rotations)} time(s) during BrowserAct recovery."
-            )
-            note = f"{note} {rotation_summary}".strip() if note else rotation_summary
+        note = _build_onemin_billing_refresh_note(
+            refresh_allowed=refresh_allowed,
+            throttle_seconds_remaining=throttle_seconds_remaining,
+            throttle_reason=throttle_reason,
+            provider_api_recovery_mode=provider_api_recovery_mode,
+            recovered_browseract_labels=recovered_browseract_labels,
+            browseract_failed_labels=browseract_failed_labels,
+            unrecovered_browseract_errors=unrecovered_browseract_errors,
+            api_rate_limited=api_rate_limited,
+            api_billing_results=api_billing_results,
+            browseract_gap_labels=browseract_gap_labels,
+            provider_api_skip_reason=provider_api_skip_reason,
+            browseract_scope=browseract_scope,
+            browseract_billing_attempted_labels=browseract_billing_attempted_labels,
+            browseract_target_labels=browseract_target_labels,
+            include_provider_api=bool(payload.include_provider_api),
+            effective_include_provider_api=effective_include_provider_api,
+            bindings=bindings,
+            billing_results=billing_results,
+            member_results=member_results,
+            errors=errors,
+            browseract_proxy_rotations=browseract_proxy_rotations,
+            browseract_proxy_recovered_labels=browseract_proxy_recovered_labels,
+        )
 
         response = {
             "provider_key": "onemin",

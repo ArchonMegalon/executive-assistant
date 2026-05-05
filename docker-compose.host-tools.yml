@@ -1,0 +1,35 @@
+services:
+  ea-api:
+    environment:
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+    volumes:
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  ea-responses-proxy:
+    environment:
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+    volumes:
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  ea-worker:
+    environment:
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+    volumes:
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  ea-scheduler:
+    environment:
+      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
+      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
+      - EA_CREZLO_SHARED_TEMP_ROOT=/docker/fleet/state/browseract_bootstrap/runtime/crezlo_worker_shared
+    volumes:
+      - /docker:/docker
+      - /var/run/docker.sock:/var/run/docker.sock

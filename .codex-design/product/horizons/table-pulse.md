@@ -1,10 +1,10 @@
 # TABLE PULSE
 
-## The problem
+## Table pain
 
 The GM knows something went off after a session, but cannot clearly reconstruct where pacing dragged, who lost the room, or which scene actually landed.
 
-## What it would do
+## Bounded product move
 
 TABLE PULSE would turn recorded or uploaded session media into opt-in post-session notes about pacing, spotlight balance, engagement, and interruptions, with optional narrated summaries.
 It is for reflection after play, not live surveillance, player scoring, or moderation.
@@ -26,13 +26,23 @@ It is for reflection after play, not live surveillance, player scoring, or moder
 
 See also: `HEDY_AI_TABLE_PULSE_DESIGN.md`
 
-## What has to be true first
+## Foundations
 
 * explicit consent and upload policy
 * post-session-only analysis rules
 * privacy and retention rules for coaching media
 * share-safe coaching summaries
 * replay and receipt references where available
+
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
+
+## Owner handoff gate
+
+Coaching analysis must remain opt-in, post-session, privacy-bounded, and clearly separate from session truth before it moves beyond horizon.
 
 ## Hard boundary
 
@@ -42,7 +52,7 @@ See also: `HEDY_AI_TABLE_PULSE_DESIGN.md`
 * not discipline automation
 * not canonical session truth
 
-## Why it is not ready yet
+## Why still a horizon
 
 This only works if it stays consensual, private, and clearly separate from moderation or rules truth.
 Until Chummer can prove those guardrails end to end, TABLE PULSE remains a future idea rather than live product behavior.

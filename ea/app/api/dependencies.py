@@ -20,7 +20,7 @@ from app.services.cloudflare_access import (
     build_operator_notes,
     resolve_access_identity,
 )
-from app.settings import RuntimeProfile, resolve_runtime_profile
+from app.settings import RuntimeProfile, resolve_runtime_profile, resolve_signing_secret
 
 
 _LOG = logging.getLogger(__name__)
@@ -90,11 +90,7 @@ def _configured_api_token(container: AppContainer) -> str:
 
 
 def _workspace_access_secret(container: AppContainer) -> str:
-    configured = _configured_api_token(container)
-    if configured:
-        return f"{configured}:workspace-access"
-    fallback = str(container.settings.auth.default_principal_id or "").strip() or "ea-workspace-access"
-    return f"{fallback}:workspace-access"
+    return resolve_signing_secret(container.settings, purpose="workspace-access")
 
 
 def _extract_workspace_session_token(request: Request) -> str:

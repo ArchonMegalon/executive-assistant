@@ -128,6 +128,16 @@ Chummer should maintain an `ExplanationCoverageRegistry` that maps:
 That registry is release truth, not a TODO list.
 If a promoted surface adds a visible mechanical value and does not register explain coverage, the release gate must fail.
 
+## Fleet and operator loop binding
+
+Explain-every-value is not only a UI nicety.
+It is part of the flagship control loop.
+
+- `FLAGSHIP_READINESS_PLANES.yaml` and `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` must treat explain coverage, source-anchor posture, and bounded follow-up truth as release-health inputs rather than optional polish.
+- Fleet-owned closeout and readiness proofs must fail closed when a promoted visible value, warning, or bounded `what if` answer ships without registered explain coverage, packet-backed fallback text, or the required source-anchor class.
+- The operator surface may summarize readiness, but it may not downgrade missing explain coverage into dashboard-only prose, anecdotal reviewer notes, or presenter-only proof.
+- Weekly pulse, flagship readiness, and successor queue closure must cite the same coverage-registry and release-gate truth so a green control plane cannot coexist with silent explain regressions on promoted surfaces.
+
 ## Surface behavior
 
 Every explainable value should support one or more first-party triggers:

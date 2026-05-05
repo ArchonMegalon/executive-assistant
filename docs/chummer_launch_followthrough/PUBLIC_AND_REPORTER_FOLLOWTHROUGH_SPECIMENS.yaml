@@ -1,0 +1,98 @@
+shared_truth_bundle_id: ea-m120-launch-pulse-followthrough-v1
+generated_at: "2026-05-05T13:45:00Z"
+status: task_proven
+source_anchor_ids:
+  - fleet_launch_pulse_packet
+  - fleet_weekly_governor_packet
+  - registry_release_channel
+  - fleet_support_case_packets
+  - design_launch_health_language
+  - design_public_release_experience
+  - ea_governor_packet_baseline
+projection_bindings:
+  launch_followthrough_drafts:
+    launch_action_fields:
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.launch_pulse.governor_action
+      - WEEKLY_GOVERNOR_PACKET.generated.json.decision_alignment.actual_action
+      - WEEKLY_GOVERNOR_PACKET.generated.json.public_status_copy.headline
+      - WEEKLY_GOVERNOR_PACKET.generated.json.public_status_copy.body
+    adoption_health_fields:
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.adoption_health.state
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.adoption_health.summary
+    proof_hold_fields:
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.proof_freshness.state
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.proof_freshness.missing_input_count
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.proof_freshness.stale_input_count
+  reporter_followthrough:public:
+    release_claim_fields:
+      - RELEASE_CHANNEL.generated.json.rolloutState
+      - RELEASE_CHANNEL.generated.json.fixAvailabilitySummary
+      - RELEASE_CHANNEL.generated.json.knownIssueSummary
+    support_gate_fields:
+      - SUPPORT_CASE_PACKETS.generated.json.followthrough_receipt_gates.source_rule
+      - SUPPORT_CASE_PACKETS.generated.json.reporter_followthrough_plan.ready_count
+      - SUPPORT_CASE_PACKETS.generated.json.summary.needs_human_response
+    launch_alignment_fields:
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.public_followthrough.state
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.support_risk.state
+      - NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.launch_pulse.public_status_headline
+launch_followthrough_draft_specimen:
+  packet_kind: launch_followthrough_drafts
+  packet_id: ea-m120-launch-followthrough-draft-2026-05-05
+  truth_bundle_id: ea-m120-launch-pulse-followthrough-v1
+  state: hold
+  source_packet_ids:
+    - next90-m120-fleet-launch-pulse
+    - fleet-weekly-governor-packet
+    - registry-release-channel
+  launch_decision_window:
+    operator_posture: freeze_launch
+    public_status_headline: Launch expansion remains frozen.
+    public_status_body: "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating)."
+  adoption_health_snapshot:
+    state: pass
+    summary: Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 20 weekly snapshots are on record for the current public trust posture.
+  proof_freshness_holds:
+    state: blocked
+    missing_input_count: 2
+    stale_input_count: 2
+    publish_state: hold
+  public_copy_guardrails:
+    allowed_posture_terms:
+      - live
+      - preview
+      - fallback
+      - fixed
+      - revoked
+      - blocked
+    bounded_claim_rule: Keep launch followthrough in draft posture until proof freshness is no longer blocked and the launch pulse itself is publishable.
+  next_safe_actions:
+    - Refresh stale or missing proof inputs before widening public launch copy.
+    - Keep operator copy aligned to Fleet's freeze_launch decision window.
+reporter_followthrough_specimen:
+  packet_kind: reporter_followthrough:public
+  packet_id: ea-m120-public-reporter-followthrough-2026-05-05
+  truth_bundle_id: ea-m120-launch-pulse-followthrough-v1
+  state: hold
+  source_packet_ids:
+    - next90-m120-fleet-launch-pulse
+    - release-channel
+    - support-case-packets
+  release_claim_guard:
+    rollout_state: promoted_preview
+    fixed_claim_rule: Only use fixed when the same channel and route already carry the fix on the public shelf.
+  public_status_alignment:
+    launch_followthrough_state: pass
+    support_risk_state: low
+    public_status_headline: Launch expansion remains frozen.
+  support_followthrough_gate:
+    reporter_ready_count: 0
+    needs_human_response_count: 0
+    source_rule: Reporter feedback, fix-available, please-test, and recovery followthrough is compiled from support packets only after install truth, installation-bound installed-build receipts, and release-channel receipts agree; fix-bearing loops additionally require fixed-version receipts and fixed-channel receipts.
+  release_channel_posture:
+    rollout_reason: Current release shelf was exercised by the local docker release proof harness before publication.
+    fix_availability_summary: Only send fixed notices after the affected install can receive the published channel artifact now on the shelf.
+    known_issue_summary: Preview caveats still apply, but the current shelf has recent install, claimed-device recovery, clustered release notification, community closure, bounded offline prefetch, and support proof instead of only manifest presence.
+  publish_hold_reason:
+    state: hold
+    summary: Keep reporter and public followthrough in preview-bounded hold while launch-pulse proof freshness is blocked, even though support risk is low and the current rollout state is promoted_preview.

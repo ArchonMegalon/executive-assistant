@@ -12,6 +12,7 @@ INVENTORY_SECTION_HEADINGS = (
     "## Non-AppSumo / Other LTDs",
     "## AppSumo LTDs",
 )
+_ONEMIN_SERVICE_NAME = "1min.AI"
 
 
 def _normalize_service_name(value: object) -> str:
@@ -85,6 +86,10 @@ def _format_row(parts: list[str]) -> str:
     return "| " + " | ".join(parts[:6]) + " |"
 
 
+def _format_inventory_row(parts: list[str]) -> str:
+    return "| " + " | ".join(parts[:8]) + " |"
+
+
 def _table_bounds(lines: list[str], *, heading: str) -> tuple[int, int]:
     try:
         heading_index = next(
@@ -115,6 +120,40 @@ def _table_bounds(lines: list[str], *, heading: str) -> tuple[int, int]:
 
 def _updated_markdown(updated_lines: list[str], *, trailing_newline: bool) -> str:
     return "\n".join(updated_lines) + ("\n" if trailing_newline else "")
+
+
+def _notes_with_refresh(
+    *,
+    prefix: str,
+    observed_at: str,
+    account_name: str,
+    remaining_credits: object,
+    next_topup_at: str,
+    topup_amount: object | None,
+) -> str:
+    def _format_number(value: object) -> str:
+        if value in (None, ""):
+            return ""
+        try:
+            numeric = float(value)
+        except Exception:
+            return str(value)
+        if numeric.is_integer():
+            return str(int(numeric))
+        return f"{numeric:.2f}".rstrip("0").rstrip(".")
+
+    amount_text = _format_number(topup_amount)
+    if next_topup_at:
+        next_topup_note = f"with the next top-up projected for `{next_topup_at}`"
+        if amount_text:
+            next_topup_note += f" (`{amount_text}` credits)"
+    else:
+        next_topup_note = "without a projected next top-up in the latest refresh"
+    remaining_text = _format_number(remaining_credits) or "unknown"
+    return (
+        f"{prefix} Latest credit refresh on `{observed_at}` for `{account_name}` "
+        f"confirmed `{remaining_text}` remaining credits {next_topup_note}."
+    )
 
 
 def _replace_updated_stamp(markdown_text: str, *, refresh_date: str | None = None) -> str:
@@ -165,6 +204,62 @@ def _replace_summary_total(markdown_text: str, *, total_count: int) -> str:
         raise ValueError("summary_total_line_not_found") from exc
     lines[total_index] = f"- `{total_count}` {SUMMARY_TOTAL_SUFFIX}"
     return _updated_markdown(lines, trailing_newline=markdown_text.endswith("\n"))
+
+
+def update_onemin_refresh_notes(
+    markdown_text: str,
+    *,
+    observed_at: str,
+    account_name: str,
+    remaining_credits: object,
+    next_topup_at: str = "",
+    topup_amount: object | None = None,
+) -> str:
+    lines = markdown_text.splitlines()
+    trailing_newline = markdown_text.endswith("\n")
+
+    inventory_note = _notes_with_refresh(
+        prefix="Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`.",
+        observed_at=observed_at,
+        account_name=account_name,
+        remaining_credits=remaining_credits,
+        next_topup_at=next_topup_at,
+        topup_amount=topup_amount,
+    )
+    discovery_note = _notes_with_refresh(
+        prefix="API-key rotation slots and the shared browser-login password now exist locally.",
+        observed_at=observed_at,
+        account_name=account_name,
+        remaining_credits=remaining_credits,
+        next_topup_at=next_topup_at,
+        topup_amount=topup_amount,
+    )
+
+    for heading in INVENTORY_SECTION_HEADINGS:
+        table_start, table_end = _table_bounds(lines, heading=heading)
+        for index in range(table_start + 2, table_end):
+            parts = _parse_table_row(lines[index], minimum_columns=8)
+            if parts is None or _normalize_service_name(parts[0]).lower() != _ONEMIN_SERVICE_NAME.lower():
+                continue
+            parts[7] = inventory_note
+            lines[index] = _format_inventory_row(parts)
+            break
+
+    discovery_start, discovery_end = _table_bounds(lines, heading=DISCOVERY_TRACKING_HEADING)
+    for index in range(discovery_start + 2, discovery_end):
+        parts = _parse_table_row(lines[index], minimum_columns=6)
+        if parts is None or _normalize_service_name(parts[0]).lower() != _ONEMIN_SERVICE_NAME.lower():
+            continue
+        parts[4] = observed_at
+        parts[5] = discovery_note
+        lines[index] = _format_row(parts)
+        break
+
+    refresh_date = observed_at.split("T", 1)[0].strip() if "T" in observed_at else ""
+    updated = _updated_markdown(lines, trailing_newline=trailing_newline)
+    if refresh_date:
+        updated = _replace_updated_stamp(updated, refresh_date=refresh_date)
+    return updated
 
 
 def update_discovery_tracking_table(markdown_text: str, inventory_output_json: dict[str, Any]) -> str:

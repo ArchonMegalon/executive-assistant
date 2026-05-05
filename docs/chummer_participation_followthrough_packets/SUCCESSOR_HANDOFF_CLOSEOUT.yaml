@@ -1,0 +1,68 @@
+contract_name: ea.chummer_participation_followthrough_successor_handoff
+package_id: next90-m129-ea-compile-contribution-participation-entitlement-channel-a
+milestone_id: 129
+status: active_package_proven
+active_surfaces:
+  - compile_contribution_participation_entitlement_channel:executive_assistant
+scope_boundary:
+  active_package_only: next90-m129-ea-compile-contribution-participation-entitlement-channel-a
+  allowed_paths:
+    - scripts
+    - feedback
+    - docs
+  remaining_milestone_work_belongs_to:
+    - chummer6-hub
+    - fleet
+    - chummer6-design
+completed_outputs:
+  - docs/chummer_participation_followthrough_packets/CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml
+  - docs/chummer_participation_followthrough_packets/PARTICIPATION_FOLLOWTHROUGH_PACKET_SPECIMENS.yaml
+  - docs/chummer_participation_followthrough_packets/README.md
+  - docs/chummer_participation_followthrough_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - scripts/materialize_next90_m129_ea_participation_followthrough_packets.py
+  - scripts/verify_next90_m129_ea_participation_followthrough_packets.py
+  - .codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json
+  - feedback/2026-05-05-next90-m129-ea-participation-followthrough-progress.md
+proof_command:
+  command: python3 scripts/materialize_next90_m129_ea_participation_followthrough_packets.py && python3 scripts/verify_next90_m129_ea_participation_followthrough_packets.py
+  expected_result: materializer=0 verifier=0
+proof_artifacts:
+  - docs/chummer_participation_followthrough_packets/CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml
+  - docs/chummer_participation_followthrough_packets/PARTICIPATION_FOLLOWTHROUGH_PACKET_SPECIMENS.yaml
+  - docs/chummer_participation_followthrough_packets/README.md
+  - docs/chummer_participation_followthrough_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - scripts/materialize_next90_m129_ea_participation_followthrough_packets.py
+  - scripts/verify_next90_m129_ea_participation_followthrough_packets.py
+  - .codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json
+  - feedback/2026-05-05-next90-m129-ea-participation-followthrough-progress.md
+shared_truth_runtime_sources:
+  - source_anchor_id: hub_reusable_account_flows_receipt
+    path: /docker/chummercomplete/chummer6-hub-m112/.codex-studio/published/NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json
+    use_rule: Participation, entitlement, and reward followthrough remain blocked unless Hub still proves the reward-journal and entitlement-journal rails on the governed account path.
+  - source_anchor_id: fleet_participation_lane_receipts
+    path: /docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json
+    use_rule: Contribution and participation followthrough remain blocked unless Fleet still proves lane-local auth boundaries, signed contribution receipts, and a clear sponsor-session receipt window.
+canonical_authority:
+  successor_registry_path: /docker/chummercomplete/chummer-design-m114/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  design_successor_queue_path: /docker/chummercomplete/chummer-design-m114/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  queue_package: next90-m129-ea-compile-contribution-participation-entitlement-channel-a status=not_started
+  registry_work_task: 129.5 status=unknown owner=executive-assistant
+  active_package_reason: The EA followthrough contract now exists and is machine-verifiable, but the current Hub/Fleet receipt window still blocks contribution promotion and still lacks explicit channel and reward-publication refs. The design canon task 129.6 is also still open, so this package must stay fail-closed.
+repeat_prevention:
+  worker_rule: Reuse this EA followthrough contract and generated proof instead of inventing a second contribution, participation, entitlement, channel, or reward packet schema in future shards.
+  do_not_reopen_for:
+    - Hub-owned account, reward, entitlement, or receipt projection implementation work outside this EA packet contract.
+    - Fleet-owned participant-lane auth, sponsor-session receipt, or contribution projection implementation work outside this EA packet contract.
+    - Design-owned queue or canon closure work for task 129.6.
+runtime_safety_posture:
+  forbidden_proof_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  generated_receipt_refresh_rule: Top-level generated_at refreshes inside .codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json are informational only; package progress changes only when the contract, live Hub/Fleet proof window, or canonical authority changes.

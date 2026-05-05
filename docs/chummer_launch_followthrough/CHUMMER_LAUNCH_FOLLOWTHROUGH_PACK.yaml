@@ -1,0 +1,124 @@
+contract_name: ea.chummer_launch_followthrough_pack
+package_id: next90-m120-ea-launch-pulse-followthrough
+milestone_id: 120
+wave: W14
+generated_at: "2026-05-05T13:45:00Z"
+status: task_proven
+title: Draft reporter, operator, and public followthrough from launch-pulse truth without inventing release claims.
+owned_surfaces:
+  - launch_followthrough_drafts
+  - reporter_followthrough:public
+governed_truth_bundle:
+  bundle_id: ea-m120-launch-pulse-followthrough-v1
+  purpose: Bind EA launch followthrough drafts and public reporter followthrough to governed launch-pulse, release-channel, support, and design language truth instead of assistant-local release claims.
+  consumer_surfaces:
+    - launch_followthrough_drafts
+    - reporter_followthrough:public
+  source_anchor_ids:
+    - fleet_launch_pulse_packet
+    - fleet_weekly_governor_packet
+    - registry_release_channel
+    - fleet_support_case_packets
+    - design_launch_health_language
+    - design_public_release_experience
+    - ea_governor_packet_baseline
+source_truth:
+  fleet_launch_pulse_packet:
+    path: /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json
+    required: true
+    use_rule: Draft operator or public followthrough only from Fleet's governed launch pulse, including launch action, adoption health, support risk, proof freshness, and public followthrough posture.
+  fleet_weekly_governor_packet:
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    required: true
+    use_rule: Reuse Fleet's current launch decision route, public status headline and body, and measured rollout action matrix; EA may not invent a competing launch decision window.
+  registry_release_channel:
+    path: /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+    required: true
+    use_rule: Public and reporter followthrough must stay inside the current registry rollout state, route posture, and same-channel fixed-availability guard.
+  fleet_support_case_packets:
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    required: true
+    use_rule: Reporter followthrough remains bounded to Fleet support truth, including receipt gates, ready counts, and release-truth hold rules.
+  design_launch_health_language:
+    path: /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_LAUNCH_HEALTH_LANGUAGE.md
+    required: true
+    use_rule: Public and reporter copy may use only the canonical live, preview, fallback, fixed, revoked, and blocked posture vocabulary.
+  design_public_release_experience:
+    path: /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml
+    required: true
+    use_rule: Followthrough drafts must keep preview, fallback, recovery, and flagship claims subordinate to the current release shelf and its bounded public route rules.
+  ea_governor_packet_baseline:
+    path: /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
+    required: true
+    use_rule: Reuse the earlier EA governor packet baseline for reporter-safe release posture instead of inventing a second release-claim framework.
+proof_guardrails:
+  canonical_package_verification:
+    queue_package_id: next90-m120-ea-launch-pulse-followthrough
+    queue_allowed_paths:
+      - skills
+      - feedback
+      - docs
+      - tests
+    registry_milestone_id: 120
+    registry_work_task_id: 120.4
+  startup_context_rule: Task-local telemetry, active-run handoff text, and prompt-mandated startup reads may confirm assignment shape only; they are never launch followthrough proof, queue proof, registry evidence, or public release evidence.
+  runtime_safety_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  claim_guard_rules:
+    - launch_followthrough_must_cite_fleet_launch_pulse_and_weekly_governor_packet
+    - reporter_followthrough_must_cite_release_channel_and_support_receipt_gates
+    - fixed_claims_require_same_channel_route_availability
+    - preview_or_fallback_routes_must_not_be_rewritten_as_live
+    - proof_freshness_blockers_hold_public_or_reporter_promotion
+packet_families:
+  launch_followthrough_drafts:
+    state: hold
+    audience: operator_and_public_copy_reviewer
+    required_source_anchors:
+      - fleet_launch_pulse_packet
+      - fleet_weekly_governor_packet
+      - design_launch_health_language
+      - design_public_release_experience
+    required_sections:
+      - packet_identity
+      - launch_decision_window
+      - adoption_health_snapshot
+      - proof_freshness_holds
+      - public_copy_guardrails
+      - next_safe_actions
+    use_rule: Draft operator and public followthrough only when the Fleet launch pulse and public launch language still agree; hold publication when proof freshness or launch posture fails closed.
+  reporter_followthrough:public:
+    state: hold
+    audience: reporter_and_operator
+    required_source_anchors:
+      - fleet_launch_pulse_packet
+      - registry_release_channel
+      - fleet_support_case_packets
+      - design_launch_health_language
+      - ea_governor_packet_baseline
+    required_sections:
+      - packet_identity
+      - release_claim_guard
+      - public_status_alignment
+      - support_followthrough_gate
+      - release_channel_posture
+      - publish_hold_reason
+    use_rule: Draft public reporter followthrough from launch-pulse truth without promoting fixed, live, or flagship claims beyond the registry rollout state and Fleet support gates.
+fail_closed_posture:
+  missing_launch_pulse: Refuse to draft operator or public followthrough when the Fleet launch-pulse packet is missing or unparseable.
+  proof_freshness_blocked: Hold all public or reporter promotion when Fleet launch-pulse proof freshness is blocked or missing required input truth.
+  release_channel_drift: Hold reporter and public followthrough when registry rollout posture, route tuple state, or fixed-availability wording drifts from the cited launch draft.
+  support_gate_drift: Hold reporter followthrough when Fleet support packet gates, source rules, or ready counts drift from the draft.
+  language_contract_drift: Hold publication when the design launch-health vocabulary or release-experience rules drift from the draft posture.
+prohibited_behaviors:
+  - Inventing a live, fixed, preview, fallback, revoked, or blocked posture not backed by launch-pulse, release-channel, and design language truth.
+  - Turning stale proof freshness, missing source inputs, or queued support state into a green public launch claim.
+  - Treating EA drafts as release authority, update authority, or canonical public status truth.
+  - Copying worker assignment context, helper output, or startup command receipts into launch followthrough evidence.

@@ -14,6 +14,8 @@
 - `DATABASE_URL`: required for reliable Postgres-backed operation
 - `EA_DEFAULT_PRINCIPAL_ID`: fallback request principal for principal-scoped connector/memory routes when `X-EA-Principal-ID` is omitted
 - `EA_BOOTSTRAP_DB=1`: optional deploy-time migration bootstrap
+- `EA_SIGNING_SECRET`: required in `prod`; keeps workspace links, browser sessions, and signed action tokens stable across restarts
+- `EA_CF_TUNNEL_TOKEN`: optional Cloudflare Tunnel token used only when `docker-compose.cloudflared.yml` is layered onto the base compose stack
 
 ## Responses Provider Variables
 
@@ -53,3 +55,6 @@
 - For production/staging, use `EA_STORAGE_BACKEND=postgres` instead of `auto`.
 - Use `auto` only where memory fallback is acceptable.
 - Run `scripts/db_status.sh` after bootstrap to verify kernel table presence.
+- `EA_RUNTIME_MODE=prod` requires `EA_SIGNING_SECRET`; outside prod, omitting it falls back to a process-local ephemeral secret.
+- The base `docker-compose.yml` intentionally omits `/docker` and `/var/run/docker.sock`; add `docker-compose.host-tools.yml` only for workflows that truly need host repo access or Docker control.
+- The Cloudflare tunnel is opt-in; add `docker-compose.cloudflared.yml` only when you explicitly want to expose EA through Cloudflare Tunnel.

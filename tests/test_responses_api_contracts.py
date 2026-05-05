@@ -6371,7 +6371,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert body["governance"]["support_help_boundary"]["owner"] == "chummer6-hub"
     assert any(item["label"] == "PRODUCT_HEALTH_SCORECARD.yaml" for item in body["governance"]["sources"])
     assert body["profiles"][0]["lane"] == "hard"
-    assert body["profiles"][0]["provider_hint_order"] == ["onemin", "gemini_vortex"]
+    assert body["profiles"][0]["provider_hint_order"] == ["onemin"]
     assert body["profiles"][0]["work_class"] == "hard_coder"
     assert "Hard coder lane" in body["profiles"][0]["expectation_summary"]
     easy_profile = next(profile for profile in body["profiles"] if profile["profile"] == "easy")
@@ -6430,7 +6430,8 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     assert groundwork_lane["capacity_summary"]["last_used_sponsor_session_id"] == ""
     assert groundwork_lane["capacity_summary"]["last_used_lane_role"] == ""
     review_light_lane = next(item for item in body["provider_registry"]["lanes"] if item["profile"] == "review_light")
-    assert review_light_lane["health_provider_key"] == "onemin"
+    assert review_light_lane["backend"] == "browseract"
+    assert review_light_lane["health_provider_key"] == "browseract"
 
 
 def test_codex_profiles_endpoint_hides_survival_lane_when_all_routes_are_blocked(

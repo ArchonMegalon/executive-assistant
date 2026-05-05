@@ -1,0 +1,121 @@
+contract_name: ea.chummer_organizer_packet_pack
+package_id: next90-m118-ea-organizer-followthrough
+milestone_id: 118
+wave: W13
+generated_at: "2026-05-05T12:30:00Z"
+status: task_proven
+title: Compile organizer packets, event prep, and followthrough from governed operations truth.
+owned_surfaces:
+  - organizer_followthrough:ea
+  - event_prep_packets
+governed_truth_bundle:
+  bundle_id: ea-m118-organizer-followthrough-v1
+  purpose: Bind EA organizer followthrough and event-prep packet copy to governed community operation receipts, publication posture, and support-followthrough truth instead of assistant-local narration.
+  consumer_surfaces:
+    - organizer_followthrough:ea
+    - event_prep_packets
+  source_anchor_ids:
+    - community_scale_audit_schema
+    - organizer_boundary_policy
+    - hub_organizer_ops_verifier
+    - hub_creator_publication_verifier
+    - fleet_weekly_governor_packet
+    - fleet_support_case_packets
+    - ea_operator_safe_baseline
+source_truth:
+  community_scale_audit_schema:
+    path: /docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml
+    required: true
+    use_rule: Organizer packet copy must link back to typed CommunityScaleAuditPacket ids and claim guards before summarizing any event, roster, publication, or support posture.
+  organizer_boundary_policy:
+    path: /docker/chummercomplete/chummer-design/products/chummer/ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md
+    required: true
+    use_rule: EA remains a projection only; organizer packets may summarize, prioritize, and follow through, but they may not become canonical organizer, GM, moderation, publication, or support truth.
+  hub_organizer_ops_verifier:
+    path: /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m118_hub_organizer_ops.py
+    required: true
+    use_rule: Keep organizer followthrough blocked unless the Hub organizer-operations proof lane still exposes explicit publication and support-escalation posture on the governed operator rail.
+  hub_creator_publication_verifier:
+    path: /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m116_hub_creator_publication.py
+    required: true
+    use_rule: Event-prep and followthrough copy must fail closed when creator-publication or artifact-shelf sibling proof drifts.
+  fleet_weekly_governor_packet:
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    required: true
+    use_rule: Use the same governor action window and launch or freeze posture Fleet already projects; EA may not widen organizer publication claims beyond that window.
+  fleet_support_case_packets:
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    required: true
+    use_rule: Support followthrough counts, gate names, and packet ids must stay aligned with Fleet support truth before organizer followthrough can claim clearance.
+  ea_operator_safe_baseline:
+    path: /docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+    required: true
+    use_rule: Reuse the EA operator-safe baseline for prep posture and fail-closed escalation rules instead of inventing a second packet baseline.
+proof_guardrails:
+  canonical_package_verification:
+    queue_package_id: next90-m118-ea-organizer-followthrough
+    queue_allowed_paths:
+      - scripts
+      - feedback
+      - docs
+    registry_milestone_id: 118
+    registry_work_task_id: 118.3
+  startup_context_rule: Task-local telemetry, active-run handoff text, and prompt-mandated startup reads may confirm assignment shape only; they are never organizer packet proof, queue proof, registry evidence, or followthrough evidence.
+  runtime_safety_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  claim_guard_rules:
+    - fleet_or_ea_packets_must_link_back_to_source_packet_ids
+    - organizer_actions_must_not_close_support_cases_without_support_truth
+    - external_calendar_or_chat_links_must_not_become_canonical_event_truth
+    - publication_actions_must_not_hide_audience_retention_or_locale_posture
+packet_families:
+  organizer_followthrough:ea:
+    state: ready
+    audience: operator
+    required_source_anchors:
+      - community_scale_audit_schema
+      - organizer_boundary_policy
+      - hub_organizer_ops_verifier
+      - fleet_support_case_packets
+    required_sections:
+      - packet_identity
+      - source_packet_links
+      - event_or_roster_summary
+      - publication_posture
+      - support_followthrough_gate
+      - next_safe_action
+    use_rule: Summarize governed organizer health and followthrough only while every cited audit packet, publication posture, and support gate still links back to upstream proof.
+  event_prep_packets:
+    state: ready
+    audience: organizer_and_operator
+    required_source_anchors:
+      - community_scale_audit_schema
+      - hub_organizer_ops_verifier
+      - hub_creator_publication_verifier
+      - fleet_weekly_governor_packet
+      - ea_operator_safe_baseline
+    required_sections:
+      - packet_identity
+      - prep_scope
+      - dependency_window
+      - publication_readiness
+      - blocker_holds
+      - handoff_receipts
+    use_rule: Compile event-prep packets from governed organizer operations, artifact-publication posture, and the same governor action window Fleet already trusts.
+fail_closed_posture:
+  missing_audit_packet: Refuse to summarize organizer event, roster, moderation, or support posture when the cited CommunityScaleAuditPacket ids are missing.
+  support_gate_drift: Hold organizer followthrough at blocked when Fleet support packet gates or packet ids drift from the cited source window.
+  publication_drift: Hold event-prep packets at blocked when publication readiness loses its receipt-backed audience, retention, or artifact-shelf posture.
+  hub_verifier_failure: Keep both packet families blocked when the Hub organizer or creator-publication proof lanes fail.
+prohibited_behaviors:
+  - Inventing event status, roster fit, publication state, or support closure not backed by upstream receipts.
+  - Treating external spreadsheets, chats, or calendar mirrors as event truth.
+  - Collapsing GM, organizer, moderator, publication, and support authority into one EA-local summary.
+  - Copying worker assignment context, helper output, or startup command receipts into packet proof.

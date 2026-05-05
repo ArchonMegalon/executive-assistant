@@ -1,9 +1,9 @@
 product: chummer
 surface: chummer.run
 version: 1
-headline: Shadowrun rules truth, with receipts.
-subhead: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
-proof_line: Public preview, honest status, and inspectable proof for the files, named flows, and recent checks posted today.
+headline: Shadowrun rules truth, with clear explanations.
+subhead: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and a clearer view of what works today.
+proof_line: Public preview, honest status, and a visible walkthrough of the files, named flows, and recent checks posted today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
@@ -22,19 +22,19 @@ guest_shell_actions:
     emphasis: primary
 secondary_highlights:
   - Deterministic engine
-  - Rules receipts
+  - Rules explanations
   - Local-first continuity
-product_proof_eyebrow: Inspectable preview proof
-product_proof_intro: Create account to install the current preview, inspect one visible trail, and verify what the posted files and named flows can prove today without reading that proof as a flagship-complete claim, a fallback recommendation, or a substitute for the install shelf.
+product_proof_eyebrow: Preview snapshot
+product_proof_intro: Create account to install the current preview, inspect one visible explanation trail, and see what the posted files and named flows actually show today without reading that snapshot as a finished-product claim, a fallback recommendation, or a substitute for the install shelf.
 product_proof_primary_label: Create account to install
 product_proof_primary_href: /downloads
-product_proof_secondary_label: Inspect the proof trail
+product_proof_secondary_label: Inspect the explanation trail
 product_proof_secondary_href: /now#real-rules-truth
-product_proof_topline_label: Posted preview proof
-product_proof_scope_line: Proof on the public shelf is scoped to the posted files, named flows, and recent checks you can inspect today; it is not a blanket flagship-complete claim and it does not outrank the recommended install route.
-product_flagship_boundary_line: Preview proof, fallback routes, artifact explainers, and packet-detail artifacts can show real progress, but flagship wording is reserved for surfaces that independently clear the flagship acceptance bar.
+product_proof_topline_label: Posted preview snapshot
+product_proof_scope_line: What you see on the public shelf is scoped to the posted files, named flows, and recent checks visible today; it is not a blanket finished-product claim and it does not outrank the recommended install route.
+product_flagship_boundary_line: Preview pages, fallback routes, artifact explainers, and packet-detail artifacts can show real progress, but they are still preview surfaces rather than finished-product claims.
 product_proof_result_title: Final pool 9
-product_proof_result_summary: Same inputs, same answer, with the trail, posted-shelf posture, and claim boundary still attached.
+product_proof_result_summary: Same inputs, same answer, with the explanation trail, posted-shelf posture, and current boundary still attached.
 product_proof_trail:
   - Base 11
   - Weather -1
@@ -239,12 +239,12 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: static markdown instructions only
-  - path: /artifacts/explanation-receipt-trail
-    title: Explanation receipt trail detail
+  - path: /artifacts/explanation-trail
+    title: Explanation trail detail
     audience: public
     purpose: artifact_detail
     requires_auth: false
-    guest_fallback: /artifacts/explanation-receipt-trail
+    guest_fallback: /artifacts/explanation-trail
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: artifact detail only
@@ -568,26 +568,26 @@ registered_routes:
 sections:
   - id: hero
     eyebrow: Explainable Shadowrun
-    title: Shadowrun rules truth, with receipts.
-    intro: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
+    title: Shadowrun rules truth, with clear explanations.
+    intro: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and a clearer view of what works today.
     audience: public
     route: /
   - id: product_proof
-    eyebrow: Real product proof
+    eyebrow: Real product snapshot
     title: One concrete result, one visible trail, one current build
     intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
     audience: public
     route: /
   - id: start_here
     eyebrow: How Chummer helps at the table
-    title: What comes after the core proof
+    title: What comes after the core walkthrough
     intro: "Once the build, explanation trail, and continuity path feel trustworthy, the next product jobs are publication and improvement."
     audience: public
     route: /
   - id: why_trust_it
     eyebrow: Why trust Chummer
-    title: Product claims backed by evidence
-    intro: "The trust model is simple: deterministic rules truth, visible receipts, and local-first continuity."
+    title: Why it feels trustworthy
+    intro: "The trust model is simple: deterministic rules truth, visible explanations, and local-first continuity."
     audience: public
     route: /
   - id: choose_your_lane

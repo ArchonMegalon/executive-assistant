@@ -1,0 +1,99 @@
+contract_name: ea.chummer_organizer_packets_successor_handoff
+package_id: next90-m118-ea-organizer-followthrough
+milestone_id: 118
+status: active_package_proven
+active_surfaces:
+  - organizer_followthrough:ea
+  - event_prep_packets
+scope_boundary:
+  active_package_only: next90-m118-ea-organizer-followthrough
+  allowed_paths:
+    - scripts
+    - feedback
+    - docs
+  remaining_milestone_work_belongs_to:
+    - chummer6-hub
+    - chummer6-ui
+    - fleet
+completed_outputs:
+  - docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml
+  - docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml
+  - docs/chummer_organizer_packets/README.md
+  - docs/chummer_organizer_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - scripts/materialize_next90_m118_ea_organizer_packets.py
+  - scripts/verify_next90_m118_ea_organizer_packets.py
+  - tests/test_next90_m118_ea_organizer_packets.py
+  - .codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
+  - feedback/2026-05-05-next90-m118-ea-organizer-followthrough-progress.md
+proof_command:
+  command: python3 tests/test_next90_m118_ea_organizer_packets.py
+  expected_result: ran=6 failed=0
+proof_artifacts:
+  - docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml
+  - docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml
+  - docs/chummer_organizer_packets/README.md
+  - docs/chummer_organizer_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - scripts/materialize_next90_m118_ea_organizer_packets.py
+  - scripts/verify_next90_m118_ea_organizer_packets.py
+  - tests/test_next90_m118_ea_organizer_packets.py
+  - .codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
+  - feedback/2026-05-05-next90-m118-ea-organizer-followthrough-progress.md
+shared_truth_runtime_sources:
+  - source_anchor_id: community_scale_audit_schema
+    path: /docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml
+    use_rule: Organizer followthrough remains blocked unless typed audit packets still define the action family, actor role, support-case ref, and projection recipients.
+  - source_anchor_id: organizer_boundary_policy
+    path: /docker/chummercomplete/chummer-design/products/chummer/ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md
+    use_rule: EA must stay a projection-only packet compiler; organizer, publication, moderation, and support truth remain upstream authorities.
+  - source_anchor_id: hub_organizer_ops_verifier
+    path: /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m118_hub_organizer_ops.py
+    use_rule: Event-prep and organizer followthrough remain blocked unless the Hub organizer-ops proof lane still passes.
+  - source_anchor_id: hub_creator_publication_verifier
+    path: /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m116_hub_creator_publication.py
+    use_rule: Event-prep packets remain blocked unless creator publication and artifact-shelf proof still passes.
+  - source_anchor_id: fleet_weekly_governor_packet
+    path: /docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json
+    use_rule: Packet copy must stay inside the same governor decision window Fleet already exposes.
+  - source_anchor_id: fleet_support_case_packets
+    path: /docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+    use_rule: Followthrough stays blocked when support packet gates, counts, or packet ids drift from Fleet's install-aware support truth.
+  - source_anchor_id: ea_operator_safe_baseline
+    path: /docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml
+    use_rule: Event-prep posture must reuse the operator-safe baseline instead of inventing a second EA-local escalation model.
+  canonical_authority:
+    successor_registry_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    successor_queue_path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    design_successor_queue_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    queue_package: next90-m118-ea-organizer-followthrough status=complete
+    registry_work_task: 118.3 status=complete owner=executive-assistant
+  active_package_reason: The EA packet contract now exists and is machine-verifiable, but milestone 118 remains an active cross-repo package until Hub, UI, and Fleet sibling lanes finish their governed organizer surfaces.
+  queue_proof_required_entries:
+    - /docker/EA/docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml
+    - /docker/EA/docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml
+    - /docker/EA/docs/chummer_organizer_packets/README.md
+    - /docker/EA/docs/chummer_organizer_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+    - /docker/EA/scripts/materialize_next90_m118_ea_organizer_packets.py
+    - /docker/EA/scripts/verify_next90_m118_ea_organizer_packets.py
+    - /docker/EA/tests/test_next90_m118_ea_organizer_packets.py
+    - /docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
+    - /docker/EA/feedback/2026-05-05-next90-m118-ea-organizer-followthrough-progress.md
+    - python3 scripts/materialize_next90_m118_ea_organizer_packets.py exits 0
+    - python3 scripts/verify_next90_m118_ea_organizer_packets.py exits 0
+    - python3 tests/test_next90_m118_ea_organizer_packets.py exits 0 with ran=6 failed=0
+repeat_prevention:
+  worker_rule: Reuse this EA packet contract and generated proof instead of inventing a second organizer followthrough schema in future shards.
+  do_not_reopen_for:
+    - Hub-owned organizer operation contracts, event lifecycle, or support-escalation implementation work.
+    - UI-owned organizer desktop surface implementation work.
+    - Fleet-owned organizer-health or publication-readiness materialization work outside the EA packet contract.
+runtime_safety_posture:
+  forbidden_proof_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+    - codexea status
+    - codexea eta
+  generated_receipt_refresh_rule: Top-level generated_at refreshes inside .codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json are informational only; package progress changes only when the packet contract, source anchors, or canonical queue and registry authority change.

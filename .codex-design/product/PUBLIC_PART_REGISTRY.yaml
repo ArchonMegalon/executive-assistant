@@ -25,7 +25,7 @@ parts:
     why_you_care: This is where Chummer earns trust. If the math cannot be reproduced and explained here, the rest of the product becomes expensive theater.
     what_you_notice:
       - reproducible rules outcomes
-      - readable receipts for why a pool or result changed
+      - readable explanations for why a pool or result changed
       - a cleaner split between rules math and the extra features layered around it
     public_noteworthy_limits:
       - this is not the online account or update side

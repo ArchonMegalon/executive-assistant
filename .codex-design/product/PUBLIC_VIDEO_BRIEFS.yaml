@@ -117,6 +117,65 @@ video_families:
       - approved_explain_packet
       - receipt_anchor_sheet
       - localized_text_fallback
+  - id: rule_environment_grounded_companion_video
+    audience: signed_in_user
+    audience_variants:
+      - build_review
+      - campaign_drift_followthrough
+      - import_or_restore_followthrough
+      - diagnostics_or_support_followthrough
+    duration_seconds_target: 45
+    duration_seconds_max: 120
+    preferred_lane: vidBoard
+    avatar_posture: faceless
+    locale_fallback_chain:
+      - requested_locale
+      - packet_default_locale
+      - en-US
+    launch_surfaces:
+      - rules_navigator
+      - build_lab_environment_panel
+      - campaign_workspace
+      - import_receipt_panel
+      - restore_conflict_panel
+      - support_rule_environment_review
+    sibling_artifacts:
+      - activation_receipt_sheet
+      - rule_environment_diff_packet
+      - localized_text_fallback
+      - preview_card
+    required_receipt_fields:
+      - packet_revision_id
+      - active_rule_environment_digest
+      - compared_rule_environment_digest
+      - activation_or_diff_receipt_ref
+      - anchor_scope_ids
+      - approval_scope
+    approval_level: rule_environment_grounded_publication
+    claim_truth_order:
+      - inspectable_rule_environment_packet
+      - rule_environment_identity
+      - source_anchor_scope
+      - localized_text_fallback
+      - rendered_companion
+    approval_scope_axes:
+      - artifact_family
+      - packet_revision
+      - locale
+      - audience_posture
+    source_modes:
+      - approved_rule_environment_diff_packet
+      - approved_activation_receipt_summary
+      - approved_support_or_restore_environment_summary
+    forbidden_modes:
+      - legality_without_receipt_anchor
+      - rule_environment_revision_mismatch
+      - approval_overriding_engine_truth
+      - presenter_as_only_recovery_path
+    fallback_when_unverified:
+      - rule_environment_diff_packet
+      - activation_receipt_sheet
+      - localized_text_fallback
   - id: campaign_primer_video
     audience: player_or_gm
     audience_variants:

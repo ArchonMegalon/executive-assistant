@@ -10,7 +10,7 @@ services:
       - .env
     environment:
       - FASTESTVPN_CONFIG_DIR=/vpn/fastestvpn
-      - FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_CONFIG_GLOB:-*.ovpn}
+      - FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_PRIMARY_CONFIG_GLOB:-france*.ovpn}
       - FASTESTVPN_CONFIG_SELECT_MODE=${FASTESTVPN_CONFIG_SELECT_MODE:-random}
       - FASTESTVPN_CONFIG_FILE=${FASTESTVPN_CONFIG_FILE:-}
       - FASTESTVPN_PROXY_PORT=${FASTESTVPN_PROXY_PORT:-3128}
@@ -31,38 +31,121 @@ services:
       retries: 12
       start_period: 20s
 
+  ea-fastestvpn-proxy-ie:
+    build:
+      context: .
+      dockerfile: docker/fastestvpn-proxy/Dockerfile
+    image: ea-fastestvpn-proxy:latest
+    container_name: ea-fastestvpn-proxy-ie
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - FASTESTVPN_CONFIG_DIR=/vpn/fastestvpn
+      - FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_IE_CONFIG_GLOB:-ireland*.ovpn}
+      - FASTESTVPN_CONFIG_SELECT_MODE=${FASTESTVPN_CONFIG_SELECT_MODE:-random}
+      - FASTESTVPN_CONFIG_FILE=
+      - FASTESTVPN_PROXY_PORT=${FASTESTVPN_PROXY_PORT:-3128}
+      - FASTESTVPN_PROXY_LISTEN=0.0.0.0
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./vpn/fastestvpn:/vpn/fastestvpn:ro
+      - ea_fastestvpn_state_ie:/state
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && nc -z 127.0.0.1 ${FASTESTVPN_PROXY_PORT:-3128}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  ea-fastestvpn-proxy-nl:
+    build:
+      context: .
+      dockerfile: docker/fastestvpn-proxy/Dockerfile
+    image: ea-fastestvpn-proxy:latest
+    container_name: ea-fastestvpn-proxy-nl
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - FASTESTVPN_CONFIG_DIR=/vpn/fastestvpn
+      - FASTESTVPN_CONFIG_GLOB=${FASTESTVPN_NL_CONFIG_GLOB:-netherlands*.ovpn}
+      - FASTESTVPN_CONFIG_SELECT_MODE=${FASTESTVPN_CONFIG_SELECT_MODE:-random}
+      - FASTESTVPN_CONFIG_FILE=
+      - FASTESTVPN_PROXY_PORT=${FASTESTVPN_PROXY_PORT:-3128}
+      - FASTESTVPN_PROXY_LISTEN=0.0.0.0
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./vpn/fastestvpn:/vpn/fastestvpn:ro
+      - ea_fastestvpn_state_nl:/state
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && nc -z 127.0.0.1 ${FASTESTVPN_PROXY_PORT:-3128}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   ea-api:
     depends_on:
       ea-fastestvpn-proxy:
+        condition: service_healthy
+      ea-fastestvpn-proxy-ie:
+        condition: service_healthy
+      ea-fastestvpn-proxy-nl:
         condition: service_healthy
     environment:
       - EA_UI_BROWSER_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - EA_UI_BROWSER_PROXY_USERNAME=
       - EA_UI_BROWSER_PROXY_PASSWORD=
-      - EA_UI_BROWSER_PROXY_BYPASS=${EA_UI_BROWSER_PROXY_BYPASS:-localhost,127.0.0.1,ea-api,ea-worker,ea-db,ea-fastestvpn-proxy}
+      - EA_UI_BROWSER_PROXY_BYPASS=${EA_UI_BROWSER_PROXY_BYPASS:-localhost,127.0.0.1,ea-api,ea-worker,ea-db,ea-fastestvpn-proxy,ea-fastestvpn-proxy-ie,ea-fastestvpn-proxy-nl}
+      - EA_UI_BROWSER_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
+      - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
+      - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
 
   ea-worker:
     depends_on:
       ea-fastestvpn-proxy:
         condition: service_healthy
-    environment:
-      - EA_UI_BROWSER_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
-      - EA_UI_BROWSER_PROXY_USERNAME=
-      - EA_UI_BROWSER_PROXY_PASSWORD=
-      - EA_UI_BROWSER_PROXY_BYPASS=${EA_UI_BROWSER_PROXY_BYPASS:-localhost,127.0.0.1,ea-api,ea-worker,ea-db,ea-fastestvpn-proxy}
-      - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
-
-  ea-scheduler:
-    depends_on:
-      ea-fastestvpn-proxy:
+      ea-fastestvpn-proxy-ie:
+        condition: service_healthy
+      ea-fastestvpn-proxy-nl:
         condition: service_healthy
     environment:
       - EA_UI_BROWSER_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - EA_UI_BROWSER_PROXY_USERNAME=
       - EA_UI_BROWSER_PROXY_PASSWORD=
-      - EA_UI_BROWSER_PROXY_BYPASS=${EA_UI_BROWSER_PROXY_BYPASS:-localhost,127.0.0.1,ea-api,ea-worker,ea-db,ea-fastestvpn-proxy}
+      - EA_UI_BROWSER_PROXY_BYPASS=${EA_UI_BROWSER_PROXY_BYPASS:-localhost,127.0.0.1,ea-api,ea-worker,ea-db,ea-fastestvpn-proxy,ea-fastestvpn-proxy-ie,ea-fastestvpn-proxy-nl}
+      - EA_UI_BROWSER_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
+      - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
+      - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
+
+  ea-scheduler:
+    depends_on:
+      ea-fastestvpn-proxy:
+        condition: service_healthy
+      ea-fastestvpn-proxy-ie:
+        condition: service_healthy
+      ea-fastestvpn-proxy-nl:
+        condition: service_healthy
+    environment:
+      - EA_UI_BROWSER_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
+      - EA_UI_BROWSER_PROXY_USERNAME=
+      - EA_UI_BROWSER_PROXY_PASSWORD=
+      - EA_UI_BROWSER_PROXY_BYPASS=${EA_UI_BROWSER_PROXY_BYPASS:-localhost,127.0.0.1,ea-api,ea-worker,ea-db,ea-fastestvpn-proxy,ea-fastestvpn-proxy-ie,ea-fastestvpn-proxy-nl}
+      - EA_UI_BROWSER_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
+      - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
+      - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
+      - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
 
 volumes:
   ea_fastestvpn_state: {}
+  ea_fastestvpn_state_ie: {}
+  ea_fastestvpn_state_nl: {}

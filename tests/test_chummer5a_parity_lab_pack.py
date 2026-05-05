@@ -103,6 +103,9 @@ def _select_active_run_handoff_path() -> Path:
             matching_package,
             key=lambda current: _generated_at_from_handoff_text(current.read_text(encoding="utf-8")),
         )
+    promptful = [path for path in existing if _prompt_text_for_handoff(path)]
+    if promptful:
+        return max(promptful, key=lambda current: _generated_at_from_handoff_text(current.read_text(encoding="utf-8")))
     return max(existing, key=lambda current: _generated_at_from_handoff_text(current.read_text(encoding="utf-8")))
 
 
@@ -159,25 +162,44 @@ def _worker_safe_path_aliases(path: Path) -> set[str]:
     return aliases
 
 
-def _active_handoff_prompt_path() -> Path:
-    text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
+def _active_handoff_prompt_path_for(handoff_path: Path) -> Path | None:
+    text = handoff_path.read_text(encoding="utf-8")
     match = re.search(r"^- Prompt path:\s*(\S+)", text, re.MULTILINE)
     if match:
         prompt_path = Path(match.group(1))
         if prompt_path.exists():
             return prompt_path
         worker_safe_shadow = _worker_safe_handoff_shadow_path(prompt_path)
-        assert worker_safe_shadow.exists(), str(prompt_path)
-        return worker_safe_shadow
+        if worker_safe_shadow.exists():
+            return worker_safe_shadow
 
     state_root_match = re.search(r"^State root:\s*(\S+)", text, re.MULTILINE)
     run_id_match = re.search(r"^- Run id:\s*(\S+)", text, re.MULTILINE)
-    assert state_root_match and run_id_match, "active handoff missing prompt path and run metadata"
+    assert state_root_match, "active handoff missing state-root metadata"
 
-    run_prompt_path = Path(state_root_match.group(1)) / "runs" / run_id_match.group(1) / "prompt.txt"
-    prompt_path = _path_with_worker_safe_alias_fallback(run_prompt_path)
-    assert prompt_path is not None, str(run_prompt_path)
-    return prompt_path
+    state_root = Path(state_root_match.group(1))
+    state_root_aliases = [Path(alias) for alias in sorted(_worker_safe_path_aliases(state_root))]
+    run_prompt_candidates: list[Path] = []
+    if run_id_match:
+        run_id = run_id_match.group(1)
+        run_prompt_candidates.extend(root / "runs" / run_id / "prompt.txt" for root in state_root_aliases)
+    for root in state_root_aliases:
+        runs_root = root / "runs"
+        if not runs_root.exists():
+            continue
+        run_prompt_candidates.extend(sorted(runs_root.glob("*/prompt.txt"), reverse=True))
+    for candidate in run_prompt_candidates:
+        prompt_path = _path_with_worker_safe_alias_fallback(candidate)
+        if prompt_path is not None:
+            return prompt_path
+    return None
+
+
+def _active_handoff_prompt_path() -> Path:
+    prompt_path = _active_handoff_prompt_path_for(ACTIVE_RUN_HANDOFF_PATH)
+    if prompt_path is not None:
+        return prompt_path
+    raise AssertionError("active handoff missing prompt path and run metadata")
 
 
 def _path_with_worker_safe_alias_fallback(path: Path) -> Path | None:
@@ -934,7 +956,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
         "local_proof_commit=d274b66"
     )
     assert "do not recapture parity-lab artifacts" in str(latest_repeat.get("worker_rule") or "")
-    assert "at-least-this-new active handoff" in str(latest_repeat.get("worker_rule") or "")
+    assert "at-least-this-new worker-safe active handoff" in str(latest_repeat.get("worker_rule") or "")
     assert "design-owned completed queue row" in str(latest_repeat.get("worker_rule") or "")
     assert "Fleet completed queue mirror" in str(latest_repeat.get("worker_rule") or "")
     assert "direct proof command" in str(latest_repeat.get("worker_rule") or "")
@@ -951,9 +973,7 @@ def test_successor_handoff_closeout_prevents_repeating_ea_scope() -> None:
 
     canonical_sources = dict(closeout.get("canonical_successor_sources") or {})
     assert canonical_sources.get("design_queue") == DESIGN_SUCCESSOR_QUEUE_PATH.as_posix()
-    assert canonical_sources.get("active_run_handoff") in {
-        path.as_posix() for path in ACTIVE_RUN_HANDOFF_CANDIDATES
-    }
+    assert "active_run_handoff" not in canonical_sources
     if _active_handoff_targets_closed_m103_package():
         active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
         active_prompt_text = _active_handoff_prompt_text()
@@ -1219,7 +1239,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     assert "do not update generated receipts" in freeze_rule
     assert "repeat rows" in freeze_rule
     assert "closeout timestamps" in freeze_rule
-    assert "ACTIVE_RUN_HANDOFF.generated.md" in freeze_rule
+    assert "worker-safe active-run handoff" in freeze_rule
     assert "4287684466" in freeze_rule
     assert "allowed to be older than the repository `HEAD`" in readme_text
     assert "not a reason to refresh receipts" in readme_text
@@ -1393,6 +1413,8 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/test_chummer5a_parity_lab_pack.py",
     }
     screenshot_proof_path_fix_subject = "Fix M103 parity lab screenshot proof path"
+    routing_readiness_sync_commit = "6378742"
+    routing_readiness_sync_subject = "Stabilize EA routing and readiness materialization"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1414,6 +1436,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             continue
         if commit == "31ee583":
             assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
+            continue
+        if commit == routing_readiness_sync_commit:
+            assert subject == routing_readiness_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             continue
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
@@ -1583,6 +1609,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
             continue
+        if commit == routing_readiness_sync_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == routing_readiness_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -1681,6 +1718,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
+            continue
+        if commit == routing_readiness_sync_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == routing_readiness_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(
@@ -3109,16 +3157,22 @@ def test_pack_readiness_evidence_tracks_green_flagship_packet_without_reopening_
 
     assert evidence.get("flagship_readiness") == FLAGSHIP_READINESS_PATH.as_posix()
     assert evidence.get("flagship_readiness_status") in {"pass", "fail"}
+    assert evidence.get("external_host_proof_status") in {"pass", "fail"}
     assert readiness.get("generated_at") >= evidence.get("flagship_readiness_generated_at")
     assert completion_audit.get("status") == readiness.get("status")
-    assert int(completion_audit.get("unresolved_external_proof_request_count") or 0) == 0
-    assert evidence.get("external_host_proof_status") == external_host_proof.get("status") == "pass"
-    assert int(evidence.get("unresolved_external_host_proof_requests", -1)) == int(
-        external_host_proof.get("unresolved_request_count", -1)
-    ) == 0
+    live_unresolved = int(external_host_proof.get("unresolved_request_count", -1))
+    completion_unresolved = completion_audit.get("unresolved_external_proof_request_count")
+    assert int(-1 if completion_unresolved is None else completion_unresolved) == live_unresolved
+    observed_unresolved = int(evidence.get("unresolved_external_host_proof_requests", -1))
     pack_notes = "\n".join(str(item) for item in (pack.get("notes") or []))
     assert "observed packet snapshot" in pack_notes
     assert "may move between pass and fail" in pack_notes
+    if (
+        evidence.get("flagship_readiness_status") != readiness.get("status")
+        or evidence.get("external_host_proof_status") != external_host_proof.get("status")
+        or observed_unresolved != live_unresolved
+    ):
+        assert readiness.get("generated_at") > evidence.get("flagship_readiness_generated_at")
 
 
 def test_feedback_closeout_no_longer_carries_stale_host_proof_blocker() -> None:

@@ -9,6 +9,7 @@ from pathlib import Path
 from app.services.ltd_inventory_markdown import (
     build_discovery_updates,
     refresh_inventory_markdown,
+    update_onemin_refresh_notes,
     update_discovery_tracking_table,
 )
 
@@ -157,6 +158,50 @@ def test_build_discovery_updates_accepts_artifact_envelope_shape() -> None:
         "2026-03-07T12:00:00Z",
         "Plan/Tier: Tier 3; Status: activated",
     ]
+
+
+def test_update_onemin_refresh_notes_rewrites_inventory_and_discovery_rows() -> None:
+    markdown = """# LTDs
+
+Updated: 2026-05-03
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | stale note |
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | projection | ready |
+
+## Summary
+
+- `2` total LTD products tracked
+
+## Discovery Tracking
+
+| Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
+|---|---|---|---|---|---|
+| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-03T08:00:00Z | stale discovery note |
+
+## Attention Items
+"""
+
+    updated = update_onemin_refresh_notes(
+        markdown,
+        observed_at="2026-05-04T08:49:44Z",
+        account_name="ONEMIN_AI_API_KEY",
+        remaining_credits=15025,
+        next_topup_at="2026-05-06T01:07:36.964Z",
+        topup_amount=15000,
+    )
+
+    assert "Updated: 2026-05-04" in updated
+    assert "Latest credit refresh on `2026-05-04T08:49:44Z` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-05-06T01:07:36.964Z` (`15000` credits)." in updated
+    assert "| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-04T08:49:44Z | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-04T08:49:44Z` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits with the next top-up projected for `2026-05-06T01:07:36.964Z` (`15000` credits). |" in updated
 
 
 def test_refresh_ltds_script_can_write_updated_markdown(tmp_path: Path) -> None:

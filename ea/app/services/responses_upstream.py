@@ -29,6 +29,7 @@ from app.domain.models import (
     ToolInvocationRequest,
     now_utc_iso,
 )
+from app.services.ltd_inventory_markdown import update_onemin_refresh_notes
 from app.services.brain_catalog import (
     AUDIT_PUBLIC_MODEL,
     AUDIT_PUBLIC_MODEL_ALIAS,
@@ -118,6 +119,8 @@ _DEFAULT_LANE_PROFILE = "easy"
 _DEFAULT_FLEET_STATUS_CACHE_SECONDS = 60
 _DEFAULT_FLEET_STATUS_TIMEOUT_SECONDS = 2.0
 _FLEET_JURY_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": {}}
+_KNOWN_PROVIDER_KEYS = ("onemin", "gemini_vortex", "magixai", "chatplayground")
+_PROVIDER_ORDER_WARNING_EMITTED: set[str] = set()
 
 
 def _resolve_default_response_lane() -> str:
@@ -165,6 +168,12 @@ def _provider_health_snapshot(*, lightweight: bool = False) -> dict[str, object]
         payload = _provider_health_report(lightweight=lightweight)
     except TypeError:
         payload = _provider_health_report()
+    except Exception as exc:
+        _LOG.warning(
+            "EA provider health snapshot failed: %s",
+            type(exc).__name__,
+        )
+        return {}
     return dict(payload or {}) if isinstance(payload, dict) else {}
 
 
@@ -268,6 +277,50 @@ def _normalize_text_list(raw: object) -> list[str]:
             continue
         values.append(cleaned)
     return values
+
+
+def _onemin_ltd_markdown_path() -> Path:
+    explicit = str(_env("EA_LTD_MARKDOWN_PATH", "")).strip()
+    if explicit:
+        return Path(explicit)
+    return Path(__file__).resolve().parents[3] / "LTDs.md"
+
+
+def _onemin_ltd_note_account_labels() -> tuple[str, ...]:
+    configured = _normalize_text_list(_env("EA_ONEMIN_LTD_NOTE_ACCOUNT_LABELS", "ONEMIN_AI_API_KEY"))
+    if configured:
+        return tuple(configured)
+    return ("ONEMIN_AI_API_KEY",)
+
+
+def _maybe_update_onemin_ltd_markdown(
+    *,
+    account_name: str,
+    observed_at: str,
+    remaining_credits: object,
+    next_topup_at: str | None,
+    topup_amount: object | None,
+) -> None:
+    normalized_account = str(account_name or "").strip()
+    if not normalized_account or normalized_account not in _onemin_ltd_note_account_labels():
+        return
+    markdown_path = _onemin_ltd_markdown_path()
+    if not markdown_path.is_file():
+        return
+    try:
+        existing = markdown_path.read_text(encoding="utf-8")
+        updated = update_onemin_refresh_notes(
+            existing,
+            observed_at=str(observed_at or "").strip() or now_utc_iso(),
+            account_name=normalized_account,
+            remaining_credits=remaining_credits,
+            next_topup_at=str(next_topup_at or "").strip(),
+            topup_amount=topup_amount,
+        )
+        if updated != existing:
+            markdown_path.write_text(updated, encoding="utf-8")
+    except Exception as exc:
+        _LOG.warning("Failed to update LTD markdown after 1min refresh: %s", type(exc).__name__)
 
 
 def _compact_text_preview(text: object, *, limit: int = 160) -> str:
@@ -1036,6 +1089,16 @@ def _onemin_secret_value(account_name: str) -> str:
     return ""
 
 
+def _onemin_secret_env_name_for_key(api_key: str) -> str:
+    key = str(api_key or "").strip()
+    if not key:
+        return ""
+    for env_name in _onemin_secret_env_names():
+        if _onemin_secret_value(env_name) == key:
+            return env_name
+    return ""
+
+
 def _onemin_secret_env_names() -> tuple[str, ...]:
     fallback_numbers: set[int] = set()
     for env_name in os.environ:
@@ -1208,7 +1271,12 @@ def _browserplayground_auth_names() -> tuple[str, ...]:
 
 
 def _provider_account_name(provider_key: str, key_names: tuple[str, ...], key: str) -> str:
+    normalized = str(provider_key or "").strip().lower()
     providers_env = _provider_account_names(provider_key)
+    if normalized == "onemin":
+        account_name = _onemin_secret_env_name_for_key(key)
+        if account_name:
+            return account_name
     for index, candidate in enumerate(key_names):
         if candidate != key:
             continue
@@ -1798,15 +1866,17 @@ def _configured_reserve_slot_names() -> tuple[str, ...]:
 
 
 def _onemin_slot_key_names(raw_slot_names: tuple[str, ...], all_keys: tuple[str, ...], *, fallback_default: bool = False) -> tuple[str, ...]:
+    slot_env_names = _onemin_secret_env_names()
+    slot_keys = tuple(_onemin_secret_value(env_name) for env_name in slot_env_names)
     keys: list[str] = []
     seen: set[str] = set()
     for raw_name in raw_slot_names:
         index = _slot_to_key_index(raw_name)
         if index is None:
             continue
-        if index >= len(all_keys):
+        if index >= len(slot_keys):
             continue
-        key = all_keys[index]
+        key = slot_keys[index]
         if not key:
             continue
         if key in seen:
@@ -2004,14 +2074,29 @@ def _recent_onemin_dispatch_credit_estimate(*, lane: str, model: str, now: float
 
 def _onemin_required_credits_for_selection(*, lane: str, model: str) -> tuple[int | None, str]:
     now = _now_epoch()
+    family = _onemin_model_credit_family(model)
+    hard_override = _to_int(
+        _env("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_HARD", ""),
+        0,
+        minimum=0,
+        maximum=1000000000,
+    ) if lane == _LANE_HARD else 0
     dispatch_estimate = _recent_onemin_dispatch_credit_estimate(lane=lane, model=model, now=now)
     default_estimate = _onemin_default_required_credits(model)
+    if lane == _LANE_HARD and hard_override > 0:
+        if dispatch_estimate is not None and dispatch_estimate > 0:
+            return min(int(dispatch_estimate), hard_override), "model_family_default_capped_hard_override"
+        if default_estimate is not None and default_estimate > 0:
+            return min(int(default_estimate), hard_override), "hard_required_credits_hard_override"
+        estimated, _basis = _estimate_onemin_request_credits(now=now, tokens_in=0, tokens_out=0)
+        if estimated > 0:
+            return min(int(estimated), hard_override), "hard_required_credits_hard_override"
     if dispatch_estimate is not None and dispatch_estimate > 0:
-        family = _onemin_model_credit_family(model)
         cap_multiplier = {
             "light": 8,
             "medium": 10,
             "default": 10,
+            "hard": 1,
         }.get(family, 0)
         if (
             default_estimate is not None
@@ -2583,6 +2668,10 @@ def _pick_onemin_key(
             slot_row,
             required_credits=required_credits,
         )
+        fresh_actual_billing_hint = _onemin_slot_fresh_actual_billing_hint(
+            slot_row,
+            required_credits=required_credits,
+        )
         upstream_reset_estimated_recovery = _onemin_slot_upstream_reset_estimated_recovery_hint(
             slot_row,
             required_credits=required_credits,
@@ -2620,6 +2709,7 @@ def _pick_onemin_key(
         ):
             if not (
                 (billing_recovery and billing_hint >= int(required_credits))
+                or (fresh_actual_billing_hint is not None and fresh_actual_billing_hint >= int(required_credits))
                 or upstream_reset_estimated_recovery is not None
             ):
                 known_insufficient_candidate_count += 1
@@ -2635,6 +2725,7 @@ def _pick_onemin_key(
             and probe_ok_priority != 0
             and not (
                 (billing_recovery and billing_hint >= int(required_credits))
+                or (fresh_actual_billing_hint is not None and fresh_actual_billing_hint >= int(required_credits))
                 or upstream_reset_estimated_recovery is not None
             )
         ):
@@ -2755,9 +2846,8 @@ def _onemin_models() -> tuple[str, ...]:
     defaults = (
         "gpt-5.4",
         "gpt-5",
-        "gpt-4.1",
+        "gpt-4o",
         "deepseek-chat",
-        "gpt-4.1-nano",
     )
     if configured:
         return _merge_unique(configured, legacy)
@@ -2768,6 +2858,18 @@ def _onemin_code_models() -> tuple[str, ...]:
     configured = _csv_values(_env("EA_RESPONSES_ONEMIN_CODE_MODELS"))
     defaults = (
         "deepseek-chat",
+        "gpt-4o",
+        "gpt-5",
+        "gpt-5.4",
+    )
+    return _merge_unique(configured, defaults)
+
+
+def _onemin_fast_candidate_models() -> tuple[str, ...]:
+    configured = _csv_values(_env("EA_RESPONSES_ONEMIN_FAST_CANDIDATE_MODELS"))
+    defaults = (
+        "deepseek-chat",
+        "gpt-4.1-nano",
         "gpt-4.1",
         "gpt-4o",
         "gpt-5",
@@ -2777,7 +2879,7 @@ def _onemin_code_models() -> tuple[str, ...]:
 
 
 def _onemin_supported_models() -> tuple[str, ...]:
-    return _merge_unique(_onemin_models(), _onemin_code_models())
+    return _merge_unique(_onemin_models(), _onemin_fast_candidate_models(), _onemin_code_models())
 
 
 def _onemin_model_supports_code(model: str) -> bool:
@@ -2994,7 +3096,7 @@ def _onemin_slot_actual_billing_age_seconds(
     now: float | None = None,
 ) -> float | None:
     billing_basis = str(slot.get("billing_basis") or "").strip().lower()
-    if billing_basis not in {"actual_provider_api", "actual_billing_usage_page"}:
+    if billing_basis and billing_basis not in {"actual_provider_api", "actual_billing_usage_page"}:
         return None
     observed_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
     if observed_at <= 0.0:
@@ -3030,7 +3132,7 @@ def _onemin_slot_fresh_actual_billing_hint(
     if not _onemin_slot_positive_actual_billing(slot):
         return None
     billing_basis = str(slot.get("billing_basis") or "").strip().lower()
-    if billing_basis not in {"actual_provider_api", "actual_billing_usage_page"}:
+    if billing_basis and billing_basis not in {"actual_provider_api", "actual_billing_usage_page"}:
         return None
     observed_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
     if observed_at <= 0.0:
@@ -3077,6 +3179,9 @@ def _onemin_slot_recent_billing_recovery(
         return False
     last_billing_snapshot_at = _iso_to_epoch(slot.get("last_billing_snapshot_at"))
     if last_billing_snapshot_at <= 0.0:
+        return False
+    billing_age_seconds = _onemin_slot_actual_billing_age_seconds(slot)
+    if billing_age_seconds is None or billing_age_seconds > _onemin_billing_refresh_fresh_seconds():
         return False
     last_probe_at = _to_float(slot.get("last_probe_at"), 0.0, minimum=0.0)
     last_failure_at = _to_float(slot.get("last_failure_at"), 0.0, minimum=0.0)
@@ -3199,6 +3304,9 @@ def _onemin_slot_counts_as_dispatchable(
 
 
 def _onemin_hard_dispatchable_required_credits() -> int | None:
+    hard_override = _to_int(_env("EA_RESPONSES_ONEMIN_REQUIRED_CREDITS_HARD", ""), 0, minimum=0, maximum=1000000000)
+    if hard_override > 0:
+        return hard_override
     requirements: list[int] = []
     for model_name in _merge_unique(_onemin_hard_models(), _onemin_hard_fallback_models()):
         required_credits, _basis = _onemin_required_credits_for_selection(
@@ -3530,11 +3638,24 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
         and str(latest_snapshot.basis or "").strip().lower().startswith("actual")
         and billing_subject_match is False
     )
+    prefer_fresh_actual_billing_over_observed_error = bool(
+        latest_snapshot is not None
+        and latest_billing is not None
+        and latest_billing.remaining_credits is not None
+        and float(latest_billing.remaining_credits or 0.0) > 0.0
+        and str(latest_billing.basis or "").strip().lower().startswith("actual")
+        and billing_subject_match is not False
+        and latest_billing_epoch > 0.0
+        and (_now_epoch() - latest_billing_epoch) <= _onemin_billing_refresh_fresh_seconds()
+        and str(latest_snapshot.basis or "").strip().lower() == "observed_error"
+        and int(latest_snapshot.remaining_credits or 0) <= 0
+    )
     if (
         latest_snapshot is not None
         and latest_snapshot.remaining_credits is not None
         and latest_snapshot_epoch >= latest_billing_epoch
         and not latest_snapshot_is_mismatched_actual
+        and not prefer_fresh_actual_billing_over_observed_error
     ):
         observed_since_snapshot = _observed_spend_since(
             api_key=state.key,
@@ -4137,21 +4258,42 @@ def _normalize_provider(value: str) -> str:
         "magicx": "magixai",
         "magicxai": "magixai",
         "onemin": "onemin",
+        "browseract": "chatplayground",
     }
     return aliases.get(normalized, normalized)
 
 
-def _provider_order() -> tuple[str, ...]:
-    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
+def _provider_order_from_env(raw: str, *, fallback: tuple[str, ...], env_name: str) -> tuple[str, ...]:
     ordered: list[str] = []
+    unknown: list[str] = []
     seen: set[str] = set()
-    for item in raw.split(","):
+    for item in str(raw or "").split(","):
         provider_key = _normalize_provider(item)
-        if not provider_key or provider_key in seen:
+        if not provider_key:
+            continue
+        if provider_key in seen:
+            continue
+        if provider_key not in _KNOWN_PROVIDER_KEYS:
+            unknown.append(provider_key)
             continue
         seen.add(provider_key)
         ordered.append(provider_key)
-    return tuple(ordered or ("onemin", "gemini_vortex", "magixai"))
+    if unknown and env_name not in _PROVIDER_ORDER_WARNING_EMITTED:
+        _PROVIDER_ORDER_WARNING_EMITTED.add(env_name)
+        _LOG.warning(
+            "%s contains unknown providers (ignored): %s",
+            env_name,
+            ", ".join(sorted(set(unknown))),
+        )
+    if ordered:
+        return tuple(ordered)
+    valid_fallback = [key for key in fallback if key in _KNOWN_PROVIDER_KEYS]
+    return tuple(valid_fallback) if valid_fallback else ("onemin", "gemini_vortex", "magixai")
+
+
+def _provider_order() -> tuple[str, ...]:
+    raw = _env("EA_RESPONSES_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
+    return _provider_order_from_env(raw, fallback=("onemin", "gemini_vortex", "magixai"), env_name="EA_RESPONSES_PROVIDER_ORDER")
 
 
 def _cheap_provider_order() -> tuple[str, ...]:
@@ -4160,15 +4302,55 @@ def _cheap_provider_order() -> tuple[str, ...]:
 
 def _hard_provider_order() -> tuple[str, ...]:
     raw = _env("EA_RESPONSES_HARD_PROVIDER_ORDER", "onemin,gemini_vortex,magixai")
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for item in raw.split(","):
-        provider_key = _normalize_provider(item)
-        if not provider_key or provider_key in seen:
+    return _provider_order_from_env(raw, fallback=("onemin", "gemini_vortex", "magixai"), env_name="EA_RESPONSES_HARD_PROVIDER_ORDER")
+
+
+def _provider_row_is_ready(provider: dict[str, object]) -> bool:
+    state = str(provider.get("state") or "").strip().lower()
+    if state == "ready":
+        return True
+    slots = [dict(item) for item in (provider.get("slots") or []) if isinstance(item, dict)]
+    return any(str(slot.get("state") or "").strip().lower() == "ready" for slot in slots)
+
+
+def _onemin_provider_row_is_dispatchable(provider: dict[str, object]) -> bool:
+    if not isinstance(provider, dict) or not provider:
+        return False
+    for field_name in ("live_dispatchable_slot_count", "live_ready_slot_count", "ready_slot_count"):
+        value = provider.get(field_name)
+        if value in (None, ""):
             continue
-        seen.add(provider_key)
-        ordered.append(provider_key)
-    return tuple(ordered or ("onemin", "gemini_vortex", "magixai"))
+        if _to_int(value, 0, minimum=0, maximum=1000000) > 0:
+            return True
+    slot_state_counts = dict(provider.get("slot_state_counts") or {})
+    if _to_int(slot_state_counts.get("ready"), 0, minimum=0, maximum=1000000) > 0:
+        return True
+    return _provider_row_is_ready(provider)
+
+
+def _provider_order_for_lane_health(
+    *,
+    lane: str,
+    ordered: tuple[str, ...],
+) -> tuple[str, ...]:
+    if lane not in {_LANE_HARD, _LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
+        return ordered
+    if "onemin" not in ordered:
+        return ordered
+    providers = dict((_provider_health_snapshot(lightweight=True).get("providers") or {}))
+    onemin = dict(providers.get("onemin") or {})
+    if _onemin_provider_row_is_dispatchable(onemin):
+        return ordered
+    preferred: list[str] = []
+    if lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT} and _provider_row_is_ready(dict(providers.get("chatplayground") or {})):
+        preferred.append("chatplayground")
+    if _provider_row_is_ready(dict(providers.get("gemini_vortex") or {})):
+        preferred.append("gemini_vortex")
+    if _provider_row_is_ready(dict(providers.get("magixai") or {})):
+        preferred.append("magixai")
+    if not preferred:
+        return ordered
+    return tuple(dict.fromkeys([*preferred, *ordered]))
 
 
 def _effective_request_lane(*, requested_model: str, max_output_tokens: int | None = None) -> str:
@@ -4236,6 +4418,8 @@ def _provider_model_order_for_lane(
         return (requested,)
     if normalized in {item.lower() for item in _magicx_lane_models()}:
         return ()
+    if normalized in {ONEMIN_PUBLIC_MODEL, DEFAULT_PUBLIC_MODEL} or not normalized:
+        return _onemin_models()
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL or lane in {_LANE_REVIEW, _LANE_AUDIT, _LANE_REVIEW_LIGHT}:
         return _onemin_review_models()
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS, "chatplayground", "browseract"}:
@@ -4251,9 +4435,7 @@ def _provider_model_order_for_lane(
     if lane == _LANE_REVIEW:
         return _onemin_review_models()
     if lane in {_LANE_FAST, _LANE_OVERFLOW}:
-        return _onemin_code_models()
-    if normalized in {ONEMIN_PUBLIC_MODEL, DEFAULT_PUBLIC_MODEL} or not normalized:
-        return _onemin_models()
+        return _onemin_fast_candidate_models()
     return _onemin_models()
 
 
@@ -4339,6 +4521,28 @@ def _gemini_vortex_health_state() -> tuple[str, str]:
     else:
         ready = shutil.which(binary) is not None
     if ready:
+        slots = gemini_vortex_slot_status()
+        if slots:
+            failed_slots = [
+                dict(slot)
+                for slot in slots
+                if str(slot.get("last_result") or "").strip().lower() == "failed"
+            ]
+            if failed_slots and len(failed_slots) >= len(slots):
+                failure_details = [
+                    " ".join(str(slot.get("last_result_detail") or "").split()).strip()
+                    for slot in failed_slots
+                    if str(slot.get("last_result_detail") or "").strip()
+                ]
+                quota_failed = any(
+                    any(marker in detail.lower() for marker in ("terminalquotaerror", "quota", "resource_exhausted"))
+                    for detail in failure_details
+                )
+                if quota_failed:
+                    return ("degraded", "quota_exhausted")
+                if failure_details:
+                    return ("degraded", failure_details[0][:160])
+                return ("degraded", "all_slots_failed")
         return ("ready", command)
     return ("missing", f"command_not_found:{command}")
 
@@ -5063,6 +5267,7 @@ def _provider_candidates(
         provider_keys_by_lane = _review_audit_provider_order()
     else:
         provider_keys_by_lane = _provider_order()
+    provider_keys_by_lane = _provider_order_for_lane_health(lane=lane, ordered=provider_keys_by_lane)
 
     if normalized == DEFAULT_PUBLIC_MODEL or requested == "":
         # Keep the public default biased toward the fast lane. In the current
@@ -5131,7 +5336,10 @@ def _provider_candidates(
 
     if normalized == REVIEW_LIGHT_PUBLIC_MODEL:
         candidates: list[tuple[ProviderConfig, str]] = []
-        for provider_key in _review_audit_provider_order():
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_review_audit_provider_order(),
+        ):
             config = configs.get(provider_key)
             if config is None:
                 continue
@@ -5142,7 +5350,10 @@ def _provider_candidates(
 
     if normalized in {AUDIT_PUBLIC_MODEL, AUDIT_PUBLIC_MODEL_ALIAS}:
         candidates: list[tuple[ProviderConfig, str]] = []
-        for provider_key in _review_audit_provider_order():
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_review_audit_provider_order(),
+        ):
             config = configs.get(provider_key)
             if config is None:
                 continue
@@ -5152,15 +5363,25 @@ def _provider_candidates(
         return candidates
 
     if normalized in {"ea-review", "ea-critic"}:
-        return [
-            (configs["onemin"], model_name)
-            for model_name in _provider_model_order_for_lane("onemin", lane, requested)
-            or _onemin_review_models()
-        ]
+        candidates: list[tuple[ProviderConfig, str]] = []
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_review_audit_provider_order(),
+        ):
+            config = configs.get(provider_key)
+            if config is None:
+                continue
+            model_names = _provider_model_order_for_lane(provider_key, lane, requested) or config.default_models
+            for model_name in model_names:
+                candidates.append((config, model_name))
+        return candidates
 
     if normalized in {"ea-coder-hard", HARD_BATCH_PUBLIC_MODEL}:
         candidates: list[tuple[ProviderConfig, str]] = []
-        for provider_key in _hard_provider_order():
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_hard_provider_order(),
+        ):
             config = configs.get(provider_key)
             if config is None:
                 continue
@@ -5171,7 +5392,10 @@ def _provider_candidates(
 
     if normalized == HARD_RESCUE_PUBLIC_MODEL:
         candidates: list[tuple[ProviderConfig, str]] = []
-        for provider_key in _hard_provider_order():
+        for provider_key in _provider_order_for_lane_health(
+            lane=lane,
+            ordered=_hard_provider_order(),
+        ):
             config = configs.get(provider_key)
             if config is None:
                 continue
@@ -7433,6 +7657,143 @@ def estimate_credit_runway_with_topups(
     }
 
 
+def _onemin_billing_overview_json(structured_output_json: dict[str, object]) -> dict[str, object]:
+    value = structured_output_json.get("billing_overview_json")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _onemin_billing_subscription_json(structured_output_json: dict[str, object]) -> dict[str, object]:
+    value = structured_output_json.get("subscription")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _onemin_billing_topup_list(structured_output_json: dict[str, object]) -> list[dict[str, object]]:
+    value = structured_output_json.get("topup_list")
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _onemin_topup_interval(*, topup_type: str, subscription_cycle: str) -> timedelta | None:
+    normalized_type = str(topup_type or "").strip().upper()
+    normalized_cycle = str(subscription_cycle or "").strip().upper()
+    if normalized_type == "DAILY_FREE_CREDIT":
+        return timedelta(days=1)
+    if any(marker in normalized_type for marker in ("MONTH", "SUBSCRIPTION", "RENEW", "RECURRING")):
+        return timedelta(days=30 if normalized_cycle != "YEARLY" else 365)
+    if normalized_cycle == "YEARLY":
+        return timedelta(days=365)
+    if normalized_cycle == "MONTHLY" and normalized_type not in {"SIGNUP_CREDIT", "WELCOME_CREDIT"}:
+        return timedelta(days=30)
+    return None
+
+
+def _onemin_topup_category(*, topup_type: str, subscription_cycle: str) -> str:
+    normalized_type = str(topup_type or "").strip().upper()
+    normalized_cycle = str(subscription_cycle or "").strip().upper()
+    if normalized_type == "DAILY_FREE_CREDIT":
+        return "daily"
+    if any(marker in normalized_type for marker in ("MONTH", "SUBSCRIPTION", "RENEW", "RECURRING")):
+        return "subscription"
+    if normalized_cycle == "MONTHLY" and normalized_type not in {"SIGNUP_CREDIT", "WELCOME_CREDIT"}:
+        return "subscription"
+    return ""
+
+
+def _predict_onemin_billing_topup_for_category(
+    *,
+    structured_output_json: dict[str, object],
+    category: str,
+) -> tuple[str | None, float | None]:
+    normalized_category = str(category or "").strip().lower()
+    if normalized_category not in {"daily", "subscription"}:
+        return None, None
+    topups = _onemin_billing_topup_list(structured_output_json)
+    if not topups:
+        return None, None
+    subscription = _onemin_billing_subscription_json(structured_output_json)
+    overview = _onemin_billing_overview_json(structured_output_json)
+    subscription_cycle = str(subscription.get("cycle") or overview.get("billing_cycle") or "").strip()
+    by_type: dict[str, list[dict[str, object]]] = {}
+    for row in topups:
+        topup_type = str(row.get("type") or "").strip()
+        if not topup_type:
+            continue
+        if _onemin_topup_category(topup_type=topup_type, subscription_cycle=subscription_cycle) != normalized_category:
+            continue
+        by_type.setdefault(topup_type, []).append(row)
+
+    now = datetime.now(timezone.utc)
+    candidates: list[tuple[datetime, float | None]] = []
+    for topup_type, rows in by_type.items():
+        ordered = sorted(
+            rows,
+            key=lambda item: _parse_utc_datetime(item.get("createdAt")) or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        if not ordered:
+            continue
+        last_row = ordered[-1]
+        last_at = _parse_utc_datetime(last_row.get("createdAt"))
+        if last_at is None:
+            continue
+        interval = None
+        if len(ordered) >= 2:
+            previous_at = _parse_utc_datetime(ordered[-2].get("createdAt"))
+            if previous_at is not None:
+                delta = last_at - previous_at
+                if delta.total_seconds() > 0:
+                    interval = delta
+        if interval is None:
+            interval = _onemin_topup_interval(topup_type=topup_type, subscription_cycle=subscription_cycle)
+        if interval is None or interval.total_seconds() <= 0:
+            continue
+        next_at = last_at + interval
+        while next_at <= now:
+            next_at += interval
+        amount = None
+        try:
+            if last_row.get("credit") not in (None, ""):
+                amount = round(float(last_row.get("credit") or 0.0), 2)
+        except Exception:
+            amount = None
+        candidates.append((next_at, amount))
+    if not candidates:
+        return None, None
+    next_at, amount = sorted(candidates, key=lambda item: item[0])[0]
+    return next_at.isoformat().replace("+00:00", "Z"), amount
+
+
+def _merge_next_topup_candidate(
+    *,
+    current_at: str,
+    current_epoch: float,
+    current_amount: float,
+    current_amount_known: bool,
+    candidate_at: object,
+    candidate_amount: object,
+) -> tuple[str, float, float, bool]:
+    normalized_at = str(candidate_at or "").strip()
+    candidate_epoch = _iso_to_epoch(normalized_at)
+    next_at = current_at
+    next_epoch = current_epoch
+    amount_total = current_amount
+    amount_known = current_amount_known
+    if not normalized_at or candidate_epoch <= 0:
+        return next_at, next_epoch, amount_total, amount_known
+    if not next_at or next_epoch <= 0 or candidate_epoch < next_epoch:
+        next_at = normalized_at
+        next_epoch = candidate_epoch
+        amount_total = 0.0
+        amount_known = False
+    if normalized_at == next_at and candidate_amount not in (None, ""):
+        try:
+            amount_total += float(candidate_amount or 0.0)
+            amount_known = True
+        except Exception:
+            pass
+    return next_at, next_epoch, amount_total, amount_known
+
+
 def _compact_codex_status_report(
     *,
     window: str = "1h",
@@ -7494,9 +7855,10 @@ def _compact_codex_status_report(
     if principal_scoped:
         basis_summary = "principal_scoped_compact"
     else:
-        basis_summary = str(provider_health.get("provider_config") or {}).get("default_profile", "")
+        provider_config = dict(provider_health.get("provider_config") or {})
+        basis_summary = str(provider_config.get("default_profile") or "").strip()
         if not basis_summary:
-            basis_summary = str(provider_health.get("provider_config") or {}).get("default_lane", "")
+            basis_summary = str(provider_config.get("default_lane") or "").strip()
         if not basis_summary:
             basis_summary = "compact"
     return {
@@ -7592,6 +7954,10 @@ def codex_status_report(
                         "last_balance_observed_at": slot.get("last_billing_snapshot_at") or slot.get("last_balance_observed_at"),
                         "billing_next_topup_at": slot.get("billing_next_topup_at"),
                         "billing_topup_amount": slot.get("billing_topup_amount"),
+                        "billing_next_daily_topup_at": slot.get("billing_next_daily_topup_at"),
+                        "billing_daily_topup_amount": slot.get("billing_daily_topup_amount"),
+                        "billing_next_subscription_topup_at": slot.get("billing_next_subscription_topup_at"),
+                        "billing_subscription_topup_amount": slot.get("billing_subscription_topup_amount"),
                         "billing_rollover_enabled": slot.get("billing_rollover_enabled"),
                         "billing_plan_name": slot.get("billing_plan_name"),
                         "billing_cycle": slot.get("billing_cycle"),
@@ -7693,6 +8059,14 @@ def codex_status_report(
     next_topup_epoch = 0.0
     topup_amount_at_next_window = 0.0
     topup_amount_known = False
+    next_daily_topup_at = ""
+    next_daily_topup_epoch = 0.0
+    daily_topup_amount_at_next_window = 0.0
+    daily_topup_amount_known = False
+    next_subscription_topup_at = ""
+    next_subscription_topup_epoch = 0.0
+    subscription_topup_amount_at_next_window = 0.0
+    subscription_topup_amount_known = False
     daily_bonus_claimable_slot_count = 0
     daily_bonus_unavailable_slot_count = 0
     daily_bonus_unknown_slot_count = 0
@@ -7773,20 +8147,59 @@ def codex_status_report(
                 observed_usage_at_epoch,
             )
 
-        billing_topup_at = str(slot.get("billing_next_topup_at") or "").strip()
-        billing_topup_epoch = _iso_to_epoch(billing_topup_at)
-        if billing_topup_at and billing_topup_epoch > 0:
-            if not next_topup_at or next_topup_epoch <= 0 or billing_topup_epoch < next_topup_epoch:
-                next_topup_at = billing_topup_at
-                next_topup_epoch = billing_topup_epoch
-                topup_amount_at_next_window = 0.0
-                topup_amount_known = False
-            if billing_topup_at == next_topup_at and slot.get("billing_topup_amount") not in (None, ""):
-                try:
-                    topup_amount_at_next_window += float(slot.get("billing_topup_amount") or 0.0)
-                    topup_amount_known = True
-                except Exception:
-                    pass
+        generic_topup_at = str(slot.get("billing_next_topup_at") or "").strip()
+        generic_topup_amount = slot.get("billing_topup_amount")
+        generic_topup_epoch = _iso_to_epoch(generic_topup_at)
+        if generic_topup_epoch <= now:
+            generic_topup_at = ""
+            generic_topup_amount = None
+            fallback_candidates: list[tuple[float, str, object]] = []
+            daily_candidate_at = str(slot.get("billing_next_daily_topup_at") or "").strip()
+            daily_candidate_epoch = _iso_to_epoch(daily_candidate_at)
+            if daily_candidate_epoch > now:
+                fallback_candidates.append((daily_candidate_epoch, daily_candidate_at, slot.get("billing_daily_topup_amount")))
+            subscription_candidate_at = str(slot.get("billing_next_subscription_topup_at") or "").strip()
+            subscription_candidate_epoch = _iso_to_epoch(subscription_candidate_at)
+            if subscription_candidate_epoch > now:
+                fallback_candidates.append(
+                    (
+                        subscription_candidate_epoch,
+                        subscription_candidate_at,
+                        slot.get("billing_subscription_topup_amount"),
+                    )
+                )
+            if fallback_candidates:
+                _, generic_topup_at, generic_topup_amount = sorted(fallback_candidates, key=lambda item: item[0])[0]
+
+        next_topup_at, next_topup_epoch, topup_amount_at_next_window, topup_amount_known = _merge_next_topup_candidate(
+            current_at=next_topup_at,
+            current_epoch=next_topup_epoch,
+            current_amount=topup_amount_at_next_window,
+            current_amount_known=topup_amount_known,
+            candidate_at=generic_topup_at,
+            candidate_amount=generic_topup_amount,
+        )
+        next_daily_topup_at, next_daily_topup_epoch, daily_topup_amount_at_next_window, daily_topup_amount_known = _merge_next_topup_candidate(
+            current_at=next_daily_topup_at,
+            current_epoch=next_daily_topup_epoch,
+            current_amount=daily_topup_amount_at_next_window,
+            current_amount_known=daily_topup_amount_known,
+            candidate_at=slot.get("billing_next_daily_topup_at"),
+            candidate_amount=slot.get("billing_daily_topup_amount"),
+        )
+        (
+            next_subscription_topup_at,
+            next_subscription_topup_epoch,
+            subscription_topup_amount_at_next_window,
+            subscription_topup_amount_known,
+        ) = _merge_next_topup_candidate(
+            current_at=next_subscription_topup_at,
+            current_epoch=next_subscription_topup_epoch,
+            current_amount=subscription_topup_amount_at_next_window,
+            current_amount_known=subscription_topup_amount_known,
+            candidate_at=slot.get("billing_next_subscription_topup_at"),
+            candidate_amount=slot.get("billing_subscription_topup_amount"),
+        )
 
         member_reconciliation_at = _iso_to_epoch(slot.get("member_reconciliation_at"))
         if member_reconciliation_at > 0:
@@ -7898,6 +8311,10 @@ def codex_status_report(
         "burn_basis": effective_burn_basis,
         "next_topup_at": next_topup_at or None,
         "topup_amount": round(topup_amount_at_next_window, 2) if topup_amount_known else None,
+        "next_daily_topup_at": next_daily_topup_at or None,
+        "daily_topup_amount": round(daily_topup_amount_at_next_window, 2) if daily_topup_amount_known else None,
+        "next_subscription_topup_at": next_subscription_topup_at or None,
+        "subscription_topup_amount": round(subscription_topup_amount_at_next_window, 2) if subscription_topup_amount_known else None,
         "daily_bonus_claimable_slot_count": daily_bonus_claimable_slot_count,
         "daily_bonus_unavailable_slot_count": daily_bonus_unavailable_slot_count,
         "daily_bonus_unknown_slot_count": daily_bonus_unknown_slot_count,
@@ -7965,6 +8382,10 @@ def codex_status_report(
             "hours_remaining_at_current_pace": onemin.get("estimated_hours_remaining_at_current_pace"),
             "next_topup_at": onemin_billing_aggregate.get("next_topup_at"),
             "topup_amount": onemin_billing_aggregate.get("topup_amount"),
+            "next_daily_topup_at": onemin_billing_aggregate.get("next_daily_topup_at"),
+            "daily_topup_amount": onemin_billing_aggregate.get("daily_topup_amount"),
+            "next_subscription_topup_at": onemin_billing_aggregate.get("next_subscription_topup_at"),
+            "subscription_topup_amount": onemin_billing_aggregate.get("subscription_topup_amount"),
             "hours_until_next_topup": onemin_billing_aggregate.get("hours_until_next_topup"),
             "hours_remaining_at_current_pace_no_topup": onemin_billing_aggregate.get("hours_remaining_at_current_pace_no_topup"),
             "hours_remaining_including_next_topup_at_current_pace": onemin_billing_aggregate.get(
@@ -8116,6 +8537,13 @@ def record_onemin_billing_snapshot(
             happened_at=_iso_to_epoch(snapshot.observed_at) or None,
             detail="1min_billing_usage_page",
         )
+    _maybe_update_onemin_ltd_markdown(
+        account_name=snapshot.account_name,
+        observed_at=snapshot.observed_at,
+        remaining_credits=snapshot.remaining_credits,
+        next_topup_at=snapshot.next_topup_at,
+        topup_amount=snapshot.topup_amount,
+    )
     return {
         "provider_key": snapshot.provider_key,
         "account_name": snapshot.account_name,
@@ -8554,15 +8982,19 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
         billing_team_match = _onemin_billing_snapshot_matches_credit_subject(account_name=account_name, latest_billing=latest_billing)
         billing_team_mismatch = billing_team_match is False
         billing_team_subject = str(onemin_credit_subject_hint_for_account(account_name=account_name).get("credit_subject") or "").strip()
-        latest_billing_overview = (
-            dict(latest_billing_structured.get("billing_overview_json") or {})
-            if isinstance(latest_billing_structured.get("billing_overview_json"), dict)
-            else {}
-        )
+        latest_billing_overview = _onemin_billing_overview_json(latest_billing_structured)
         latest_billing_usage_summary = (
             dict(latest_billing_structured.get("usage_summary_json") or {})
             if isinstance(latest_billing_structured.get("usage_summary_json"), dict)
             else {}
+        )
+        billing_next_daily_topup_at, billing_daily_topup_amount = _predict_onemin_billing_topup_for_category(
+            structured_output_json=latest_billing_structured,
+            category="daily",
+        )
+        billing_next_subscription_topup_at, billing_subscription_topup_amount = _predict_onemin_billing_topup_for_category(
+            structured_output_json=latest_billing_structured,
+            category="subscription",
         )
         billing_plan_name = str(latest_billing_overview.get("plan_name") or "").strip() or None
         billing_cycle = str(latest_billing_overview.get("billing_cycle") or "").strip() or None
@@ -8653,6 +9085,10 @@ def _provider_health_report(*, lightweight: bool = False) -> dict[str, object]:
             "billing_used_percent": latest_billing.used_percent if latest_billing is not None else None,
             "billing_next_topup_at": latest_billing.next_topup_at if latest_billing is not None else None,
             "billing_topup_amount": latest_billing.topup_amount if latest_billing is not None else None,
+            "billing_next_daily_topup_at": billing_next_daily_topup_at,
+            "billing_daily_topup_amount": billing_daily_topup_amount,
+            "billing_next_subscription_topup_at": billing_next_subscription_topup_at,
+            "billing_subscription_topup_amount": billing_subscription_topup_amount,
             "billing_rollover_enabled": latest_billing.rollover_enabled if latest_billing is not None else None,
             "billing_basis": latest_billing.basis if latest_billing is not None else None,
             "billing_team_id": billing_team_id or None,

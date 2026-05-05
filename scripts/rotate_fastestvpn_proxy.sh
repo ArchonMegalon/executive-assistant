@@ -15,6 +15,43 @@ compose_cmd=(
   -f docker-compose.fastestvpn.yml
 )
 
+service_name="${FASTESTVPN_ROTATE_SERVICE_NAME:-ea-fastestvpn-proxy}"
+config_file_arg=""
+
+while (( "$#" > 0 )); do
+  case "${1:-}" in
+    --service)
+      service_name="${2:-}"
+      if [[ -z "${service_name}" ]]; then
+        printf '[rotate-fastestvpn-proxy] --service requires a compose service name\n' >&2
+        exit 2
+      fi
+      shift 2
+      ;;
+    --help|-h)
+      cat <<'EOF'
+Usage: rotate_fastestvpn_proxy.sh [--service SERVICE] [--list|OVPN_CONFIG_PATH]
+
+Without an argument, recreate the selected FastestVPN proxy with the configured
+selection policy. With OVPN_CONFIG_PATH, pin that OpenVPN config for this run.
+EOF
+      exit 0
+      ;;
+    --list)
+      find "${ROOT_DIR}/vpn/fastestvpn" -maxdepth 1 -type f -name "${FASTESTVPN_CONFIG_GLOB:-*.ovpn}" | sort
+      exit 0
+      ;;
+    *)
+      if [[ -n "${config_file_arg}" ]]; then
+        printf '[rotate-fastestvpn-proxy] only one OVPN_CONFIG_PATH may be provided\n' >&2
+        exit 2
+      fi
+      config_file_arg="$1"
+      shift
+      ;;
+  esac
+done
+
 wait_for_proxy_healthy() {
   local timeout_seconds="${FASTESTVPN_PROXY_HEALTH_TIMEOUT_SECONDS:-180}"
   local start_ts
@@ -44,13 +81,13 @@ for row in rows:
     if not isinstance(row, dict):
         continue
     service = str(row.get("Service") or row.get("Name") or "")
-    if service == "ea-fastestvpn-proxy" or service.endswith("ea-fastestvpn-proxy"):
+    if service == "${service_name}" or service.endswith("${service_name}"):
         print(str(row.get("Health") or row.get("State") or ""))
         break
 '
 )" || health=""
     else
-      health="$(docker inspect ea-fastestvpn-proxy --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true)"
+      health="$(docker inspect "${service_name}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true)"
     fi
     if [[ "${health,,}" == "healthy" ]]; then
       return 0
@@ -58,9 +95,9 @@ for row in rows:
     if (( "$(date +%s)" - start_ts >= timeout_seconds )); then
       printf '[rotate-fastestvpn-proxy] proxy did not become healthy within %ss\n' "${timeout_seconds}" >&2
       if (( compose_available == 1 )); then
-        "${compose_cmd[@]}" ps ea-fastestvpn-proxy >&2 || true
+        "${compose_cmd[@]}" ps "${service_name}" >&2 || true
       else
-        docker ps --filter name=^/ea-fastestvpn-proxy$ >&2 || true
+        docker ps --filter "name=^/${service_name}$" >&2 || true
       fi
       return 1
     fi
@@ -68,23 +105,8 @@ for row in rows:
   done
 }
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  cat <<'EOF'
-Usage: rotate_fastestvpn_proxy.sh [--list|OVPN_CONFIG_PATH]
-
-Without an argument, recreate the FastestVPN proxy with the configured random
-selection policy. With OVPN_CONFIG_PATH, pin that OpenVPN config for this run.
-EOF
-  exit 0
-fi
-
-if [[ "${1:-}" == "--list" ]]; then
-  find "${ROOT_DIR}/vpn/fastestvpn" -maxdepth 1 -type f -name "${FASTESTVPN_CONFIG_GLOB:-*.ovpn}" | sort
-  exit 0
-fi
-
-if [[ -n "${1:-}" ]]; then
-  export FASTESTVPN_CONFIG_FILE="$1"
+if [[ -n "${config_file_arg}" ]]; then
+  export FASTESTVPN_CONFIG_FILE="${config_file_arg}"
   printf '[rotate-fastestvpn-proxy] pinned config: %s\n' "${FASTESTVPN_CONFIG_FILE}"
 else
   unset FASTESTVPN_CONFIG_FILE || true
@@ -92,17 +114,17 @@ else
 fi
 
 if (( compose_available == 1 )); then
-  "${compose_cmd[@]}" up -d --build --force-recreate --no-deps ea-fastestvpn-proxy
+  "${compose_cmd[@]}" up -d --build --force-recreate --no-deps "${service_name}"
 elif [[ -n "${FASTESTVPN_CONFIG_FILE:-}" ]]; then
   printf '[rotate-fastestvpn-proxy] pinned config rotation requires docker compose support\n' >&2
   exit 1
 else
-  docker restart ea-fastestvpn-proxy >/dev/null
+  docker restart "${service_name}" >/dev/null
 fi
 wait_for_proxy_healthy
 
 if (( compose_available == 1 )); then
-  "${compose_cmd[@]}" ps ea-fastestvpn-proxy
+  "${compose_cmd[@]}" ps "${service_name}"
 else
-  docker ps --filter name=^/ea-fastestvpn-proxy$
+  docker ps --filter "name=^/${service_name}$"
 fi

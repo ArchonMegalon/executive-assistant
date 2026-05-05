@@ -315,6 +315,19 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     assert "http://127.0.0.1:8091/health/ready" in compose
 
 
+def test_cloudflared_tunnel_is_only_available_via_override() -> None:
+    base_compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    tunnel_override = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    environment_matrix = (ROOT / "ENVIRONMENT_MATRIX.md").read_text(encoding="utf-8")
+
+    assert "ea-cloudflared" not in base_compose
+    assert "ea-cloudflared" in tunnel_override
+    assert "TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}" in tunnel_override
+    assert "docker-compose.cloudflared.yml" in readme
+    assert "EA_CF_TUNNEL_TOKEN" in environment_matrix
+
+
 def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
@@ -1034,6 +1047,19 @@ def test_chummer6_public_writer_skill_slice_is_documented_and_guarded() -> None:
     assert "test_ea_json_missing_writer_skill_does_not_fall_back_to_visual_director" in worker_test
     assert "apply_skill_payload(EA_CONTAINER.skills, payload)" not in worker
     assert "current `chummer6_guide_worker.py` generation path" in skills_doc
+    assert "public_screenshot_registry" not in skills_doc
+
+
+def test_chummer6_visual_skill_slice_tracks_image_curation_and_local_mirror_contracts() -> None:
+    skills_doc = (ROOT / "SKILLS.md").read_text(encoding="utf-8")
+    bootstrap_script = (ROOT / "scripts/bootstrap_chummer6_guide_skill.py").read_text(encoding="utf-8")
+    image_curation = (ROOT / ".codex-design" / "product" / "PUBLIC_GUIDE_IMAGE_CURATION.yaml").read_text(encoding="utf-8")
+
+    assert "public_guide_image_curation" in skills_doc
+    assert "public_guide_image_curation" in bootstrap_script
+    assert "page_image_policy_source" in bootstrap_script
+    assert "PUBLIC_SCREENSHOT_REGISTRY.yaml" not in bootstrap_script
+    assert "assets/hero/chummer6-hero.png" in image_curation
 
 
 def test_browseract_bootstrap_manager_skill_slice_is_documented_and_guarded() -> None:

@@ -1,0 +1,98 @@
+contract_name: ea.chummer_explain_narration_packet_pack
+package_id: next90-m145-ea-grounded-explain-narration-packs
+milestone_id: 145
+frontier_id: 1454045404
+wave: W28
+generated_at: "2026-05-05T10:35:00Z"
+status: complete
+title: Compile grounded narration and follow-up packs strictly from explanation-packet and counterfactual truth
+owned_surfaces:
+  - explain_packet_narration:ea
+  - grounded_follow_up_compile:ea
+governed_truth_bundle:
+  bundle_id: ea-m145-grounded-explain-v1
+  purpose: Compile optional narration and bounded follow-up copy from approved ExplanationPacket and CounterfactualPacket truth without granting EA arithmetic or trigger authority.
+  consumer_surfaces:
+    - explain_packet_narration:ea
+    - grounded_follow_up_compile:ea
+  upstream_truth_authority:
+    - /docker/chummercomplete/chummer-design/products/chummer/EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md
+    - /docker/chummercomplete/chummer-design/products/chummer/SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md
+packet_requirements:
+  explanation_packet:
+    required_fields:
+      - packet_id
+      - value_ref
+      - snapshot_ref
+      - rule_environment_ref
+      - final_value
+      - arithmetic_verified
+      - steps
+      - source_anchors
+      - stale_if_snapshot_changes
+      - privacy_class
+    use_rule: Compile may summarize only the packet fields that are present, current, and approved for the target privacy class.
+  counterfactual_packet:
+    optional_for:
+      - why_not
+      - what_if
+      - what_changed
+    required_fields:
+      - packet_id
+      - action_id
+      - source_explanation_packet_id
+      - predicted_value
+      - changed_steps
+      - bounded_reason
+    use_rule: If a requested follow-up class requires a counterfactual or diff packet and none is present, the compile must refuse gracefully and route the user back to first-party text inspection.
+compile_contract:
+  narration_pack:
+    required_sections:
+      - packet_identity
+      - current_result
+      - rule_path_summary
+      - applied_and_skipped_factors
+      - cap_floor_rounding_summary
+      - source_anchor_summary
+      - stale_state_warning
+      - inspect_packet_cta
+    style_rules:
+      - Keep wording subordinate to packet truth.
+      - Mention factors only if they appear in the packet.
+      - Prefer short factual sentences over persuasive voice.
+      - Never rewrite blocker severity into reassuring copy.
+  grounded_follow_up_pack:
+    required_sections:
+      - question_class
+      - packet_dependency
+      - approved_answer
+      - answer_limits
+      - inspect_counterfactual_cta
+    allowed_question_classes:
+      - why
+      - why_not
+      - what_if
+      - what_changed
+      - source_anchor
+    refusal_rule: Unsupported or missing packet classes must produce an unavailable response with the missing packet reason instead of guessed advice.
+prohibited_behaviors:
+  - Inventing arithmetic steps, rule citations, or skipped modifiers not present in the packet family.
+  - Treating narration as fresher than a stale packet warning.
+  - Expanding privacy scope beyond the packet privacy_class.
+  - Issuing execution advice that bypasses first-party follow-up affordances.
+  - Hiding missing source anchors behind generic wording such as "the rules say".
+fail_closed_posture:
+  stale_snapshot: Emit a stale warning and require packet refresh before narrating the value as current truth.
+  missing_anchor: State that source-anchor proof is unavailable and keep the answer bounded to packet-visible arithmetic or decision steps.
+  missing_counterfactual: Refuse the why-not or what-if answer and point back to the first-party explain drawer.
+  arithmetic_unverified: Do not narrate certainty; emit unavailable.
+quality_gates:
+  required_labels:
+    - packet_grounded
+    - text_first_fallback
+    - no_arithmetic_authority
+  rejection_markers:
+    - guessed
+    - probably
+    - maybe the rule
+    - should be around

@@ -371,31 +371,36 @@ class SkillCatalogService:
         return self.record_to_skill(record)
 
     def list_skill_records(self, limit: int = 100, provider_hint: str = "") -> list[SkillCatalogRecord]:
-        normalized_provider_hint = str(provider_hint or "").strip().lower()
+        raw_provider_hint = str(provider_hint or "").strip()
+        normalized_provider_hint = raw_provider_hint.lower()
         fetch_limit = 500 if normalized_provider_hint else limit
         rows = [
             self.policy_record_to_skill_record(contract)
             for contract in self._task_contracts.list_policy_records(limit=fetch_limit)
         ]
+        projected_rows: list[SkillCatalogRecord] = []
         if normalized_provider_hint:
-            projected = [
+            projected_rows = [
                 self.policy_record_to_skill_record(self._task_contracts.contract_to_policy_record(contract))
                 for contract in self._task_contracts.list_projected_contracts(
                     provider_hint=provider_hint,
                     limit=fetch_limit,
                 )
             ]
-            if projected:
-                rows.extend(projected)
         if normalized_provider_hint:
-            rows = [
+            filtered_rows = [
                 row
                 for row in rows
                 if any(
-                    normalized_provider_hint in candidate.lower()
+                    normalized_provider_hint == candidate.lower()
                     for candidate in _collect_string_values(row.provider_hints_json)
                 )
             ]
+            if normalized_provider_hint in {"ltd", "ltd-runtime", "ltd_runtime", "ltdruntime"}:
+                rows = [*filtered_rows, *projected_rows]
+            else:
+                projected_hint_requested = any(token in raw_provider_hint for token in (".", " ", "-"))
+                rows = filtered_rows or (projected_rows if projected_hint_requested else [])
         deduped: list[SkillCatalogRecord] = []
         seen: set[str] = set()
         for row in rows:

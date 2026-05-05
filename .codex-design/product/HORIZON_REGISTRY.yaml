@@ -24,6 +24,14 @@ optional_fields:
 - booster_nudge
 - free_later_intent
 - recognition_eligible
+required_doc_sections:
+- Table pain
+- Bounded product move
+- Likely owners
+- Foundations
+- Build path
+- Owner handoff gate
+- Why still a horizon
 horizons:
 - id: nexus-pan
   title: NEXUS-PAN
@@ -52,7 +60,11 @@ horizons:
   - B0
   tool_posture:
     promoted: []
-    bounded: []
+    bounded:
+    - Emailit
+    - Documentation.AI
+    - PeekShot
+    - BrowserAct
   success_signals:
   - Replay-safe reconnect is boringly reliable across devices.
   - Shared-state drift is observable and receipts are available when confidence breaks.
@@ -70,8 +82,8 @@ horizons:
     enabled: true
     order: 20
   pain_label: We only discover weak builds after they explode in public.
-  wow_promise: Builders get grounded what-if checks instead of vague AI advice.
-  table_scene: A player compares two builds and sees the tradeoffs, the math, and the likely trouble spots before the session starts.
+  wow_promise: Builders can branch the same runner into temporary build ghosts, compare grounded tradeoffs, and commit only the variant they trust.
+  table_scene: A player compares two temporary ghosts of the same runner, sees the tradeoffs, the math, and the likely trouble spots, then applies only the reviewed variant.
   build_path:
     intent: eventual_product_lane
     current_state: horizon
@@ -92,14 +104,18 @@ horizons:
     bounded:
     - 1min.AI
     - Prompting Systems
+    - MarkupGo
+    - PeekShot
   success_signals:
   - Comparison outputs stay tied to core receipts.
   - Build suggestions do not invent mechanics or legality.
+  - Ghost variants can be spawned, compared, discarded, and applied without mutating the canonical runner out of order.
   artifact_types:
   - build comparison brief
+  - build ghost compare bench
   - what-if receipt packet
   public_signal_eligible: true
-  owner_handoff_gate: Simulation and comparison output must consume core-owned truth rather than assistant-side heuristics.
+  owner_handoff_gate: Build-ghost comparison and apply flows must consume core-owned truth and explicit apply receipts rather than assistant-side heuristics or silent runner mutation.
 - id: karma-forge
   title: KARMA FORGE
   status: horizon
@@ -229,6 +245,7 @@ horizons:
   - E2b
   tool_posture:
     promoted:
+    - vidBoard
     - MarkupGo
     - Soundmadeseen
     - PeekShot
@@ -289,6 +306,12 @@ horizons:
   - F1
   tool_posture:
     promoted:
+    - Teable
+    - NextStep
+    - ApproveThis
+    - Signitic
+    - Emailit
+    bounded:
     - vidBoard
     - MarkupGo
     - PeekShot
@@ -296,16 +319,8 @@ horizons:
     - MetaSurvey
     - Deftform
     - Lunacal
-    - NextStep
-    bounded:
-    - Unmixr AI
     - BrowserAct
-    - ApproveThis
-    - Browserly
     - Documentation.AI
-    - FacePop
-    - Icanpreneur
-    - Signitic
     - Taja
   success_signals:
   - GM-only pilots can adopt job packets without semantic confusion between campaign and world objects.
@@ -363,10 +378,13 @@ horizons:
   - F1
   tool_posture:
     promoted:
+    - Teable
     - Lunacal
     - Deftform
     - NextStep
     - MetaSurvey
+    - ApproveThis
+    - Emailit
     bounded:
     - FacePop
     - Signitic
@@ -426,6 +444,7 @@ horizons:
     - AvoMap
     - PeekShot
     bounded:
+    - vidBoard
     - Soundmadeseen
     - BrowserAct
     - Browserly
@@ -469,9 +488,10 @@ horizons:
     - First Book ai
     - MarkupGo
     - Documentation.AI
+    - vidBoard
+    - Soundmadeseen
     bounded:
     - Paperguide
-    - Soundmadeseen
     - Unmixr AI
   success_signals:
   - Long-form outputs keep publication manifests, source packs, and editorial approvals aligned.
@@ -518,9 +538,9 @@ horizons:
   tool_posture:
     promoted:
     - PeekShot
+    - MarkupGo
     - Soundmadeseen
     bounded:
-    - MarkupGo
     - Mootion
     - Paperguide
   success_signals:
@@ -558,9 +578,11 @@ horizons:
   - D2
   - E2b
   tool_posture:
-    promoted: []
-    bounded:
+    promoted:
     - Nonverbia
+    bounded:
+    - hedy.ai
+    - vidBoard
     - Soundmadeseen
     - Unmixr AI
     - MarkupGo
@@ -606,6 +628,7 @@ horizons:
     - 1min.AI
     - AI Magicx
     - BrowserAct
+    - Documentation.AI
   success_signals:
   - Optional local execution never becomes a required runtime hop.
   - Portable engine hosts and local acceleration can be turned off without breaking product flows.

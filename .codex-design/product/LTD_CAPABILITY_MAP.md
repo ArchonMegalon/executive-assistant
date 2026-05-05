@@ -25,7 +25,7 @@ It does not imply that every owned tool must be integrated.
 * `ProductLift` - public feedback, voting, roadmap projection, changelog projection, and voter closeout lane
 * `Soundmadeseen` - narrated media, recap, and briefing clips
 * `Signitic` - passive outreach and signature-campaign projection lane
-* `Emailit` - outbound delivery provider candidate for Hub-owned lifecycle, digest, and closeout mail
+* `Emailit` - promoted outbound delivery provider for Hub-owned lifecycle, digest, and closeout mail
 * `Taja` - approved media repurposing and distribution lane
 * `Teable` - operator admin projection and AdminIntent workbench, never system of record
 * `vidBoard` - structured presenter-video and multilingual walkthrough lane
@@ -153,48 +153,51 @@ The current leverage is wiring, governance, and receipts, not another generic AI
 * `Backona AI` - operator question layer over GA4/Search Console only if ClickRank, PostHog, and GSC dashboards are not getting used.
 * `Visby` - optional AI-answer visibility and competitor/gap monitoring after ClickRank and Katteb are already in use.
 
-Do not chase more generic AI writers, support widgets, no-code databases, meeting recorders, project-management apps, or video generators until the six composed product systems above produce receipts.
+Do not chase more generic AI writers, support widgets, no-code databases, meeting recorders, project-management apps, or video generators until the composed product systems above produce receipts.
 
 ## Horizon capability map
 
+Any public-eligible horizon may additionally use `ProductLift`, `Icanpreneur`, `MetaSurvey`, `FacePop`, `Deftform`, `Lunacal`, `Signitic`, and `Emailit` as discovery, intake, amplification, or closeout lanes only. Those systems may shape demand evidence and user followthrough, but they do not become runtime or canon truth.
+
+* `nexus-pan`
+  No promoted LTD should own continuity truth.
+  `Emailit`, `Documentation.AI`, `PeekShot`, and `BrowserAct` stay bounded helper lanes for reconnect notices, recovery help, continuity receipts, and operator capture only.
+* `alice`
+  `AI Magicx` is the promoted compare-brief and explain-helper lane around engine-owned build truth.
+  `1min.AI` and `Prompting Systems` are bounded draft and style helpers.
+  `MarkupGo` and `PeekShot` are bounded compare-packet and receipt-preview lanes.
+  `FacePop` and other public concierge tools remain outside the runtime feature path.
+* `knowledge-fabric`
+  `Prompting Systems`, `Documentation.AI`, and `AI Magicx` are the promoted explain/docs projection lanes.
+  `1min.AI`, `BrowserAct`, and `Paperguide` remain bounded specialist, capture, and citation helpers only.
 * `jackpoint`
-  `vidBoard` is the promoted structured presenter-video lane for dossiers, briefings, explainers, and creator promo clips.
-  `Soundmadeseen` is the promoted narration lane for recap and briefing media.
-  `Unmixr AI` is bounded candidate voice only.
-  `Browserly` is bounded evidence and reference capture only.
+  `vidBoard`, `MarkupGo`, `Soundmadeseen`, `PeekShot`, and `Documentation.AI` are the promoted packet, video, narration, preview, and docs lanes.
+  `Unmixr AI`, `Mootion`, `Paperguide`, and `First Book ai` remain bounded helper lanes only.
+* `black-ledger`
+  `Teable`, `NextStep`, `ApproveThis`, `Signitic`, and `Emailit` are the promoted world-ops, approval, projection, and digest lanes.
+  `vidBoard`, `MarkupGo`, `PeekShot`, `Soundmadeseen`, and `Taja` are bounded downstream world-output lanes only.
+  `MetaSurvey`, `Deftform`, `Lunacal`, `BrowserAct`, and `Documentation.AI` remain bounded discovery, intake, capture, and support helpers.
+* `community-hub`
+  `Deftform`, `Lunacal`, `MetaSurvey`, `Teable`, `NextStep`, `ApproveThis`, and `Emailit` are the promoted intake, scheduling, review, operator, and closeout lanes.
+  `FacePop`, `Signitic`, `vidBoard`, `Taja`, `hedy.ai`, `Nonverbia`, and `BrowserAct` remain bounded public-entry, debrief, and recap helpers only.
 * `runsite`
-  `vidBoard` is the promoted orientation-host clip lane.
   `Crezlo Tours`, `AvoMap`, and `PeekShot` are the promoted explorable/location lanes.
-  `Soundmadeseen` is an optional narration layer.
-  `Browserly` is bounded capture and reference support only.
+  `vidBoard` and `Soundmadeseen` are bounded orientation and narration layers.
+  `BrowserAct` and `Browserly` are bounded capture and reference support only.
 * `runbook-press`
-  `vidBoard` is the promoted campaign primer and module explainer video lane.
-  `First Book ai`, `MarkupGo`, and `Documentation.AI` are the promoted authoring/export lanes.
-  `Soundmadeseen` is the promoted narrated companion lane.
-  `Unmixr AI` and `Browserly` remain bounded helper lanes only.
+  `First Book ai`, `MarkupGo`, `Documentation.AI`, `vidBoard`, and `Soundmadeseen` are the promoted authoring, export, explainer, and narrated companion lanes.
+  `Paperguide` and `Unmixr AI` remain bounded helper lanes only.
 * `karma-forge`
-  `Icanpreneur` is the promoted discovery interview and synthesis lane for house-rule demand.
-  `Deftform`, `Lunacal`, and `MetaSurvey` are the promoted pre-screen, follow-up, and quant-validation lanes.
-  `NextStep` is the promoted governed process runner for discovery sprints and prototype approvals.
-  `Teable` is the promoted review-board and AdminIntent surface for candidate triage.
-  `FacePop` and `Signitic` are bounded recruitment-entry and passive amplification lanes only.
-  `Taja` and `vidBoard` are bounded approved-media lanes for discovery explainers only.
-
-## Table coaching / social dynamics
-
-Horizon fit:
-
-* `TABLE PULSE`
-
-Current cluster:
-
-* `Nonverbia`
-* `hedy.ai`
-* bounded `vidBoard`
-* bounded `Soundmadeseen`
-* bounded `Unmixr AI`
-* bounded `MarkupGo`
-* bounded `PeekShot`
-
-Working rule:
-These tools may generate post-session coaching views and narrated guidance, but they do not become session truth, discipline systems, moderation truth, or player-scoring authority.
+  `Icanpreneur`, `Deftform`, `Lunacal`, `MetaSurvey`, `Teable`, `NextStep`, and `ApproveThis` are the promoted discovery, triage, and governed process lanes.
+  `FacePop`, `Signitic`, `Emailit`, `Taja`, `vidBoard`, `Prompting Systems`, and `AI Magicx` are bounded recruitment, closeout, and approved explainer lanes only.
+* `ghostwire`
+  `PeekShot`, `MarkupGo`, and `Soundmadeseen` are the promoted replay-surface, report, and narrated recap lanes.
+  `Mootion` and `Paperguide` remain bounded replay-video and cited reconstruction helpers only.
+* `table-pulse`
+  `Nonverbia` is the promoted primary coaching and social-dynamics lane.
+  `hedy.ai`, `vidBoard`, `Soundmadeseen`, `Unmixr AI`, `MarkupGo`, and `PeekShot` remain bounded debrief, recap, narration, render, and preview helpers only.
+  These tools may generate post-session coaching views and narrated guidance, but they do not become session truth, discipline systems, moderation truth, or player-scoring authority.
+* `local-co-processor`
+  No promoted external tool should own local acceleration truth.
+  `1min.AI`, `AI Magicx`, `BrowserAct`, and `Documentation.AI` remain bounded hosted-local parity, operator capture, and guidance helpers only.
+  These tools may help benchmark or explain hosted-local parity, but they do not become the owner of local acceleration truth or required runtime availability.

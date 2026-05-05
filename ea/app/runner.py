@@ -5,6 +5,7 @@ import logging
 import os
 import signal
 import time
+import urllib.error
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
@@ -23,6 +24,7 @@ _SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
+_SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -74,6 +76,13 @@ def _scheduler_google_signal_sync_interval_seconds() -> float:
 
 def _scheduler_google_signal_sync_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_ENABLED", True)
+
+
+def _scheduler_google_signal_sync_forbidden_cooldown_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWN_SECONDS",
+        21600.0,
+    )
 
 
 def _scheduler_pocket_signal_sync_interval_seconds() -> float:
@@ -635,7 +644,21 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
     attempted = 0
     synced = 0
     error_count = 0
+    skipped = 0
+    forbidden_cooldown_seconds = _scheduler_google_signal_sync_forbidden_cooldown_seconds()
+    now_epoch = time.time()
     for principal_id in principal_ids:
+        blocked_until = float(_SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS.get(principal_id) or 0.0)
+        if blocked_until > now_epoch:
+            skipped += 1
+            log.info(
+                "scheduler google signal sync skipped principal=%s reason=http_403_cooldown retry_in=%ss",
+                principal_id,
+                max(1, int(blocked_until - now_epoch)),
+            )
+            continue
+        if blocked_until > 0.0:
+            _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS.pop(principal_id, None)
         attempted += 1
         try:
             summary = service.sync_google_workspace_signals(
@@ -653,6 +676,19 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
                 principal_id,
                 str(exc or "unknown_error"),
             )
+        except urllib.error.HTTPError as exc:
+            error_count += 1
+            if exc.code in {401, 403} and forbidden_cooldown_seconds > 0.0:
+                blocked_until = time.time() + forbidden_cooldown_seconds
+                _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS[principal_id] = blocked_until
+                log.warning(
+                    "scheduler google signal sync auth blocked principal=%s status=%s cooldown_until=%s",
+                    principal_id,
+                    exc.code,
+                    datetime.fromtimestamp(blocked_until, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                )
+                continue
+            log.exception("scheduler google signal sync failed principal=%s", principal_id)
         except Exception:
             error_count += 1
             log.exception("scheduler google signal sync failed principal=%s", principal_id)
@@ -661,6 +697,7 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
         "attempted": attempted,
         "synced": synced,
         "errors": error_count,
+        "skipped": skipped,
     }
 
 

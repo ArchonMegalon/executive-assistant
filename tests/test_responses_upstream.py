@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import time
@@ -792,6 +793,7 @@ def test_pick_onemin_key_accepts_fresh_actual_billing_newer_than_depleted_probe(
 ) -> None:
     keys = ("fresh-billing", "stale-depleted")
 
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
     monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
     monkeypatch.setattr(upstream, "_clean_onemin_states", lambda _keys: None)
     monkeypatch.setattr(upstream, "_now_epoch", lambda: 2000.0)
@@ -819,7 +821,7 @@ def test_pick_onemin_key_accepts_fresh_actual_billing_newer_than_depleted_probe(
                             "last_probe_result": "depleted",
                             "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the Team only has 0 credits",
                             "last_probe_at": 1000.0,
-                            "last_billing_snapshot_at": "2026-04-30T14:23:21Z",
+                            "last_billing_snapshot_at": "1970-01-01T00:25:00Z",
                         },
                         {
                             "account_name": "account-stale-depleted",
@@ -2312,6 +2314,8 @@ def test_onemin_provider_health_pick_accepts_fresh_actual_billing_newer_than_dep
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "fresh-key")
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 2000.0)
 
     pick = upstream._onemin_provider_health_pick(
         key_names=upstream._onemin_key_names(),
@@ -2331,7 +2335,7 @@ def test_onemin_provider_health_pick_accepts_fresh_actual_billing_newer_than_dep
                             "last_probe_result": "depleted",
                             "last_probe_detail": "INSUFFICIENT_CREDITS:The feature requires 1726 credits, but the team only has 0 credits",
                             "last_probe_at": 1000.0,
-                            "last_billing_snapshot_at": "2026-04-30T14:23:21Z",
+                            "last_billing_snapshot_at": "1970-01-01T00:25:00Z",
                         },
                     ]
                 }
@@ -2384,6 +2388,54 @@ def test_onemin_provider_health_pick_accepts_recent_actual_billing_with_zero_obs
 
     assert pick is not None
     assert pick[0] == "fresh-key"
+
+
+def test_estimated_onemin_remaining_credits_prefers_fresh_actual_billing_over_zero_observed_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: ("fresh-key",))
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: "ONEMIN_AI_API_KEY")
+    monkeypatch.setattr(upstream, "_onemin_billing_snapshot_matches_credit_subject", lambda **_kwargs: True)
+    monkeypatch.setattr(upstream, "_observed_spend_since", lambda **_kwargs: 0)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 20000.0)
+
+    monkeypatch.setattr(
+        upstream,
+        "_latest_provider_balance_snapshot",
+        lambda **_kwargs: upstream.ProviderBalanceSnapshot(
+            happened_at=19999.0,
+            provider_key="onemin",
+            account_name="ONEMIN_AI_API_KEY",
+            remaining_credits=0,
+            max_credits=4450000,
+            basis="observed_error",
+            source="required_credit_error",
+            detail="Team only has 0 credits",
+        ),
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_latest_provider_billing_snapshot",
+        lambda **_kwargs: type(
+            "BillingSnapshot",
+            (),
+            {
+                "remaining_credits": 15025.0,
+                "basis": "actual_provider_api",
+                "observed_at": "1970-01-01T05:30:00Z",
+            },
+        )(),
+    )
+
+    remaining, basis = upstream._estimated_onemin_remaining_credits(
+        state_label="quarantine",
+        state=upstream.OneminKeyState(key="fresh-key"),
+    )
+
+    assert remaining == 15025
+    assert basis == "actual_provider_api"
 
 
 def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_request(
@@ -2621,6 +2673,130 @@ def test_latest_onemin_billing_snapshot_keeps_last_actual_when_new_page_is_unpar
     assert slot["billing_remaining_credits"] == 15003
     assert slot["billing_topup_amount"] == 15000
     assert slot["billing_next_topup_at"] == "2026-03-31T02:19:47Z"
+
+
+def test_compact_codex_status_separates_onemin_daily_and_subscription_topups(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path))
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-primary")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-fallback")
+    upstream._test_reset_onemin_states()
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    previous_daily = now - timedelta(days=1, hours=2)
+    latest_daily = now - timedelta(hours=2)
+    previous_subscription = now - timedelta(days=31)
+    latest_subscription = now - timedelta(days=1)
+    expected_daily = (latest_daily + timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    expected_subscription = (latest_subscription + timedelta(days=30)).isoformat().replace("+00:00", "Z")
+
+    topup_list = [
+        {"type": "DAILY_FREE_CREDIT", "createdAt": previous_daily.isoformat().replace("+00:00", "Z"), "credit": 15000},
+        {"type": "DAILY_FREE_CREDIT", "createdAt": latest_daily.isoformat().replace("+00:00", "Z"), "credit": 15000},
+        {"type": "SUBSCRIPTION", "createdAt": previous_subscription.isoformat().replace("+00:00", "Z"), "credit": 4000000},
+        {"type": "SUBSCRIPTION", "createdAt": latest_subscription.isoformat().replace("+00:00", "Z"), "credit": 4000000},
+    ]
+    snapshot_json = {
+        "remaining_credits": 4025000,
+        "max_credits": 4150000,
+        "used_percent": 3.01,
+        "next_topup_at": previous_daily.isoformat().replace("+00:00", "Z"),
+        "topup_amount": 15000,
+        "basis": "actual_provider_api",
+        "structured_output_json": {
+            "subscription": {"cycle": "MONTHLY"},
+            "topup_list": topup_list,
+        },
+    }
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={"observed_at": now.isoformat().replace("+00:00", "Z"), **snapshot_json},
+        source="test",
+    )
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY_FALLBACK_1",
+        snapshot_json={"observed_at": (now + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"), **snapshot_json},
+        source="test",
+    )
+
+    health = upstream._provider_health_report()
+    primary_slot = next(slot for slot in health["providers"]["onemin"]["slots"] if slot["account_name"] == "ONEMIN_AI_API_KEY")
+    assert primary_slot["billing_next_daily_topup_at"] == expected_daily
+    assert primary_slot["billing_daily_topup_amount"] == 15000.0
+    assert primary_slot["billing_next_subscription_topup_at"] == expected_subscription
+    assert primary_slot["billing_subscription_topup_amount"] == 4000000.0
+
+    status = upstream.codex_status_report()
+    billing = status["onemin_billing_aggregate"]
+    assert billing["next_topup_at"] == expected_daily
+    assert billing["topup_amount"] == 30000.0
+    assert billing["next_daily_topup_at"] == expected_daily
+    assert billing["daily_topup_amount"] == 30000.0
+    assert billing["next_subscription_topup_at"] == expected_subscription
+    assert billing["subscription_topup_amount"] == 8000000.0
+    assert status["topup_summary"]["next_daily_topup_at"] == expected_daily
+    assert status["topup_summary"]["next_subscription_topup_at"] == expected_subscription
+
+
+def test_record_onemin_billing_snapshot_updates_ltd_markdown_for_primary_account(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    ledger_dir = tmp_path / "ledger"
+    markdown_path = tmp_path / "LTDs.md"
+    markdown_path.write_text(
+        """# LTDs
+
+Updated: 2026-05-03
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | stale note |
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | projection | ready |
+
+## Summary
+
+- `2` total LTD products tracked
+
+## Discovery Tracking
+
+| Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
+|---|---|---|---|---|---|
+| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-03T08:00:00Z | stale discovery note |
+
+## Attention Items
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(ledger_dir))
+    monkeypatch.setenv("EA_LTD_MARKDOWN_PATH", str(markdown_path))
+    upstream._test_reset_onemin_states()
+
+    upstream.record_onemin_billing_snapshot(
+        account_name="ONEMIN_AI_API_KEY",
+        snapshot_json={
+            "observed_at": "2026-05-04T08:49:44Z",
+            "remaining_credits": 15025,
+            "next_topup_at": "2026-05-06T01:07:36.964Z",
+            "topup_amount": 15000,
+            "basis": "actual_provider_api",
+        },
+        source="test",
+    )
+
+    updated = markdown_path.read_text(encoding="utf-8")
+    assert "Updated: 2026-05-04" in updated
+    assert "Latest credit refresh on `2026-05-04T08:49:44Z` for `ONEMIN_AI_API_KEY` confirmed `15025` remaining credits" in updated
+    assert "`2026-05-06T01:07:36.964Z` (`15000` credits)" in updated
 
 
 def test_call_magicx_retries_with_smaller_token_budget(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,0 +1,12 @@
+services:
+  ea-cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ea-cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - ea-api

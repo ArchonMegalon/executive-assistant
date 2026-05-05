@@ -4,6 +4,8 @@
 
 This document defines campaign-level decision rights in one place for cross-repo
 campaign, session, workspace, and publication control.
+`ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md` extends this matrix for community-scale
+organizer, season, moderation, publication, and support-escalation actions.
 
 ## Authority model
 
@@ -44,6 +46,24 @@ Campaign authority is scoped by role and artifact family:
 | Publication promotion | no | propose | no | no | write | no | no |
 | Evidence / receipt correction | no | propose | no | no | no | write | write |
 
+## Community-scale extension
+
+Organizer, league, convention, and season operations widen the matrix above, but
+they do not replace it.
+The extension rules are:
+
+* organizer-owned group, event, and season actions must emit a
+  `CommunityScaleAuditPacket` before downstream projections treat them as truth
+* GM run truth remains narrower and stronger than organizer event policy
+* moderation action and support escalation stay distinct, even when the same
+  organizer or steward initiates both
+* registry-backed publication receipts still own public discoverability,
+  audience, retention, and availability posture
+
+See `ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md` and
+`COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml` for the shipped operation families,
+role lanes, required packet fields, and claim guards.
+
 ### Future world-layer authority policy
 
 The world layer is adjacent to the campaign lane and must never be treated as campaign truth.
@@ -65,6 +85,7 @@ Open-run and Community Hub authority stays narrower than campaign truth:
 * GMs own run listing, roster, and closeout decisions for one `OpenRun` unless an explicit organizer-curated mode says otherwise.
 * Organizers may define visibility scope, season policy, and moderation policy, but they do not silently seize GM run truth.
 * Organizers or community operators may publish `CommunityRuleEnvironment` and approval policy, but legality still derives from Chummer-owned rule-environment packages, amend packages, and approval receipts.
+* Organizer-visible event, roster, moderation, publication, and support-escalation actions must retain `CommunityScaleAuditPacket` links so Fleet, EA, or external mirrors cannot invent hidden operator state.
 * Run-application preflight may recommend `pass`, `warn`, `fail`, or `blocked`, but it must expose readable reasons and next safe actions instead of hidden gatekeeping.
 * External scheduling or meeting tools may project booking, links, or channel access. They do not own `RunPlan`, `OpenRun`, accepted roster, or outcome truth.
 * VTTs and play surfaces may receive exported runner, opposition, or handout packets. They do not own roster, run, or consequence truth.

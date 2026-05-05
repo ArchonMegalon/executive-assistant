@@ -89,7 +89,6 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
             "public_part_registry",
             "public_faq_registry",
             "public_help_copy",
-            "public_screenshot_registry",
             "public_media_briefs",
             "public_status",
             "source_prompt",
@@ -102,7 +101,6 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
             "public_part_registry",
             "public_faq_registry",
             "public_help_copy",
-            "public_screenshot_registry",
             "public_media_briefs",
             "public_status",
         ],
@@ -141,7 +139,7 @@ def _common_skill_fields(*, publishable: bool) -> dict[str, object]:
             "page_class_contract_required": True,
             "public_placeholder_fail_closed": True,
             "public_dev_speak_fail_closed": True,
-            "screenshot_policy_source": "PUBLIC_SCREENSHOT_REGISTRY.yaml",
+            "page_image_policy_source": "PUBLIC_GUIDE_PAGE_REGISTRY.yaml",
         },
         "human_policy_json": {"review_roles": ["guide_reviewer"]},
         "evaluation_cases_json": [{"case_key": "chummer6_guide_refresh_golden", "priority": "medium"}],
@@ -153,10 +151,14 @@ def _apply_visual_contract_context(payload: dict[str, object]) -> dict[str, obje
     memory_reads = [str(value).strip() for value in (payload.get("memory_reads") or []) if str(value or "").strip()]
     if "public_media_briefs" not in memory_reads:
         memory_reads.append("public_media_briefs")
+    if "public_guide_image_curation" not in memory_reads:
+        memory_reads.append("public_guide_image_curation")
     payload["memory_reads"] = memory_reads
     evidence = [str(value).strip() for value in (payload.get("evidence_requirements") or []) if str(value or "").strip()]
     if "public_media_briefs" not in evidence:
         evidence.append("public_media_briefs")
+    if "public_guide_image_curation" not in evidence:
+        evidence.append("public_guide_image_curation")
     payload["evidence_requirements"] = evidence
     schema = dict(payload.get("input_schema_json") or {})
     properties = dict(schema.get("properties") or {})
@@ -180,6 +182,12 @@ def _apply_visual_contract_context(payload: dict[str, object]) -> dict[str, obje
 
 def build_public_writer_skill_payload() -> dict[str, object]:
     payload = _common_skill_fields(publishable=True)
+    payload["memory_reads"] = [
+        value for value in payload.get("memory_reads", []) if str(value).strip() != "public_media_briefs"
+    ]
+    payload["evidence_requirements"] = [
+        value for value in payload.get("evidence_requirements", []) if str(value).strip() != "public_media_briefs"
+    ]
     budget = dict(payload.get("budget_policy_json") or {})
     budget["post_generation_audit_json"] = {
         "enabled": True,
@@ -196,7 +204,7 @@ def build_public_writer_skill_payload() -> dict[str, object]:
             "skill_key": "chummer6_public_writer",
             "task_key": "chummer6_public_copy_refresh",
             "name": "Chummer6 Public Writer",
-            "description": "Builds registry-first, reader-first Chummer6 guide copy with page-class-aware rewrites, fail-closed placeholder and dev-speak checks, and practical next steps for players and GMs.",
+            "description": "Builds registry-first, reader-first Chummer6 guide copy for the SR4-SR6 public story, with page-class-aware rewrites, fail-closed placeholder and dev-speak checks, and practical next steps for players and GMs.",
             "memory_writes": ["chummer6_public_copy_fact"],
             "tags": ["chummer6", "guide", "public-writer", "audience", "copy"],
             "provider_hints_json": {

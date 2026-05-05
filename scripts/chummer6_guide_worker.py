@@ -1847,6 +1847,10 @@ def page_supporting_context(page_id: str) -> list[str]:
     if page == "how_can_i_help":
         ctas = HELP.get("primary_ctas") if isinstance(HELP, dict) else []
         snippets.extend(str(entry).strip() for entry in ctas if str(entry).strip())
+    if page in {"readme", "start_here", "what_chummer6_is", "current_status", "public_surfaces"}:
+        snippets.append(
+            "Chummer6 is a multi-era Shadowrun surface with SR4, SR5, and SR6 support, and each ruleset lane shows its current posture honestly instead of pretending parity."
+        )
     if not snippets and page in {"readme", "start_here", "what_chummer6_is", "current_phase", "current_status", "public_surfaces"}:
         curated_fallbacks = {
             "readme": [
@@ -1875,7 +1879,7 @@ def page_supporting_context(page_id: str) -> list[str]:
             ],
         }
         snippets = list(curated_fallbacks.get(page, []))
-    return snippets[:8]
+    return list(dict.fromkeys(snippets))[:8]
 
 
 def page_public_context_tokens(page_id: str) -> tuple[str, ...]:
@@ -3221,8 +3225,8 @@ Rules:
 - treat `supporting_public_context` as the safe boundary for exact present-tense feature claims
 - use `global_ooda` only for tone, emphasis, and information order; do not treat it as permission to add narrower product facts
 - if a capability is not explicit in the page source or supporting_public_context, stay at the level of the public guide, current status, download page, horizon pages, issue tracker, or clearly named public routes
-- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload explicitly says them
-- do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
+- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload or supporting_public_context explicitly says them
+- do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload or supporting_public_context explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
 - avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
 - keep first-contact pages flagship, concrete, and inspectable
@@ -3286,8 +3290,8 @@ Rules:
 - treat each page's `supporting_public_context` as the safe boundary for exact present-tense feature claims
 - use `global_ooda` only for tone, emphasis, and information order; do not treat it as permission to add narrower product facts
 - if a capability is not explicit in the page source or supporting_public_context, stay at the level of the public guide, current status, download page, horizon pages, issue tracker, or clearly named public routes
-- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload explicitly says them
-- do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload explicitly says them
+- do not improvise exact current capabilities like gear availability checks, session continuity, device swaps, character integrity checks, multi-era support, scripted-rule internals, mobile-ready behavior, or similar feature details unless the page payload or supporting_public_context explicitly says them
+- do not improvise specific rules-subsystem examples like stats, initiative, health, cyberware, qualities, or edition labels unless the page payload or supporting_public_context explicitly says them
 - avoid niche gear, augment, or modifier anecdotes on root pages unless the page context explicitly names them
 - avoid certainty words like deterministic truth, settled math, or solved rules coverage on root pages unless the page context explicitly says that level of completion
 - keep copy distinct across pages; avoid repetitive disclaimer framing and prioritize useful, inspectable reader guidance
@@ -4492,7 +4496,7 @@ Task: return a JSON object only with keys intro, body, kicker.
 
 Hard rules:
 - use only facts that are explicit in the page source or supporting public context; use global OODA only for tone and ordering
-- do not mention specific rules subsystems, stats, cyberware, qualities, initiative, health, edition labels, scripted internals, device swaps, session continuity, multi-era support, mobile-ready behavior, or other narrow feature claims unless the provided context explicitly names them
+- do not mention specific rules subsystems, stats, cyberware, qualities, initiative, health, edition labels, scripted internals, device swaps, session continuity, multi-era support, mobile-ready behavior, or other narrow feature claims unless the page source or supporting public context explicitly names them
 - replace niche gear, augment, or modifier anecdotes with general table-friction language unless the page context explicitly names them
 - stay grounded in proof shelf, current drop, release shelf, public guide, horizon shelf, issue tracker, receipts, and local-first posture
 - keep the page precise about current boundaries without collapsing into disclaimer-heavy language
@@ -4539,7 +4543,7 @@ def fallback_page_copy(name: str, item: dict[str, object], global_ooda: dict[str
         }
     if page_id == "start_here":
         return {
-            "intro": "Use this page to choose the next useful route quickly.",
+            "intro": "If you only look once, use this page to choose the next shelf.",
             "body": "Start with the short explanation if you want the pitch, Current Status if you want the honest public state, the future lanes if you want the ambition, and the issue tracker if you want to see where reality is still pushing back.",
             "kicker": "Pick the route that matches your problem and move.",
         }
@@ -7083,7 +7087,7 @@ PAGE_PROMPTS: dict[str, dict[str, str]] = {
         "source": "Welcome and first-run orientation for a new human reader. Lead with tonight's problems and the shortest path to answers. Do not open with repo splits, architecture, nodes, or internal organization.",
     },
     "what_chummer6_is": {
-        "source": "Explain what Chummer6 is for players and GMs, why it matters at the table, and what feels different from older opaque tools. Keep repo and architecture talk below the product story. Keep it flagship-facing, tie it back to trust and receipts, and be explicit about current boundaries without downplaying the product.",
+        "source": "Explain what Chummer6 is for players and GMs, why it matters at the table, and what feels different from older opaque tools. Be explicit that the public story spans Shadowrun support across SR4, SR5, and SR6 while keeping each ruleset lane's current posture honest. Keep repo and architecture talk below the product story. Keep it flagship-facing, tie it back to trust and receipts, and be explicit about current boundaries without downplaying the product.",
     },
     "faq": {
         "source": faq_page_source(),
@@ -7167,6 +7171,7 @@ PAGE_RISKY_GAME_DETAIL_TOKENS: tuple[str, ...] = (
     "health",
     "sr4",
     "sr5",
+    "sr6",
     "vision modifiers",
     "combat turns",
     "augmentations",

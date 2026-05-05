@@ -71,6 +71,7 @@ from app.services.registration_email import (
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
+from app.settings import resolve_signing_secret
 
 if TYPE_CHECKING:
     from app.container import AppContainer
@@ -396,6 +397,131 @@ def _is_willhaben_search_agent_email(
     if "neue anzeige" in normalized_title or "neue anzeigen" in normalized_title:
         return True
     return "neue anzeige" in normalized_summary or "neue anzeigen" in normalized_summary
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    normalized = str(os.getenv(name) or "").strip().lower()
+    if not normalized:
+        return default
+    if normalized in {"1", "true", "yes", "on", "y"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "n"}:
+        return False
+    return default
+
+
+def _willhaben_search_agent_auto_create_enabled() -> bool:
+    return _env_flag("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", default=False)
+
+
+def _willhaben_property_tour_default_recipient_email() -> str:
+    normalized = str(os.getenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL") or "").strip().lower()
+    return normalized if "@" in normalized else ""
+
+
+def _willhaben_property_tour_recipient_map() -> dict[str, str]:
+    raw = str(os.getenv("EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON") or "").strip()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, str] = {}
+    for key, value in payload.items():
+        normalized_key = str(key or "").strip().lower()
+        normalized_value = str(value or "").strip().lower()
+        if normalized_key and "@" in normalized_value:
+            result[normalized_key] = normalized_value
+    return result
+
+
+def _willhaben_property_tour_recipient_for_account_email(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    return str(_willhaben_property_tour_recipient_map().get(normalized) or "").strip().lower()
+
+
+def _willhaben_property_url_from_signal(
+    *,
+    title: str,
+    summary: str,
+    text: str,
+    source_ref: str,
+    external_id: str,
+    payload: dict[str, object],
+) -> str:
+    all_urls: list[str] = []
+    seen: set[str] = set()
+    for value in (
+        *(
+            _extract_urls_from_text(title)
+            + _extract_urls_from_text(summary)
+            + _extract_urls_from_text(text)
+            + _extract_urls_from_text(source_ref)
+            + _extract_urls_from_text(external_id)
+            + _extract_urls_from_text(payload.get("snippet"))
+            + _extract_urls_from_text(payload.get("body_text_excerpt"))
+        ),
+        str(payload.get("property_url") or "").strip(),
+        str(payload.get("captured_url") or "").strip(),
+        str(payload.get("url") or "").strip(),
+        str(payload.get("href") or "").strip(),
+    ):
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        all_urls.append(normalized)
+    return next((value for value in all_urls if _is_willhaben_property_url(value)), "")
+
+
+def _willhaben_search_agent_auto_create_spec(
+    *,
+    principal_id: str,
+    title: str,
+    summary: str,
+    text: str,
+    source_ref: str,
+    external_id: str,
+    counterparty: str,
+    payload: dict[str, object],
+) -> dict[str, str] | None:
+    if not _willhaben_search_agent_auto_create_enabled():
+        return None
+    if not _is_willhaben_search_agent_email(
+        title=title,
+        summary=summary,
+        counterparty=counterparty,
+        payload=payload,
+    ):
+        return None
+    property_url = _willhaben_property_url_from_signal(
+        title=title,
+        summary=summary,
+        text=text,
+        source_ref=source_ref,
+        external_id=external_id,
+        payload=payload,
+    )
+    if not property_url:
+        return None
+    recipient_email = _first_non_empty_text(
+        payload.get("delivery_recipient_email"),
+        payload.get("recipient_email"),
+        payload.get("notify_email"),
+        _willhaben_property_tour_recipient_for_account_email(payload.get("account_email")),
+        _willhaben_property_tour_recipient_for_account_email(payload.get("google_account_email")),
+        _willhaben_property_tour_default_recipient_email(),
+        _principal_email_hint(principal_id),
+    ).lower()
+    return {
+        "property_url": property_url,
+        "recipient_email": recipient_email,
+    }
 
 
 def _property_alert_review_brief(title: str) -> str:
@@ -2411,25 +2537,13 @@ class ProductService:
         return tuple(curated), tuple(suppressed)
 
     def _channel_action_secret(self) -> str:
-        configured = str(self._container.settings.auth.api_token or "").strip()
-        if configured:
-            return configured
-        fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-channel-loop"
-        return f"{fallback}:channel-actions"
+        return resolve_signing_secret(self._container.settings, purpose="channel-actions")
 
     def _workspace_access_secret(self) -> str:
-        configured = str(self._container.settings.auth.api_token or "").strip()
-        if configured:
-            return f"{configured}:workspace-access"
-        fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-workspace-access"
-        return f"{fallback}:workspace-access"
+        return resolve_signing_secret(self._container.settings, purpose="workspace-access")
 
     def _signal_ingest_secret(self) -> str:
-        configured = str(self._container.settings.auth.api_token or "").strip()
-        if configured:
-            return f"{configured}:signal-ingest"
-        fallback = str(self._container.settings.auth.default_principal_id or "").strip() or "ea-signal-ingest"
-        return f"{fallback}:signal-ingest"
+        return resolve_signing_secret(self._container.settings, purpose="signal-ingest")
 
     def _record_product_event(
         self,
@@ -4041,8 +4155,10 @@ class ProductService:
             principal_id=principal_id,
             title=title_text,
             summary=summary_text,
+            text=source_text,
             source_ref=resolved_signal_source_id,
             external_id=str(external_id or "").strip(),
+            counterparty=str(counterparty or "").strip(),
             payload=base_payload_json,
             actor=str(actor or "").strip() or "office_api",
         )
@@ -4271,21 +4387,26 @@ class ProductService:
             payload=payload,
         ):
             return None
-        all_urls = self._append_unique_refs(
-            (),
-            *(
-                _extract_urls_from_text(title)
-                + _extract_urls_from_text(summary)
-                + _extract_urls_from_text(text)
-                + _extract_urls_from_text(source_ref)
-                + _extract_urls_from_text(external_id)
-            ),
-            str(payload.get("property_url") or "").strip(),
-            str(payload.get("captured_url") or "").strip(),
-            str(payload.get("url") or "").strip(),
-            str(payload.get("href") or "").strip(),
+        auto_create_spec = _willhaben_search_agent_auto_create_spec(
+            principal_id=principal_id,
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            counterparty=counterparty,
+            payload=payload,
         )
-        property_url = next((value for value in all_urls if _is_willhaben_property_url(value)), "")
+        if auto_create_spec is not None:
+            return None
+        property_url = _willhaben_property_url_from_signal(
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            payload=payload,
+        )
         return self._open_property_alert_review(
             principal_id=principal_id,
             title=title,
@@ -4974,8 +5095,10 @@ class ProductService:
         principal_id: str,
         title: str,
         summary: str,
+        text: str,
         source_ref: str,
         external_id: str,
+        counterparty: str,
         payload: dict[str, object],
         actor: str,
     ) -> dict[str, object] | None:
@@ -4984,18 +5107,31 @@ class ProductService:
             actions = payload.get("ooda_actions")
             if isinstance(actions, (list, tuple, set)):
                 wants_tour = any(str(value or "").strip().lower() == "create_property_tour" for value in actions)
+        auto_create_spec = _willhaben_search_agent_auto_create_spec(
+            principal_id=principal_id,
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            counterparty=counterparty,
+            payload=payload,
+        )
+        if not wants_tour and auto_create_spec is not None:
+            wants_tour = True
         if not wants_tour:
             return None
         property_url = _first_non_empty_text(
-            payload.get("property_url"),
-            payload.get("captured_url"),
-            payload.get("url"),
-            payload.get("href"),
-            source_ref if _is_willhaben_property_url(source_ref) else "",
-            external_id if _is_willhaben_property_url(external_id) else "",
+            auto_create_spec.get("property_url") if auto_create_spec is not None else "",
+            _willhaben_property_url_from_signal(
+                title=title,
+                summary=summary,
+                text=text,
+                source_ref=source_ref,
+                external_id=external_id,
+                payload=payload,
+            ),
         )
-        if not _is_willhaben_property_url(property_url):
-            return None
         try:
             return self.create_willhaben_property_tour(
                 principal_id=principal_id,
@@ -5004,6 +5140,7 @@ class ProductService:
                     payload.get("delivery_recipient_email"),
                     payload.get("recipient_email"),
                     payload.get("notify_email"),
+                    auto_create_spec.get("recipient_email") if auto_create_spec is not None else "",
                     _principal_email_hint(principal_id),
                 ),
                 variant_key=_first_non_empty_text(payload.get("variant_key"), payload.get("tour_variant_key"), "layout_first"),

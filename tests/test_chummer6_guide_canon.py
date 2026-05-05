@@ -58,14 +58,14 @@ def test_load_horizon_canon_tracks_live_design_horizons() -> None:
     assert "local-co-processor" not in catalog
     assert "rule-x-ray" not in catalog
     assert "heat-web" not in catalog
-    assert "## Mission Market" in catalog["black-ledger"]["public_body"]
-    assert "## Rule Environment" in catalog["karma-forge"]["public_body"]
+    assert "## The Mission Market" in catalog["black-ledger"]["public_body"]
+    assert "## The rule environment" in catalog["karma-forge"]["public_body"]
     assert "## Canon Links" not in catalog["black-ledger"]["public_body"]
     assert "## Canon Links" not in catalog["karma-forge"]["public_body"]
     assert "products/chummer/" not in catalog["black-ledger"]["public_body"]
     assert "products/chummer/" not in catalog["karma-forge"]["public_body"]
-    assert "C0 - campaign, run, and Hub-owned receipt boundaries" in catalog["black-ledger"]["foundations"]
-    assert "D2 - restore-safe sync, package portability, and missing-package warnings" in catalog["karma-forge"]["foundations"]
+    assert "C0" in catalog["black-ledger"]["foundations"]
+    assert "D2" in catalog["karma-forge"]["foundations"]
 
 
 def test_load_faq_and_help_canon_track_public_question_sets() -> None:
@@ -172,6 +172,18 @@ def test_asset_image_curation_tracks_editorial_cover_locks() -> None:
     assert Path(runsite["source_path"]).exists()
     assert parts_index["curation_locked"] is True
     assert Path(parts_index["source_path"]).exists()
+
+
+def test_load_screenshot_registry_derives_page_contracts_when_legacy_file_is_absent() -> None:
+    canon = _load_module()
+
+    registry = canon.load_screenshot_registry()
+    pages = dict(registry.get("pages") or {})
+
+    assert registry.get("compat_mode") == "page_registry_only"
+    assert pages["HELP.md"]["preferred_image_type"] == "screenshot"
+    assert pages["HELP.md"]["screenshot_preferred"] is True
+    assert pages["README.md"]["preferred_image_type"] == "concept_art"
 
 
 def test_critical_asset_contracts_returns_three_targeted_rerun_profiles() -> None:

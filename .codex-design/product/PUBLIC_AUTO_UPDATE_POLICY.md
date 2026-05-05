@@ -18,6 +18,7 @@ Public copy may promise:
 * update availability follows promoted channel truth
 * Windows and Linux follow installer-first release posture
 * bad heads may be paused or revoked
+* blocked delivery windows may pause route-level rollout while users continue via supported recovery or support channels
 
 Public copy must not promise:
 
@@ -35,6 +36,8 @@ Use:
 * `paused rollout`
 * `revoked release`
 * `install the newer build`
+* `route blocked`
+* `delivery blocked`
 
 Avoid:
 
@@ -42,6 +45,7 @@ Avoid:
 * `always auto-updates`
 * `fixed everywhere now`
 * helper-script or operator jargon
+* using `fixed` before the build is on the same channel and route as claimed
 
 ## Public split
 
@@ -60,5 +64,11 @@ Public copy must say when a fix is:
 * still waiting for promotion
 * paused
 * revoked
+
+Public copy must also say when a route is:
+
+* blocked by rollout or entitlement
+* blocked by platform policy or compatibility
+* withdrawn from recommendation and moved to fallback or recovery
 
 The phrase `fixed` is user-safe only when the fix is actually available on that user's channel according to registry truth.

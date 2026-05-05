@@ -2008,7 +2008,12 @@ items:
   work_task_id: 109.3
   frontier_id: 4037265286
   milestone_id: 109
-  status: in_progress
+  status: complete
+  landed_commit: 7d5a0167
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M109 chummer6-media-factory build explain companion bundles are complete; future shards must verify
+    the bundle renderer, approved-packet scope proof, closure-authority test, registry row, and queue row instead of reopening
+    the build explain companion media package.
   wave: W9
   repo: chummer6-media-factory
   allowed_paths:
@@ -2305,17 +2310,20 @@ items:
   owned_surfaces:
   - install_aware_artifact_registry
   - release_channel_truth:concierge
-- title: Render release explainer, support closure, and public concierge companion bundles with captions, previews, and sibling
-    notes
-  task: Render install-aware release, support, and public concierge companions with captions, previews, and bounded sibling
-    notes.
+  - title: Render release explainer, support closure, and public concierge companion bundles with captions, previews, and sibling notes
+  task: Render install-aware release, support, and public concierge companions with captions, previews, and bounded sibling notes.
   package_id: next90-m111-media-factory-concierge-bundles
   work_task_id: 111.3
   frontier_id: 4132724850
   milestone_id: 111
   wave: W9
   repo: chummer6-media-factory
-  status: in_progress
+  status: complete
+  landed_commit: 7d5a0167
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M111 chummer6-media-factory install-aware concierge bundles are complete; future shards must verify
+    the bundle renderer, install-aware scope proof, closure-authority test, registry row, and queue row instead of reopening
+    the install-aware concierge media package.
   proof:
   - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/InstallAwareConciergeBundleService.cs
   - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
@@ -2329,12 +2337,11 @@ items:
   - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
   - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m111_install_aware_concierge.sh
   - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
-  - python3 -m unittest tests.test_m111_successor_package_authority tests.test_m111_install_aware_concierge_proof tests.test_install_aware_concierge_rendering
-    exits 0
-  - dotnet run --project tests/InstallAwareConciergeSmoke/Chummer.Media.Factory.InstallAwareConciergeSmoke.csproj --configuration
-    Release --nologo --verbosity quiet exits 0
-  - bash scripts/ai/verify_m111_install_aware_concierge.sh exits 0
-  - bash scripts/ai/verify.sh exits 0
+  - /docker/fleet/repos/chummer-media-factory commit 7d5a0167 pins the M111 install-aware concierge proof floor.
+  - python3 -m unittest tests.test_m111_successor_package_authority tests.test_m111_install_aware_concierge_proof tests.test_install_aware_concierge_rendering exits 0.
+  - dotnet run --project tests/InstallAwareConciergeSmoke/Chummer.Media.Factory.InstallAwareConciergeSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
+  - bash scripts/ai/verify_m111_install_aware_concierge.sh exits 0.
+  - bash scripts/ai/verify.sh exits 0.
   allowed_paths:
   - src
   - tests
@@ -2439,9 +2446,19 @@ items:
   package_id: next90-m112-ui-campaign-memory
   work_task_id: 112.3
   milestone_id: 112
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M112 chummer6-ui campaign memory desktop surfacing is complete; future shards must verify the desktop route proof, focused guard tests, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W11
   repo: chummer6-ui
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs keeps campaign consequence summaries, stale-state visibility, next-session return actions, direct campaign-memory review, and support/device/workspace follow-through visible on the promoted Avalonia desktop home route.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs keeps the same campaign-memory, stale-state, conflict-choice, and next-session return posture visible inside the promoted desktop campaign workspace route.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs and /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs promote direct desktop startup routes for campaign workspace, GM prep packets, and roster movement so campaign-memory follow-through does not hide behind secondary browsing.
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m112-ui-campaign-memory-check.sh and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M112_UI_CAMPAIGN_MEMORY.generated.json fail closed on canonical registry, fleet queue, design queue, verify wiring, startup-route markers, and desktop source-marker drift while preserving generatedAt when the proof is semantically unchanged.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M112CampaignMemoryGuardTests.cs and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs pin verify wiring, generated proof stability, startup-route reachability, and promoted desktop accessibility markers for the campaign-memory slice.
+  - bash scripts/ai/milestones/next90-m112-ui-campaign-memory-check.sh exits 0.
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore exits 0.
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2557,7 +2574,20 @@ items:
   package_id: next90-m113-core-opposition-packet-contracts
   work_task_id: 113.2
   milestone_id: 113
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M113 chummer6-core opposition packet contracts is complete; future shards must verify the packet contract DTOs, service seams, seeded receipts, and bound packet/stat proofs instead of reopening this slice.
+  proof:
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Campaign/OppositionPacketContracts.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/IOppositionPacketContractService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/DefaultOppositionPacketContractService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/OppositionPacketContractContractTests.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs
+  - /docker/chummercomplete/chummer-core-engine/scripts/verify-opposition-packet-contracts.py
+  - /docker/chummercomplete/chummer-core-engine/tests/test_opposition_packet_contract_receipt.py
+  - /docker/chummercomplete/chummer-core-engine/docs/OPPOSITION_PACKET_CONTRACTS.md
+  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json
   wave: W11
   repo: chummer6-core
   allowed_paths:
@@ -2573,7 +2603,9 @@ items:
   package_id: next90-m113-ui-gm-prep-roster-surface
   work_task_id: 113.3
   milestone_id: 113
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M113 chummer6-ui desktop GM prep and roster movement workspace surfaces are complete; future shards must verify workspace source markers, startup routes, receipt-driven proof, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W11
   repo: chummer6-ui
   allowed_paths:
@@ -2581,6 +2613,18 @@ items:
   - Chummer.Desktop.Runtime
   - Chummer.Tests
   - scripts
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs keeps GM prep and roster movement workspace surfaces visible from the promoted desktop workspace route.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs keeps desktop-home GM prep and roster-movement entry points visible and bound to campaign workspace routes.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.EventHandlers.cs and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.ControlBinding.cs wire toolbar GM prep and roster movement entry points into the shell command plane.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.axaml.cs and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.ShellFrameProjector.cs expose and route desktop startup visibility for GM prep packets and roster movement.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/Controls/ToolStripControl.axaml.cs surfaces GM prep and roster movement toolbar actions.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs and /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs anchor the primary desktop startup routing surface catalog for gm_prep_packets and roster_movement.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M113GmPrepRosterSurfaceGuardTests.cs, and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs assert the verify command wiring and signature source markers.
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m113-ui-gm-prep-roster-surface-check.sh, /docker/chummercomplete/chummer-presentation/scripts/e2e-portal.sh, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M113_UI_GM_PREP_ROSTER_SURFACE.generated.json fail-closed on canonical registry, queue, design queue, and source-marker drift.
+  - bash scripts/ai/milestones/next90-m113-ui-gm-prep-roster-surface-check.sh exits 0.
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M113GmPrepRosterSurfaceGuardTests" --no-restore exits 0.
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore exits 0.
   owned_surfaces:
   - gm_prep_packets:desktop
   - roster_movement:desktop
@@ -2588,10 +2632,35 @@ items:
   task: Produce packet, preview, and optional briefing artifacts for opposition, scenes, and prep-library entries.
   package_id: next90-m113-media-factory-gm-prep-packets
   work_task_id: 113.4
+  frontier_id: 3813748639
   milestone_id: 113
-  status: in_progress
+  status: complete
   wave: W11
   repo: chummer6-media-factory
+  landed_commit: 7d5a0167
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M113 chummer6-media-factory GM prep packet bundles are complete; future shards must verify the
+    GM prep render service, contract lane, smoke proof, generated media proof, canonical registry row, and queue mirrors
+    instead of reopening the governed packet bundle package.
+  proof:
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/GmPrepPacketBundleService.cs
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/GmPrepPacketSmoke/Program.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/test_gm_prep_packet_rendering.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m113_gm_prep_packet_proof.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m113_successor_package_authority.py
+  - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M113_GM_PREP_PACKET_PROOF_FLOOR.md
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/ARTIFACT_PUBLICATION_CERTIFICATION.generated.json
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m113_gm_prep_packets.sh
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
+  - /docker/fleet/repos/chummer-media-factory commit 7d5a0167 pins the M113 GM prep packet closure floor.
+  - python3 -m unittest tests.test_m113_successor_package_authority tests.test_m113_gm_prep_packet_proof tests.test_gm_prep_packet_rendering exits 0.
+  - dotnet run --project tests/GmPrepPacketSmoke/Chummer.Media.Factory.GmPrepPacketSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
+  - ./scripts/ai/verify_m113_gm_prep_packets.sh exits 0.
+  - bash scripts/ai/verify_m113_gm_prep_packets.sh exits 0.
+  - bash scripts/ai/verify.sh exits 0.
   allowed_paths:
   - src
   - tests
@@ -2652,9 +2721,26 @@ items:
   package_id: next90-m114-ui-rule-studio
   work_task_id: 114.2
   milestone_id: 114
-  status: in_progress
+  status: complete
+  frontier_id: 3253425842
+  landed_commit: TBD_COMMIT
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M114 chummer6-ui rule-environment studio is complete; future shards must verify the desktop rule-environment
+    studio receipt, standard verify guard, canonical registry row, and queue mirrors instead of reopening the desktop mechanical
+    workflow slice.
   wave: W12
   repo: chummer6-ui
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs keeps import rule environment, before/after diffs, explain receipts, and support reuse visible on the flagship desktop home route.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopRuleEnvironmentStudioWindow.cs materializes the desktop rule-environment studio with amend-package lifecycle, before/after diffs, explain-receipt review, and desktop follow-through actions.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignArtifactWindow.cs keep the same portability activity bound when desktop users move between campaign and artifact workflows.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.EventHandlers.cs, /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/Controls/ToolStripControl.axaml, /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/Controls/ToolStripControl.axaml.cs, /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.ControlBinding.cs, and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs wire a top-level desktop Rule Environment Studio entry point through the shell and startup surface catalog.
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m114-ui-rule-studio-check.sh and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json fail closed on registry, queue, mirror, and desktop source-marker drift while keeping generatedAt stable when semantics are unchanged.
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh runs the M114 proof in the standard local verification path so the closed package cannot silently drift open.
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M114RuleEnvironmentStudioGuardTests.cs and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs pin verify wiring, generated receipt stability, and the top-level desktop accessibility surface.
+  - bash scripts/ai/milestones/next90-m114-ui-rule-studio-check.sh exits 0.
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M114RuleEnvironmentStudioGuardTests" --no-restore exits 0.
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore exits 0.
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2668,9 +2754,22 @@ items:
   package_id: next90-m114-hub-rule-environment-receipts
   work_task_id: 114.3
   milestone_id: 114
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M114 chummer6-hub rule-environment receipts are complete; future shards must verify this package receipt,
+    registry row, queue row, and design-queue row instead of reopening the campaign/support/install-aware receipt lane.
   wave: W12
   repo: chummer6-hub
+  proof:
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/CampaignSpineService.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Support/SupportAssistantService.cs
+  - /docker/chummercomplete/chummer.run-services/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer.run-services/scripts/materialize_hub_local_release_proof.py
+  - /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m114_hub_rule_environment_receipts.py
+  - /docker/chummercomplete/chummer.run-services/tests/test_next90_m114_hub_rule_environment_receipts.py
+  - /docker/chummercomplete/chummer.run-services/tests/test_hub_local_release_proof_native_support_route.py
+  - python3 scripts/verify_next90_m114_hub_rule_environment_receipts.py
+  - python3 -m unittest tests/test_next90_m114_hub_rule_environment_receipts.py
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -2683,10 +2782,28 @@ items:
   task: Tighten rules and explain canon so media companions can cite but never replace engine truth.
   package_id: next90-m114-design-rule-environment-policy
   work_task_id: 114.4
+  frontier_id: 1910967170
   milestone_id: 114
-  status: in_progress
+  status: complete
   wave: W12
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M114 chummer6-design rule-environment grounded-media policy is complete; future shards must verify the
+    policy doc, linked canon updates, standard verifier wiring, feedback closeout note, and the canonical registry plus
+    design queue rows instead of reopening the grounded-media truth-boundary slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/RULE_ENVIRONMENT_GROUNDED_MEDIA_POLICY.md
+  - /docker/chummercomplete/chummer-design/products/chummer/RULE_ENVIRONMENT_AND_AMEND_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/COMPANION_PACKET.md
+  - /docker/chummercomplete/chummer-design/products/chummer/COMPANION_TRIGGER_REGISTRY.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_VIDEO_BRIEFS.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/STRUCTURED_VIDEO_AND_NARRATED_MEDIA_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_AND_LANGUAGE_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m114-design-rule-environment-policy-closeout.md
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m114_design_rule_environment_policy.py
+  - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
+  - python3 scripts/ai/validate_next90_m114_design_rule_environment_policy.py
+  - bash scripts/ai/verify.sh
   allowed_paths:
   - products
   - scripts
@@ -2700,7 +2817,10 @@ items:
   package_id: next90-m115-core-exchange-contracts
   work_task_id: 115.1
   milestone_id: 115
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M115 chummer6-core exchange-contracts is complete; future shards must verify this package receipt, registry
+    row, queue row, and design-queue row before reopening.
   wave: W12
   repo: chummer6-core
   allowed_paths:
@@ -2716,9 +2836,24 @@ items:
   package_id: next90-m115-hub-dossier-federation-orchestration
   work_task_id: 115.2
   milestone_id: 115
-  status: in_progress
+  status: complete
   wave: W12
   repo: chummer6-hub
+  landed_commit: 9c25a2b2
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M115 chummer6-hub dossier federation orchestration is complete; future shards must verify this receipt,
+    registry row, queue row, and design-queue row instead of reopening the campaign federation source-pack package.
+  proof:
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Contracts/CampaignFederationContracts.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Controllers/CampaignSpineController.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/CampaignFederationOrchestrationService.cs
+  - /docker/chummercomplete/chummer.run-services/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m115_hub_dossier_federation.py
+  - /docker/chummercomplete/chummer.run-services/tests/test_next90_m115_hub_dossier_federation.py
+  - /docker/chummercomplete/chummer.run-services commit 9c25a2b2 adds campaign federation source-pack orchestration.
+  - python3 scripts/verify_next90_m115_hub_dossier_federation.py
+  - python3 -m unittest tests/test_next90_m115_hub_dossier_federation.py
+  - bash scripts/ai/run_services_smoke.sh
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -2748,9 +2883,14 @@ items:
   package_id: next90-m115-ui-portable-dossier
   work_task_id: 115.4
   milestone_id: 115
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M115 chummer6-ui portable dossier and exchange actions are complete; future shards must verify this
+    receipt, registry row, queue row, and design-queue row instead of reopening the desktop exchange and portability surface
+    package.
   wave: W12
   repo: chummer6-ui
+  landed_commit: TBD_COMMIT
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2759,6 +2899,15 @@ items:
   owned_surfaces:
   - exchange_replay_ui
   - portable_dossier_export_ui
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignArtifactWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.DesktopSurfaceNavigation.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M115PortableDossierGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m115-ui-portable-dossier-check.sh
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M115_UI_PORTABLE_DOSSIER.generated.json
 - title: Render recap, replay, and exchange preview artifacts with receipts and siblings
   task: Render recap, replay, and exchange preview artifacts with receipts and siblings.
   package_id: next90-m115-media-factory-exchange-previews
@@ -2780,10 +2929,29 @@ items:
     manifests.
   package_id: next90-m116-hub-creator-publication
   work_task_id: 116.1
+  frontier_id: 3131897979
   milestone_id: 116
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-hub
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M116 chummer6-hub creator publication discovery and moderation orchestration is complete; future
+    shards must verify approved-manifest authority discovery, correction, moderation, public artifact shelf contracts,
+    and registry-facing proof evidence from this package instead of reopening this slice.
+  proof:
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Controllers/PublicLandingController.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Controllers/AccountsController.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/CreatorPublicationRegistryBridge.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/PublicCreatorPublicationDiscoveryService.cs
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Views/Accounts/Account.cshtml
+  - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Views/PublicLanding/PublicCreatorPublication.cshtml
+  - /docker/chummercomplete/chummer.run-services/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m116_hub_creator_publication.py
+  - /docker/chummercomplete/chummer.run-services/tests/test_next90_m116_hub_creator_publication.py
+  - /docker/chummercomplete/chummer.run-services/.codex-studio/published/NEXT90_M116_HUB_CREATOR_PUBLICATION.generated.json
+  - python3 scripts/verify_next90_m116_hub_creator_publication.py
+  - python3 -m unittest tests/test_next90_m116_hub_creator_publication.py
+  - bash scripts/ai/verify.sh
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -2795,10 +2963,27 @@ items:
   task: Store creator artifact lineage, moderation, ranking, compatibility, and revocation facts in registry truth.
   package_id: next90-m116-registry-creator-trust
   work_task_id: 116.2
+  frontier_id: 2293136611
   milestone_id: 116
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-hub-registry
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M116 chummer6-hub-registry creator trust registry slice is complete; future shards must verify
+    the creator-trust contracts, workflow, controller projections, runtime verifier, closeout, and canonical registry
+    plus queue rows instead of reopening the lineage, ranking, compatibility, and revocation package.
+  proof:
+  - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/Compatibility/RunServices/PublicationContracts.cs
+  - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/Compatibility/RunServices/RegistryContracts.cs
+  - /docker/chummercomplete/chummer-hub-registry/Chummer.Run.Registry/Services/PublicationWorkflowService.cs
+  - /docker/chummercomplete/chummer-hub-registry/Chummer.Run.Registry/Controllers/HubRegistryController.cs
+  - /docker/chummercomplete/chummer-hub-registry/Chummer.Run.Registry.Verify/Program.cs
+  - /docker/chummercomplete/chummer-hub-registry/docs/next90-m116-registry-creator-trust.closeout.md
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m116_registry_creator_trust.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m116_registry_creator_trust.py
+  - python3 scripts/verify_next90_m116_registry_creator_trust.py
+  - python3 scripts/test_verify_next90_m116_registry_creator_trust.py
+  - dotnet run --project Chummer.Run.Registry.Verify/Chummer.Run.Registry.Verify.csproj
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts
@@ -2810,10 +2995,26 @@ items:
   task: Surface creator publication and moderation actions on desktop.
   package_id: next90-m116-ui-creator-publication
   work_task_id: 116.3
+  frontier_id: 1446581929
   milestone_id: 116
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M116 chummer6-ui creator publication desktop surface is complete; future shards must verify the
+    desktop entrypoints, creator-publication window, generated receipt, and canonical registry plus design queue rows
+    instead of reopening the desktop publication and moderation slice.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M116CreatorPublicationGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M116_UI_CREATOR_PUBLICATION.generated.json
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m116-ui-creator-publication-check.sh
+  - bash scripts/ai/milestones/next90-m116-ui-creator-publication-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M116CreatorPublicationGuardTests" --no-restore
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2826,10 +3027,33 @@ items:
   task: Render creator promo kits from approved manifests.
   package_id: next90-m116-media-factory-creator-promo-kits
   work_task_id: 116.4
+  frontier_id: 4956678153
   milestone_id: 116
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-media-factory
+  landed_commit: 29ea571
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M116 chummer6-media-factory creator promo kit rendering is complete; future shards must verify the
+    creator promo render service, contract lane, smoke proof, generated media proof, canonical registry row, and queue
+    mirrors instead of reopening the approved-manifest creator promo package.
+  proof:
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/CreatorPromoKitRenderingService.cs
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/CreatorPromoKitSmoke/Program.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/test_creator_promo_kit_rendering.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m116_creator_promo_proof.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m116_successor_package_authority.py
+  - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M116_CREATOR_PROMO_KIT_PROOF_FLOOR.md
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/ARTIFACT_PUBLICATION_CERTIFICATION.generated.json
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m116_creator_promo_kits.sh
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
+  - /docker/fleet/repos/chummer-media-factory commit 29ea571 pins the M116 creator promo kit closure floor.
+  - python3 -m unittest tests.test_m116_successor_package_authority tests.test_m116_creator_promo_proof tests.test_creator_promo_kit_rendering exits 0.
+  - dotnet run --project tests/CreatorPromoKitSmoke/Chummer.Media.Factory.CreatorPromoKitSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
+  - bash scripts/ai/verify_m116_creator_promo_kits.sh exits 0.
   allowed_paths:
   - src
   - tests
@@ -2842,10 +3066,26 @@ items:
   task: Keep creator publication language honest about trust ranking, moderation, and compatibility.
   package_id: next90-m116-design-creator-publication-policy
   work_task_id: 116.5
+  frontier_id: 1200438904
   milestone_id: 116
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M116 chummer6-design creator publication trust language is complete; future shards must verify the
+    honesty policy, linked creator canon updates, standard verifier wiring, feedback closeout note, and the canonical
+    registry plus design queue rows instead of reopening the trust-ranking and moderation language slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/CREATOR_PUBLICATION_TRUST_AND_COMPATIBILITY_POLICY.md
+  - /docker/chummercomplete/chummer-design/products/chummer/CREATOR_OPERATING_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/CREATOR_DASHBOARD_AND_ADOPTION_ANALYTICS.md
+  - /docker/chummercomplete/chummer-design/products/chummer/CREATOR_PUBLICATION_ANALYTICS_SCHEMA.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/README.md
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m116-design-creator-publication-policy-closeout.md
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m116_design_creator_publication_policy.py
+  - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
+  - python3 scripts/ai/validate_next90_m116_design_creator_publication_policy.py
+  - bash scripts/ai/verify.sh
   allowed_paths:
   - products
   - scripts
@@ -2874,9 +3114,28 @@ items:
   package_id: next90-m117-ui-artifact-shelf
   work_task_id: 117.3
   milestone_id: 117
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M117 chummer6-ui desktop artifact shelf entry points are complete; future shards must verify the
+    queue row, registry row, desktop entrypoints, creator-shelf naming, guard coverage, and generated proof receipt
+    instead of reopening the desktop artifact shelf slice.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignArtifactWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopRuleEnvironmentStudioWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M117ArtifactShelfGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M117_UI_ARTIFACT_SHELF.generated.json
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m117-ui-artifact-shelf-check.sh
+  - bash scripts/ai/milestones/next90-m117-ui-artifact-shelf-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M117ArtifactShelfGuardTests|FullyQualifiedName~Next90M116CreatorPublicationGuardTests"
+    --no-restore
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests"
+    --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2921,9 +3180,25 @@ items:
   package_id: next90-m117-design-artifact-shelf-policy
   work_task_id: 117.5
   milestone_id: 117
-  status: in_progress
+  frontier_id: 3777712364
+  status: complete
   wave: W13
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M117 chummer6-design artifact shelf policy is complete; future shards must verify
+    the shelf policy, linked campaign/creator/public/localization canon updates, standard
+    verifier wiring, feedback closeout note, and the canonical registry plus design queue
+    rows instead of reopening the audience/locale/retention/source-truth slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/ARTIFACT_SHELF_POLICY.md
+  - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_WORKSPACE_AND_DEVICE_ROLES.md
+  - /docker/chummercomplete/chummer-design/products/chummer/CREATOR_OPERATING_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_DOWNLOADS_POLICY.md
+  - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_AND_LANGUAGE_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/README.md
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m117-design-artifact-shelf-policy-closeout.md
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m117_design_artifact_shelf_policy.py
+  - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
   allowed_paths:
   - products
   - scripts
@@ -2937,9 +3212,28 @@ items:
   package_id: next90-m118-hub-organizer-ops
   work_task_id: 118.1
   milestone_id: 118
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-hub
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M118 chummer6-hub organizer, league, convention, and season contracts are complete; future
+    shards must verify the organizer operations release-proof receipts, canonical registry row, Fleet queue row, and
+    design queue row instead of reopening this governed community-operations slice.
+  proof:
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Contracts/OrganizerOpsContracts.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Campaign.Contracts/CampaignContracts.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/CampaignSpineController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignSpineService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/Accounts/Account.cshtml
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Home.cshtml
+  - /docker/chummercomplete/chummer6-hub/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py
+  - /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m118_hub_organizer_ops.py
+  - /docker/chummercomplete/chummer6-hub/tests/test_next90_m118_hub_organizer_ops.py
+  - /docker/chummercomplete/chummer6-hub/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
+  - python3 scripts/verify_next90_m118_hub_organizer_ops.py
+  - python3 -m unittest tests/test_next90_m118_hub_organizer_ops.py
+  - bash scripts/ai/verify.sh
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -2951,10 +3245,28 @@ items:
   task: Surface organizer operations on desktop without confusing GM, player, creator, and operator roles.
   package_id: next90-m118-ui-organizer-ops
   work_task_id: 118.2
+  frontier_id: 2639996822
   milestone_id: 118
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M118 chummer6-ui organizer desktop operations are complete; future shards must verify the desktop
+    organizer surface, startup routing, guard script, registry row, and queue mirrors instead of reopening the organizer-role
+    desktop package.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M118OrganizerOperationsGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M118_UI_ORGANIZER_OPS.generated.json
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m118-ui-organizer-ops-check.sh
+  - bash scripts/ai/milestones/next90-m118-ui-organizer-ops-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M118OrganizerOperationsGuardTests" --no-restore
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2968,9 +3280,23 @@ items:
   package_id: next90-m118-fleet-ea-organizer-packets
   milestone_id: 118
   work_task_id: 118.4
-  status: in_progress
+  status: complete
   wave: W13
   repo: fleet
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M118 Fleet organizer operator packets are complete; future shards must verify the organizer operator packet receipt,
+    standalone verifier, registry row, queue row, and design queue row instead of reopening the organizer health and publication readiness
+    packet slice.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m118_fleet_ea_organizer_packets.py
+  - /docker/fleet/scripts/verify_next90_m118_fleet_ea_organizer_packets.py
+  - /docker/fleet/tests/test_materialize_next90_m118_fleet_ea_organizer_packets.py
+  - /docker/fleet/tests/test_verify_next90_m118_fleet_ea_organizer_packets.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M118_FLEET_EA_ORGANIZER_PACKETS.generated.json
+  - /docker/fleet/feedback/2026-05-05-next90-m118-fleet-ea-organizer-packets-closeout.md
+  - python3 tests/test_materialize_next90_m118_fleet_ea_organizer_packets.py exits 0
+  - python3 tests/test_verify_next90_m118_fleet_ea_organizer_packets.py exits 0
+  - python3 scripts/verify_next90_m118_fleet_ea_organizer_packets.py exits 0
   allowed_paths:
   - scripts
   - tests
@@ -2984,7 +3310,22 @@ items:
   package_id: next90-m118-ea-organizer-followthrough
   work_task_id: 118.3
   milestone_id: 118
-  status: in_progress
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M118 EA organizer packets are complete; future shards must verify the package contract, source-anchor bindings, proof receipts, and queue/registry row before creating any replacement for organizer followthrough or event-prep packet synthesis.
+  proof:
+  - /docker/EA/docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml
+  - /docker/EA/docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml
+  - /docker/EA/docs/chummer_organizer_packets/README.md
+  - /docker/EA/docs/chummer_organizer_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - /docker/EA/scripts/materialize_next90_m118_ea_organizer_packets.py
+  - /docker/EA/scripts/verify_next90_m118_ea_organizer_packets.py
+  - /docker/EA/tests/test_next90_m118_ea_organizer_packets.py
+  - /docker/EA/.codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json
+  - /docker/EA/feedback/2026-05-05-next90-m118-ea-organizer-followthrough-progress.md
+  - python3 scripts/materialize_next90_m118_ea_organizer_packets.py exits 0
+  - python3 scripts/verify_next90_m118_ea_organizer_packets.py exits 0
+  - python3 tests/test_next90_m118_ea_organizer_packets.py exits 0 with ran=6 failed=0
   wave: W13
   repo: executive-assistant
   allowed_paths:
@@ -2999,9 +3340,26 @@ items:
   package_id: next90-m118-design-organizer-boundaries
   work_task_id: 118.5
   milestone_id: 118
-  status: in_progress
+  frontier_id: 1432672285
+  status: complete
   wave: W13
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M118 chummer6-design organizer role and audit boundaries are complete; future shards must verify
+    the boundary policy, audit-packet schema, linked authority and journey canon
+    updates, standard verifier wiring, feedback closeout note, and the canonical
+    registry plus queue rows instead of reopening the organizer-roles and
+    community-audit-boundary slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md
+  - /docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_AUTHORITY_AND_PERMISSIONS.md
+  - /docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SAFETY_MODERATION_AND_APPEALS.md
+  - /docker/chummercomplete/chummer-design/products/chummer/journeys/organize-a-community-and-close-the-loop.md
+  - /docker/chummercomplete/chummer-design/products/chummer/README.md
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m118-design-organizer-boundaries-closeout.md
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m118_design_organizer_boundaries.py
+  - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
   allowed_paths:
   - products
   - scripts
@@ -3015,9 +3373,15 @@ items:
   package_id: next90-m119-hub-first-session-onboarding
   work_task_id: 119.1
   milestone_id: 119
-  status: in_progress
+  frontier_id: 1130567614
+  status: complete
   wave: W14
   repo: chummer6-hub
+  landed_commit: TO_BE_FILLED_M119_COMMIT
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M119 chummer6-hub guided first-playable-session onboarding is complete; future shards must verify
+    the starter-lane proof receipts, local release proof package, canonical registry row, Fleet queue row, and design
+    queue row instead of reopening the install-to-first-session onboarding slice.
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -3025,15 +3389,53 @@ items:
   owned_surfaces:
   - first_playable_session:onboarding
   - starter_lane:hub
+  proof:
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/CampaignSpineController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignSpineService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Landing.cshtml
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Home.cshtml
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/Accounts/Account.cshtml
+  - /docker/chummercomplete/chummer6-hub/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py
+  - /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m119_hub_first_session_onboarding.py
+  - /docker/chummercomplete/chummer6-hub/tests/test_next90_m119_hub_first_session_onboarding.py
+  - python3 scripts/verify_next90_m119_hub_first_session_onboarding.py
+  - python3 -m unittest tests/test_next90_m119_hub_first_session_onboarding.py
+  - bash scripts/ai/run_services_smoke.sh
 - title: Render starter primer and first-session companion artifacts
   task: Produce localized starter primers, first-session briefings, and support-safe onboarding artifacts from approved source
     packs.
   package_id: next90-m119-media-factory-starter-artifacts
   work_task_id: 119.4
   milestone_id: 119
-  status: in_progress
+  frontier_id: 1413666751
+  status: complete
   wave: W14
   repo: chummer6-media-factory
+  landed_commit: TO_BE_FILLED_M119_COMMIT
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M119 chummer6-media-factory starter primer and first-session companion artifacts are complete;
+    future shards must verify the localized starter-primer and first-session briefing runtime, proof floor, package verifier,
+    queue and registry rows, and published release-proof receipts instead of reopening the starter onboarding render slice.
+  proof:
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/StarterArtifactBundleService.cs
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/StarterArtifactBundleSmoke/Program.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/test_starter_artifact_rendering.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m119_starter_artifact_proof.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m119_successor_package_authority.py
+  - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M119_STARTER_ARTIFACT_PROOF_FLOOR.md
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/ARTIFACT_PUBLICATION_CERTIFICATION.generated.json
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m119_starter_artifacts.sh
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
+  - /docker/fleet/repos/chummer-media-factory commit TO_BE_FILLED_M119_COMMIT pins the M119 starter artifact closure proof floor.
+  - python3 -m unittest tests.test_m119_successor_package_authority tests.test_m119_starter_artifact_proof tests.test_starter_artifact_rendering exits 0.
+  - dotnet run --project tests/StarterArtifactBundleSmoke/Chummer.Media.Factory.StarterArtifactBundleSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
+  - bash scripts/ai/verify_m119_starter_artifacts.sh exits 0.
+  - bash scripts/ai/verify.sh exits 0.
   allowed_paths:
   - src
   - tests
@@ -3047,9 +3449,23 @@ items:
   package_id: next90-m119-ui-first-session-flow
   work_task_id: 119.2
   milestone_id: 119
-  status: in_progress
+  status: complete
   wave: W14
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M119 chummer6-ui desktop first playable session entry points are complete; future shards must verify the home and campaign starter-lane actions, the closed-package guard and receipt, standard verifier wiring, and the canonical registry plus queue rows instead of reopening this slice.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M119FirstSessionFlowGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m119-ui-first-session-flow-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M119_UI_FIRST_SESSION_FLOW.generated.json
+  - bash scripts/ai/milestones/next90-m119-ui-first-session-flow-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M119FirstSessionFlowGuardTests" --no-restore
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3079,9 +3495,25 @@ items:
   package_id: next90-m119-design-onboarding-metrics
   work_task_id: 119.5
   milestone_id: 119
-  status: in_progress
+  frontier_id: 4803543375
+  status: complete
   wave: W14
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M119 chummer6-design first-playable-session metrics and bounded onboarding claims are complete; future
+    shards must verify the onboarding metrics canon, telemetry contract updates,
+    public no-desktop claim boundary, standard verifier wiring, feedback closeout
+    note, and the canonical registry plus queue rows instead of reopening the
+    onboarding-metrics and claim-boundary slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/FIRST_PLAYABLE_SESSION_ONBOARDING_METRICS.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PRODUCT_USAGE_TELEMETRY_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_ONBOARDING_PATHS_FOR_NO_DESKTOP_USERS.md
+  - /docker/chummercomplete/chummer-design/products/chummer/README.md
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m119-design-onboarding-metrics-closeout.md
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m119_design_onboarding_metrics.py
+  - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
   allowed_paths:
   - products
   - scripts
@@ -3158,9 +3590,25 @@ items:
   package_id: next90-m120-design-launch-health-language
   work_task_id: 120.5
   milestone_id: 120
-  status: in_progress
+  frontier_id: 1708070943
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M120 chummer6-design launch-health posture language is complete; future shards must verify the launch-health contract, public-copy checks across release/update/help/trust surfaces, standard verifier wiring, feedback closeout, and the canonical registry plus queue rows instead of reopening this contract slice.
   wave: W14
   repo: chummer6-design
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_LAUNCH_HEALTH_LANGUAGE.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_AUTO_UPDATE_POLICY.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_HELP_COPY.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_TRUST_CONTENT.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/public-guide/DOWNLOAD.md
+  - /docker/chummercomplete/chummer-design/products/chummer/README.md
+  - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m120-design-launch-health-language-closeout.md
+  - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m120_design_launch_health_language.py
+  - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
   allowed_paths:
   - products
   - scripts
@@ -3909,9 +4357,19 @@ items:
   work_task_id: '145.1'
   frontier_id: 1451045101
   milestone_id: 145
-  status: not_started
+  status: complete
   wave: W28
   repo: chummer6-core
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M145 chummer6-core explain value packets is complete; future shards must verify this receipt, registry row, queue row, and design-queue row instead of reopening the core explanation-packet package.
+  proof:
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Diagnostics/ExplainValuePacketContracts.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Application/Explain/DefaultExplainValuePacketService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs
+  - /docker/chummercomplete/chummer-core-engine/docs/EXPLAIN_VALUE_PACKETS.md
+  - /docker/chummercomplete/chummer-core-engine/scripts/verify-explain-value-packets.py
+  - /docker/chummercomplete/chummer-core-engine/tests/test_explain_value_packet_receipt.py
+  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json
   allowed_paths:
   - src
   - tests
@@ -3928,9 +4386,23 @@ items:
   work_task_id: '145.2'
   frontier_id: 1452045202
   milestone_id: 145
-  status: not_started
+  status: complete
   wave: W28
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M145 chummer6-ui desktop explain drawer and follow-up is complete; future shards must verify this receipt,
+    registry row, queue row, design-queue row, and focused desktop tests instead of reopening the promoted workbench explain
+    drawer package.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/Controls/SectionHostControl.axaml.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopExplainDrawerFollowUpWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.SelectionHandlers.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.FeedbackCoordinator.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M145DesktopExplainDrawerGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m145-ui-desktop-explain-drawer-and-follow-up-check.sh
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M145_UI_DESKTOP_EXPLAIN_DRAWER_AND_FOLLOW_UP.generated.json
+  - bash scripts/ai/milestones/next90-m145-ui-desktop-explain-drawer-and-follow-up-check.sh
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3946,9 +4418,16 @@ items:
   work_task_id: '145.3'
   frontier_id: 1453045303
   milestone_id: 145
-  status: not_started
+  status: complete
   wave: W28
   repo: chummer6-mobile
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M145 chummer6-mobile quick explain and follow-up is complete; future shards must verify this receipt, registry row, queue row, and design-queue row instead of reopening the mobile quick explain package.
+  proof:
+  - /docker/chummercomplete/chummer-play/docs/next90-m145-mobile-quick-explain-and-follow-up.proof.md
+  - /docker/chummercomplete/chummer-play/scripts/verify_next90_m145_mobile_quick_explain_and_follow_up.py
+  - /docker/chummercomplete/chummer-play/scripts/materialize_mobile_local_release_proof.py
+  - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
   allowed_paths:
   - src
   - tests
@@ -3964,9 +4443,18 @@ items:
   work_task_id: '145.4'
   frontier_id: 1454045404
   milestone_id: 145
-  status: not_started
+  status: done
   wave: W28
   repo: executive-assistant
+  proof:
+  - /docker/EA/docs/chummer_explain_narration_packs/CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml
+  - /docker/EA/docs/chummer_explain_narration_packs/GROUNDED_FOLLOW_UP_SPECIMENS.yaml
+  - /docker/EA/docs/chummer_explain_narration_packs/README.md
+  - /docker/EA/docs/chummer_explain_narration_packs/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - /docker/EA/skills/chummer_grounded_explain_narration/SKILL.md
+  - /docker/EA/tests/test_next90_m145_grounded_explain_narration_packs.py
+  - /docker/EA/feedback/2026-05-05-ea-grounded-explain-narration-packs-package-closeout.md
+  - python3 tests/test_next90_m145_grounded_explain_narration_packs.py exits 0 with ran=8 failed=0
   allowed_paths:
   - skills
   - tests
@@ -3980,9 +4468,24 @@ items:
     grounding scope, and first-party text fallback.
   package_id: next90-m145-media-factory-explain-presenter-siblings
   work_task_id: '145.5'
-  frontier_id: 1455045505
+  frontier_id: 2090633046
   milestone_id: 145
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  landed_commit: 7d5a0167
+  do_not_reopen_reason: M145 chummer6-media-factory explain presenter siblings is complete; future shards must verify this package via the closure proof floor, package tests, registry row, queue rows, and focused closeout commands instead of reopening this package.
+  proof:
+  - /docker/chummercomplete/chummer6-media-factory/src/Chummer.Media.Factory.Runtime/Assets/ExplainPresenterSiblingRenderingService.cs
+  - /docker/chummercomplete/chummer6-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
+  - /docker/chummercomplete/chummer6-media-factory/src/Chummer.Media.Contracts/README.md
+  - /docker/chummercomplete/chummer6-media-factory/tests/ExplainPresenterSiblingSmoke/Program.cs
+  - /docker/chummercomplete/chummer6-media-factory/tests/test_explain_presenter_sibling_rendering.py
+  - /docker/chummercomplete/chummer6-media-factory/tests/test_m145_successor_package_authority.py
+  - /docker/chummercomplete/chummer6-media-factory/tests/test_m145_explain_presenter_proof.py
+  - /docker/chummercomplete/chummer6-media-factory/docs/NEXT90_M145_EXPLAIN_PRESENTER_SIBLINGS_PROOF_FLOOR.md
+  - /docker/chummercomplete/chummer6-media-factory/scripts/ai/materialize_media_release_proof.py
+  - /docker/chummercomplete/chummer6-media-factory/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer6-media-factory/scripts/ai/verify_m145_explain_presenter_siblings.sh
   wave: W28
   repo: chummer6-media-factory
   allowed_paths:
@@ -4001,9 +4504,19 @@ items:
   work_task_id: '145.6'
   frontier_id: 1456045606
   milestone_id: 145
-  status: not_started
+  status: complete
   wave: W28
   repo: fleet
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M145 Fleet explain coverage gate is complete; future shards must verify the canonical registry row, both queue rows, the generated gate packet, and the focused Fleet regressions instead of reopening this closure guard.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m145_fleet_explain_coverage_gate.py
+  - /docker/fleet/scripts/verify_next90_m145_fleet_explain_coverage_gate.py
+  - /docker/fleet/tests/test_verify_next90_m145_fleet_explain_coverage_gate.py
+  - /docker/fleet/tests/test_fleet_script_bootstrap_without_pythonpath.py
+  - /docker/fleet/scripts/verify_script_bootstrap_no_pythonpath.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M145_FLEET_EXPLAIN_COVERAGE_GATE.generated.json
+  - /docker/fleet/feedback/2026-05-05-next90-m145-fleet-explain-coverage-gate-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4019,7 +4532,7 @@ items:
   work_task_id: '145.7'
   frontier_id: 1457045707
   milestone_id: 145
-  status: in_progress
+  status: done
   wave: W28
   repo: chummer6-design
   allowed_paths:
@@ -4890,4 +5403,1453 @@ items:
   - docs
   owned_surfaces:
   - close_ea_compile_signal_companion:executive_assistant
-source_queue_fingerprint: fb2fdc9e8de7184869eb9843ba1fe2c29884a236
+- title: Close campaign adoption, ResolutionReport, WorldTick, player-safe news, and next-session continuity so the calm-under-pressure
+    loop runs on one governed campaign spine.
+  task: Close campaign adoption, ResolutionReport, WorldTick, player-safe news, and next-session continuity so the calm-under-pressure
+    loop runs on one governed campaign spine.
+  package_id: next90-m136-hub-close-campaign-adoption-resolutionreport-worldtick-player-safe-news-and
+  work_task_id: '136.1'
+  frontier_id: 4860295162
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - close_campaign_adoption_resolutionreport_worldtick_playe:hub
+- title: Close veteran-depth desktop parity for translator/XML, dense builder, career, dice/initiative, contacts/lifestyles/history,
+    and print/export families with direct screenshot and runtime proof.
+  task: Close veteran-depth desktop parity for translator/XML, dense builder, career, dice/initiative, contacts/lifestyles/history,
+    and print/export families with direct screenshot and runtime proof.
+  package_id: next90-m136-ui-close-veteran-depth-desktop-parity-for-translator-xml-dense-builder-caree
+  work_task_id: '136.2'
+  frontier_id: 2220565413
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_veteran_depth_desktop_parity_for_translator_xml_de:ui
+- title: Close translator/XML/custom-data bridge parity with dialog-level element inventories and direct screenshot/runtime
+    proof.
+  task: Close translator/XML/custom-data bridge parity with dialog-level element inventories and direct screenshot/runtime
+    proof.
+  package_id: next90-m136-ui-close-translator-xml-custom-data-bridge-parity-with-dialog-level-element
+  work_task_id: '136.21'
+  frontier_id: 3118882663
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_translator_xml_custom_data_bridge_parity_with_dial:ui
+- title: Close dense builder and career parity with dialog-level element inventories for attributes, skills, qualities, gear/augment,
+    and specialist tabs.
+  task: Close dense builder and career parity with dialog-level element inventories for attributes, skills, qualities, gear/augment,
+    and specialist tabs.
+  package_id: next90-m136-ui-close-dense-builder-and-career-parity-with-dialog-level-element-inventori
+  work_task_id: '136.22'
+  frontier_id: 3976411760
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_dense_builder_and_career_parity_with_dialog_level:ui
+- title: Close dice, initiative, and quick table-utility parity with dialog-level screenshot/runtime proof and per-element
+    verdicts.
+  task: Close dice, initiative, and quick table-utility parity with dialog-level screenshot/runtime proof and per-element
+    verdicts.
+  package_id: next90-m136-ui-close-dice-initiative-and-quick-table-utility-parity-with-dialog-level-sc
+  work_task_id: '136.23'
+  frontier_id: 9823100865
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_dice_initiative_and_quick_table_utility_parity_wit:ui
+- title: Close identity, contacts, lifestyles, and history parity with direct dialog evidence and explicit yes/no element
+    verdicts.
+  task: Close identity, contacts, lifestyles, and history parity with direct dialog evidence and explicit yes/no element verdicts.
+  package_id: next90-m136-ui-close-identity-contacts-lifestyles-and-history-parity-with-direct-dialog
+  work_task_id: '136.24'
+  frontier_id: 6719972564
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_identity_contacts_lifestyles_and_history_parity_wi:ui
+- title: Close Hero Lab, legacy import-oracle, and migration-confidence parity with surfaced routes and bounded-loss review
+    proof.
+  task: Close Hero Lab, legacy import-oracle, and migration-confidence parity with surfaced routes and bounded-loss review
+    proof.
+  package_id: next90-m136-ui-close-hero-lab-legacy-import-oracle-and-migration-confidence-parity-with
+  work_task_id: '136.25'
+  frontier_id: 5378677791
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_hero_lab_legacy_import_oracle_and_migration_confid:ui
+- title: Close sheet viewer, print-multiple, export, and exchange parity with explicit first-class target visibility and per-element
+    verdicts.
+  task: Close sheet viewer, print-multiple, export, and exchange parity with explicit first-class target visibility and per-element
+    verdicts.
+  package_id: next90-m136-ui-close-sheet-viewer-print-multiple-export-and-exchange-parity-with-explici
+  work_task_id: '136.26'
+  frontier_id: 4822990256
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_sheet_viewer_print_multiple_export_and_exchange_pa:ui
+- title: Close SR6 supplement, designer-tool, and house-rule parity posture with surfaced routes, screenshot proof, and yes/no
+    element inventories.
+  task: Close SR6 supplement, designer-tool, and house-rule parity posture with surfaced routes, screenshot proof, and yes/no
+    element inventories.
+  package_id: next90-m136-ui-close-sr6-supplement-designer-tool-and-house-rule-parity-posture-with-sur
+  work_task_id: '136.27'
+  frontier_id: 6163719965
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_sr6_supplement_designer_tool_and_house_rule_parity:ui
+- title: Close recap, return-moment, consequence-feed, travel, and degraded-network companion continuity from governed campaign
+    truth.
+  task: Close recap, return-moment, consequence-feed, travel, and degraded-network companion continuity from governed campaign
+    truth.
+  package_id: next90-m136-mobile-close-recap-return-moment-consequence-feed-travel-and-degraded-networ
+  work_task_id: '136.3'
+  frontier_id: 4021588827
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - close_recap_return_moment_consequence_feed_travel_and_de:mobile
+- title: Keep action-budget, explain-anchor, and local-source flows deterministic and source-backed across live-play and between-session
+    surfaces.
+  task: Keep action-budget, explain-anchor, and local-source flows deterministic and source-backed across live-play and between-session
+    surfaces.
+  package_id: next90-m136-core-keep-action-budget-explain-anchor-and-local-source-flows-deterministic
+  work_task_id: '136.4'
+  frontier_id: 4273954358
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - keep_action_budget_explain_anchor_and_local_source_flows:core
+- title: Compile operator-safe calm-under-pressure packets, continuity summaries, migration-confidence evidence, and veteran-proof
+    followthrough without inventing shadow truth.
+  task: Compile operator-safe calm-under-pressure packets, continuity summaries, migration-confidence evidence, and veteran-proof
+    followthrough without inventing shadow truth.
+  package_id: next90-m136-ea-compile-operator-safe-calm-under-pressure-packets-continuity-summaries-mi
+  work_task_id: '136.5'
+  frontier_id: 6984478403
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_operator_safe_calm_under_pressure_packets_contin:ea
+- title: Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs, dialog-level element
+    inventories, or continuity journey receipts are stale or missing.
+  task: Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs, dialog-level element
+    inventories, or continuity journey receipts are stale or missing.
+  package_id: next90-m136-fleet-fail-closed-on-aggregate-readiness-when-family-level-parity-proof-sub
+  work_task_id: '136.6'
+  frontier_id: 2277811964
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closed_on_aggregate_readiness_when_family_level_par:fleet
+- title: Close calm-under-pressure, veteran-depth, continuity, and human-feeling parity canon plus acceptance language from
+    the vision recovery overlay.
+  task: Close calm-under-pressure, veteran-depth, continuity, and human-feeling parity canon plus acceptance language from
+    the vision recovery overlay.
+  package_id: next90-m136-design-close-calm-under-pressure-veteran-depth-continuity-and-human-feeling
+  work_task_id: '136.7'
+  frontier_id: 4836834691
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - close_calm_under_pressure_veteran_depth_continuity_and_h:design
+- title: Publish dialog-level Chummer5A human parity acceptance canon for the remaining hard families, including yes/no visual
+    and behavioral verdict fields and explicit removable-extra reasons.
+  task: Publish dialog-level Chummer5A human parity acceptance canon for the remaining hard families, including yes/no visual
+    and behavioral verdict fields and explicit removable-extra reasons.
+  package_id: next90-m136-design-publish-dialog-level-chummer5a-human-parity-acceptance-canon-for-the
+  work_task_id: '136.8'
+  frontier_id: 4945302485
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - publish_dialog_level_chummer5a_human_parity_acceptance_c:design
+- title: Bind the machine-readable human parity matrix into audit/gate consumption so hard families cannot close on prose-only
+    proof.
+  task: Bind the machine-readable human parity matrix into audit/gate consumption so hard families cannot close on prose-only
+    proof.
+  package_id: next90-m136-fleet-bind-the-machine-readable-human-parity-matrix-into-audit-gate-consumpt
+  work_task_id: '136.9'
+  frontier_id: 4491585022
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - bind_the_machine_readable_human_parity_matrix_into_audit:fleet
+- title: Publish machine-readable flagship readiness planes plus divergence classes for must-match, may-improve, and may-remove-if-non-degrading
+    review.
+  task: Publish machine-readable flagship readiness planes plus divergence classes for must-match, may-improve, and may-remove-if-non-degrading
+    review.
+  package_id: next90-m136-design-publish-machine-readable-flagship-readiness-planes-plus-divergence-cl
+  work_task_id: '136.10'
+  frontier_id: 4867598010
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - publish_machine_readable_flagship_readiness_planes_plus:design
+- title: Publish derived release-health planes from live proof so structural green cannot masquerade as SR5 veteran, durability,
+    explainability, or public-shelf readiness.
+  task: Publish derived release-health planes from live proof so structural green cannot masquerade as SR5 veteran, durability,
+    explainability, or public-shelf readiness.
+  package_id: next90-m136-fleet-publish-derived-release-health-planes-from-live-proof-so-structural-gr
+  work_task_id: '136.11'
+  frontier_id: 8422537713
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - publish_derived_release_health_planes_from_live_proof_so:fleet
+- title: Bind data durability, custom-data survival, rules explainability, and large-sheet performance evidence into release-bound
+    engine proof.
+  task: Bind data durability, custom-data survival, rules explainability, and large-sheet performance evidence into release-bound
+    engine proof.
+  package_id: next90-m136-core-bind-data-durability-custom-data-survival-rules-explainability-and-larg
+  work_task_id: '136.12'
+  frontier_id: 4069074248
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - bind_data_durability_custom_data_survival_rules_explaina:core
+- title: Close split-brain release truth so installer bytes, release-channel truth, public shelf truth, in-app update truth,
+    and support posture agree.
+  task: Close split-brain release truth so installer bytes, release-channel truth, public shelf truth, in-app update truth,
+    and support posture agree.
+  package_id: next90-m136-hub-close-split-brain-release-truth-so-installer-bytes-release-channel-truth
+  work_task_id: '136.13'
+  frontier_id: 4782048490
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - close_split_brain_release_truth_so_installer_bytes_relea:hub
+- title: Publish primary-vs-fallback channel metadata, rollback/revoke posture, and desktop-route rationale so public-shelf-ready
+    truth is machine-checkable.
+  task: Publish primary-vs-fallback channel metadata, rollback/revoke posture, and desktop-route rationale so public-shelf-ready
+    truth is machine-checkable.
+  package_id: next90-m136-registry-publish-primary-vs-fallback-channel-metadata-rollback-revoke-postur
+  work_task_id: '136.14'
+  frontier_id: 1588155576
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - publish_primary_vs_fallback_channel_metadata_rollback_re:registry
+- title: Close raw promoted desktop recovery-trust proof on every advertised platform with non-borrowed startup, update, rollback,
+    restore, and first-launch receipts.
+  task: Close raw promoted desktop recovery-trust proof on every advertised platform with non-borrowed startup, update, rollback,
+    restore, and first-launch receipts.
+  package_id: next90-m136-ui-close-raw-promoted-desktop-recovery-trust-proof-on-every-advertised-platf
+  work_task_id: '136.15'
+  frontier_id: 1101364459
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_raw_promoted_desktop_recovery_trust_proof_on_every:ui
+- title: Fail parity closeout when remaining deltas are not classified as must-match, may-improve, or may-remove-if-non-degrading
+    in the audit artifacts.
+  task: Fail parity closeout when remaining deltas are not classified as must-match, may-improve, or may-remove-if-non-degrading
+    in the audit artifacts.
+  package_id: next90-m136-fleet-fail-parity-closeout-when-remaining-deltas-are-not-classified-as-must
+  work_task_id: '136.16'
+  frontier_id: 2977536653
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_parity_closeout_when_remaining_deltas_are_not_class:fleet
+- title: Bind large-sheet, dense-roster, status-strip, and workbench-noise budgets into the flagship desktop preset so dense-workbench-ready
+    proof is not theme-fragile.
+  task: Bind large-sheet, dense-roster, status-strip, and workbench-noise budgets into the flagship desktop preset so dense-workbench-ready
+    proof is not theme-fragile.
+  package_id: next90-m136-ui-kit-bind-large-sheet-dense-roster-status-strip-and-workbench-noise-budget
+  work_task_id: '136.17'
+  frontier_id: 3436532323
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: chummer6-ui-kit
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - bind_large_sheet_dense_roster_status_strip_and_workbench:ui_kit
+- title: Extract Chummer5A screenshot baselines, first-minute task packs, import/export fixtures, and dense-workbench compare
+    packs into the parity lab as governed oracle inputs.
+  task: Extract Chummer5A screenshot baselines, first-minute task packs, import/export fixtures, and dense-workbench compare
+    packs into the parity lab as governed oracle inputs.
+  package_id: next90-m136-ea-extract-chummer5a-screenshot-baselines-first-minute-task-packs-import-exp
+  work_task_id: '136.18'
+  frontier_id: 8496466532
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - extract_chummer5a_screenshot_baselines_first_minute_task:ea
+- title: Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead of letting adjacent coverage inherit
+    from broad desktop readiness.
+  task: Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead of letting adjacent coverage inherit
+    from broad desktop readiness.
+  package_id: next90-m136-fleet-publish-explicit-sr4-and-sr6-readiness-plane-closeout-from-direct-proo
+  work_task_id: '136.19'
+  frontier_id: 7496747405
+  milestone_id: 136
+  status: not_started
+  wave: W23
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - publish_explicit_sr4_and_sr6_readiness_plane_closeout_fr:fleet
+- title: Bind Open Runs, Community Hub, recap, route, campaign-group movement, and creator-publication handoffs to one governed
+    orchestration and consent lane.
+  task: Bind Open Runs, Community Hub, recap, route, campaign-group movement, and creator-publication handoffs to one governed
+    orchestration and consent lane.
+  package_id: next90-m137-hub-bind-open-runs-community-hub-recap-route-campaign-group-movement-and-cre
+  work_task_id: '137.1'
+  frontier_id: 4755898303
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - bind_open_runs_community_hub_recap_route_campaign_group:hub
+- title: Publish capability seams, consent posture, provenance, compatibility, and revocation truth for ecosystem and acquisition-fit
+    integrations.
+  task: Publish capability seams, consent posture, provenance, compatibility, and revocation truth for ecosystem and acquisition-fit
+    integrations.
+  package_id: next90-m137-registry-publish-capability-seams-consent-posture-provenance-compatibility-a
+  work_task_id: '137.2'
+  frontier_id: 1648387832
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - publish_capability_seams_consent_posture_provenance_comp:registry
+- title: Render recap, route, creator-press, artifact-studio, and bounded table-pulse packets that stay inspectable and source-backed.
+  task: Render recap, route, creator-press, artifact-studio, and bounded table-pulse packets that stay inspectable and source-backed.
+  package_id: next90-m137-media-factory-render-recap-route-creator-press-artifact-studio-and-bounded-t
+  work_task_id: '137.3'
+  frontier_id: 9278838309
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - render_recap_route_creator_press_artifact_studio_and_bou:media_factory
+- title: Surface community formation, artifact studio, creator press, route packs, and migration-confidence entry points on
+    desktop without weakening campaign or rules truth.
+  task: Surface community formation, artifact studio, creator press, route packs, and migration-confidence entry points on
+    desktop without weakening campaign or rules truth.
+  package_id: next90-m137-ui-surface-community-formation-artifact-studio-creator-press-route-packs-and
+  work_task_id: '137.4'
+  frontier_id: 1488174927
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - surface_community_formation_artifact_studio_creator_pres:ui
+- title: Surface travel, route, return-moment, observer, and bounded table-pulse lanes on mobile with explicit offline and
+    consent posture.
+  task: Surface travel, route, return-moment, observer, and bounded table-pulse lanes on mobile with explicit offline and
+    consent posture.
+  package_id: next90-m137-mobile-surface-travel-route-return-moment-observer-and-bounded-table-pulse-l
+  work_task_id: '137.5'
+  frontier_id: 1440342256
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - surface_travel_route_return_moment_observer_and_bounded:mobile
+- title: Compile ecosystem-opportunity packets, partner-fit summaries, creator followthrough, and migration-confidence support
+    packets from governed truth only.
+  task: Compile ecosystem-opportunity packets, partner-fit summaries, creator followthrough, and migration-confidence support
+    packets from governed truth only.
+  package_id: next90-m137-ea-compile-ecosystem-opportunity-packets-partner-fit-summaries-creator-follo
+  work_task_id: '137.6'
+  frontier_id: 1507911473
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_ecosystem_opportunity_packets_partner_fit_summar:ea
+- title: Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture mismatch across first-party
+    and integration-ready lanes.
+  task: Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture mismatch across first-party
+    and integration-ready lanes.
+  package_id: next90-m137-fleet-monitor-unsupported-ecosystem-claims-stale-seam-proof-consent-drift-an
+  work_task_id: '137.7'
+  frontier_id: 9074685645
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - monitor_unsupported_ecosystem_claims_stale_seam_proof_co:fleet
+- title: Close ecosystem leverage, integration seams, acquisition-fit posture, and non-shadow-truth boundaries in canonical
+    design.
+  task: Close ecosystem leverage, integration seams, acquisition-fit posture, and non-shadow-truth boundaries in canonical
+    design.
+  package_id: next90-m137-design-close-ecosystem-leverage-integration-seams-acquisition-fit-posture-an
+  work_task_id: '137.8'
+  frontier_id: 5136686328
+  milestone_id: 137
+  status: not_started
+  wave: W24
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - close_ecosystem_leverage_integration_seams_acquisition_f:design
+- title: Publish the hero-path canon for Ready for Tonight, no-desktop participation, role kits, source-aware explain, start-from-today
+    adoption, and Foundry-first handoff.
+  task: Publish the hero-path canon for Ready for Tonight, no-desktop participation, role kits, source-aware explain, start-from-today
+    adoption, and Foundry-first handoff.
+  package_id: next90-m138-design-publish-the-hero-path-canon-for-ready-for-tonight-no-desktop-particip
+  work_task_id: '138.1'
+  frontier_id: 3959700709
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - publish_the_hero_path_canon_for_ready_for_tonight_no_des:design
+- title: Bind open-run discovery, quickstart selection, table contract, readable preflight, and meeting handoff into a beginner-safe
+    no-desktop participation path.
+  task: Bind open-run discovery, quickstart selection, table contract, readable preflight, and meeting handoff into a beginner-safe
+    no-desktop participation path.
+  package_id: next90-m138-hub-bind-open-run-discovery-quickstart-selection-table-contract-readable-pre
+  work_task_id: '138.2'
+  frontier_id: 7699247388
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - bind_open_run_discovery_quickstart_selection_table_contr:hub
+- title: Surface Ready for Tonight, source-aware explain, role-kit guidance, and start-from-today adoption in the flagship
+    desktop without collapsing them into dashboard chrome.
+  task: Surface Ready for Tonight, source-aware explain, role-kit guidance, and start-from-today adoption in the flagship
+    desktop without collapsing them into dashboard chrome.
+  package_id: next90-m138-ui-surface-ready-for-tonight-source-aware-explain-role-kit-guidance-and-star
+  work_task_id: '138.3'
+  frontier_id: 4337712546
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - surface_ready_for_tonight_source_aware_explain_role_kit:ui
+- title: Deliver the no-desktop participation bridge for run discovery, quickstart selection, readable blockers, accepted-player
+    handoff, recap, and return.
+  task: Deliver the no-desktop participation bridge for run discovery, quickstart selection, readable blockers, accepted-player
+    handoff, recap, and return.
+  package_id: next90-m138-mobile-deliver-the-no-desktop-participation-bridge-for-run-discovery-quickst
+  work_task_id: '138.4'
+  frontier_id: 6873752055
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - deliver_the_no_desktop_participation_bridge_for_run_disc:mobile
+- title: Keep readiness verdicts, role-kit reasoning, explain anchors, adoption confidence, and Foundry-first export lineage
+    deterministic and source-backed.
+  task: Keep readiness verdicts, role-kit reasoning, explain anchors, adoption confidence, and Foundry-first export lineage
+    deterministic and source-backed.
+  package_id: next90-m138-core-keep-readiness-verdicts-role-kit-reasoning-explain-anchors-adoption-con
+  work_task_id: '138.5'
+  frontier_id: 4122719775
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - keep_readiness_verdicts_role_kit_reasoning_explain_ancho:core
+- title: Publish route-truth and participation metadata so public beginner paths, desktop handoff posture, and export posture
+    cannot overclaim.
+  task: Publish route-truth and participation metadata so public beginner paths, desktop handoff posture, and export posture
+    cannot overclaim.
+  package_id: next90-m138-registry-publish-route-truth-and-participation-metadata-so-public-beginner-p
+  work_task_id: '138.6'
+  frontier_id: 2108010282
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - publish_route_truth_and_participation_metadata_so_public:registry
+- title: Render beginner-safe onboarding, mission handoff, recap, and starter-loadout support artifacts that stay secondary
+    to governed product truth.
+  task: Render beginner-safe onboarding, mission handoff, recap, and starter-loadout support artifacts that stay secondary
+    to governed product truth.
+  package_id: next90-m138-media-factory-render-beginner-safe-onboarding-mission-handoff-recap-and-star
+  work_task_id: '138.7'
+  frontier_id: 4496028440
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - render_beginner_safe_onboarding_mission_handoff_recap_an:media_factory
+- title: Compile beginner-friction, gear-paralysis, rule-ambiguity, and adoption-confidence packets from governed truth without
+    becoming a second product brain.
+  task: Compile beginner-friction, gear-paralysis, rule-ambiguity, and adoption-confidence packets from governed truth without
+    becoming a second product brain.
+  package_id: next90-m138-ea-compile-beginner-friction-gear-paralysis-rule-ambiguity-and-adoption-conf
+  work_task_id: '138.8'
+  frontier_id: 8957528283
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_beginner_friction_gear_paralysis_rule_ambiguity:ea
+- title: Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence receipts, or Foundry-first
+    handoff receipts are stale, missing, or contradicted by public posture.
+  task: Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence receipts, or Foundry-first
+    handoff receipts are stale, missing, or contradicted by public posture.
+  package_id: next90-m138-fleet-fail-closeout-when-the-90-second-newcomer-path-ready-for-tonight-verdi
+  work_task_id: '138.9'
+  frontier_id: 4764536356
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_the_90_second_newcomer_path_ready_for:fleet
+- title: Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE, and related newcomer-path proof into
+    machine-readable readiness and public-truth projections.
+  task: Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE, and related newcomer-path proof into
+    machine-readable readiness and public-truth projections.
+  package_id: next90-m138-fleet-bind-ready-for-tonight-gates-role-kit-registry-vtt-export-target-accep
+  work_task_id: '138.10'
+  frontier_id: 7914546694
+  milestone_id: 138
+  status: not_started
+  wave: W25
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - bind_ready_for_tonight_gates_role_kit_registry_vtt_expor:fleet
+- title: Publish the canon for community safety, world broadcast cadence, creator analytics, accessibility and cognitive-load
+    bar, and GM tonight-pack posture.
+  task: Publish the canon for community safety, world broadcast cadence, creator analytics, accessibility and cognitive-load
+    bar, and GM tonight-pack posture.
+  package_id: next90-m139-design-publish-the-canon-for-community-safety-world-broadcast-cadence-creato
+  work_task_id: '139.1'
+  frontier_id: 9887546822
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - publish_the_canon_for_community_safety_world_broadcast_c:design
+- title: Bind GM tonight-pack generation, run closeout, world-broadcast sources, moderation events, and creator-publication
+    followthrough into one governed operations lane.
+  task: Bind GM tonight-pack generation, run closeout, world-broadcast sources, moderation events, and creator-publication
+    followthrough into one governed operations lane.
+  package_id: next90-m139-hub-bind-gm-tonight-pack-generation-run-closeout-world-broadcast-sources-mod
+  work_task_id: '139.2'
+  frontier_id: 4571213022
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - bind_gm_tonight_pack_generation_run_closeout_world_broad:hub
+- title: Surface GM tonight-pack, moderation posture, creator feedback, and accessibility-safe cognitive-load affordances
+    on desktop where operators actually act.
+  task: Surface GM tonight-pack, moderation posture, creator feedback, and accessibility-safe cognitive-load affordances on
+    desktop where operators actually act.
+  package_id: next90-m139-ui-surface-gm-tonight-pack-moderation-posture-creator-feedback-and-accessibi
+  work_task_id: '139.3'
+  frontier_id: 9604405519
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - surface_gm_tonight_pack_moderation_posture_creator_feedb:ui
+- title: Surface mobile-safe recap, return, moderation, and public-safe world-broadcast moments without making mobile carry
+    full desktop prep debt.
+  task: Surface mobile-safe recap, return, moderation, and public-safe world-broadcast moments without making mobile carry
+    full desktop prep debt.
+  package_id: next90-m139-mobile-surface-mobile-safe-recap-return-moderation-and-public-safe-world-bro
+  work_task_id: '139.4'
+  frontier_id: 2240954284
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - surface_mobile_safe_recap_return_moderation_and_public_s:mobile
+- title: Keep tonight-pack receipts, world-broadcast lineage, creator-analytics fields, and moderation state transitions deterministic
+    and privacy-bounded.
+  task: Keep tonight-pack receipts, world-broadcast lineage, creator-analytics fields, and moderation state transitions deterministic
+    and privacy-bounded.
+  package_id: next90-m139-core-keep-tonight-pack-receipts-world-broadcast-lineage-creator-analytics-fi
+  work_task_id: '139.5'
+  frontier_id: 5217408926
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - keep_tonight_pack_receipts_world_broadcast_lineage_creat:core
+- title: Publish creator compatibility, publication analytics schema, world-broadcast recipe metadata, and moderation-status
+    posture without leaking private campaign truth.
+  task: Publish creator compatibility, publication analytics schema, world-broadcast recipe metadata, and moderation-status
+    posture without leaking private campaign truth.
+  package_id: next90-m139-registry-publish-creator-compatibility-publication-analytics-schema-world-br
+  work_task_id: '139.6'
+  frontier_id: 6759689535
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - publish_creator_compatibility_publication_analytics_sche:registry
+- title: Render weekly broadcast, public-safe media cards, creator collateral, and GM-pack siblings from receipt-backed campaign
+    truth.
+  task: Render weekly broadcast, public-safe media cards, creator collateral, and GM-pack siblings from receipt-backed campaign
+    truth.
+  package_id: next90-m139-media-factory-render-weekly-broadcast-public-safe-media-cards-creator-collat
+  work_task_id: '139.7'
+  frontier_id: 8277739420
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - render_weekly_broadcast_public_safe_media_cards_creator:media_factory
+- title: Compile world-broadcast, safety, creator, and accessibility followthrough packets from governed sources without outrunning
+    canon or privacy bounds.
+  task: Compile world-broadcast, safety, creator, and accessibility followthrough packets from governed sources without outrunning
+    canon or privacy bounds.
+  package_id: next90-m139-ea-compile-world-broadcast-safety-creator-and-accessibility-followthrough-pa
+  work_task_id: '139.8'
+  frontier_id: 2455228083
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_world_broadcast_safety_creator_and_accessibility:ea
+- title: Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and appeals states, creator analytics
+    bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory.
+  task: Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and appeals states, creator analytics bounds,
+    or accessibility and cognitive-load gates are stale, missing, or contradictory.
+  package_id: next90-m139-fleet-fail-closeout-when-tonight-pack-proof-broadcast-cadence-proof-moderati
+  work_task_id: '139.9'
+  frontier_id: 3411981369
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_tonight_pack_proof_broadcast_cadence:fleet
+- title: Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY, CREATOR_PUBLICATION_ANALYTICS_SCHEMA,
+    and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and public-trust projections.
+  task: Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY, CREATOR_PUBLICATION_ANALYTICS_SCHEMA,
+    and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and public-trust projections.
+  package_id: next90-m139-fleet-bind-community-safety-event-and-appeal-states-world-broadcast-recipe-r
+  work_task_id: '139.10'
+  frontier_id: 2565904250
+  milestone_id: 139
+  status: not_started
+  wave: W26
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - bind_community_safety_event_and_appeal_states_world_broa:fleet
+- title: Publish runner-passport, weekly dispatch, creator operating system, and LTD cadence canon with bounded trust and
+    privacy posture.
+  task: Publish runner-passport, weekly dispatch, creator operating system, and LTD cadence canon with bounded trust and privacy
+    posture.
+  package_id: next90-m140-design-publish-runner-passport-weekly-dispatch-creator-operating-system-and
+  work_task_id: '140.1'
+  frontier_id: 6372674481
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - publish_runner_passport_weekly_dispatch_creator_operatin:design
+- title: Bind runner-passport issuance, cross-community review reuse, weekly world dispatch generation, and recurring followthrough
+    loops into governed orchestrations.
+  task: Bind runner-passport issuance, cross-community review reuse, weekly world dispatch generation, and recurring followthrough
+    loops into governed orchestrations.
+  package_id: next90-m140-hub-bind-runner-passport-issuance-cross-community-review-reuse-weekly-world
+  work_task_id: '140.2'
+  frontier_id: 3760510845
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - bind_runner_passport_issuance_cross_community_review_reu:hub
+- title: Surface runner-passport trust state, what-changed dispatch, creator health, and reactivation entry points on desktop
+    without diluting core campaign and rules truth.
+  task: Surface runner-passport trust state, what-changed dispatch, creator health, and reactivation entry points on desktop
+    without diluting core campaign and rules truth.
+  package_id: next90-m140-ui-surface-runner-passport-trust-state-what-changed-dispatch-creator-health
+  work_task_id: '140.3'
+  frontier_id: 6367121456
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - surface_runner_passport_trust_state_what_changed_dispatc:ui
+- title: Surface player-safe passport, dispatch, return, and reactivation moments on mobile as glanceable continuity surfaces.
+  task: Surface player-safe passport, dispatch, return, and reactivation moments on mobile as glanceable continuity surfaces.
+  package_id: next90-m140-mobile-surface-player-safe-passport-dispatch-return-and-reactivation-moments
+  work_task_id: '140.4'
+  frontier_id: 1911973574
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - surface_player_safe_passport_dispatch_return_and_reactiv:mobile
+- title: Keep runner-passport fields, dispatch lineage, creator health fields, and recurring followthrough triggers deterministic
+    and privacy-bounded.
+  task: Keep runner-passport fields, dispatch lineage, creator health fields, and recurring followthrough triggers deterministic
+    and privacy-bounded.
+  package_id: next90-m140-core-keep-runner-passport-fields-dispatch-lineage-creator-health-fields-and
+  work_task_id: '140.5'
+  frontier_id: 1853436594
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - keep_runner_passport_fields_dispatch_lineage_creator_hea:core
+- title: Publish runner-passport acceptance, world-dispatch provenance, creator operating-system fields, and LTD cadence bindings
+    as machine-readable public and internal truth.
+  task: Publish runner-passport acceptance, world-dispatch provenance, creator operating-system fields, and LTD cadence bindings
+    as machine-readable public and internal truth.
+  package_id: next90-m140-registry-publish-runner-passport-acceptance-world-dispatch-provenance-creato
+  work_task_id: '140.6'
+  frontier_id: 7167110327
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - publish_runner_passport_acceptance_world_dispatch_proven:registry
+- title: Render weekly dispatch, creator followthrough collateral, and return-prompt artifacts from receipt-backed source
+    packets.
+  task: Render weekly dispatch, creator followthrough collateral, and return-prompt artifacts from receipt-backed source packets.
+  package_id: next90-m140-media-factory-render-weekly-dispatch-creator-followthrough-collateral-and-re
+  work_task_id: '140.7'
+  frontier_id: 2631693038
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - render_weekly_dispatch_creator_followthrough_collateral:media_factory
+- title: Compile recruitment, reactivation, creator-health, and clinic followthrough packets from governed truth without becoming
+    a second product authority.
+  task: Compile recruitment, reactivation, creator-health, and clinic followthrough packets from governed truth without becoming
+    a second product authority.
+  package_id: next90-m140-ea-compile-recruitment-reactivation-creator-health-and-clinic-followthrough
+  work_task_id: '140.8'
+  frontier_id: 3825934946
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_recruitment_reactivation_creator_health_and_clin:ea
+- title: Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system fields, or LTD cadence
+    bindings are stale, missing, or contradicted by public posture.
+  task: Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system fields, or LTD cadence
+    bindings are stale, missing, or contradicted by public posture.
+  package_id: next90-m140-fleet-fail-closeout-when-runner-passport-proof-weekly-dispatch-cadence-creat
+  work_task_id: '140.9'
+  frontier_id: 4145512253
+  milestone_id: 140
+  status: not_started
+  wave: W27
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_runner_passport_proof_weekly_dispatch:fleet
+- title: Capture direct screenshot and runtime proof for translator, XML amendment editor, Hero Lab importer, and adjacent
+    import-oracle routes.
+  task: Capture direct screenshot and runtime proof for translator, XML amendment editor, Hero Lab importer, and adjacent
+    import-oracle routes.
+  package_id: next90-m141-ui-capture-direct-screenshot-and-runtime-proof-for-translator-xml-amendment
+  work_task_id: '141.1'
+  frontier_id: 2354698282
+  milestone_id: 141
+  status: not_started
+  wave: W22P
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - capture_direct_screenshot_and_runtime_proof_for_translat:ui
+- title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and
+    workflow gates.
+  task: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and
+    workflow gates.
+  package_id: next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic
+  work_task_id: '141.2'
+  frontier_id: 4304178368
+  milestone_id: 141
+  status: not_started
+  wave: W22P
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - bind_import_oracle_custom_data_and_amend_package_flows_t:core
+- title: Keep route, support, and publication surfaces from claiming parity for these routes unless the direct proof receipts
+    are current.
+  task: Keep route, support, and publication surfaces from claiming parity for these routes unless the direct proof receipts
+    are current.
+  package_id: next90-m141-hub-keep-route-support-and-publication-surfaces-from-claiming-parity-for-the
+  work_task_id: '141.3'
+  frontier_id: 4062147200
+  milestone_id: 141
+  status: not_started
+  wave: W22P
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - keep_route_support_and_publication_surfaces_from_claimin:hub
+- title: Compile route-local screenshot packs and compare packets for translator, XML amendment, Hero Lab, and import-oracle
+    proof without inventing parity.
+  task: Compile route-local screenshot packs and compare packets for translator, XML amendment, Hero Lab, and import-oracle
+    proof without inventing parity.
+  package_id: next90-m141-ea-compile-route-local-screenshot-packs-and-compare-packets-for-translator-x
+  work_task_id: '141.4'
+  frontier_id: 2732551969
+  milestone_id: 141
+  status: not_started
+  wave: W22P
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_route_local_screenshot_packs_and_compare_packets:ea
+- title: Fail closeout when any of the five route or family rows in this milestone remain `no`, blank, stale, or unsupported
+    by direct proof receipts.
+  task: Fail closeout when any of the five route or family rows in this milestone remain `no`, blank, stale, or unsupported
+    by direct proof receipts.
+  package_id: next90-m141-fleet-fail-closeout-when-any-of-the-five-route-or-family-rows-in-this-milest
+  work_task_id: '141.5'
+  frontier_id: 4147587006
+  milestone_id: 141
+  status: not_started
+  wave: W22P
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_any_of_the_five_route_or_family_rows:fleet
+- title: Close direct screenshot and runtime proof for dense builder and career flows, dice or initiative utilities, and contacts
+    or lifestyles or notes workflows.
+  task: Close direct screenshot and runtime proof for dense builder and career flows, dice or initiative utilities, and contacts
+    or lifestyles or notes workflows.
+  package_id: next90-m142-ui-close-direct-screenshot-and-runtime-proof-for-dense-builder-and-career-fl
+  work_task_id: '142.1'
+  frontier_id: 9095697868
+  milestone_id: 142
+  status: not_started
+  wave: W22P
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - close_direct_screenshot_and_runtime_proof_for_dense_buil:ui
+- title: Bind dense-workbench and noise-budget proof for these families into the flagship preset and fail-close on stale chrome
+    regressions.
+  task: Bind dense-workbench and noise-budget proof for these families into the flagship preset and fail-close on stale chrome
+    regressions.
+  package_id: next90-m142-ui-kit-bind-dense-workbench-and-noise-budget-proof-for-these-families-into-t
+  work_task_id: '142.2'
+  frontier_id: 1752713026
+  milestone_id: 142
+  status: not_started
+  wave: W22P
+  repo: chummer6-ui-kit
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - bind_dense_workbench_and_noise_budget_proof_for_these_fa:ui_kit
+- title: Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.
+  task: Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.
+  package_id: next90-m142-core-keep-initiative-action-notes-and-workflow-state-receipts-deterministic
+  work_task_id: '142.3'
+  frontier_id: 7923205254
+  milestone_id: 142
+  status: not_started
+  wave: W22P
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - keep_initiative_action_notes_and_workflow_state_receipts:core
+- title: Compile family-local screenshot and interaction packs for these workflows without collapsing them into broad family
+    prose.
+  task: Compile family-local screenshot and interaction packs for these workflows without collapsing them into broad family
+    prose.
+  package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
+  work_task_id: '142.4'
+  frontier_id: 5399660048
+  milestone_id: 142
+  status: not_started
+  wave: W22P
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_family_local_screenshot_and_interaction_packs_fo:ea
+- title: Fail closeout when any route in this milestone closes on family prose, stale captures, or missing task-speed and
+    runtime receipts.
+  task: Fail closeout when any route in this milestone closes on family prose, stale captures, or missing task-speed and runtime
+    receipts.
+  package_id: next90-m142-fleet-fail-closeout-when-any-route-in-this-milestone-closes-on-family-prose
+  work_task_id: '142.5'
+  frontier_id: 7414599441
+  milestone_id: 142
+  status: not_started
+  wave: W22P
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_any_route_in_this_milestone_closes_on:fleet
+- title: Capture direct screenshot and runtime proof for print, export, exchange, SR6 supplement, and house-rule workflows.
+  task: Capture direct screenshot and runtime proof for print, export, exchange, SR6 supplement, and house-rule workflows.
+  package_id: next90-m143-ui-capture-direct-screenshot-and-runtime-proof-for-print-export-exchange-sr6
+  work_task_id: '143.1'
+  frontier_id: 6764868619
+  milestone_id: 143
+  status: not_started
+  wave: W22P
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - capture_direct_screenshot_and_runtime_proof_for_print_ex:ui
+- title: Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather
+    than just render them.
+  task: Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than
+    just render them.
+  package_id: next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi
+  work_task_id: '143.2'
+  frontier_id: 2778308338
+  milestone_id: 143
+  status: not_started
+  wave: W22P
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - keep_export_print_supplement_and_rule_environment_receip:core
+- title: Bind exchange and outward-facing output routes to visible receipt or bounded-failure posture instead of silent optimistic
+    claims.
+  task: Bind exchange and outward-facing output routes to visible receipt or bounded-failure posture instead of silent optimistic
+    claims.
+  package_id: next90-m143-hub-bind-exchange-and-outward-facing-output-routes-to-visible-receipt-or-bou
+  work_task_id: '143.3'
+  frontier_id: 4032374688
+  milestone_id: 143
+  status: not_started
+  wave: W22P
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - bind_exchange_and_outward_facing_output_routes_to_visibl:hub
+- title: Keep public or signed-in release and exchange surfaces from overstating output readiness when proof receipts are
+    stale or incomplete.
+  task: Keep public or signed-in release and exchange surfaces from overstating output readiness when proof receipts are stale
+    or incomplete.
+  package_id: next90-m143-registry-keep-public-or-signed-in-release-and-exchange-surfaces-from-oversta
+  work_task_id: '143.4'
+  frontier_id: 5248695888
+  milestone_id: 143
+  status: not_started
+  wave: W22P
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - keep_public_or_signed_in_release_and_exchange_surfaces_f:registry
+- title: Compile route-specific compare packs and artifact proofs for print, export, exchange, SR6 supplement, and house-rule
+    workflows.
+  task: Compile route-specific compare packs and artifact proofs for print, export, exchange, SR6 supplement, and house-rule
+    workflows.
+  package_id: next90-m143-ea-compile-route-specific-compare-packs-and-artifact-proofs-for-print-export
+  work_task_id: '143.5'
+  frontier_id: 5326878760
+  milestone_id: 143
+  status: not_started
+  wave: W22P
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - feedback
+  - docs
+  owned_surfaces:
+  - compile_route_specific_compare_packs_and_artifact_proofs:ea
+- title: Fail closeout when these families remain green only by broad family prose, missing outputs, or stale route-local
+    receipts.
+  task: Fail closeout when these families remain green only by broad family prose, missing outputs, or stale route-local receipts.
+  package_id: next90-m143-fleet-fail-closeout-when-these-families-remain-green-only-by-broad-family-pr
+  work_task_id: '143.6'
+  frontier_id: 8787562259
+  milestone_id: 143
+  status: not_started
+  wave: W22P
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_these_families_remain_green_only_by_b:fleet
+- title: Capture fresh Windows, Linux, and macOS startup-smoke and executable-gate proof for the currently promoted flagship
+    bytes.
+  task: Capture fresh Windows, Linux, and macOS startup-smoke and executable-gate proof for the currently promoted flagship
+    bytes.
+  package_id: next90-m144-ui-capture-fresh-windows-linux-and-macos-startup-smoke-and-executable-gate-p
+  work_task_id: '144.1'
+  frontier_id: 5115200904
+  milestone_id: 144
+  status: not_started
+  wave: W22P
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - capture_fresh_windows_linux_and_macos_startup_smoke_and:ui
+- title: Keep release-channel tuple coverage, startup-smoke receipt identity, and local verifier routing fail-closed on proof
+    drift.
+  task: Keep release-channel tuple coverage, startup-smoke receipt identity, and local verifier routing fail-closed on proof
+    drift.
+  package_id: next90-m144-registry-keep-release-channel-tuple-coverage-startup-smoke-receipt-identity
+  work_task_id: '144.2'
+  frontier_id: 9104322752
+  milestone_id: 144
+  status: not_started
+  wave: W22P
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  - scripts
+  - docs
+  owned_surfaces:
+  - keep_release_channel_tuple_coverage_startup_smoke_receip:registry
+- title: Keep public and signed-in shelf bytes, proof routes, and release truth aligned with the same promoted tuple receipts.
+  task: Keep public and signed-in shelf bytes, proof routes, and release truth aligned with the same promoted tuple receipts.
+  package_id: next90-m144-hub-keep-public-and-signed-in-shelf-bytes-proof-routes-and-release-truth-ali
+  work_task_id: '144.3'
+  frontier_id: 4075688742
+  milestone_id: 144
+  status: not_started
+  wave: W22P
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - keep_public_and_signed_in_shelf_bytes_proof_routes_and_r:hub
+- title: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel
+    tuple proof.
+  task: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel
+    tuple proof.
+  package_id: next90-m144-fleet-fail-closeout-when-desktop-client-readiness-is-green-without-matching
+  work_task_id: '144.4'
+  frontier_id: 4185937434
+  milestone_id: 144
+  status: not_started
+  wave: W22P
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - fail_closeout_when_desktop_client_readiness_is_green_wit:fleet
+source_queue_fingerprint: 54adabd13bfac91400a264ad5189ce5f3b51ad5a

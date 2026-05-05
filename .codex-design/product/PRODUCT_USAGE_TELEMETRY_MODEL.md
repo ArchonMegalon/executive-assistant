@@ -268,6 +268,7 @@ This is how Chummer separates "the app is slow" from "the app is slow on very la
 Gather bounded funnel facts for high-value journeys:
 
 * install -> first launch -> claim/skip -> first successful open or build
+* first playable session funnel: onboarding entry -> lane selection -> runner-ready -> primer -> briefing -> table handoff -> first playable session
 * open existing character -> edit -> save
 * import legacy file -> repair prompts -> successful open
 * update available -> update start -> relaunch success
@@ -285,6 +286,14 @@ For each funnel, gather:
 * abandon count
 * failure count
 * median time-to-complete
+
+For first-playable-session onboarding as a first-class funnel, also gather:
+
+* lane-scoped completion rate
+* stage-specific drop-off rate
+* blocker-recovery rate after a typed next-safe-action or support-safe recovery prompt
+* primer and briefing coverage for completed starts when the lane requires them
+* no-desktop escalations that ask for desktop only after preflight already passed
 
 ### 8. Feature adoption
 
@@ -483,6 +492,22 @@ One row per journey/day with:
 * abandoned
 * failed
 * median duration bucket
+
+### `first_playable_session_daily`
+
+One row per onboarding lane, install, and day with:
+
+* `onboarding_lane`
+* `entry_visible_count`
+* `runner_ready_count`
+* `primer_seen_count`
+* `briefing_seen_count`
+* `table_handoff_ready_count`
+* `first_playable_session_started_count`
+* `blocked_count`
+* `recovered_after_block_count`
+* `top_blocker_family`
+* `median_time_to_first_playable_bucket_minutes`
 
 ### `search_usage_daily`
 

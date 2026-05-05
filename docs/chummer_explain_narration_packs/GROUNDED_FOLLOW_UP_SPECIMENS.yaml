@@ -1,0 +1,238 @@
+shared_truth_bundle_id: ea-m145-grounded-explain-v1
+status: complete
+specimens:
+  - specimen_id: desktop-body-attribute-why
+    target_surface: desktop_workbench
+    question_class: why
+    source_packets:
+      explanation_packet:
+        packet_id: epkt-body-001
+        value_ref: attribute.body.final
+        snapshot_ref: runner-7:snap-44
+        rule_environment_ref: sr5-core:street-grimoire-off
+        final_value: 5
+        arithmetic_verified: true
+        steps:
+          - label: Base metatype body
+            effect: 3
+          - label: Augmentation bonus
+            effect: +2
+        modifiers_applied:
+          - wired-augmentation:+2
+        modifiers_skipped:
+          - troll-metatype-cap:+0 because character is human
+        caps_and_rounding:
+          - no cap applied
+        warnings: []
+        source_anchors:
+          - source: Core Rulebook
+            page: 65
+            section: Attributes
+        stale_if_snapshot_changes: runner-7:snap-44
+        privacy_class: signed_in
+    narration_pack:
+      packet_identity:
+        packet_id: epkt-body-001
+        packet_grounded: true
+      current_result: Body is 5 in this snapshot.
+      rule_path_summary: Base Body starts at 3 and the approved augmentation adds 2.
+      applied_and_skipped_factors:
+        - Applied wired-augmentation +2.
+        - Skipped troll-metatype-cap because the character is human.
+      cap_floor_rounding_summary: No cap, floor, or rounding changed the result.
+      source_anchor_summary: Core Rulebook page 65, Attributes.
+      stale_state_warning: This summary is only current for snapshot runner-7:snap-44.
+      inspect_packet_cta: Open the explain packet for the ordered steps and anchor details.
+    grounded_follow_up_pack:
+      question_class: why
+      packet_dependency: explanation_packet
+      approved_answer: The current result is supported directly by the explanation packet; no counterfactual packet is required for this answer.
+      answer_limits: This answer may not speculate about unmodeled metatype changes or future augment swaps.
+      inspect_counterfactual_cta: Ask the first-party surface for a bounded what-if before changing factors.
+  - specimen_id: mobile-full-defense-what-if
+    target_surface: live_play_and_mobile
+    question_class: what_if
+    source_packets:
+      explanation_packet:
+        packet_id: epkt-defense-019
+        value_ref: combat.full_defense.minor_cost
+        snapshot_ref: combat-12:snap-08
+        rule_environment_ref: sr6-core:default
+        final_value: unavailable
+        arithmetic_verified: true
+        steps:
+          - label: Current posture
+            effect: Full Defense not active
+        modifiers_applied: []
+        modifiers_skipped:
+          - full-defense-preview because no counterfactual packet is open
+        caps_and_rounding: []
+        warnings:
+          - Counterfactual preview required for this question class.
+        source_anchors:
+          - source: Shadowrun Sixth World Core Rulebook
+            page: 110
+            section: Minor Actions
+        stale_if_snapshot_changes: combat-12:snap-08
+        privacy_class: campaign_private
+      counterfactual_packet:
+        packet_id: cpkt-defense-019a
+        action_id: spend-4-minor-full-defense
+        source_explanation_packet_id: epkt-defense-019
+        predicted_value: Full Defense active; 4 Minor Actions spent
+        changed_steps:
+          - label: Spend Minor Actions
+            effect: -4
+          - label: Activate Full Defense
+            effect: status active
+        bounded_reason: This preview is limited to the current combat snapshot and active effect set.
+    narration_pack:
+      packet_identity:
+        packet_id: epkt-defense-019
+        packet_grounded: true
+      current_result: Full Defense is not active in the current snapshot.
+      rule_path_summary: The current packet can only state the present combat posture; the what-if answer depends on a separate counterfactual packet.
+      applied_and_skipped_factors:
+        - Skipped full-defense-preview until a counterfactual packet is attached.
+      cap_floor_rounding_summary: No cap or rounding rule changed the current posture.
+      source_anchor_summary: Shadowrun Sixth World Core Rulebook page 110, Minor Actions.
+      stale_state_warning: Refresh if combat-12:snap-08 changes before acting on this answer.
+      inspect_packet_cta: Open the explanation packet for the current posture and the counterfactual packet for the preview.
+    grounded_follow_up_pack:
+      question_class: what_if
+      packet_dependency: counterfactual_packet
+      approved_answer: Spending 4 Minor Actions would activate Full Defense for the current combat snapshot.
+      answer_limits: The answer is limited to combat-12:snap-08 and may not survive initiative, effect, or ruleset changes.
+      inspect_counterfactual_cta: Inspect the counterfactual packet before taking the action.
+  - specimen_id: missing-counterfactual-refusal
+    target_surface: desktop_workbench
+    question_class: why_not
+    source_packets:
+      explanation_packet:
+        packet_id: epkt-spell-404
+        value_ref: spell.ice_spear.availability
+        snapshot_ref: runner-9:snap-12
+        rule_environment_ref: sr5-core:availability-check
+        final_value: blocked
+        arithmetic_verified: true
+        steps:
+          - label: Availability gate
+            effect: blocked
+        modifiers_applied: []
+        modifiers_skipped:
+          - why-not-preview because no approved counterfactual packet exists
+        caps_and_rounding: []
+        warnings:
+          - Missing counterfactual packet for why-not response.
+        source_anchors:
+          - source: Street Grimoire
+            page: 42
+            section: Restricted magic gear
+        stale_if_snapshot_changes: runner-9:snap-12
+        privacy_class: signed_in
+    grounded_follow_up_pack:
+      question_class: why_not
+      packet_dependency: missing_counterfactual_packet
+      approved_answer: unavailable
+      answer_limits: EA may not guess which missing factor would make the action legal.
+      inspect_counterfactual_cta: Ask the first-party surface for a bounded why-not packet or inspect the current explanation packet.
+  - specimen_id: desktop-initiative-source-anchor
+    target_surface: desktop_workbench
+    question_class: source_anchor
+    source_packets:
+      explanation_packet:
+        packet_id: epkt-init-022
+        value_ref: combat.initiative.total
+        snapshot_ref: runner-11:snap-05
+        rule_environment_ref: sr5-core:initiative-standard
+        final_value: 11 + 1d6
+        arithmetic_verified: true
+        steps:
+          - label: Reaction
+            effect: 5
+          - label: Intuition
+            effect: +6
+        modifiers_applied: []
+        modifiers_skipped:
+          - hot-sim bonus:+0 because no hot-sim rig is active
+        caps_and_rounding:
+          - no cap applied
+        warnings: []
+        source_anchors:
+          - source: Core Rulebook
+            page: 159
+            section: Initiative
+        stale_if_snapshot_changes: runner-11:snap-05
+        privacy_class: signed_in
+    narration_pack:
+      packet_identity:
+        packet_id: epkt-init-022
+        packet_grounded: true
+      current_result: Initiative is 11 + 1d6 in this snapshot.
+      rule_path_summary: The packet adds Reaction 5 and Intuition 6 for the base initiative value.
+      applied_and_skipped_factors:
+        - Skipped hot-sim bonus because no hot-sim rig is active.
+      cap_floor_rounding_summary: No cap, floor, or rounding changed the result.
+      source_anchor_summary: Core Rulebook page 159, Initiative.
+      stale_state_warning: This summary is only current for snapshot runner-11:snap-05.
+      inspect_packet_cta: Open the explain packet for the ordered steps and source anchor details.
+    grounded_follow_up_pack:
+      question_class: source_anchor
+      packet_dependency: explanation_packet
+      approved_answer: The current value is anchored to Core Rulebook page 159, Initiative.
+      answer_limits: This answer may only restate source anchors already attached to the explanation packet.
+      inspect_counterfactual_cta: Open the explanation packet to inspect every attached source anchor.
+  - specimen_id: mobile-armor-what-changed
+    target_surface: live_play_and_mobile
+    question_class: what_changed
+    source_packets:
+      explanation_packet:
+        packet_id: epkt-armor-033
+        value_ref: defense.armor.total
+        snapshot_ref: runner-14:snap-31
+        rule_environment_ref: sr6-core:armor-standard
+        final_value: 11
+        arithmetic_verified: true
+        steps:
+          - label: Armor jacket
+            effect: 8
+          - label: Mystic armor spell
+            effect: +3
+        modifiers_applied:
+          - mystic-armor:+3
+        modifiers_skipped: []
+        caps_and_rounding: []
+        warnings: []
+        source_anchors:
+          - source: Shadowrun Sixth World Core Rulebook
+            page: 111
+            section: Armor
+        stale_if_snapshot_changes: runner-14:snap-31
+        privacy_class: campaign_private
+      counterfactual_packet:
+        packet_id: dpkt-armor-033b
+        action_id: mystic-armor-expired
+        source_explanation_packet_id: epkt-armor-033
+        predicted_value: 8
+        changed_steps:
+          - label: Mystic armor spell expired
+            effect: -3
+        bounded_reason: The only approved delta is the loss of the active spell inside the current snapshot.
+    narration_pack:
+      packet_identity:
+        packet_id: epkt-armor-033
+        packet_grounded: true
+      current_result: Armor is 11 in the current snapshot.
+      rule_path_summary: The current packet shows armor jacket 8 plus mystic armor 3.
+      applied_and_skipped_factors:
+        - Applied mystic-armor +3.
+      cap_floor_rounding_summary: No cap, floor, or rounding changed the result.
+      source_anchor_summary: Shadowrun Sixth World Core Rulebook page 111, Armor.
+      stale_state_warning: Refresh if runner-14:snap-31 changes before using this summary.
+      inspect_packet_cta: Open the explanation packet and diff packet for the ordered change details.
+    grounded_follow_up_pack:
+      question_class: what_changed
+      packet_dependency: counterfactual_packet
+      approved_answer: The approved change is the loss of mystic armor, which drops the current armor total from 11 to 8.
+      answer_limits: This answer is limited to the approved diff inside runner-14:snap-31 and may not explain unrelated equipment or spell changes.
+      inspect_counterfactual_cta: Inspect the diff packet before treating the change as current truth.

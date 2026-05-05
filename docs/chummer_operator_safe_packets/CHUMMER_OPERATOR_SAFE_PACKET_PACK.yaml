@@ -1,0 +1,55 @@
+contract_name: ea.chummer_operator_safe_packet_pack
+package_id: next90-m113-executive-assistant-operator-safe-packets
+milestone_id: 113
+frontier_id: 4554903920
+wave: W11
+generated_at: "2026-04-24T13:11:00Z"
+status: task_proven
+title: Produce operator-safe GM prep and roster movement packets
+owned_surfaces:
+  - gm_prep_packets
+  - roster_movement_followthrough
+governed_truth_bundle:
+  bundle_id: ea-m113-operator-safe-packets-v1
+  purpose: Bind EA GM-prep and roster followthrough packet copy to the governed Hub and UI receipts instead of worker-local narration.
+  consumer_surfaces:
+    - gm_prep_packets
+    - roster_movement_followthrough
+  source_anchor_ids:
+    - hub_roster_ops_receipt
+    - ui_gm_prep_roster_surface_receipt
+source_truth:
+  hub_roster_ops_receipt:
+    path: /docker/chummercomplete/chummer.run-services/.codex-studio/published/NEXT90_M113_HUB_ROSTER_OPS.generated.json
+    required: true
+    use_rule: Hold the EA packet closed if Hub's governed roster and dossier movement receipt is missing or not passed.
+  ui_gm_prep_roster_surface_receipt:
+    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M113_UI_GM_PREP_ROSTER_SURFACE.generated.json
+    required: true
+    use_rule: Hold the EA packet closed if the desktop GM prep and roster route receipt disappears or no longer passes.
+proof_guardrails:
+  canonical_package_verification:
+    queue_package_id: next90-m113-executive-assistant-operator-safe-packets
+    queue_frontier_id: 4554903920
+    queue_allowed_paths:
+      - scripts
+      - feedback
+      - docs
+    registry_milestone_id: 113
+    registry_work_task_id: 113.5
+  runtime_safety_markers:
+    - TASK_LOCAL_TELEMETRY
+    - ACTIVE_RUN_HANDOFF
+    - /var/lib/codex-fleet
+    - supervisor status
+    - supervisor eta
+    - operator telemetry
+packet_families:
+  gm_prep_packets:
+    state: ready
+    audience: operator
+    use_rule: Summarize governed prep posture and fail closed when upstream readiness is not green.
+  roster_movement_followthrough:
+    state: ready
+    audience: operator
+    use_rule: Summarize governed roster followthrough and fail closed when upstream receipts drift.

@@ -39,6 +39,14 @@ def load_chummer_guide_bootstrap_module():
     return module
 
 
+def test_chummer6_public_writer_bootstrap_mentions_sr4_to_sr6_public_story() -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+
+    payload = bootstrap.build_public_writer_skill_payload()
+
+    assert "SR4-SR6" in payload["description"]
+
+
 def _client() -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
@@ -891,7 +899,9 @@ def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_t
     ):
         payload = payloads[skill_key]
         assert "public_media_briefs" in payload["memory_reads"]
+        assert "public_guide_image_curation" in payload["memory_reads"]
         assert "public_media_briefs" in payload["evidence_requirements"]
+        assert "public_guide_image_curation" in payload["evidence_requirements"]
         properties = payload["input_schema_json"]["properties"]
         assert "critical_asset_targets" in properties
         assert "asset_contract_overrides" in properties
@@ -906,6 +916,18 @@ def test_chummer6_visual_skill_bootstrap_reads_public_media_briefs_and_accepts_t
         assert "overlay_vision_model" in properties
 
     assert "public_media_briefs" not in payloads["chummer6_public_writer"]["memory_reads"]
+    assert "public_guide_image_curation" not in payloads["chummer6_public_writer"]["memory_reads"]
+
+
+def test_chummer6_bootstrap_drops_retired_public_screenshot_registry_contract() -> None:
+    bootstrap = load_chummer_guide_bootstrap_module()
+    payloads = {payload["skill_key"]: payload for payload in bootstrap.build_skill_payloads()}
+
+    for payload in payloads.values():
+        assert "public_screenshot_registry" not in payload["memory_reads"]
+        assert "public_screenshot_registry" not in payload["evidence_requirements"]
+
+    assert payloads["chummer6_public_writer"]["runtime_policy_json"]["page_image_policy_source"] == "PUBLIC_GUIDE_PAGE_REGISTRY.yaml"
 
 
 @pytest.mark.parametrize(

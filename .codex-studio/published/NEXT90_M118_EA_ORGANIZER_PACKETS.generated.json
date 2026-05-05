@@ -1,0 +1,188 @@
+{
+  "contract_name": "ea.next90_m118_organizer_packets",
+  "generated_at": "2026-05-05T13:13:15Z",
+  "guardrails": {
+    "active_package_status": "active_package_proven",
+    "claim_guard_rules": [
+      "fleet_or_ea_packets_must_link_back_to_source_packet_ids",
+      "organizer_actions_must_not_close_support_cases_without_support_truth",
+      "external_calendar_or_chat_links_must_not_become_canonical_event_truth",
+      "publication_actions_must_not_hide_audience_retention_or_locale_posture"
+    ],
+    "fail_closed_posture": {
+      "hub_verifier_failure": "Keep both packet families blocked when the Hub organizer or creator-publication proof lanes fail.",
+      "missing_audit_packet": "Refuse to summarize organizer event, roster, moderation, or support posture when the cited CommunityScaleAuditPacket ids are missing.",
+      "publication_drift": "Hold event-prep packets at blocked when publication readiness loses its receipt-backed audience, retention, or artifact-shelf posture.",
+      "support_gate_drift": "Hold organizer followthrough at blocked when Fleet support packet gates or packet ids drift from the cited source window."
+    },
+    "prohibited_behaviors": [
+      "Inventing event status, roster fit, publication state, or support closure not backed by upstream receipts.",
+      "Treating external spreadsheets, chats, or calendar mirrors as event truth.",
+      "Collapsing GM, organizer, moderator, publication, and support authority into one EA-local summary.",
+      "Copying worker assignment context, helper output, or startup command receipts into packet proof."
+    ]
+  },
+  "package_proof": {
+    "allowed_paths": [
+      "scripts",
+      "feedback",
+      "docs"
+    ],
+    "milestone_id": 118,
+    "owned_surfaces": [
+      "organizer_followthrough:ea",
+      "event_prep_packets"
+    ],
+    "package_id": "next90-m118-ea-organizer-followthrough",
+    "task": "Compile organizer packets, event prep, and followthrough from governed operations truth.",
+    "title": "Compile organizer packets, event prep, and followthrough from governed operations truth."
+  },
+  "packets": {
+    "event_prep_packets": {
+      "packet_kind": "event_prep_packets",
+      "proof_artifacts": [
+        "docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml",
+        "docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml",
+        "docs/chummer_organizer_packets/README.md",
+        "docs/chummer_organizer_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m118_ea_organizer_packets.py",
+        "scripts/verify_next90_m118_ea_organizer_packets.py",
+        "tests/test_next90_m118_ea_organizer_packets.py",
+        ".codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
+        "feedback/2026-05-05-next90-m118-ea-organizer-followthrough-progress.md"
+      ],
+      "required_fields": [
+        "packet_id",
+        "truth_bundle_id",
+        "source_packet_ids",
+        "prep_scope",
+        "dependency_window",
+        "publication_readiness",
+        "blocker_holds",
+        "handoff_receipts"
+      ],
+      "required_sections": [
+        "packet_identity",
+        "prep_scope",
+        "dependency_window",
+        "publication_readiness",
+        "blocker_holds",
+        "handoff_receipts"
+      ],
+      "required_source_anchors": [
+        "community_scale_audit_schema",
+        "hub_organizer_ops_verifier",
+        "hub_creator_publication_verifier",
+        "fleet_weekly_governor_packet",
+        "ea_operator_safe_baseline"
+      ],
+      "source_packet_fields": [
+        "CommunityScaleAuditPacket.packet_id",
+        "WEEKLY_GOVERNOR_PACKET.generated.json.decision_alignment.actual_action",
+        "WEEKLY_GOVERNOR_PACKET.generated.json.public_status_copy.state",
+        "SUPPORT_CASE_PACKETS.generated.json.summary.needs_human_response",
+        "CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml.packet_families.gm_prep_packets.state"
+      ],
+      "state": "ready",
+      "truth_bundle_id": "ea-m118-organizer-followthrough-v1"
+    },
+    "organizer_followthrough:ea": {
+      "packet_kind": "organizer_followthrough:ea",
+      "proof_artifacts": [
+        "docs/chummer_organizer_packets/CHUMMER_ORGANIZER_PACKET_PACK.yaml",
+        "docs/chummer_organizer_packets/ORGANIZER_PACKET_SPECIMENS.yaml",
+        "docs/chummer_organizer_packets/README.md",
+        "docs/chummer_organizer_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m118_ea_organizer_packets.py",
+        "scripts/verify_next90_m118_ea_organizer_packets.py",
+        "tests/test_next90_m118_ea_organizer_packets.py",
+        ".codex-studio/published/NEXT90_M118_EA_ORGANIZER_PACKETS.generated.json",
+        "feedback/2026-05-05-next90-m118-ea-organizer-followthrough-progress.md"
+      ],
+      "required_fields": [
+        "packet_id",
+        "truth_bundle_id",
+        "source_packet_ids",
+        "operation_family",
+        "event_or_roster_summary",
+        "publication_posture",
+        "support_followthrough_gate",
+        "next_safe_action"
+      ],
+      "required_sections": [
+        "packet_identity",
+        "source_packet_links",
+        "event_or_roster_summary",
+        "publication_posture",
+        "support_followthrough_gate",
+        "next_safe_action"
+      ],
+      "required_source_anchors": [
+        "community_scale_audit_schema",
+        "organizer_boundary_policy",
+        "hub_organizer_ops_verifier",
+        "fleet_support_case_packets"
+      ],
+      "source_packet_fields": [
+        "CommunityScaleAuditPacket.packet_id",
+        "CommunityScaleAuditPacket.operation_family",
+        "CommunityScaleAuditPacket.support_case_ref",
+        "SUPPORT_CASE_PACKETS.generated.json.followthrough_receipt_gates.required_gates",
+        "SUPPORT_CASE_PACKETS.generated.json.packets[].packet_id"
+      ],
+      "state": "ready",
+      "truth_bundle_id": "ea-m118-organizer-followthrough-v1"
+    }
+  },
+  "proof_kind": "repo_local_packet_contract",
+  "source_truth_status": {
+    "community_scale_audit_schema": {
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml",
+      "present": true,
+      "required": true
+    },
+    "ea_operator_safe_baseline": {
+      "path": "/docker/EA/docs/chummer_operator_safe_packets/CHUMMER_OPERATOR_SAFE_PACKET_PACK.yaml",
+      "present": true,
+      "required": true
+    },
+    "fleet_support_case_packets": {
+      "path": "/docker/fleet/.codex-studio/published/SUPPORT_CASE_PACKETS.generated.json",
+      "present": true,
+      "required": true
+    },
+    "fleet_weekly_governor_packet": {
+      "path": "/docker/fleet/.codex-studio/published/WEEKLY_GOVERNOR_PACKET.generated.json",
+      "present": true,
+      "required": true
+    },
+    "hub_creator_publication_verifier": {
+      "path": "/docker/chummercomplete/chummer.run-services/scripts/verify_next90_m116_hub_creator_publication.py",
+      "present": true,
+      "required": true
+    },
+    "hub_organizer_ops_verifier": {
+      "path": "/docker/chummercomplete/chummer.run-services/scripts/verify_next90_m118_hub_organizer_ops.py",
+      "present": true,
+      "required": true
+    },
+    "organizer_boundary_policy": {
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md",
+      "present": true,
+      "required": true
+    }
+  },
+  "status": "passed",
+  "truth_bundle": {
+    "bundle_id": "ea-m118-organizer-followthrough-v1",
+    "source_anchor_ids": [
+      "community_scale_audit_schema",
+      "organizer_boundary_policy",
+      "hub_organizer_ops_verifier",
+      "hub_creator_publication_verifier",
+      "fleet_weekly_governor_packet",
+      "fleet_support_case_packets",
+      "ea_operator_safe_baseline"
+    ]
+  }
+}

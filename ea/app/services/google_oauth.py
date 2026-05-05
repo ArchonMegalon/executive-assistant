@@ -1169,7 +1169,22 @@ def _decode_gmail_body_data(value: object) -> str:
 
 
 def _html_to_text(value: str) -> str:
-    normalized = re.sub(r"(?i)<br\s*/?>", "\n", value)
+    def _anchor_repl(match: re.Match[str]) -> str:
+        href = html.unescape(str(match.group("href") or "").strip())
+        anchor_html = str(match.group("body") or "")
+        anchor_text = re.sub(r"<[^>]+>", " ", anchor_html)
+        anchor_text = html.unescape(anchor_text)
+        anchor_text = re.sub(r"\s+", " ", anchor_text).strip()
+        if href and href not in anchor_text:
+            return " ".join(part for part in (anchor_text, href) if part)
+        return anchor_text
+
+    normalized = re.sub(
+        r'(?is)<a\b[^>]*href=["\']?(?P<href>[^"\'\s>]+)[^>]*>(?P<body>.*?)</a>',
+        _anchor_repl,
+        value,
+    )
+    normalized = re.sub(r"(?i)<br\s*/?>", "\n", normalized)
     normalized = re.sub(r"(?i)</(p|div|li|tr|table|h[1-6])>", "\n", normalized)
     normalized = re.sub(r"<[^>]+>", " ", normalized)
     return html.unescape(normalized)

@@ -14,6 +14,7 @@ from app.services.provider_registry import ProviderRegistryService
 from app.services.skills import SkillCatalogService
 from app.settings import (
     get_settings,
+    resolve_signing_secret,
     resolve_runtime_profile,
     validate_startup_settings,
 )
@@ -27,6 +28,7 @@ def _clear_env() -> None:
         "EA_LEDGER_BACKEND",
         "DATABASE_URL",
         "EA_API_TOKEN",
+        "EA_SIGNING_SECRET",
         "EA_DEFAULT_PRINCIPAL_ID",
         "EA_CF_ACCESS_TEAM_DOMAIN",
         "EA_CF_ACCESS_AUD",
@@ -43,6 +45,7 @@ def _isolated_env() -> None:
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_SIGNING_SECRET": os.environ.get("EA_SIGNING_SECRET"),
         "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
         "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
         "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
@@ -116,7 +119,17 @@ def test_prod_requires_database_url() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_requires_explicit_signing_secret() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    with pytest.raises(RuntimeError, match="EA_SIGNING_SECRET"):
         validate_startup_settings(get_settings())
 
 
@@ -124,6 +137,7 @@ def test_prod_runtime_profile_requires_authenticated_header_principal() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     settings = get_settings()
     profile = resolve_runtime_profile(settings)
@@ -165,6 +179,7 @@ def test_runtime_profile_prod_authenticated_header_matches_request_context_contr
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     container, profile = _container_for_current_settings()
 
@@ -180,6 +195,15 @@ def test_runtime_profile_prod_authenticated_header_matches_request_context_contr
             _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "ops-1"}),
             container=container,
         )
+
+
+def test_signing_secret_does_not_fallback_to_api_token() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    settings = get_settings()
+    resolved = resolve_signing_secret(settings, purpose="workspace-access")
+    assert resolved != "secret-token:workspace-access"
+    assert "secret-token" not in resolved
 
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
     container, _ = _container_for_current_settings()

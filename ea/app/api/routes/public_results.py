@@ -6,8 +6,10 @@ import mimetypes
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+
+from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 
 
 router = APIRouter(tags=["public-results"])
@@ -81,7 +83,7 @@ def _viewer_kind(payload: dict[str, object]) -> str:
     return "text"
 
 
-def _result_html(payload: dict[str, object]) -> str:
+def _result_html(payload: dict[str, object], *, hostname: str = "") -> str:
     title = html.escape(_maybe_text(payload.get("title")) or _maybe_text(payload.get("result_title")) or "EA Result")
     service = html.escape(_maybe_text(payload.get("service_key")) or _maybe_text(payload.get("service_name")) or "browseract")
     summary = html.escape(_maybe_text(payload.get("summary")) or _maybe_text(payload.get("normalized_text")))
@@ -91,6 +93,7 @@ def _result_html(payload: dict[str, object]) -> str:
     slug = _maybe_text(payload.get("slug"))
     asset_relpath = _maybe_text(payload.get("asset_relpath"))
     asset_href = f"/results/files/{html.escape(slug)}/{html.escape(asset_relpath)}" if slug and asset_relpath else ""
+    clickrank_html = clickrank_head_snippet(hostname)
     hosted_url = _maybe_text(payload.get("hosted_url")) or _maybe_text(payload.get("public_url"))
     vendor_public_url = _maybe_text(payload.get("crezlo_public_url"))
     source_links = [
@@ -122,6 +125,7 @@ def _result_html(payload: dict[str, object]) -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title}</title>
+    {clickrank_html}
     <style>
       :root {{
         --bg: #f2efe7;
@@ -227,5 +231,5 @@ def public_result_file(slug: str, asset_path: str) -> FileResponse:
 
 
 @router.get("/results/{slug}", response_class=HTMLResponse)
-def public_result_page(slug: str) -> HTMLResponse:
-    return HTMLResponse(_result_html(_load_manifest(slug)))
+def public_result_page(slug: str, request: Request) -> HTMLResponse:
+    return HTMLResponse(_result_html(_load_manifest(slug), hostname=request_hostname(request)))

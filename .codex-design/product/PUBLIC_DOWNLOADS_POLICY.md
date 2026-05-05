@@ -51,6 +51,7 @@ The public shelf must:
 * keep proof cards, captions, preview explainers, and artifact-gallery links visually secondary to the install shelf itself
 * keep any concierge widget in explicit preview-overlay posture with the recommended first-party download still visible as the fixed route
 * name recovery routes as help, relinking, or escalation paths rather than implying the widget repaired the install
+* follow `ARTIFACT_SHELF_POLICY.md` whenever proof-gallery artifacts, captions, or packet siblings appear beside install truth so audience, locale, retention, and inspectable-source posture stay visible
 
 The public shelf must not:
 

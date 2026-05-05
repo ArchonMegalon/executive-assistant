@@ -180,6 +180,7 @@ Home and campaign workspaces may expose:
 
 Those outputs remain downstream of provenance-bearing truth. They do not become continuity truth themselves.
 Campaign cold-open and mission-briefing launches are first-class workspace promises only when they carry visible audience, locale, and source-pack posture instead of behaving like detached media links.
+Campaign-facing shelves also follow `ARTIFACT_SHELF_POLICY.md` so retention posture, safer audience fallback, and inspectable source actions stay visible when recap, primer, or briefing cards appear in workspace rails.
 
 ## Device roles
 

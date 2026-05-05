@@ -66,6 +66,28 @@ There are two canonical layers for Horizons:
 
 Downstream generators must consume the registry.
 They must not carry a private hardcoded horizon catalog.
+Public horizon detail export must also be able to read the long-form docs without guessing section names.
+For every horizon that is public-guide eligible, the long-form canon should keep these headings explicit:
+
+* `Table pain`
+* `Bounded product move`
+* `Likely owners`
+* `Foundations`
+* `Build path`
+* `Owner handoff gate`
+* `Why still a horizon`
+
+## Operational contract
+
+Horizons only stay trustworthy when the long-form docs, the root registry, the derived guide-routing index, and downstream public-guide exports all describe the same lane.
+
+That means:
+
+* the root `HORIZON_REGISTRY.yaml` is where existence, ordering, public-guide eligibility, build-path state, and owner handoff gate become machine-readable truth
+* `horizons/*.md` must restate the table pain, bounded product move, foundations, build path, handoff gate, and horizon wait in stable headings instead of making downstream readers infer them from prose
+* the derived `horizons/HORIZON_REGISTRY.yaml` may only project the root registry into guide-routing fields; it must not widen scope, reorder lanes, or invent its own public posture
+* public-guide exports may retell the horizon in human language, but they must not skip the build-path and handoff limits that keep the lane honest
+* if a horizon changes build-path state, owner handoff gate, or public eligibility, the same change must update the root registry, the long-form doc, and any affected public-guide routing metadata together
 
 ## Registry
 
@@ -100,6 +122,18 @@ Every horizon must define, either in its long-form doc or in `HORIZON_REGISTRY.y
 * the current horizon state
 * the eventual build path
 * why it is still a horizon
+
+For public-guide-eligible horizons, the long-form doc should also be readable as a downstream export source:
+
+* the `Table pain` section should restate the table problem in human language
+* the `Bounded product move` section should name the first product-shaped move without reading like a shipment promise
+* the `Build path` section should mirror the registry state transition (`current_state`, `next_state`, and intent) without widening it
+* the `Owner handoff gate` section should restate the promotion boundary the owning repos must satisfy before the horizon leaves horizon status
+
+The safest default is stronger than "either/or":
+
+* keep the root registry authoritative for machine-readable values
+* keep the long-form doc explicit enough that downstream public-guide generation, review, and proof reads can recover the same truth without guessing
 
 ## Working rule
 

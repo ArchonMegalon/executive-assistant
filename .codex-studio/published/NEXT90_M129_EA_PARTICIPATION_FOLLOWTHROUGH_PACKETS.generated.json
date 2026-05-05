@@ -1,0 +1,288 @@
+{
+  "contract_name": "ea.next90_m129_participation_followthrough_packets",
+  "generated_at": "2026-05-05T16:34:26Z",
+  "guardrails": {
+    "active_package_status": "active_package_proven",
+    "claim_guard_rules": [
+      "contribution_followthrough_must_cite_fleet_participation_receipt_window",
+      "participation_and_entitlement_followthrough_must_cite_hub_reusable_account_rails",
+      "channel_or_reward_followthrough_must_hold_without_hub_or_fleet_projected_refs",
+      "sponsor_session_or_reward_claims_must_not_be_inferred_from_local_auth_or_browser_state"
+    ],
+    "runtime_safety_markers": [
+      "TASK_LOCAL_TELEMETRY",
+      "ACTIVE_RUN_HANDOFF",
+      "/var/lib/codex-fleet",
+      "supervisor status",
+      "supervisor eta",
+      "operator telemetry",
+      "codexea status",
+      "codexea eta"
+    ]
+  },
+  "package_proof": {
+    "allowed_paths": [
+      "scripts",
+      "feedback",
+      "docs"
+    ],
+    "frontier_id": 8620875598,
+    "milestone_id": 129,
+    "owned_surfaces": [
+      "compile_contribution_participation_entitlement_channel:executive_assistant"
+    ],
+    "package_id": "next90-m129-ea-compile-contribution-participation-entitlement-channel-a",
+    "task": "Compile contribution, participation, entitlement, channel, and reward followthrough packets from Hub/Fleet receipts only.",
+    "title": "Compile contribution, participation, entitlement, channel, and reward followthrough packets from Hub/Fleet receipts only."
+  },
+  "packets": {
+    "channel_reward_followthrough": {
+      "example": {
+        "missing_upstream_receipts": [
+          "desktopChannelRef projected from Hub or Fleet",
+          "rewardPublicationRef projected from Hub or Fleet"
+        ],
+        "next_safe_action": "Keep channel and reward followthrough blocked and request a governed Hub/Fleet projection instead of reading Registry-only refs.",
+        "packet_id": "ea-channel-reward-followthrough-2026-05-05",
+        "required_projection_request": "Mirror the channel and reward-publication refs into a Hub or Fleet governed receipt before EA compiles this packet.",
+        "reward_or_channel_hold": "Hub and Fleet currently prove entitlement and contribution rails, but they do not yet project explicit channel or reward-publication refs for this packet family.",
+        "source_packet_ids": [
+          "next90-m129-hub-build-reusable-account-profile-group-membership-join-cod",
+          "next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig"
+        ],
+        "truth_bundle_id": "ea-m129-participation-followthrough-v1"
+      },
+      "hold_reasons": [
+        "The current Hub/Fleet receipt window does not project a channel ref such as desktopChannelRef or an equivalent governed channel token.",
+        "The current Hub/Fleet receipt window does not project a reward publication ref that EA can cite without falling back to Registry-only mirrors."
+      ],
+      "packet_kind": "channel_reward_followthrough",
+      "proof_artifacts": [
+        "docs/chummer_participation_followthrough_packets/CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml",
+        "docs/chummer_participation_followthrough_packets/PARTICIPATION_FOLLOWTHROUGH_PACKET_SPECIMENS.yaml",
+        "docs/chummer_participation_followthrough_packets/README.md",
+        "docs/chummer_participation_followthrough_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m129_ea_participation_followthrough_packets.py",
+        "scripts/verify_next90_m129_ea_participation_followthrough_packets.py",
+        ".codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+        "feedback/2026-05-05-next90-m129-ea-participation-followthrough-progress.md"
+      ],
+      "required_fields": [
+        "packet_id",
+        "truth_bundle_id",
+        "source_packet_ids",
+        "missing_upstream_receipts",
+        "reward_or_channel_hold",
+        "required_projection_request",
+        "next_safe_action"
+      ],
+      "required_sections": [
+        "packet_identity",
+        "source_receipt_window",
+        "missing_upstream_receipts",
+        "reward_or_channel_hold",
+        "required_projection_request",
+        "next_safe_action"
+      ],
+      "required_source_anchors": [
+        "fleet_participation_lane_receipts",
+        "hub_reusable_account_flows_receipt"
+      ],
+      "source_packet_fields": [
+        "NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[6]",
+        "NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[7]",
+        "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.monitor_summary.participation_status"
+      ],
+      "state": "hold",
+      "truth_bundle_id": "ea-m129-participation-followthrough-v1"
+    },
+    "contribution_followthrough:participant": {
+      "example": {
+        "contribution_summary": "Fleet still exposes signed contribution receipts on the participant lane, but the current receipt window remains held until its blocker list clears.",
+        "hold_reason": [
+          "fleet_participation_receipt_window_blocked"
+        ],
+        "next_safe_action": "Route the participant back to the current Fleet receipt proof and clear the cited runtime blockers before claiming contribution completion.",
+        "packet_id": "ea-contribution-followthrough-2026-05-05",
+        "source_packet_ids": [
+          "next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig"
+        ],
+        "sponsor_session_posture": "Keep sponsor-session followthrough on hold while the Fleet receipt proof still reports missing sponsor-session projection or unresolved design canon coverage.",
+        "truth_bundle_id": "ea-m129-participation-followthrough-v1"
+      },
+      "hold_reasons": [
+        "Fleet participation proof still reports runtime blockers, so contribution and participation followthrough must stay on hold.",
+        "Fleet does not yet prove sponsor_session_id as a clean receipt projection in the current contract window."
+      ],
+      "packet_kind": "contribution_followthrough:participant",
+      "proof_artifacts": [
+        "docs/chummer_participation_followthrough_packets/CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml",
+        "docs/chummer_participation_followthrough_packets/PARTICIPATION_FOLLOWTHROUGH_PACKET_SPECIMENS.yaml",
+        "docs/chummer_participation_followthrough_packets/README.md",
+        "docs/chummer_participation_followthrough_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m129_ea_participation_followthrough_packets.py",
+        "scripts/verify_next90_m129_ea_participation_followthrough_packets.py",
+        ".codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+        "feedback/2026-05-05-next90-m129-ea-participation-followthrough-progress.md"
+      ],
+      "required_fields": [
+        "packet_id",
+        "truth_bundle_id",
+        "source_packet_ids",
+        "contribution_summary",
+        "sponsor_session_posture",
+        "hold_reason",
+        "next_safe_action"
+      ],
+      "required_sections": [
+        "packet_identity",
+        "source_receipt_window",
+        "contribution_summary",
+        "sponsor_session_posture",
+        "hold_reason",
+        "next_safe_action"
+      ],
+      "required_source_anchors": [
+        "fleet_participation_lane_receipts"
+      ],
+      "source_packet_fields": [
+        "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.package_id",
+        "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.monitor_summary.participation_status",
+        "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.runtime_monitors.controller_receipts.matched_receipt_markers",
+        "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.runtime_monitors.controller_receipts.runtime_blockers"
+      ],
+      "state": "hold",
+      "truth_bundle_id": "ea-m129-participation-followthrough-v1"
+    },
+    "participation_entitlement_followthrough": {
+      "example": {
+        "entitlement_journal_gate": "Use the governed Hub entitlement-journal rail only after the Fleet participation blockers clear.",
+        "hold_reason": [
+          "fleet_participation_receipt_window_blocked"
+        ],
+        "next_safe_action": "Keep entitlement followthrough on hold and point the user back to the blocked Fleet participation receipt window.",
+        "packet_id": "ea-participation-entitlement-followthrough-2026-05-05",
+        "participation_posture": "Fleet still owns the participant receipt window and Hub still proves the reusable entitlement rail, but the shared window is not yet clear for promotion.",
+        "source_packet_ids": [
+          "next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig",
+          "next90-m129-hub-build-reusable-account-profile-group-membership-join-cod"
+        ],
+        "truth_bundle_id": "ea-m129-participation-followthrough-v1"
+      },
+      "hold_reasons": [
+        "Fleet participation proof still reports runtime blockers, so contribution and participation followthrough must stay on hold."
+      ],
+      "packet_kind": "participation_entitlement_followthrough",
+      "proof_artifacts": [
+        "docs/chummer_participation_followthrough_packets/CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml",
+        "docs/chummer_participation_followthrough_packets/PARTICIPATION_FOLLOWTHROUGH_PACKET_SPECIMENS.yaml",
+        "docs/chummer_participation_followthrough_packets/README.md",
+        "docs/chummer_participation_followthrough_packets/SUCCESSOR_HANDOFF_CLOSEOUT.yaml",
+        "scripts/materialize_next90_m129_ea_participation_followthrough_packets.py",
+        "scripts/verify_next90_m129_ea_participation_followthrough_packets.py",
+        ".codex-studio/published/NEXT90_M129_EA_PARTICIPATION_FOLLOWTHROUGH_PACKETS.generated.json",
+        "feedback/2026-05-05-next90-m129-ea-participation-followthrough-progress.md"
+      ],
+      "required_fields": [
+        "packet_id",
+        "truth_bundle_id",
+        "source_packet_ids",
+        "participation_posture",
+        "entitlement_journal_gate",
+        "hold_reason",
+        "next_safe_action"
+      ],
+      "required_sections": [
+        "packet_identity",
+        "source_receipt_window",
+        "participation_posture",
+        "entitlement_journal_gate",
+        "hold_reason",
+        "next_safe_action"
+      ],
+      "required_source_anchors": [
+        "fleet_participation_lane_receipts",
+        "hub_reusable_account_flows_receipt"
+      ],
+      "source_packet_fields": [
+        "NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json.monitor_summary.receipt_artifact_match_count",
+        "NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[6]",
+        "NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json.required_markers[7]"
+      ],
+      "state": "hold",
+      "truth_bundle_id": "ea-m129-participation-followthrough-v1"
+    }
+  },
+  "projection_gaps": [
+    {
+      "gap_id": "fleet_participation_receipt_window_blocked",
+      "hold_reason": "Fleet participation proof still reports runtime blockers, so contribution and participation followthrough must stay on hold.",
+      "runtime_blockers": [
+        "queue_coverage_monitor: design canon task 129.6 is unknown.",
+        "controller_runtime_monitor: participant contribution receipts no longer prove signed sponsor-session execution metadata: sponsor_session_id"
+      ],
+      "source_anchor_id": "fleet_participation_lane_receipts"
+    },
+    {
+      "gap_id": "missing_sponsor_session_receipt_projection",
+      "hold_reason": "Fleet does not yet prove sponsor_session_id as a clean receipt projection in the current contract window.",
+      "source_anchor_id": "fleet_participation_lane_receipts"
+    },
+    {
+      "gap_id": "missing_hub_or_fleet_channel_ref_projection",
+      "hold_reason": "The current Hub/Fleet receipt window does not project a channel ref such as desktopChannelRef or an equivalent governed channel token.",
+      "source_anchor_id": "hub_reusable_account_flows_receipt+fleet_participation_lane_receipts"
+    },
+    {
+      "gap_id": "missing_hub_or_fleet_reward_publication_projection",
+      "hold_reason": "The current Hub/Fleet receipt window does not project a reward publication ref that EA can cite without falling back to Registry-only mirrors.",
+      "source_anchor_id": "hub_reusable_account_flows_receipt+fleet_participation_lane_receipts"
+    }
+  ],
+  "proof_kind": "repo_local_packet_contract",
+  "source_truth_status": {
+    "fleet_participation_lane_receipts": {
+      "contribution_receipt_projection_available": true,
+      "lane_local_boundary_proven": false,
+      "package_id": "next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig",
+      "participation_status": "blocked",
+      "path": "/docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json",
+      "present": true,
+      "required": true,
+      "runtime_blockers": [
+        "queue_coverage_monitor: design canon task 129.6 is unknown.",
+        "controller_runtime_monitor: participant contribution receipts no longer prove signed sponsor-session execution metadata: sponsor_session_id"
+      ],
+      "sponsor_session_projection_available": false,
+      "status": "pass"
+    },
+    "hub_reusable_account_flows_receipt": {
+      "account_membership_projection_available": true,
+      "entitlement_journal_projection_available": true,
+      "package_id": "next90-m129-hub-build-reusable-account-profile-group-membership-join-cod",
+      "path": "/docker/chummercomplete/chummer6-hub-m112/.codex-studio/published/NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json",
+      "present": true,
+      "required": true,
+      "required_markers": [
+        "var reusableAccountFlows = new ReusableAccountFlowService(releases).Build(new ReusableAccountFlowContext(",
+        "community reusable account flow should keep account profile on the signed-in account rail.",
+        "community reusable account flow should keep group profile on the governed group rail.",
+        "community reusable account flow should keep membership status on the governed group rail.",
+        "community reusable account flow should keep join-code issuance on the governed group api rail.",
+        "community reusable account flow should keep boost-code issuance on the governed boost-code rail.",
+        "community reusable account flow should keep reward-journal followthrough on the signed-in rewards rail.",
+        "community reusable account flow should keep entitlement-journal followthrough on the signed-in entitlements rail."
+      ],
+      "reward_journal_projection_available": true,
+      "status": "passed"
+    }
+  },
+  "status": "passed",
+  "truth_bundle": {
+    "bundle_id": "ea-m129-participation-followthrough-v1",
+    "source_anchor_ids": [
+      "hub_reusable_account_flows_receipt",
+      "fleet_participation_lane_receipts"
+    ]
+  }
+}

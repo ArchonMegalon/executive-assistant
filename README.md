@@ -33,6 +33,18 @@ bash scripts/deploy.sh
 bash scripts/db_bootstrap.sh
 ```
 
+The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or Docker socket control:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.host-tools.yml up -d --build
+```
+
+To expose the stack through Cloudflare Tunnel, layer the tunnel override explicitly and set `EA_CF_TUNNEL_TOKEN` in your local `.env` first:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cloudflared.yml up -d --build
+```
+
 For an explicit durable deployment profile, layer the prod override on top of the base compose:
 
 ```bash
@@ -43,6 +55,12 @@ To expose the Gemini Vortex-backed Responses model aliases locally, layer the Ge
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gemini.yml up -d --force-recreate ea-api
+```
+
+If a workflow needs both host tools and the host Gemini CLI, layer both overrides:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.host-tools.yml -f docker-compose.gemini.yml up -d --force-recreate ea-api ea-worker ea-scheduler
 ```
 
 Worker topology is explicit in [docker-compose.yml](/docker/EA/docker-compose.yml):

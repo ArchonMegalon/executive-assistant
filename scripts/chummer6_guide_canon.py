@@ -145,7 +145,10 @@ def load_image_curation() -> dict[str, object]:
 
 
 def load_screenshot_registry() -> dict[str, object]:
-    return _read_yaml(_source_path("public_screenshot_registry", "PUBLIC_SCREENSHOT_REGISTRY.yaml"))
+    path = _optional_source_path("public_screenshot_registry", "PUBLIC_SCREENSHOT_REGISTRY.yaml")
+    if path is not None:
+        return _read_yaml(path)
+    return _derived_screenshot_registry_from_page_registry()
 
 
 def load_export_manifest() -> dict[str, object]:
@@ -168,6 +171,55 @@ def _source_path(key: str, fallback: str) -> Path:
         if fallback_candidate.exists():
             return fallback_candidate
     return candidate
+
+
+def _optional_source_path(key: str, fallback: str) -> Path | None:
+    manifest = load_export_manifest()
+    sources = manifest.get("sources") or {}
+    raw = str((sources.get(key) if isinstance(sources, dict) else "") or "").strip()
+    if raw.startswith("products/chummer/"):
+        raw = raw[len("products/chummer/") :]
+    relative = raw or fallback
+    root = design_root()
+    candidate = root / relative
+    if candidate.exists():
+        return candidate
+    if root == LOCAL_DESIGN_ROOT:
+        fallback_candidate = DEFAULT_DESIGN_ROOT / relative
+        if fallback_candidate.exists():
+            return fallback_candidate
+    return None
+
+
+def _derived_screenshot_registry_from_page_registry() -> dict[str, object]:
+    page_types = load_page_registry().get("page_types")
+    if not isinstance(page_types, dict):
+        return {"pages": {}, "compat_mode": "page_registry_only"}
+    page_map = {
+        "README.md": "root_story_github_readme",
+        "START_HERE.md": "root_story",
+        "WHAT_CHUMMER6_IS.md": "root_story",
+        "WHERE_TO_GO_DEEPER.md": "deep_source_trail",
+        "FAQ.md": "faq_page",
+        "HELP.md": "help_page",
+    }
+    pages: dict[str, dict[str, object]] = {}
+    for target, page_type in page_map.items():
+        row = dict(page_types.get(page_type) or {})
+        if not row:
+            continue
+        pages[target] = {
+            "page_type": page_type,
+            "preferred_image_type": str(row.get("preferred_image_type") or "").strip(),
+            "screenshot_preferred": bool(row.get("screenshot_preferred")),
+            "caption_required": bool(row.get("caption_required")),
+            "source": "PUBLIC_GUIDE_PAGE_REGISTRY.yaml",
+        }
+    return {
+        "pages": pages,
+        "compat_mode": "page_registry_only",
+        "derived_from": "PUBLIC_GUIDE_PAGE_REGISTRY.yaml",
+    }
 
 
 def load_public_feature_registry() -> dict[str, object]:

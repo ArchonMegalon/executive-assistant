@@ -62,6 +62,33 @@ capability_slots:
       - Sentry_candidate
     boundary: analytics_and_observability_not_user_truth
 product_systems:
+  continuity_recovery_system:
+    tools:
+      - Hub
+      - Emailit
+      - Documentation.AI
+      - PeekShot
+      - BrowserAct
+    contract: CONFIDENCE_READINESS_AND_CONTINUITY_GUIDE.md
+  build_ghost_lab:
+    tools:
+      - Hub
+      - AI Magicx
+      - 1min.AI
+      - Prompting Systems
+      - MarkupGo
+      - PeekShot
+    contract: BUILD_GHOST_MVP_001.md
+  knowledge_projection_system:
+    tools:
+      - Hub
+      - Prompting Systems
+      - Documentation.AI
+      - AI Magicx
+      - 1min.AI
+      - BrowserAct
+      - Paperguide
+    contract: horizons/knowledge-fabric.md
   public_growth_system:
     tools:
       - ClickRank
@@ -107,6 +134,40 @@ product_systems:
       - Emailit
       - MapLibre_candidate
     contract: BLACK_LEDGER_ADMIN_WORKBENCH_MODEL.md
+  community_hub_ops:
+    tools:
+      - Hub
+      - Deftform
+      - Lunacal
+      - MetaSurvey
+      - Teable
+      - NextStep
+      - ApproveThis
+      - Emailit
+      - FacePop
+      - Signitic
+      - vidBoard
+      - Taja
+    contract: COMMUNITY_HUB_OPERATIONS_MODEL.md
+  runsite_spatial_factory:
+    tools:
+      - Crezlo Tours
+      - AvoMap
+      - PeekShot
+      - vidBoard
+      - Soundmadeseen
+      - BrowserAct
+      - Browserly
+    contract: horizons/runsite.md
+  ghostwire_forensics_lab:
+    tools:
+      - Hub
+      - PeekShot
+      - MarkupGo
+      - Soundmadeseen
+      - Mootion
+      - Paperguide
+    contract: horizons/ghostwire.md
   table_pulse_companion_lab:
     tools:
       - hedy.ai
@@ -115,6 +176,13 @@ product_systems:
       - Soundmadeseen
       - first_party_consent_model
     contract: TABLE_PULSE_DEBRIEF_STUDIO_WORKFLOWS.yaml
+  local_acceleration_research:
+    tools:
+      - 1min.AI
+      - AI Magicx
+      - BrowserAct
+      - Documentation.AI
+    contract: horizons/local-co-processor.md
   trust_closure_system:
     tools:
       - Hub
