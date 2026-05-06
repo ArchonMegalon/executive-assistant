@@ -18,11 +18,12 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     completed = subprocess.run(
         [sys.executable, str(SCRIPT), "--json"],
         cwd=ROOT,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
     payload = json.loads(completed.stdout)
+    assert {row["status"] for row in payload} == {"ok"}
     keys = {row["key"] for row in payload}
     assert keys == {
         "next_90_day_queue_staging",
@@ -31,6 +32,8 @@ def test_design_mirror_bundle_bindings_cover_the_audited_queue_slice() -> None:
     queue_row = next(row for row in payload if row["key"] == "next_90_day_queue_staging")
     assert queue_row["local_path"].endswith(".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
     assert queue_row["source_path"] == "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    assert int(queue_row["local_item_count"]) > 0
+    assert int(queue_row["source_item_count"]) > 0
     overlay_row = next(row for row in payload if row["key"] == "published_queue_overlay")
     assert overlay_row["local_path"].endswith(".codex-studio/published/QUEUE.generated.yaml")
     assert overlay_row["source_items"] == [
@@ -73,7 +76,7 @@ def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) ->
             check=False,
         )
         assert failed.returncode == 1
-        assert "drift: next_90_day_queue_staging" in failed.stdout
+        assert "invalid_local_payload: next_90_day_queue_staging" in failed.stdout
 
         repaired = subprocess.run(
             ["bash", str(REPAIR_SCRIPT)],

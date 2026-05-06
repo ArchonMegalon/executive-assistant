@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import hashlib
 import inspect
 import json
 import logging
@@ -1148,13 +1149,71 @@ def _onemin_direct_api_proxy_rotation_retry_limit() -> int:
     return max(0, min(value, 3))
 
 
-def _onemin_direct_api_uses_fastestvpn_proxy(*, account_name: str = "") -> bool:
-    proxy_url = str(
-        upstream._onemin_direct_api_proxy_url_for_subject(account_name)  # type: ignore[attr-defined]
-        or upstream._onemin_direct_api_proxy_url_for_subject("")  # type: ignore[attr-defined]
+def _onemin_direct_api_max_rate_limit_sleep_seconds() -> float:
+    raw = str(upstream._env("ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS") or "").strip()  # type: ignore[attr-defined]
+    try:
+        value = float(raw) if raw else 900.0
+    except Exception:
+        value = 900.0
+    return max(0.0, min(value, 3600.0))
+
+
+def _is_onemin_direct_api_rate_limit_error(error_text: str) -> bool:
+    lowered = str(error_text or "").strip().lower()
+    return (
+        "onemin_login_http_429" in lowered
+        or "onemin_api_http_429" in lowered
+        or "error code: 1010" in lowered
+        or "error code: 1015" in lowered
+    )
+
+
+def _onemin_direct_api_proxy_url_for_subject(*, account_name: str = "", retry_offset: int = 0) -> str:
+    retry_offset = max(int(retry_offset), 0)
+    try:
+        parameters = inspect.signature(upstream._onemin_direct_api_proxy_url_for_subject).parameters  # type: ignore[attr-defined]
+    except (TypeError, ValueError, AttributeError):
+        parameters = {}
+    supports_retry_offset = "retry_offset" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if supports_retry_offset:
+        return str(upstream._onemin_direct_api_proxy_url_for_subject(account_name, retry_offset=retry_offset) or "").strip()  # type: ignore[attr-defined]
+    if retry_offset <= 0:
+        return str(upstream._onemin_direct_api_proxy_url_for_subject(account_name) or "").strip()  # type: ignore[attr-defined]
+    try:
+        proxy_pool = tuple(str(url or "").strip() for url in upstream._onemin_direct_api_proxy_pool_urls())  # type: ignore[attr-defined]
+    except Exception:
+        proxy_pool = ()
+    proxy_pool = tuple(url for url in proxy_pool if url)
+    if not proxy_pool:
+        return str(upstream._onemin_direct_api_proxy_url_for_subject(account_name) or "").strip()  # type: ignore[attr-defined]
+    normalized_account_name = str(account_name or "").strip()
+    if not normalized_account_name or len(proxy_pool) == 1:
+        return proxy_pool[retry_offset % len(proxy_pool)]
+    digest = hashlib.sha256(normalized_account_name.encode("utf-8", errors="ignore")).digest()
+    index = (int.from_bytes(digest[:8], "big", signed=False) + retry_offset) % len(proxy_pool)
+    return proxy_pool[index]
+
+
+def _onemin_direct_api_proxy_pool_size() -> int:
+    try:
+        proxy_pool = tuple(str(url or "").strip() for url in upstream._onemin_direct_api_proxy_pool_urls())  # type: ignore[attr-defined]
+    except Exception:
+        proxy_pool = ()
+    proxy_pool = tuple(url for url in proxy_pool if url)
+    if proxy_pool:
+        return len(proxy_pool)
+    return 1 if _onemin_direct_api_proxy_url(account_name="", retry_offset=0) else 0
+
+
+def _onemin_direct_api_proxy_url(*, account_name: str = "", retry_offset: int = 0) -> str:
+    return str(
+        _onemin_direct_api_proxy_url_for_subject(account_name=account_name, retry_offset=retry_offset)
+        or _onemin_direct_api_proxy_url_for_subject(account_name="", retry_offset=retry_offset)
         or ""
-    ).strip().lower()
-    return bool(proxy_url and "fastestvpn" in proxy_url)
+    ).strip()
 
 
 def _fastestvpn_service_name_for_proxy_url(proxy_url: str) -> str:
@@ -1165,10 +1224,15 @@ def _fastestvpn_service_name_for_proxy_url(proxy_url: str) -> str:
     return ""
 
 
-def _onemin_direct_api_fastestvpn_service_name(*, account_name: str = "") -> str:
+def _onemin_direct_api_uses_fastestvpn_proxy(*, account_name: str = "", retry_offset: int = 0) -> bool:
+    proxy_url = _onemin_direct_api_proxy_url(account_name=account_name, retry_offset=retry_offset).lower()
+    return bool(proxy_url and "fastestvpn" in proxy_url)
+
+
+def _onemin_direct_api_fastestvpn_service_name(*, account_name: str = "", retry_offset: int = 0) -> str:
     proxy_url = str(
-        upstream._onemin_direct_api_proxy_url_for_subject(account_name)  # type: ignore[attr-defined]
-        or upstream._onemin_direct_api_proxy_url_for_subject("")  # type: ignore[attr-defined]
+        _onemin_direct_api_proxy_url_for_subject(account_name=account_name, retry_offset=retry_offset)
+        or _onemin_direct_api_proxy_url_for_subject(account_name="", retry_offset=retry_offset)
         or ""
     ).strip()
     return _fastestvpn_service_name_for_proxy_url(proxy_url)
@@ -1441,6 +1505,16 @@ def _rotate_fastestvpn_proxy(*, reason: str, service_name: str = "") -> dict[str
     return event
 
 
+def _rotate_fastestvpn_proxy_compat(*, reason: str, service_name: str = "") -> dict[str, object]:
+    try:
+        signature = inspect.signature(_rotate_fastestvpn_proxy)
+    except Exception:
+        signature = None
+    if signature is not None and "service_name" not in signature.parameters:
+        return _rotate_fastestvpn_proxy(reason=reason)
+    return _rotate_fastestvpn_proxy(reason=reason, service_name=service_name)
+
+
 def _clear_onemin_direct_api_quarantine() -> None:
     global _ONEMIN_DIRECT_API_QUARANTINED_UNTIL, _ONEMIN_DIRECT_API_QUARANTINE_REASON
     _ONEMIN_DIRECT_API_QUARANTINED_UNTIL = 0.0
@@ -1520,7 +1594,7 @@ def _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
         )
         if not retry_keys:
             break
-        rotation_event = _rotate_fastestvpn_proxy(
+        rotation_event = _rotate_fastestvpn_proxy_compat(
             reason=f"{tool_name}:attempt_{attempt}:{','.join(key[1] for key in retry_keys[:3])}",
             service_name=_job_fastestvpn_service_name(job_by_key[retry_keys[0]]) if retry_keys else "",
         )
@@ -1963,7 +2037,7 @@ def _proxy_url_with_optional_auth(*, server: str, username: str = "", password: 
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
 
-def _onemin_direct_api_proxy_url() -> str:
+def _default_onemin_direct_api_proxy_url() -> str:
     server = str(
         upstream._env("ONEMIN_DIRECT_API_PROXY_SERVER")  # type: ignore[attr-defined]
         or upstream._env("EA_ONEMIN_DIRECT_API_PROXY_SERVER")  # type: ignore[attr-defined]
@@ -1985,10 +2059,10 @@ def _onemin_direct_api_proxy_url() -> str:
     return _proxy_url_with_optional_auth(server=server, username=username, password=password)
 
 
-def _onemin_direct_api_opener(*, proxy_subject: str = "") -> urllib.request.OpenerDirector:
+def _onemin_direct_api_opener(*, proxy_subject: str = "", proxy_retry_offset: int = 0) -> urllib.request.OpenerDirector:
     proxy_url = (
-        upstream._onemin_direct_api_proxy_url_for_subject(proxy_subject)  # type: ignore[attr-defined]
-        or _onemin_direct_api_proxy_url()
+        _onemin_direct_api_proxy_url(account_name=proxy_subject, retry_offset=proxy_retry_offset)
+        or _default_onemin_direct_api_proxy_url()
     )
     if not proxy_url:
         return urllib.request.build_opener()
@@ -2001,10 +2075,11 @@ def _onemin_api_get_json(
     headers: dict[str, str],
     timeout_seconds: int,
     proxy_subject: str = "",
+    proxy_retry_offset: int = 0,
 ) -> dict[str, object]:
     request = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with _onemin_direct_api_opener(proxy_subject=proxy_subject).open(request, timeout=timeout_seconds) as response:
+        with _onemin_direct_api_opener(proxy_subject=proxy_subject, proxy_retry_offset=proxy_retry_offset).open(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -2022,12 +2097,17 @@ def _onemin_api_get_json_compat(
     headers: dict[str, str],
     timeout_seconds: int,
     proxy_subject: str = "",
+    proxy_retry_offset: int = 0,
 ) -> dict[str, object]:
     try:
         parameters = inspect.signature(_onemin_api_get_json).parameters
     except (TypeError, ValueError):
         parameters = {}
     supports_proxy_subject = "proxy_subject" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    supports_proxy_retry_offset = "proxy_retry_offset" in parameters or any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in parameters.values()
     )
@@ -2038,6 +2118,8 @@ def _onemin_api_get_json_compat(
     }
     if supports_proxy_subject:
         kwargs["proxy_subject"] = proxy_subject
+    if supports_proxy_retry_offset:
+        kwargs["proxy_retry_offset"] = proxy_retry_offset
     return _onemin_api_get_json(**kwargs)
 
 
@@ -2047,6 +2129,7 @@ def _onemin_api_login(
     login_password: str,
     timeout_seconds: int,
     proxy_subject: str = "",
+    proxy_retry_offset: int = 0,
 ) -> dict[str, object]:
     email = str(login_email or "").strip()
     password = str(login_password or "").strip()
@@ -2061,7 +2144,10 @@ def _onemin_api_login(
         method="POST",
     )
     try:
-        with _onemin_direct_api_opener(proxy_subject=proxy_subject or email).open(request, timeout=timeout_seconds) as response:
+        with _onemin_direct_api_opener(
+            proxy_subject=proxy_subject or email,
+            proxy_retry_offset=proxy_retry_offset,
+        ).open(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -2074,6 +2160,38 @@ def _onemin_api_login(
     if not isinstance(user, dict):
         raise ValueError("invalid_onemin_login_user")
     return user
+
+
+def _onemin_api_login_compat(
+    *,
+    login_email: str,
+    login_password: str,
+    timeout_seconds: int,
+    proxy_subject: str = "",
+    proxy_retry_offset: int = 0,
+) -> dict[str, object]:
+    try:
+        parameters = inspect.signature(_onemin_api_login).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    supports_proxy_subject = "proxy_subject" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    supports_proxy_retry_offset = "proxy_retry_offset" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    kwargs = {
+        "login_email": login_email,
+        "login_password": login_password,
+        "timeout_seconds": timeout_seconds,
+    }
+    if supports_proxy_subject:
+        kwargs["proxy_subject"] = proxy_subject
+    if supports_proxy_retry_offset:
+        kwargs["proxy_retry_offset"] = proxy_retry_offset
+    return _onemin_api_login(**kwargs)
 
 
 def _onemin_members_url(*, team_id: str) -> str:
@@ -2151,13 +2269,15 @@ def _refresh_onemin_api_account(
     login_password: str = "",
     preferred_team_id: str = "",
     preferred_team_name: str = "",
+    proxy_retry_offset: int = 0,
 ) -> tuple[dict[str, object], dict[str, object] | None]:
     observed_at = upstream.now_utc_iso()
-    user = _onemin_api_login(
+    user = _onemin_api_login_compat(
         login_email=str(login_email or owner_email).strip(),
         login_password=str(login_password or _onemin_password()).strip(),
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
+        proxy_retry_offset=proxy_retry_offset,
     )
     teams = user.get("teams") if isinstance(user.get("teams"), list) else []
     if not teams:
@@ -2178,18 +2298,21 @@ def _refresh_onemin_api_account(
         headers=headers,
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
+        proxy_retry_offset=proxy_retry_offset,
     )
     usages_payload = _onemin_api_get_json_compat(
         url=f"{_onemin_rest_host()}/teams/{team_id}/usages",
         headers=headers,
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
+        proxy_retry_offset=proxy_retry_offset,
     )
     invoices_payload = _onemin_api_get_json_compat(
         url=f"{_onemin_rest_host()}/billings/teams/{team_id}/invoices",
         headers=headers,
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
+        proxy_retry_offset=proxy_retry_offset,
     )
     topups = [dict(row) for row in (topups_payload.get("topupList") or []) if isinstance(row, dict)]
     usages = [dict(row) for row in (usages_payload.get("usageList") or []) if isinstance(row, dict)]
@@ -2247,6 +2370,7 @@ def _refresh_onemin_api_account(
         headers=headers,
         timeout_seconds=timeout_seconds,
         proxy_subject=account_name,
+        proxy_retry_offset=proxy_retry_offset,
     )
     members = []
     for row in members_payload.get("members") or []:
@@ -2288,6 +2412,48 @@ def _refresh_onemin_api_account(
         **member_snapshot,
     }
     return billing_result, member_result
+
+
+def _refresh_onemin_api_account_compat(
+    *,
+    account_name: str,
+    owner_email: str,
+    include_members: bool,
+    timeout_seconds: int,
+    login_email: str = "",
+    login_password: str = "",
+    preferred_team_id: str = "",
+    preferred_team_name: str = "",
+    proxy_retry_offset: int = 0,
+) -> tuple[dict[str, object], dict[str, object] | None]:
+    try:
+        parameters = inspect.signature(_refresh_onemin_api_account).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    supports_var_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    supports_proxy_retry_offset = "proxy_retry_offset" in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    kwargs: dict[str, object] = {}
+    for key, value in (
+        ("account_name", account_name),
+        ("owner_email", owner_email),
+        ("include_members", include_members),
+        ("timeout_seconds", timeout_seconds),
+        ("login_email", login_email),
+        ("login_password", login_password),
+        ("preferred_team_id", preferred_team_id),
+        ("preferred_team_name", preferred_team_name),
+    ):
+        if supports_var_kwargs or key in parameters:
+            kwargs[key] = value
+    if supports_proxy_retry_offset:
+        kwargs["proxy_retry_offset"] = proxy_retry_offset
+    return _refresh_onemin_api_account(**kwargs)
 
 
 def _refresh_onemin_via_provider_api(
@@ -2347,7 +2513,8 @@ def _refresh_onemin_via_provider_api(
     batch_backoff_seconds = _onemin_direct_api_batch_backoff_seconds()
     attempted_count = 0
     rate_limited = False
-    proxy_rotation_attempts_remaining = _onemin_direct_api_proxy_rotation_retry_limit()
+    proxy_rotation_retry_limit = _onemin_direct_api_proxy_rotation_retry_limit()
+    max_rate_limit_sleep_seconds = _onemin_direct_api_max_rate_limit_sleep_seconds()
     quarantine_remaining, quarantine_reason = _onemin_direct_api_quarantine_remaining()
     if quarantine_remaining > 0:
         errors.append(
@@ -2370,7 +2537,7 @@ def _refresh_onemin_via_provider_api(
     for batch_start in range(0, len(rows), batch_size):
         batch_rows = rows[batch_start : batch_start + batch_size]
         batch_rate_limited = False
-        for row in batch_rows:
+        for row_index, row in enumerate(batch_rows):
             account_name = str(row.get("account_name") or "").strip()
             owner_email = str(row.get("owner_email") or "").strip()
             if not account_name or not owner_email:
@@ -2394,43 +2561,76 @@ def _refresh_onemin_via_provider_api(
 
             recovered_after_rotation = False
             final_error_text = ""
+            uses_fastestvpn_proxy = _onemin_direct_api_uses_fastestvpn_proxy(account_name=account_name)
+            proxy_pool_size = _onemin_direct_api_proxy_pool_size() if uses_fastestvpn_proxy else 0
+            if uses_fastestvpn_proxy and proxy_pool_size > 1:
+                max_proxy_attempts = proxy_pool_size
+            elif uses_fastestvpn_proxy:
+                max_proxy_attempts = max(1, proxy_rotation_retry_limit + 1)
+            else:
+                max_proxy_attempts = 1
+            rate_limit_sleep_retries_remaining = 1 if continue_on_rate_limit and max_rate_limit_sleep_seconds > 0 else 0
             while True:
-                try:
-                    billing_result, member_result = _refresh_onemin_api_account(**refresh_kwargs)
-                    billing_results.append(billing_result)
-                    if member_result is not None:
-                        member_results.append(member_result)
-                    break
-                except Exception as exc:
-                    error_text = str(exc or "onemin_api_refresh_failed")
-                    is_rate_limit_error = (
-                        "onemin_login_http_429" in error_text
-                        or "onemin_api_http_429" in error_text
-                        or "error code: 1010" in error_text
-                        or "error code: 1015" in error_text
-                    )
-                    if (
-                        is_rate_limit_error
-                        and proxy_rotation_attempts_remaining > 0
-                        and _onemin_direct_api_uses_fastestvpn_proxy(account_name=account_name)
-                    ):
-                        rate_limited = True
-                        batch_rate_limited = True
-                        proxy_rotation_attempts_remaining -= 1
-                        rotation_event = _rotate_fastestvpn_proxy(
-                            reason=f"onemin.api.billing_refresh:{account_name}",
-                            service_name=_onemin_direct_api_fastestvpn_service_name(account_name=account_name),
+                account_refreshed = False
+                recovered_after_rotation = False
+                final_error_text = ""
+                for proxy_retry_offset in range(max_proxy_attempts):
+                    try:
+                        billing_result, member_result = _refresh_onemin_api_account_compat(
+                            **refresh_kwargs,
+                            proxy_retry_offset=proxy_retry_offset,
                         )
-                        if int(rotation_event.get("returncode") or 0) == 0:
-                            _clear_onemin_direct_api_quarantine()
-                            recovered_after_rotation = True
+                        billing_results.append(billing_result)
+                        if member_result is not None:
+                            member_results.append(member_result)
+                        account_refreshed = True
+                        break
+                    except Exception as exc:
+                        error_text = str(exc or "onemin_api_refresh_failed")
+                        is_rate_limit_error = _is_onemin_direct_api_rate_limit_error(error_text)
+                        if is_rate_limit_error:
+                            rate_limited = True
+                            batch_rate_limited = True
+                        if (
+                            is_rate_limit_error
+                            and uses_fastestvpn_proxy
+                            and proxy_retry_offset + 1 < max_proxy_attempts
+                        ):
+                            current_service_name = _onemin_direct_api_fastestvpn_service_name(
+                                account_name=account_name,
+                                retry_offset=proxy_retry_offset,
+                            )
+                            next_service_name = _onemin_direct_api_fastestvpn_service_name(
+                                account_name=account_name,
+                                retry_offset=proxy_retry_offset + 1,
+                            )
+                            if current_service_name and current_service_name == next_service_name:
+                                rotation_event = _rotate_fastestvpn_proxy_compat(
+                                    reason=f"onemin.api.billing_refresh:{account_name}",
+                                    service_name=current_service_name,
+                                )
+                                if int(rotation_event.get("returncode") or 0) == 0:
+                                    _clear_onemin_direct_api_quarantine()
+                                    recovered_after_rotation = True
                             continue
-                    final_error_text = error_text
-                    if is_rate_limit_error:
-                        rate_limited = True
-                        batch_rate_limited = True
-                        _quarantine_onemin_direct_api(error_text)
+                        final_error_text = error_text
+                        if is_rate_limit_error:
+                            _quarantine_onemin_direct_api(error_text)
+                        break
+                if account_refreshed:
                     break
+                if not _is_onemin_direct_api_rate_limit_error(final_error_text):
+                    break
+                if rate_limit_sleep_retries_remaining <= 0:
+                    break
+                quarantine_remaining, _ = _onemin_direct_api_quarantine_remaining()
+                sleep_seconds = quarantine_remaining or _onemin_direct_api_quarantine_seconds_for_reason(final_error_text)
+                sleep_seconds = min(max_rate_limit_sleep_seconds, max(0.0, float(sleep_seconds)))
+                if sleep_seconds <= 0:
+                    break
+                time.sleep(sleep_seconds)
+                _clear_onemin_direct_api_quarantine()
+                rate_limit_sleep_retries_remaining -= 1
 
             if final_error_text:
                 errors.append(
@@ -2441,22 +2641,17 @@ def _refresh_onemin_via_provider_api(
                         "error": final_error_text,
                     }
                 )
-                if (
-                    ("onemin_login_http_429" in final_error_text or "onemin_api_http_429" in final_error_text or "error code: 1010" in final_error_text or "error code: 1015" in final_error_text)
-                    and not continue_on_rate_limit
-                ):
+                if _is_onemin_direct_api_rate_limit_error(final_error_text) and not continue_on_rate_limit:
                     stop_processing = True
                     break
-                if (
-                    ("onemin_login_http_429" in final_error_text or "onemin_api_http_429" in final_error_text or "error code: 1010" in final_error_text or "error code: 1015" in final_error_text)
-                    and continue_on_rate_limit
-                    and _onemin_direct_api_quarantine_remaining()[0] > 0
-                ):
+                if _is_onemin_direct_api_rate_limit_error(final_error_text) and _onemin_direct_api_quarantine_remaining()[0] > 0:
                     stop_processing = True
                     break
             elif recovered_after_rotation:
                 rate_limited = True
                 batch_rate_limited = True
+            if not stop_processing and delay_seconds > 0 and row_index + 1 < len(batch_rows):
+                time.sleep(delay_seconds)
         if stop_processing:
             break
         if batch_start + batch_size >= len(rows):

@@ -1,20 +1,17 @@
 # ONRAMP
 
-## The problem
+## Table pain
 
-New, rusty, or skeptical users can hit a wall of jargon and legality before they experience why Chummer is valuable.
-If the path to competence is too steep, the product leaves power on the table even when the engine is correct.
+Players who are strong readers but new to Chummer still stall in the same places before they can build confidence.
 
-## What it would do
+## Bounded product move
 
-ONRAMP would create a guided-mastery layer for Chummer:
+ONRAMP introduces guided flows that keep learning productive and safe:
 
-* coached starter builds and edition-aware primers
-* "why this next?" guidance grounded in actual rules and build state
-* recovery suggestions when a build becomes illegal, weak, or contradictory
-* progressive disclosure that teaches the mental model instead of only hiding complexity
-
-It is a learning and confidence horizon, not an auto-build black box.
+* guided starter templates with legal checkpoints
+* staged coaching moments for why each recommendation appears
+* recovery prompts when builds become illegal, weak, or contradictory
+* explicit user confirmation before any implied default path applies
 
 ## Likely owners
 
@@ -22,25 +19,23 @@ It is a learning and confidence horizon, not an auto-build black box.
 * `chummer6-core`
 * `chummer6-hub`
 
-## Tool posture
+## Foundations
 
-Assistive drafting tools may help with primer copy or example narration, but recommendations and legality guidance must stay grounded in deterministic engine truth and approved examples.
+* explain receipt trail for user-facing recommendations
+* starter lanes for legal and playable first builds
+* bounded coaching seams that are visible and reviewable
+* stable legality and conflict detection on live build paths
 
-## What has to be true first
+## Build path
 
-* explain receipts that ordinary users can follow
-* starter-lane shells and sample builds
-* bounded recommendation seams instead of implicit UI folklore
-* reliable legality and conflict detection
-* metrics that prove the primary build path is already stable
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
 
-## Hard boundary
+## Owner handoff gate
 
-* not hidden automation that chooses for the user without explanation
-* not advice that outruns canonical rules truth
-* not tutorial theater that collapses under non-happy-path builds
+ONRAMP can only move beyond horizon when guided advice remains bounded, explainable, and provably recoverable without taking mechanical authority from the user.
 
-## Why it is not ready yet
+## Why still a horizon
 
-Guided mastery only helps if it is both trustworthy and calm under real user mistakes.
-Until Chummer can prove stronger explain, starter-flow, and recovery posture, ONRAMP remains a future lane instead of a release promise.
+Guidance is useful only when it is calm, legal, and trustable under mistakes. Chummer must keep confidence first, coaching behavior second.

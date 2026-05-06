@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 PACKAGE_ID = "next90-m129-ea-compile-contribution-participation-entitlement-channel-a"
 TITLE = "Compile contribution, participation, entitlement, channel, and reward followthrough packets from Hub/Fleet receipts only."
@@ -38,8 +39,7 @@ DESIGN_QUEUE_STAGING_PATH = Path("/docker/chummercomplete/chummer-design-m114/pr
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design-m114/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 def load_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8")) or {}

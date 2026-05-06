@@ -111,7 +111,11 @@ def _meaningful_horizon_wait(text: str) -> str:
 
 def _public_horizon_body(path: Path) -> str:
     text = _read_text(path)
-    match = re.search(r"^##\s+(Human Promise|The Promise)\s*$", text, flags=re.MULTILINE | re.IGNORECASE)
+    match = re.search(
+        r"^##\s+(Human Promise|The Promise|Table pain)\s*$",
+        text,
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
     if not match:
         return ""
     return _strip_public_only_sections(text[match.start() :]).strip()
@@ -497,6 +501,7 @@ def load_part_canon() -> dict[str, dict[str, object]]:
 def load_horizon_canon() -> dict[str, dict[str, object]]:
     root = design_root()
     catalog: dict[str, dict[str, object]] = {}
+    foundation_code_re = re.compile(r"^[A-Z]\d+$")
     for row in _public_horizon_rows():
         slug = str(row.get("id") or "").strip()
         if not slug:
@@ -512,7 +517,12 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
         use_case = _paragraph(sections.get("bounded product move", "")) or str(row.get("wow_promise") or "").strip()
         not_now = _meaningful_horizon_wait(_paragraph(sections.get("why still a horizon", ""))) or _meaningful_horizon_wait(str((row.get("build_path") or {}).get("current_state") or ""))
         foundation_lines = [value.replace("`", "") for value in _bullet_lines(sections.get("foundations", ""))]
-        foundations = foundation_lines or [str(value).strip() for value in (row.get("foundations") or []) if str(value).strip()]
+        registry_foundations = [str(value).strip() for value in (row.get("foundations") or []) if str(value).strip()]
+        foundations = (
+            foundation_lines
+            if foundation_lines and all(foundation_code_re.fullmatch(value) for value in foundation_lines)
+            else registry_foundations
+        )
         repos = [str(value).strip() for value in (row.get("owning_repos") or []) if str(value).strip()]
         catalog[slug] = {
             "title": title,

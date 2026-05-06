@@ -1,20 +1,17 @@
 # EDITION STUDIO
 
-## The problem
+## Table pain
 
-One generic shell can technically support SR4, SR5, and SR6 while still making all three feel flattened.
-That loses comprehension, atmosphere, and confidence exactly where the editions most need authored help.
+One shared shell can handle multiple rulesets, but the table still feels flattened when semantics and tone are not ruleset-authored.
 
-## What it would do
+## Bounded product move
 
-EDITION STUDIO would give each promoted ruleset a deliberately authored head:
+EDITION STUDIO gives each promoted ruleset a first-class authored expression layer inside the common workbench:
 
-* distinct terminology, prompts, and inspector posture where semantics diverge
-* ruleset-specific interaction patterns where a shared workflow becomes confusing or lossy
-* visual language, motion, density, and emphasis that reflect each edition's mental model without fragmenting the product into separate apps
-
-This horizon is not about skinning for its own sake.
-It is about preserving meaning through authored product expression.
+* ruleset-specific terminology and helper copy
+* inspector and interaction composition where shared flow is not enough
+* distinct visual and motion grammar where meaning changes with ruleset context
+* preserved core engine truth across all authored expression variants
 
 ## Likely owners
 
@@ -22,25 +19,23 @@ It is about preserving meaning through authored product expression.
 * `chummer6-ui-kit`
 * `chummer6-core`
 
-## Tool posture
+## Foundations
 
-AI design aids may support exploration, but canonical edition posture stays authored in the design system and product heads.
-Rules truth remains downstream of core semantics, never of styling.
+* shared composition seams that do not fork the engine
+* explicit edition-specific terminology and interaction rules
+* visual/theming tokens that preserve readability at density
+* validation that edition-specific surfaces preserve explain and legality posture
 
-## What has to be true first
+## Build path
 
-* edition-specific semantic seams in core and explain
-* shared primitives that can host ruleset-specific composition without forked chaos
-* theming, typography, and motion tokens with explicit ownership
-* acceptance proof that the release shell already preserves the important edition differences
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
 
-## Hard boundary
+## Owner handoff gate
 
-* not three disconnected apps
-* not decorative theming without semantic payoff
-* not ruleset flavor that contradicts engine truth
+Edition-specific authored expression can only be promoted after shared mechanics, explainability, and inspection seams are already proven stable across SR4/SR5/SR6.
 
-## Why it is not ready yet
+## Why still a horizon
 
-Distinct ruleset heads only work when the shared shell and semantics are already stable.
-Until the current product can prove strong authored SR4, SR5, and SR6 seams, EDITION STUDIO stays a future flagship multiplier rather than live scope.
+Without that foundation, edition expression risks becoming cosmetic polish detached from the product’s legal and explanation truth.

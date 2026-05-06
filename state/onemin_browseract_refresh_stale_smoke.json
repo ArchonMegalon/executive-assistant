@@ -1,0 +1,43 @@
+{
+  "started_at_utc": "2026-05-06T13:51:03Z",
+  "results": [
+    {
+      "account_label": "ONEMIN_AI_API_KEY_FALLBACK_27",
+      "owner_email": "fi@chummer.run",
+      "status": "worker_failed",
+      "failure_code": "template_worker_failed:['error: open login:page.goto: net::err_proxy_connection_failed at https://app.1min.ai/login\\ncall log:\\n  - navigating to \"https://app.1min.ai/login\", waiting until \"domcontentloaded\"\\n\\n    at main (/docker/fleet/state/browseract_ui_worker_shared/template-worker-afc_fgbr/worker.js:709:17)']\ntemplate_worker_failed:['error: open login:page.goto: net::err_proxy_connection_failed at https://app.1min.ai/login\\ncall log:\\n  - navigating to \"https://app.1min.ai/login\", waiting until \"domcontentloaded\"\\n\\n    at main (/docker/fleet/state/browseract_ui_worker_shared/template-worker-afc_fgbr/worker.js:709:17)']",
+      "duration_seconds": 1.664,
+      "worker_returncode": 1,
+      "error": "template_worker_failed:['Error: Open Login:page.goto: net::ERR_PROXY_CONNECTION_FAILED at https://app.1min.ai/login\\nCall log:\\n  - navigating to \"https://app.1min.ai/login\", waiting until \"domcontentloaded\"\\n\\n    at main (/docker/fleet/state/browseract_ui_worker_shared/template-worker-afc_fgbr/worker.js:709:17)']\ntemplate_worker_failed:['Error: Open Login:page.goto: net::ERR_PROXY_CONNECTION_FAILED at https://app.1min.ai/login\\nCall log:\\n  - navigating to \"https://app.1min.ai/login\", waiting until \"domcontentloaded\"\\n\\n    at main (/docker/fleet/state/browseract_ui_worker_shared/template-worker-afc_fgbr/worker.js:709:17)']",
+      "asset_path": "",
+      "screenshot_path": "",
+      "warnings": [],
+      "proxy_server": "http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT}",
+      "proxy_service_name": "ea-fastestvpn-proxy",
+      "attempt": 1
+    }
+  ],
+  "rotations": [],
+  "resumed": false,
+  "proxy_server": "http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT}",
+  "proxy_pool": [
+    "http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT}",
+    "http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT}"
+  ],
+  "worker_docker_network": "ea_default",
+  "rotate_every": 1,
+  "retry_challenge": 2,
+  "timeout_seconds": 180,
+  "pause_seconds": 3.0,
+  "total_accounts_requested": 1,
+  "resumed_skip_count": 0,
+  "finished_at_utc": "2026-05-06T13:51:05Z",
+  "duration_seconds": 1.666,
+  "success_count": 0,
+  "failure_count": 1,
+  "processed_count": 1,
+  "total_remaining_credits": 0,
+  "failure_code_counts": {
+    "template_worker_failed:['error: open login:page.goto: net::err_proxy_connection_failed at https://app.1min.ai/login\\ncall log:\\n  - navigating to \"https://app.1min.ai/login\", waiting until \"domcontentloaded\"\\n\\n    at main (/docker/fleet/state/browseract_ui_worker_shared/template-worker-afc_fgbr/worker.js:709:17)']\ntemplate_worker_failed:['error: open login:page.goto: net::err_proxy_connection_failed at https://app.1min.ai/login\\ncall log:\\n  - navigating to \"https://app.1min.ai/login\", waiting until \"domcontentloaded\"\\n\\n    at main (/docker/fleet/state/browseract_ui_worker_shared/template-worker-afc_fgbr/worker.js:709:17)']": 1
+  }
+}

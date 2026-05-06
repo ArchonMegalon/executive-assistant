@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACK_PATH = REPO_ROOT / "docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml"
@@ -15,7 +16,7 @@ OUTPUT_PATH = REPO_ROOT / ".codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERA
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    return yaml.safe_load(path.read_text())
+    return load_yaml_dict(path)
 
 
 def _load_json(path: Path) -> dict[str, Any]:

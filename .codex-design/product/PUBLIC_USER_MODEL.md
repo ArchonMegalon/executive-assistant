@@ -56,6 +56,22 @@ It may additionally:
 
 The install relationship may be personalized without making the binary itself user-specific.
 
+## Community-ledger relationship states
+
+The signed-in front door may surface:
+
+* claim state for this install
+* group and community membership
+* participation and sponsor-session posture
+* reward journal and entitlement journal state
+* linked channel and recovery posture
+
+These are Hub community-ledger facts, not provider-auth side effects or local-cache guesses.
+
+A guest may inspect the public explainer and later claim an install, but a guest does not receive implied ledger membership merely by opening `/participate`, `/downloads`, or `/home` redirects.
+
+Linked channels stay separate from rewards and entitlements even when the same signed-in surface can explain all of them together.
+
 ## Profile flags
 
 The first public profile pass should prefer flags over hard roles:

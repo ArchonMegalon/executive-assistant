@@ -1,8 +1,8 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-05-05T15:57:27Z",
-  "as_of": "2026-05-05",
+  "generated_at": "2026-05-06T08:31:00Z",
+  "as_of": "2026-05-06",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
@@ -96,7 +96,7 @@
   "public_promise_drift_count": 0,
   "governor_decisions": [
     {
-      "decision_id": "2026-05-05-focus-next-12-biggest-wins",
+      "decision_id": "2026-05-06-focus-next-12-biggest-wins",
       "action": "focus_shift",
       "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 22 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
       "cited_signals": [
@@ -109,7 +109,7 @@
       ]
     },
     {
-      "decision_id": "2026-05-05-launch-governance",
+      "decision_id": "2026-05-06-launch-governance",
       "action": "freeze_launch",
       "reason": "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating).",
       "cited_signals": [
@@ -190,7 +190,7 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-05-05-focus-next-12-biggest-wins",
+        "decision_id": "2026-05-06-focus-next-12-biggest-wins",
         "action": "focus_shift",
         "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 22 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
         "cited_signals": [
@@ -203,7 +203,7 @@
         ]
       },
       {
-        "decision_id": "2026-05-05-launch-governance",
+        "decision_id": "2026-05-06-launch-governance",
         "action": "freeze_launch",
         "reason": "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating).",
         "cited_signals": [
@@ -233,7 +233,7 @@
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
       "canary_status": "Canary evidence is still accumulating",
-      "review_due": "2026-05-19",
+      "review_due": "2026-05-20",
       "next_decision": "Hold broad promotion until public route canary coverage exists."
     },
     "successor_dependency_posture": {

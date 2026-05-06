@@ -59,6 +59,7 @@ from app.product.projections import (
     status_open,
     thread_items_from_objects,
 )
+from app.yaml_inputs import load_yaml_dict as load_design_yaml_dict
 from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
@@ -1295,11 +1296,8 @@ def _load_json_dict(path: Path) -> dict[str, object] | None:
 
 
 def _load_yaml_dict(path: Path) -> dict[str, object] | None:
-    try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError, UnicodeDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    payload = load_design_yaml_dict(path)
+    return payload or None
 
 
 def _design_product_root() -> Path:

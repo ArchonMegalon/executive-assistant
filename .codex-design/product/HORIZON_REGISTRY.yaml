@@ -9,6 +9,7 @@ rules:
 - A horizon does not count as flagship or near-term release scope until its build path advances beyond `horizon`, its owner handoff gate is materially satisfied, and owning repos can cite executable proof instead of public-guide ambition.
 - Open flagship blockers and lived-system release blockers outrank horizon storytelling; horizons must not dilute or outrun current release truth.
 - Public horizon copy and media must follow `products/chummer/HORIZON_DESIGN_INSTRUCTIONS.md`: human value first, no repo-speak, no foundation-code checklists, and scene-fit AR only.
+- Horizons that touch public media, community, replay, or coaching surfaces must define explicit `allowed_surfaces`, `proof_gate`, `public_claim_posture`, and `stop_condition` values before downstream guide or monitor layers treat them as more than prose.
 optional_fields:
 - family
 - wow_promise
@@ -19,6 +20,10 @@ optional_fields:
 - media_scene_contract
 - public_signal_eligible
 - owner_handoff_gate
+- allowed_surfaces
+- proof_gate
+- public_claim_posture
+- stop_condition
 - access_posture
 - resource_burden
 - booster_nudge
@@ -116,6 +121,123 @@ horizons:
   - what-if receipt packet
   public_signal_eligible: true
   owner_handoff_gate: Build-ghost comparison and apply flows must consume core-owned truth and explicit apply receipts rather than assistant-side heuristics or silent runner mutation.
+- id: quicksilver
+  title: QUICKSILVER
+  status: horizon
+  family: expert_speed_command_surfaces
+  canon_doc: products/chummer/horizons/quicksilver.md
+  public_guide:
+    enabled: false
+    order: 15
+  pain_label: Expert users still spend too much time on UI choreography for dense character work.
+  wow_promise: The workbench supports faster expert-flow moves without changing rules meaning or trust boundaries.
+  table_scene: A veteran user applies multiple edits, checks legality, and moves between checks quickly without losing context or introducing stale state.
+  build_path:
+    intent: eventual_product_lane
+    current_state: horizon
+    next_state: bounded_research
+  owning_repos:
+  - chummer6-ui
+  - chummer6-ui-kit
+  - chummer6-core
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - D0
+  - D1
+  - D2
+  - E0
+  tool_posture:
+    promoted: []
+    bounded: []
+  success_signals:
+  - Latency, jump, and batch-edit behavior stay stable across dense-state sessions.
+  - Undo/cancel-safe edits do not mutate state without explicit user intent and visible receipts.
+  - Command and shortcut flows are additive and never hide legality or explainability seams.
+  artifact_types:
+  - command path receipt
+  - batch-edit audit packet
+  public_signal_eligible: false
+  owner_handoff_gate: Expert-speed seams must be deterministic and recoverable before speed features move beyond horizon.
+
+- id: edition-studio
+  title: EDITION STUDIO
+  status: horizon
+  family: ruleset_expression_authoring
+  canon_doc: products/chummer/horizons/edition-studio.md
+  public_guide:
+    enabled: false
+    order: 21
+  pain_label: Shared workflows still flatten differences between SR4, SR5, and SR6.
+  wow_promise: Chummer ships edition-specific authored expression without fragmenting the product into separate apps.
+  table_scene: A GM prepares a mission and sees semantics and phrasing align with the chosen edition without changing how the engine decides outcomes.
+  build_path:
+    intent: eventual_product_lane
+    current_state: horizon
+    next_state: bounded_research
+  owning_repos:
+  - chummer6-ui
+  - chummer6-ui-kit
+  - chummer6-core
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - A1
+  - D0
+  - D2
+  tool_posture:
+    promoted: []
+    bounded: []
+  success_signals:
+  - Edition-specific UI and interaction patterns reflect rule semantics already accepted in core.
+  - The same core engine truth remains explicit under different authored expression layers.
+  - Shared shell controls can host edition-specific composition without semantic forks.
+  artifact_types:
+  - authored edition expression draft
+  - edition-specific inspector profile
+  public_signal_eligible: false
+  owner_handoff_gate: Edition-specific expression must remain authored and engine-grounded before promotion.
+
+- id: onramp
+  title: ONRAMP
+  status: horizon
+  family: guided_mastery_and_teaching
+  canon_doc: products/chummer/horizons/onramp.md
+  public_guide:
+    enabled: false
+    order: 23
+  pain_label: New and returning players still get stuck before they can complete a legal starter route.
+  wow_promise: Chummer guides people through first builds and recovery choices while preserving rules truth and manual control.
+  table_scene: A new player sees a guided sequence, gets legality-aware feedback, and finishes a valid starter build without lore-by-lore guesswork.
+  build_path:
+    intent: eventual_product_lane
+    current_state: horizon
+    next_state: bounded_research
+  owning_repos:
+  - chummer6-ui
+  - chummer6-core
+  - chummer6-hub
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - A0
+  - D0
+  - D2
+  tool_posture:
+    promoted: []
+    bounded:
+    - Documentation.AI
+    - Prompting Systems
+  success_signals:
+  - Starter flow examples stay legal, explainable, and repairable from receipts.
+  - Recovery guidance is bounded and does not replace explicit user build decisions.
+  - Explainability remains tied to engine truth in error and recovery paths.
+  artifact_types:
+  - guided starter flow packet
+  - legality repair receipt
+  public_signal_eligible: false
+  owner_handoff_gate: Guided mastery can only move beyond horizon once starter legality and recovery behaviors are proven on the live path.
+
 - id: karma-forge
   title: KARMA FORGE
   status: horizon
@@ -271,6 +393,53 @@ horizons:
   free_later_intent: Long-run intent is broader access after editorial, narration, and provenance loops become cheaper and safer to operate at scale.
   recognition_eligible: true
   owner_handoff_gate: Registry manifests and media receipts must survive format changes before the studio is promoted beyond horizon.
+  allowed_surfaces:
+  - public_projection
+  - guided_preview
+  - published_artifact
+  - operator_review
+  proof_gate: artifact_provenance_and_render_receipts_required
+  public_claim_posture: source_backed_only
+  stop_condition: Pause JACKPOINT preview or publication posture when provenance, approval, narration, or render receipts drift from the artifact bundle.
+- id: run-control
+  title: RUN CONTROL
+  status: horizon
+  family: gm_operations_campaign_control
+  canon_doc: products/chummer/horizons/run-control.md
+  public_guide:
+    enabled: false
+    order: 45
+  pain_label: GM prep, live control, and recap handoff still require external surfaces for reliability.
+  wow_promise: Chummer keeps campaign prep, roster, scene, and recap operations in one bounded workspace.
+  table_scene: A GM starts from a connected campaign state, runs a scene with role-aware controls, and hands recap/notes back into campaign truth without spreadsheets.
+  build_path:
+    intent: eventual_product_lane
+    current_state: horizon
+    next_state: bounded_research
+  owning_repos:
+  - chummer6-hub
+  - chummer6-mobile
+  - chummer6-core
+  - chummer6-media-factory
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - C0
+  - C1
+  - C1c
+  - D1
+  tool_posture:
+    promoted: []
+    bounded:
+    - BrowserAct
+    - PeekShot
+  success_signals:
+  - Campaign, roster, and scene operations remain in Chummer-owned truth.
+  - Reconnect and role-aware view behavior survive routine offline and handoff events.
+  - Recap and dossier handoff preserve provenance and publication safety.
+  public_signal_eligible: false
+  owner_handoff_gate: GM operations control must stay in campaign truth and remain recoverable before promotion.
+
 - id: black-ledger
   title: BLACK LEDGER
   status: horizon
@@ -414,6 +583,14 @@ horizons:
   free_later_intent: Long-run intent is wider network access after moderation, roster fit, and consent-safe closeout loops become cheaper and safer to operate at scale.
   recognition_eligible: true
   owner_handoff_gate: Open-run listing, accepted roster, meeting handoff, observer consent, and reputation events must stay Chummer-owned even when third-party meeting or analysis tools are in the loop.
+  allowed_surfaces:
+  - public_projection
+  - guided_preview
+  - published_artifact
+  - operator_review
+  proof_gate: roster_consent_schedule_handoff_receipts_required
+  public_claim_posture: source_backed_only
+  stop_condition: Pause COMMUNITY HUB promotion whenever accepted-roster truth, observer consent, scheduling receipts, or meeting handoff receipts stop staying Chummer-owned and repairable.
 - id: runsite
   title: RUNSITE
   status: horizon
@@ -458,6 +635,13 @@ horizons:
   - narrated location brief
   public_signal_eligible: true
   owner_handoff_gate: Spatial artifacts must remain clearly outside live mechanics and combat truth before any promotion.
+  allowed_surfaces:
+  - public_projection
+  - guided_preview
+  - published_artifact
+  proof_gate: manifest_permission_preview_receipts_required
+  public_claim_posture: source_backed_only
+  stop_condition: Pause RUNSITE promotion when permission tiers leak, preview receipts drift, or any route pack starts reading like live combat authority.
 - id: runbook-press
   title: RUNBOOK PRESS
   status: horizon
@@ -508,6 +692,14 @@ horizons:
   booster_nudge: Long-form publishing carries editorial, compatibility, and publication-manifest cost, so the lane may begin in guided preview while those burdens remain high.
   recognition_eligible: true
   owner_handoff_gate: Publication and compatibility metadata must remain registry-owned before this lane becomes research-ready.
+  allowed_surfaces:
+  - public_projection
+  - guided_preview
+  - published_artifact
+  - operator_review
+  proof_gate: publication_manifest_editorial_receipts_required
+  public_claim_posture: source_backed_only
+  stop_condition: Pause RUNBOOK PRESS promotion when publication manifests, compatibility metadata, or editorial approval receipts drift from rendered long-form output.
 - id: ghostwire
   title: GHOSTWIRE
   status: horizon
@@ -553,6 +745,13 @@ horizons:
   - forensics receipt packet
   public_signal_eligible: false
   owner_handoff_gate: Replay must prove reducer-safe, receipt-backed reconstruction before it can leave horizon status.
+  allowed_surfaces:
+  - operator_review
+  - guided_preview
+  - published_artifact
+  proof_gate: reducer_safe_replay_and_receipt_chain_required
+  public_claim_posture: research_only_until_owner_proof
+  stop_condition: Pause GHOSTWIRE promotion whenever replay cannot prove reducer-safe reconstruction or any after-action output relies on inferred truth instead of receipts.
 - id: table-pulse
   title: TABLE PULSE
   status: horizon
@@ -597,6 +796,13 @@ horizons:
   - narrated coaching summary
   public_signal_eligible: false
   owner_handoff_gate: Coaching analysis must remain opt-in, post-session, privacy-bounded, and clearly separate from session truth before it moves beyond horizon.
+  allowed_surfaces:
+  - operator_review
+  - guided_preview
+  - published_artifact
+  proof_gate: consent_privacy_post_session_receipts_required
+  public_claim_posture: research_only_until_owner_proof
+  stop_condition: Pause TABLE PULSE promotion whenever consent, privacy, retention, or post-session-only boundaries stop being provable end to end.
 - id: local-co-processor
   title: LOCAL CO-PROCESSOR
   status: horizon

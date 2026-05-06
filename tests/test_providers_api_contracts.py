@@ -2530,6 +2530,8 @@ def test_onemin_provider_api_full_refresh_continues_after_rate_limit(
     monkeypatch.setattr(providers_route.time, "sleep", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(providers_route, "_ONEMIN_DIRECT_API_QUARANTINED_UNTIL", 0.0, raising=False)
     monkeypatch.setattr(providers_route, "_ONEMIN_DIRECT_API_QUARANTINE_REASON", "", raising=False)
+    monkeypatch.setattr(providers_route, "_onemin_direct_api_uses_fastestvpn_proxy", lambda **_: False)
+    monkeypatch.setenv("ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS", "0")
 
     billing_results, member_results, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
         include_members=True,
@@ -2634,6 +2636,8 @@ def test_onemin_provider_api_refresh_batches_after_rate_limit(
     monkeypatch.setenv("ONEMIN_DIRECT_API_BATCH_SIZE", "2")
     monkeypatch.setenv("ONEMIN_DIRECT_API_BATCH_BACKOFF_SECONDS", "0.5")
     monkeypatch.setenv("ONEMIN_DIRECT_API_MIN_ACCOUNT_DELAY_SECONDS", "0")
+    monkeypatch.setattr(providers_route, "_onemin_direct_api_uses_fastestvpn_proxy", lambda **_: False)
+    monkeypatch.setenv("ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS", "0")
     monkeypatch.setattr(providers_route.time, "sleep", lambda seconds: sleep_calls.append(seconds))
 
     _, _, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
@@ -2727,6 +2731,165 @@ def test_onemin_provider_api_refresh_rotates_fastestvpn_proxy_and_recovers_rate_
     assert [row["account_label"] for row in billing_results] == ["ONEMIN_AI_API_KEY"]
     assert [row["account_label"] for row in member_results] == ["ONEMIN_AI_API_KEY"]
     assert rotation_reasons == ["onemin.api.billing_refresh:ONEMIN_AI_API_KEY"]
+
+
+def test_onemin_provider_api_refresh_tries_full_fastestvpn_pool_before_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    call_offsets: list[int] = []
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_27", "owner_email": "owner-27@example.com"},
+        ),
+    )
+
+    def fake_proxy_url_for_subject(subject: str = "", retry_offset: int = 0):
+        pool = (
+            "http://ea-fastestvpn-proxy:3128",
+            "http://ea-fastestvpn-proxy-ie:3128",
+            "http://ea-fastestvpn-proxy-nl:3128",
+        )
+        return pool[retry_offset % len(pool)]
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_onemin_direct_api_proxy_url_for_subject",
+        fake_proxy_url_for_subject,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_onemin_direct_api_proxy_pool_urls",
+        lambda: (
+            "http://ea-fastestvpn-proxy:3128",
+            "http://ea-fastestvpn-proxy-ie:3128",
+            "http://ea-fastestvpn-proxy-nl:3128",
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(providers_route.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_ROTATION_RETRY_LIMIT", "1")
+    monkeypatch.setenv("ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS", "0")
+
+    def fake_refresh_account(
+        *,
+        account_name: str,
+        owner_email: str,
+        include_members: bool,
+        timeout_seconds: int,
+        login_email: str = "",
+        login_password: str = "",
+        preferred_team_id: str = "",
+        preferred_team_name: str = "",
+        proxy_retry_offset: int = 0,
+    ):
+        call_offsets.append(proxy_retry_offset)
+        if proxy_retry_offset < 2:
+            raise RuntimeError("onemin_login_http_429")
+        billing_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        return billing_result, None
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_api_account", fake_refresh_account)
+
+    billing_results, member_results, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
+        include_members=False,
+        timeout_seconds=180,
+        all_accounts=True,
+        continue_on_rate_limit=True,
+    )
+
+    assert attempted_count == 1
+    assert skipped_count == 0
+    assert rate_limited is True
+    assert errors == []
+    assert member_results == []
+    assert [row["account_label"] for row in billing_results] == ["ONEMIN_AI_API_KEY_FALLBACK_27"]
+    assert call_offsets == [0, 1, 2]
+
+
+def test_onemin_provider_api_refresh_sleeps_for_retry_after_and_retries_same_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    sleep_calls: list[float] = []
+    call_count = {"value": 0}
+
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "onemin_owner_rows",
+        lambda: (
+            {"account_name": "ONEMIN_AI_API_KEY_FALLBACK_27", "owner_email": "owner-27@example.com"},
+        ),
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_onemin_direct_api_proxy_url_for_subject",
+        lambda _subject="", retry_offset=0: "http://ea-fastestvpn-proxy-nl:3128",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        providers_route.upstream,
+        "_onemin_direct_api_proxy_pool_urls",
+        lambda: ("http://ea-fastestvpn-proxy-nl:3128",),
+        raising=False,
+    )
+    monkeypatch.setattr(providers_route.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setenv("ONEMIN_DIRECT_API_MAX_RATE_LIMIT_SLEEP_SECONDS", "200")
+    monkeypatch.setenv("EA_ONEMIN_DIRECT_API_PROXY_ROTATION_RETRY_LIMIT", "0")
+
+    def fake_refresh_account(
+        *,
+        account_name: str,
+        owner_email: str,
+        include_members: bool,
+        timeout_seconds: int,
+        login_email: str = "",
+        login_password: str = "",
+        preferred_team_id: str = "",
+        preferred_team_name: str = "",
+        proxy_retry_offset: int = 0,
+    ):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise RuntimeError(
+                'onemin_login_http_429:{"message":"Too many requests. Please try again after 151 seconds","retryAfter":151}'
+            )
+        billing_result = {
+            "refresh_backend": "onemin_api",
+            "account_label": account_name,
+            "owner_email": owner_email,
+            "basis": "actual_provider_api",
+        }
+        return billing_result, None
+
+    monkeypatch.setattr(providers_route, "_refresh_onemin_api_account", fake_refresh_account)
+
+    billing_results, member_results, errors, attempted_count, skipped_count, rate_limited = providers_route._refresh_onemin_via_provider_api(
+        include_members=False,
+        timeout_seconds=180,
+        all_accounts=True,
+        continue_on_rate_limit=True,
+    )
+
+    assert attempted_count == 1
+    assert skipped_count == 0
+    assert rate_limited is True
+    assert errors == []
+    assert member_results == []
+    assert [row["account_label"] for row in billing_results] == ["ONEMIN_AI_API_KEY_FALLBACK_27"]
+    assert sleep_calls == pytest.approx([166.0])
+    assert call_count["value"] == 2
 
 
 def test_onemin_direct_api_quarantine_uses_retry_after_when_available(

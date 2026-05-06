@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,8 +18,7 @@ HANDOFF_CLOSEOUT_PATH = ROOT / "docs" / "chummer_organizer_packets" / "SUCCESSOR
 
 
 def _yaml(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def without_generated_at(payload: dict[str, Any]) -> dict[str, Any]:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 from materialize_next90_m135_ea_closure_coverage import OUTPUT_PATH, build_payload, without_generated_at
 
@@ -50,7 +51,7 @@ EXPECTED_EVIDENCE_SUBSTRINGS = [
 
 
 def _load_yaml(path: Path) -> Any:
-    return yaml.safe_load(path.read_text())
+    return load_yaml_dict(path)
 
 
 def _assert(condition: bool, message: str) -> None:

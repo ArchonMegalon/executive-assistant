@@ -16,7 +16,10 @@ Canonical outputs:
 - `CHUMMER5A_PARITY_LAB_PACK.yaml` is the package manifest and successor-wave handoff.
 - `oracle_baselines.yaml` records Chummer5a oracle counts, source-backed desktop landmarks, and screenshot corpus pointers.
 - `veteran_workflow_pack.yaml` maps the required first-minute veteran landmarks and tasks.
+- `NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml` compiles route-local screenshot packs and compare packets for the translator, XML amendment editor, Hero Lab importer, and import-oracle workflow milestone-141 routes.
+- `NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml` compiles family-local screenshot and interaction receipts for the dense builder/career, dice/initiative, and identity/contacts/lifestyles/history milestone-142 families.
 - `compare_packs.yaml` maps every flagship parity family to extracted compare artifacts and source-token anchors in the Chummer5a oracle repo.
+- `NEXT90_M143_ROUTE_SPECIFIC_COMPARE_PACKS.generated.yaml` compiles the route-local compare packs and artifact proof checks for the print/export/exchange and SR6 supplement/house-rule families.
 - `import_export_fixture_inventory.yaml` records the import/export fixture universe from the Chummer5a oracle.
 - `SUCCESSOR_HANDOFF_CLOSEOUT.yaml` records that the EA-owned successor slice is complete, names the completed non-EA UI certification handoff, and names the remaining non-EA followups.
 - `.codex-studio/published/CHUMMER5A_PARITY_ORACLE_PACK.generated.json` is the published task-proven proof receipt for this EA package.
@@ -34,6 +37,9 @@ Artifact extraction shape:
 - `compare_packs.yaml` now carries a family artifact matrix so each flagship parity family resolves to baseline IDs, workflow task IDs, oracle fixture IDs, and one source-anchor check family.
 - `compare_packs.yaml` is synced to the same shard-4 worker-safe telemetry and handoff context so compare artifacts stay tied to the current successor-wave assignment.
 - `compare_packs.yaml` also carries legacy-form anchor checks for the WinForms surfaces behind the main shell, settings, master index, roster, import, and export flows.
+- `NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml` keeps milestone-141 evidence route-local by naming the required screenshot review jobs, deterministic import receipts, and direct compare artifacts for `menu:translator`, `menu:xml_editor`, `menu:hero_lab_importer`, and `workflow:import_oracle` instead of relying on family-level prose.
+- `NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml` keeps milestone-142 evidence family-local by naming the required screenshot receipts and direct interaction receipts for each dense-workbench, dice/initiative, and identity/lifestyle family instead of collapsing the proof into broad family prose.
+- `NEXT90_M143_ROUTE_SPECIFIC_COMPARE_PACKS.generated.yaml` binds the two M143 families to direct route receipts, screenshot review markers, rule-studio proof, and the current deterministic core receipts instead of relying on broad family prose alone.
 
 Proof boundary:
 
@@ -60,4 +66,10 @@ Proof boundary:
 Verification:
 
 - `python tests/test_chummer5a_parity_lab_pack.py` runs the parity-lab contract checks directly for worker runtimes where `pytest` is not installed.
+- `python3 scripts/materialize_next90_m141_ea_route_local_screenshot_packs.py` regenerates the M141 route-local screenshot pack and markdown summary.
+- `python3 scripts/verify_next90_m141_ea_route_local_screenshot_packs.py` fail-closes the generated packet if the direct route receipts, guide markers, or canonical queue binding drift.
+- `python3 scripts/materialize_next90_m142_ea_family_local_screenshot_and_interaction_packs.py` regenerates the M142 family-local screenshot and interaction pack plus its markdown summary.
+- `python3 scripts/verify_next90_m142_ea_family_local_screenshot_and_interaction_packs.py` fail-closes the generated packet if family rows, route-local screenshot receipts, interaction receipts, or package metadata drift.
+- `python3 scripts/materialize_next90_m143_ea_route_specific_compare_packs.py` regenerates the M143 route-specific compare-pack packet and markdown summary.
+- `python3 scripts/verify_next90_m143_ea_route_specific_compare_packs.py` fail-closes the generated packet if the family rows, direct route receipts, or package metadata drift.
 - When `python` is unavailable in a worker runtime, use `python3` for the same direct test file. This is interpreter compatibility for the same package proof and does not refresh the frozen proof receipt, closeout rows, oracle baselines, workflow pack, compare packs, or fixture inventory.

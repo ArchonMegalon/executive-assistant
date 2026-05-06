@@ -97,7 +97,7 @@ Then open `http://localhost:8090/health`.
 - Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.
-- Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy.
+- Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 
 ## Runtime Spine
 

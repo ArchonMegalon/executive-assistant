@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-05-05
+Updated: 2026-03-18
 
 ## Workspace Integration Tier Guide
 
@@ -15,7 +15,7 @@ Updated: 2026-05-05
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-05T08:37:52.125920+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-03-18T09:00:00Z` for `ONEMIN_AI_API_KEY` confirmed `800000` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`1000000` credits). |
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Legacy prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for internal guide pipelines; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
@@ -72,7 +72,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-05T08:37:52.125920+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-05T08:37:52.125920+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-03-18T09:00:00Z | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-03-18T09:00:00Z` for `ONEMIN_AI_API_KEY` confirmed `800000` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`1000000` credits). |
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |

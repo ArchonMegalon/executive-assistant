@@ -4767,15 +4767,16 @@ def _onemin_direct_api_proxy_pool_urls() -> tuple[str, ...]:
     return (single,) if single else ()
 
 
-def _onemin_direct_api_proxy_url_for_subject(subject: str = "") -> str:
+def _onemin_direct_api_proxy_url_for_subject(subject: str = "", retry_offset: int = 0) -> str:
     proxy_urls = _onemin_direct_api_proxy_pool_urls()
     if not proxy_urls:
         return ""
     normalized_subject = str(subject or "").strip()
+    retry_offset = max(int(retry_offset), 0)
     if not normalized_subject or len(proxy_urls) == 1:
-        return proxy_urls[0]
+        return proxy_urls[retry_offset % len(proxy_urls)]
     digest = hashlib.sha256(normalized_subject.encode("utf-8", errors="ignore")).digest()
-    index = int.from_bytes(digest[:8], "big", signed=False) % len(proxy_urls)
+    index = (int.from_bytes(digest[:8], "big", signed=False) + retry_offset) % len(proxy_urls)
     return proxy_urls[index]
 
 

@@ -59,33 +59,13 @@ wait_for_proxy_healthy() {
   while true; do
     local health
     if (( compose_available == 1 )); then
-      health="$("${compose_cmd[@]}" ps --format json ea-fastestvpn-proxy 2>/dev/null | python3 -c '
-import json, sys
-raw = sys.stdin.read().strip()
-if not raw:
-    raise SystemExit(0)
-rows = []
-try:
-    loaded = json.loads(raw)
-    rows = loaded if isinstance(loaded, list) else [loaded]
-except Exception:
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except Exception:
-            pass
-for row in rows:
-    if not isinstance(row, dict):
-        continue
-    service = str(row.get("Service") or row.get("Name") or "")
-    if service == "${service_name}" or service.endswith("${service_name}"):
-        print(str(row.get("Health") or row.get("State") or ""))
-        break
-'
-)" || health=""
+      local cid
+      cid="$("${compose_cmd[@]}" ps -q "${service_name}" 2>/dev/null || true)"
+      if [[ -n "${cid}" ]]; then
+        health="$(docker inspect "${cid}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true)"
+      else
+        health=""
+      fi
     else
       health="$(docker inspect "${service_name}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true)"
     fi

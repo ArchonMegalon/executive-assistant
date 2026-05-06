@@ -128,6 +128,10 @@ def test_onemin_direct_api_proxy_pool_hashes_subjects_stably(monkeypatch: pytest
     first = upstream._onemin_direct_api_proxy_url_for_subject("ONEMIN_AI_API_KEY_FALLBACK_20")
     second = upstream._onemin_direct_api_proxy_url_for_subject("ONEMIN_AI_API_KEY_FALLBACK_20")
     third = upstream._onemin_direct_api_proxy_url_for_subject("ONEMIN_AI_API_KEY_FALLBACK_21")
+    first_retry = upstream._onemin_direct_api_proxy_url_for_subject(
+        "ONEMIN_AI_API_KEY_FALLBACK_20",
+        retry_offset=1,
+    )
 
     assert first == second
     assert first in {
@@ -140,6 +144,12 @@ def test_onemin_direct_api_proxy_pool_hashes_subjects_stably(monkeypatch: pytest
         "http://ea-fastestvpn-proxy-02:3128",
         "http://ea-fastestvpn-proxy-03:3128",
     }
+    assert first_retry in {
+        "http://ea-fastestvpn-proxy-01:3128",
+        "http://ea-fastestvpn-proxy-02:3128",
+        "http://ea-fastestvpn-proxy-03:3128",
+    }
+    assert first_retry != first
 
 
 def test_request_opener_for_request_uses_api_key_subject_for_onemin_pool(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,8 +96,7 @@ PROOF_ARTIFACTS = [
 
 
 def _yaml(path: Path) -> dict:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return payload if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def _json(path: Path) -> dict:

@@ -170,6 +170,8 @@ Automatic forwarding for triage is allowed, but the boundary stays clean:
 3. `chummer6-hub-registry` enriches the incident with version, channel, platform, arch, release-head, runtime-bundle-head, and update facts.
 4. `fleet` may consume the normalized crash work item for clustering, repro, test generation, candidate patch drafting, and PR preparation.
 
+The hosted intake seam is contract-owned, not assistant-owned. `Chummer.Run.Contracts` remains the durable product-facing contract surface for crash/support intake and followthrough. The assistant is phase 2.
+
 That does not make Fleet the support database, and it does not allow direct client-to-Fleet raw crash transport as the primary seam.
 Any user-visible repair still ships through the standard review, release, registry, and updater path.
 

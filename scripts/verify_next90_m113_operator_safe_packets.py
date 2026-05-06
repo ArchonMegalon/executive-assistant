@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 
 PACKAGE_ID = "next90-m113-executive-assistant-operator-safe-packets"
@@ -61,8 +62,7 @@ QUEUE_PROOF = [
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def load_json(path: Path) -> dict[str, Any]:

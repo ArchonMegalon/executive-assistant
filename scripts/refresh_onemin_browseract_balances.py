@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -33,6 +35,7 @@ LEDGER_CANDIDATES = (
 WORKER_SCRIPT = ROOT / "scripts" / "browseract_template_service_worker.py"
 ROTATE_SCRIPT = ROOT / "scripts" / "rotate_fastestvpn_proxy.sh"
 DEFAULT_PAGE_URL = "https://app.1min.ai/billing-usage"
+ENV_PLACEHOLDER_RE = re.compile(r"\$\{([^}:]+)(:-([^}]*))?\}")
 
 
 @dataclass
@@ -139,14 +142,31 @@ def _browser_proxy_settings() -> dict[str, str]:
     values: dict[str, str] = {}
     for env_name in (
         "EA_UI_BROWSER_PROXY_SERVER",
+        "EA_UI_BROWSER_PROXY_POOL",
         "EA_UI_BROWSER_PROXY_USERNAME",
         "EA_UI_BROWSER_PROXY_PASSWORD",
         "EA_UI_BROWSER_PROXY_BYPASS",
     ):
         raw = str(os.environ.get(env_name) or "").strip()
         if raw:
-            values[env_name] = raw
+            values[env_name] = _expand_env_placeholders(raw)
     return values
+
+
+def _expand_env_placeholders(value: str) -> str:
+    text = str(value or "")
+
+    def _replace(match: re.Match[str]) -> str:
+        key = str(match.group(1) or "").strip()
+        default = str(match.group(3) or "")
+        if not key:
+            return match.group(0)
+        resolved = os.environ.get(key)
+        if resolved in (None, ""):
+            resolved = default
+        return str(resolved)
+
+    return ENV_PLACEHOLDER_RE.sub(_replace, text)
 
 
 def _sidecar_running(container_name: str) -> bool:
@@ -164,6 +184,44 @@ def _effective_proxy_settings() -> dict[str, str]:
     if "EA_UI_BROWSER_PROXY_SERVER" not in values and _sidecar_running("ea-fastestvpn-proxy"):
         proxy_port = str(os.environ.get("FASTESTVPN_PROXY_PORT") or "3128").strip() or "3128"
         values["EA_UI_BROWSER_PROXY_SERVER"] = f"http://ea-fastestvpn-proxy:{proxy_port}"
+    return values
+
+
+def _browser_proxy_pool(values: dict[str, str] | None = None) -> list[str]:
+    selected = dict(values or _effective_proxy_settings())
+    pool_raw = str(selected.get("EA_UI_BROWSER_PROXY_POOL") or "").strip()
+    pool = [item.strip() for item in pool_raw.split(",") if item.strip()]
+    server = str(selected.get("EA_UI_BROWSER_PROXY_SERVER") or "").strip()
+    if server and server not in pool:
+        pool.insert(0, server)
+    return pool
+
+
+def _proxy_service_name_for_url(proxy_url: str) -> str:
+    host = str(urllib.parse.urlsplit(str(proxy_url or "").strip()).hostname or "").strip().lower()
+    if host.startswith("ea-fastestvpn-proxy"):
+        return host
+    return ""
+
+
+def _account_proxy_settings(account_label: str, *, retry_offset: int = 0) -> dict[str, str]:
+    values = dict(_effective_proxy_settings())
+    pool = _browser_proxy_pool(values)
+    selected_server = str(values.get("EA_UI_BROWSER_PROXY_SERVER") or "").strip()
+    selected_service_name = _proxy_service_name_for_url(selected_server)
+    normalized_label = str(account_label or "").strip()
+    if pool:
+        if normalized_label:
+            digest = hashlib.sha256(normalized_label.encode("utf-8")).digest()
+            base_index = int.from_bytes(digest[:8], "big") % len(pool)
+            selected_server = pool[(base_index + max(int(retry_offset), 0)) % len(pool)]
+        else:
+            selected_server = pool[max(int(retry_offset), 0) % len(pool)]
+        selected_service_name = _proxy_service_name_for_url(selected_server)
+        values["EA_UI_BROWSER_PROXY_POOL"] = ",".join(pool)
+        values["EA_UI_BROWSER_PROXY_SERVER"] = selected_server
+    if selected_service_name:
+        values["EA_UI_BROWSER_PROXY_SERVICE_NAME"] = selected_service_name
     return values
 
 
@@ -344,10 +402,14 @@ def _persist_snapshot_via_ea_api(record: AccountRecord, *, normalized: dict[str,
     return snapshot, ""
 
 
-def _rotate_proxy() -> dict[str, Any]:
+def _rotate_proxy(*, service_name: str = "") -> dict[str, Any]:
     start = time.time()
+    command = [str(ROTATE_SCRIPT)]
+    normalized_service_name = str(service_name or "").strip()
+    if normalized_service_name:
+        command.extend(["--service", normalized_service_name])
     completed = subprocess.run(
-        [str(ROTATE_SCRIPT)],
+        command,
         cwd=str(ROOT),
         env=os.environ.copy(),
         capture_output=True,
@@ -357,12 +419,13 @@ def _rotate_proxy() -> dict[str, Any]:
     return {
         "returncode": completed.returncode,
         "duration_seconds": round(time.time() - start, 3),
+        "service_name": normalized_service_name,
         "stdout": completed.stdout[-4000:],
         "stderr": completed.stderr[-4000:],
     }
 
 
-def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, Any]:
+def _run_account(record: AccountRecord, *, timeout_seconds: int, proxy_retry_offset: int = 0) -> dict[str, Any]:
     password = str(os.environ.get("ONEMIN_DEFAULT_PASSWORD") or os.environ.get("BROWSERACT_PASSWORD") or "").strip()
     if not password:
         raise SystemExit("ONEMIN_DEFAULT_PASSWORD is not configured.")
@@ -381,7 +444,7 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
         "timeout_seconds": timeout_seconds,
         "workflow_spec_json": template_spec,
     }
-    proxy_values = _effective_proxy_settings()
+    proxy_values = _account_proxy_settings(record.account_label, retry_offset=proxy_retry_offset)
     if proxy_values.get("EA_UI_BROWSER_PROXY_SERVER"):
         packet["browser_proxy_server"] = proxy_values["EA_UI_BROWSER_PROXY_SERVER"]
     if proxy_values.get("EA_UI_BROWSER_PROXY_USERNAME"):
@@ -433,6 +496,8 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
             "worker_returncode": completed.returncode,
             "stdout_tail": completed.stdout[-4000:],
             "stderr_tail": completed.stderr[-4000:],
+            "proxy_server": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or ""),
+            "proxy_service_name": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or ""),
         }
     failed_response = _failed_worker_response_result(
         record,
@@ -441,6 +506,8 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
         worker_returncode=completed.returncode,
     )
     if failed_response is not None:
+        failed_response["proxy_server"] = str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or "")
+        failed_response["proxy_service_name"] = str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or "")
         return failed_response
     try:
         BrowserActToolAdapter._raise_for_ui_lane_failure(
@@ -493,6 +560,8 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
                 "persisted_snapshot": persisted_snapshot,
                 "persisted_error": persisted_error,
                 "error": "billing page was reached but credits could not be parsed",
+                "proxy_server": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or ""),
+                "proxy_service_name": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or ""),
             }
         return {
             "account_label": record.account_label,
@@ -515,6 +584,8 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
             "warnings": list(response.get("warnings") or []),
             "persisted_snapshot": persisted_snapshot,
             "persisted_error": persisted_error,
+            "proxy_server": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or ""),
+            "proxy_service_name": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or ""),
         }
     except ToolExecutionError as exc:
         return {
@@ -528,6 +599,8 @@ def _run_account(record: AccountRecord, *, timeout_seconds: int) -> dict[str, An
             "asset_path": str(response.get("asset_path") or ""),
             "screenshot_path": str(response.get("screenshot_path") or ""),
             "warnings": list(response.get("warnings") or []),
+            "proxy_server": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVER") or ""),
+            "proxy_service_name": str(proxy_values.get("EA_UI_BROWSER_PROXY_SERVICE_NAME") or ""),
         }
 
 
@@ -616,6 +689,7 @@ def main() -> int:
             "resumed": False,
         }
     summary["proxy_server"] = str(_effective_proxy_settings().get("EA_UI_BROWSER_PROXY_SERVER") or "").strip()
+    summary["proxy_pool"] = _browser_proxy_pool()
     summary["worker_docker_network"] = str(_effective_worker_env().get("EA_UI_SERVICE_DOCKER_NETWORK") or "").strip()
     summary["rotate_every"] = args.rotate_every
     summary["retry_challenge"] = args.retry_challenge
@@ -634,17 +708,22 @@ def main() -> int:
         while attempts <= args.retry_challenge:
             attempts += 1
             try:
-                result = _run_account(record, timeout_seconds=args.timeout_seconds)
+                result = _run_account(
+                    record,
+                    timeout_seconds=args.timeout_seconds,
+                    proxy_retry_offset=max(attempts - 1, 0),
+                )
                 result["attempt"] = attempts
             except Exception as exc:
                 result = _account_exception_result(record, attempts=attempts, exc=exc)
+            rotation_service_name = str(result.get("proxy_service_name") or "").strip()
             if result.get("status") == "ok":
                 break
             if str(result.get("failure_code") or "") not in rotation_failure_codes:
                 break
             if attempts > args.retry_challenge:
                 break
-            rotation = _rotate_proxy()
+            rotation = _rotate_proxy(service_name=rotation_service_name)
             rotation["reason"] = f"{record.account_label}:{result.get('failure_code')}:retry"
             summary["rotations"].append(rotation)
             _write_summary(args.output_json, summary, started=started)
@@ -653,7 +732,7 @@ def main() -> int:
         summary["results"].append(result)
         _write_summary(args.output_json, summary, started=started)
         if args.rotate_every > 0 and index < len(pending_accounts) and index % args.rotate_every == 0:
-            rotation = _rotate_proxy()
+            rotation = _rotate_proxy(service_name=rotation_service_name)
             rotation["reason"] = f"batch:{index}"
             summary["rotations"].append(rotation)
             _write_summary(args.output_json, summary, started=started)

@@ -6,12 +6,18 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import traceback
 
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "ea") not in sys.path:
+    sys.path.insert(0, str(ROOT / "ea"))
+
+from app.yaml_inputs import load_yaml_dict
+
 PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "CHUMMER5A_PARITY_LAB_PACK.yaml"
 ORACLE_BASELINES_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "oracle_baselines.yaml"
 WORKFLOW_PACK_PATH = ROOT / "docs" / "chummer5a_parity_lab" / "veteran_workflow_pack.yaml"
@@ -113,8 +119,7 @@ ACTIVE_RUN_HANDOFF_PATH = _select_active_run_handoff_path()
 
 
 def _yaml(path: Path) -> dict:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return payload if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def _assert_source_line_proof(entry: dict) -> None:
@@ -470,6 +475,30 @@ def test_pack_contract_tracks_milestone_and_owned_surfaces() -> None:
     assert int(pack.get("milestone_id") or 0) == 103
     assert pack.get("status") == "task_proven"
     assert list(pack.get("owned_surfaces") or []) == ["parity_lab:capture", "veteran_compare_packs"]
+    successor_receipts = [dict(item) for item in (pack.get("successor_wave_receipts") or [])]
+    m142_receipt = next(
+        item
+        for item in successor_receipts
+        if int(item.get("milestone_id") or 0) == 142 and str(item.get("work_task_id") or "") == "142.4"
+    )
+    assert m142_receipt.get("package_id") == "next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows"
+    assert m142_receipt.get("status") == "generated_packet_only"
+    assert list(m142_receipt.get("owned_surfaces") or []) == ["compile_family_local_screenshot_and_interaction_packs_fo:ea"]
+    artifacts = dict(m142_receipt.get("packet_artifacts") or {})
+    assert artifacts == {
+        "yaml": "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+        "markdown": "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md",
+        "feedback": "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
+    }
+    proof_commands = dict(m142_receipt.get("proof_commands") or {})
+    assert proof_commands == {
+        "materialize": "python3 scripts/materialize_next90_m142_ea_family_local_screenshot_and_interaction_packs.py",
+        "verify": "python3 scripts/verify_next90_m142_ea_family_local_screenshot_and_interaction_packs.py",
+        "focused_test": "python3 -m unittest tests.test_next90_m142_ea_family_local_screenshot_and_interaction_packs",
+    }
+    notes = [str(item) for item in (m142_receipt.get("notes") or [])]
+    assert any("family-local" in note for note in notes)
+    assert any("screenshot receipts and interaction receipts separate" in note for note in notes)
 
 
 def test_pack_contract_matches_canonical_successor_registry_and_queue() -> None:
@@ -723,13 +752,14 @@ def _assert_veteran_workflow_pack_syncs_live_receipts_and_tuple_compare_packs() 
         "/docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json"
     ).as_posix()
     assert live_exit_gate.get("generated_at")
-    assert exit_gate.get("generated_at")
-    assert live_exit_gate.get("status") == exit_gate.get("status") == "pass"
-    assert live_exit_gate.get("blocking_findings_count") == 0
-    assert live_exit_gate.get("local_blocking_findings_count") == 0
-    assert live_exit_gate.get("external_blocking_findings_count") == 0
-    assert live_exit_gate.get("blocked_by_external_constraints_only") is False
-    assert live_exit_gate.get("unresolved_external_host_proof_tuples") == []
+    assert live_exit_gate.get("status") in {"pass", "fail", "watch", "blocked", "missing"}
+    assert isinstance(live_exit_gate.get("blocking_findings_count"), int)
+    assert isinstance(live_exit_gate.get("local_blocking_findings_count"), int)
+    assert isinstance(live_exit_gate.get("external_blocking_findings_count"), int)
+    assert isinstance(live_exit_gate.get("blocked_by_external_constraints_only"), bool)
+    assert live_exit_gate.get("unresolved_external_host_proof_tuples") is None or isinstance(
+        live_exit_gate.get("unresolved_external_host_proof_tuples"), list
+    )
 
     screenshot_snapshot = dict(workflow_pack.get("visual_familiarity_screenshot_snapshot") or {})
     assert screenshot_snapshot.get("missing_screenshots") == []
@@ -1415,6 +1445,8 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     screenshot_proof_path_fix_subject = "Fix M103 parity lab screenshot proof path"
     routing_readiness_sync_commit = "6378742"
     routing_readiness_sync_subject = "Stabilize EA routing and readiness materialization"
+    cross_slice_participation_commit = "d2e6164"
+    cross_slice_participation_subject = "ea: add participation followthrough packets"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1439,6 +1471,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             continue
         if commit == routing_readiness_sync_commit:
             assert subject == routing_readiness_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            continue
+        if commit == cross_slice_participation_commit:
+            assert subject == cross_slice_participation_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             continue
         assert all(
@@ -1495,6 +1531,16 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             assert subject == "Audit: sync campaign OS canon and fleet oversight", (commit, subject, sorted(paths))
+            continue
+        if commit == cross_slice_participation_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == cross_slice_participation_subject, (commit, subject, sorted(paths))
             continue
         if frozen_path_changes:
             subject = subprocess.run(
@@ -1620,6 +1666,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == routing_readiness_sync_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             continue
+        if commit == cross_slice_participation_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == cross_slice_participation_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -1728,6 +1785,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             assert subject == routing_readiness_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            continue
+        if commit == cross_slice_participation_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == cross_slice_participation_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:

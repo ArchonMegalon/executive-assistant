@@ -1,6 +1,6 @@
 contract_name: ea.chummer5a_veteran_workflow_pack
 schema_version: 1
-generated_at: "2026-04-19T12:09:26Z"
+generated_at: "2026-05-06T04:28:21Z"
 milestone:
   id: 103
   package_id: next90-m103-ea-parity-lab
@@ -21,9 +21,9 @@ worker_safe_resume_context:
     - feedback
     - docs
   readiness_path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
-  readiness_generated_at: "2026-04-19T11:57:17Z"
+  readiness_generated_at: "2026-05-06T04:26:53Z"
   desktop_executable_exit_gate_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json
-  desktop_executable_exit_gate_generated_at: "2026-04-18T18:19:11.035798Z"
+  desktop_executable_exit_gate_generated_at: "2026-05-06T00:17:08.637885Z"
   runtime_handoff_path: /var/lib/codex-fleet/chummer_design_supervisor/shard-4/ACTIVE_RUN_HANDOFF.generated.md
 source_of_truth:
   veteran_gate: /docker/chummercomplete/chummer-design/products/chummer/VETERAN_FIRST_MINUTE_GATE.yaml
@@ -380,13 +380,13 @@ whole_product_frontier_coverage:
       live_readiness_summary: Desktop install, release-channel, and flagship workbench proof are current.
 live_desktop_executable_gate_snapshot:
   source_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json
-  generated_at: "2026-04-18T18:19:11.035798Z"
+  generated_at: "2026-05-06T00:17:08.637885Z"
   status: pass
   blocked_by_external_constraints_only: false
   blocking_findings_count: 0
   local_blocking_findings_count: 0
   external_blocking_findings_count: 0
-  unresolved_external_host_proof_tuples: []
+  unresolved_external_host_proof_tuples: null
 visual_familiarity_screenshot_snapshot:
   source_path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json
   screenshot_dir: /docker/chummercomplete/chummer-presentation/.codex-studio/published/ui-flagship-release-gate-screenshots

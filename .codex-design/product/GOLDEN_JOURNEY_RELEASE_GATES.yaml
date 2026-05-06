@@ -15,6 +15,7 @@ queued_follow_on_gates:
   - id: existing_campaign_adopted_without_rebuilding_full_history
     docs:
       - CAMPAIGN_ADOPTION_WIZARD.md
+      - CAMPAIGN_ADOPTION_START_FROM_TODAY_FLOW.md
   - id: player_pins_upgrade_and_tracks_progress_after_reward
     docs:
       - RUNNER_RESUME_AND_GOAL_PINS.md
@@ -28,6 +29,7 @@ queued_follow_on_gates:
   - id: resolution_report_creates_world_tick_and_player_safe_news_item
     docs:
       - BLACK_LEDGER_MVP_001.md
+      - NEWSREEL_AND_CITY_TICKER_MODEL.md
   - id: approved_run_resolution_updates_safe_seasonal_honors
     docs:
       - NETWORK_REPUTATION_AND_LEADERBOARDS_MODEL.md

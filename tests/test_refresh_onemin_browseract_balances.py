@@ -107,6 +107,77 @@ def test_ea_api_base_url_adds_scheme_for_bare_host(monkeypatch):
     assert module._ea_api_base_url() == "http://127.0.0.1:8090"
 
 
+def test_account_proxy_settings_hashes_into_pool(monkeypatch):
+    module = _load_module()
+    monkeypatch.setenv(
+        "EA_UI_BROWSER_PROXY_POOL",
+        "http://ea-fastestvpn-proxy:3128,http://ea-fastestvpn-proxy-ie:3128",
+    )
+    monkeypatch.delenv("EA_UI_BROWSER_PROXY_SERVER", raising=False)
+
+    alpha = module._account_proxy_settings("ONEMIN_AI_API_KEY_FALLBACK_27")
+    bravo = module._account_proxy_settings("ONEMIN_AI_API_KEY_FALLBACK_28")
+    alpha_retry = module._account_proxy_settings("ONEMIN_AI_API_KEY_FALLBACK_27", retry_offset=1)
+
+    assert alpha["EA_UI_BROWSER_PROXY_SERVER"] in {
+        "http://ea-fastestvpn-proxy:3128",
+        "http://ea-fastestvpn-proxy-ie:3128",
+    }
+    assert bravo["EA_UI_BROWSER_PROXY_SERVER"] in {
+        "http://ea-fastestvpn-proxy:3128",
+        "http://ea-fastestvpn-proxy-ie:3128",
+    }
+    assert alpha["EA_UI_BROWSER_PROXY_POOL"] == (
+        "http://ea-fastestvpn-proxy:3128,http://ea-fastestvpn-proxy-ie:3128"
+    )
+    assert alpha["EA_UI_BROWSER_PROXY_SERVICE_NAME"].startswith("ea-fastestvpn-proxy")
+    assert bravo["EA_UI_BROWSER_PROXY_SERVICE_NAME"].startswith("ea-fastestvpn-proxy")
+    assert alpha_retry["EA_UI_BROWSER_PROXY_SERVER"] != alpha["EA_UI_BROWSER_PROXY_SERVER"]
+
+
+def test_browser_proxy_settings_expand_compose_style_placeholders(monkeypatch):
+    module = _load_module()
+    monkeypatch.setenv("FASTESTVPN_PROXY_PORT", "3128")
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT}")
+    monkeypatch.setenv(
+        "EA_UI_BROWSER_PROXY_POOL",
+        "http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-9999}",
+    )
+
+    settings = module._browser_proxy_settings()
+
+    assert settings["EA_UI_BROWSER_PROXY_SERVER"] == "http://ea-fastestvpn-proxy:3128"
+    assert settings["EA_UI_BROWSER_PROXY_POOL"] == (
+        "http://ea-fastestvpn-proxy:3128,http://ea-fastestvpn-proxy-ie:3128"
+    )
+
+
+def test_rotate_proxy_passes_service_name(monkeypatch):
+    module = _load_module()
+    captured = {}
+
+    class _Completed:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["command"] = list(command)
+        return _Completed()
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+
+    event = module._rotate_proxy(service_name="ea-fastestvpn-proxy-ie")
+
+    assert captured["command"] == [
+        str(module.ROTATE_SCRIPT),
+        "--service",
+        "ea-fastestvpn-proxy-ie",
+    ]
+    assert event["returncode"] == 0
+    assert event["service_name"] == "ea-fastestvpn-proxy-ie"
+
+
 def test_run_account_marks_unparsed_billing_page_as_failure(monkeypatch, tmp_path):
     module = _load_module()
     monkeypatch.setenv("ONEMIN_DEFAULT_PASSWORD", "secret")

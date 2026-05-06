@@ -9,8 +9,9 @@ Usage:
   bash scripts/deploy.sh
 
 Environment:
-  EA_MEMORY_ONLY=1   Deploy API service using docker-compose.memory.yml override.
-  EA_BOOTSTRAP_DB=1  Run db bootstrap after deploy (ignored if EA_MEMORY_ONLY=1).
+  EA_MEMORY_ONLY=1       Deploy API service using docker-compose.memory.yml override.
+  EA_BOOTSTRAP_DB=1      Run db bootstrap after deploy (ignored if EA_MEMORY_ONLY=1).
+  EA_ENABLE_FASTESTVPN=1 Layer docker-compose.fastestvpn.yml when FastestVPN *.ovpn profiles are present.
 EOF
   exit 0
 fi
@@ -28,6 +29,18 @@ if docker compose version >/dev/null 2>&1; then
   DC=(docker compose)
 else
   DC=(docker-compose)
+fi
+
+COMPOSE_ARGS=(-f docker-compose.yml)
+FASTESTVPN_OVERLAY_ENABLED=0
+if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
+  if find "${EA_ROOT}/vpn/fastestvpn" -maxdepth 1 -type f -name '*.ovpn' | grep -q .; then
+    COMPOSE_ARGS+=(-f docker-compose.fastestvpn.yml)
+    FASTESTVPN_OVERLAY_ENABLED=1
+  else
+    echo "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${EA_ROOT}/vpn/fastestvpn" >&2
+    exit 1
+  fi
 fi
 
 compose() {
@@ -62,10 +75,12 @@ if [[ "${EA_MEMORY_ONLY:-0}" == "1" ]]; then
   FAILURE_LOG_SERVICES=(ea-api)
   "${DC[@]}" -f docker-compose.yml -f docker-compose.memory.yml up -d --build ea-api
 else
-  COMPOSE_ARGS=()
   TOPOLOGY_SERVICES=(ea-api ea-worker ea-scheduler)
   FAILURE_LOG_SERVICES=(ea-api ea-worker ea-scheduler ea-db)
-  "${DC[@]}" up -d --build
+  if [[ "${FASTESTVPN_OVERLAY_ENABLED}" == "1" ]]; then
+    FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy ea-fastestvpn-proxy-ie ea-fastestvpn-proxy-nl)
+  fi
+  compose up -d --build
 fi
 
 if [[ "${EA_BOOTSTRAP_DB:-0}" == "1" ]]; then

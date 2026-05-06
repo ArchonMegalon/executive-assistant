@@ -13,6 +13,11 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "ea") not in sys.path:
+    sys.path.insert(0, str(ROOT / "ea"))
+
+from app.yaml_inputs import load_yaml_dict
+
 LOCAL_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
 DEFAULT_DESIGN_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
 QUEUE_OVERLAY_PATH = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
@@ -51,6 +56,11 @@ def _sha256(path: Path) -> str:
 
 def _expected_queue_source_items() -> list[str]:
     return [binding.local_path.as_posix() for binding in _bindings()]
+
+
+def _load_successor_queue(path: Path) -> dict[str, object]:
+    payload = load_yaml_dict(path)
+    return payload if isinstance(payload, dict) else {}
 
 
 def _load_queue_overlay() -> dict[str, object]:
@@ -143,7 +153,17 @@ def inspect_bundle() -> list[dict[str, object]]:
             source_sha = _sha256(binding.source_path)
             row["local_sha256"] = local_sha
             row["source_sha256"] = source_sha
-            if local_sha != source_sha:
+            local_payload = _load_successor_queue(binding.local_path)
+            source_payload = _load_successor_queue(binding.source_path)
+            local_items = local_payload.get("items") or []
+            source_items = source_payload.get("items") or []
+            row["local_item_count"] = len(local_items) if isinstance(local_items, list) else 0
+            row["source_item_count"] = len(source_items) if isinstance(source_items, list) else 0
+            if not isinstance(source_items, list) or not source_items:
+                row["status"] = "invalid_source_payload"
+            elif not isinstance(local_items, list) or not local_items:
+                row["status"] = "invalid_local_payload"
+            elif local_sha != source_sha:
                 row["status"] = "drift"
         rows.append(row)
     rows.append(inspect_queue_overlay())
@@ -158,7 +178,7 @@ def repair_bundle() -> list[dict[str, object]]:
         result = dict(row)
         if status in {"ok"}:
             result["action"] = "unchanged"
-        elif status in {"missing_source", "missing_local_and_source"}:
+        elif status in {"missing_source", "missing_local_and_source", "invalid_source_payload"}:
             result["action"] = "blocked_missing_source"
         else:
             binding.local_path.parent.mkdir(parents=True, exist_ok=True)

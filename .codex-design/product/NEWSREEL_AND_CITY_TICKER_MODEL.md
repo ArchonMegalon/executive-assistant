@@ -26,6 +26,35 @@ Valid source objects are:
 
 Every news item must link back to one or more approved source objects.
 
+## Spoiler policy
+
+Every published item must carry both audience and spoiler-class posture.
+
+```yaml
+spoiler_policy:
+  player_safe_summary:
+    allows:
+      - visible district pressure
+      - public rumors
+      - already-public service disruption
+    forbids:
+      - hidden employer identity
+      - unrevealed runner betrayal
+      - exact payout details
+  campaign_private_aftermath:
+    allows:
+      - table-earned fallout
+      - contact shifts already visible to the campaign
+  gm_private_detail:
+    allows:
+      - full causal chain
+      - unpublished branches
+      - rejected publication candidates
+```
+
+Every player-safe item must record a `redaction_basis`.
+No public-safe render may reveal names, motives, or rewards that only exist in GM-private or faction-secret source material.
+
 ## News item model
 
 ```yaml
@@ -38,6 +67,9 @@ news_reel_item:
     source: resolution_report
     source_ref: rr_00031
     truth_grade: player_safe_summary
+  redaction_basis:
+    - hide employer identity
+    - hide exact cargo contents
   approval_state: approved
 ```
 

@@ -1,3 +1,31 @@
+- title: Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK
+    LEDGER flows.
+  task: Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK
+    LEDGER flows.
+  package_id: next90-m122-core-add-deterministic-reward-downtime-goal-update-and-conseq
+  work_task_id: '122.2'
+  frontier_id: 1771239378
+  milestone_id: 122
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M122 chummer6-core campaign adoption, runner-goal, and BLACK LEDGER deterministic receipts are complete; future shards must verify the checked-in receipt, focused receipt tests, canonical registry row, and queue mirrors instead of reopening this slice.
+  proof:
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Campaign/CampaignAdvanceReceiptContracts.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/DefaultCampaignAdvanceReceiptService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/CampaignAdvanceReceiptServiceTests.cs
+  - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m122-campaign-advance-receipts.py
+  - /docker/chummercomplete/chummer-core-engine/tests/test_next90_m122_campaign_advance_receipts.py
+  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md
+  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json
+  wave: W15
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - add_deterministic_reward_downtime_goal:core
 mode: append
 program_wave: next_90_day_product_advance
 status: live_parallel_successor
@@ -516,167 +544,167 @@ items:
   do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row,
     design queue row, and closeout note instead of reopening the proof-pack package.
   proof:
-  - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
-  - /docker/chummercomplete/chummer6-core/scripts/generate-engine-proof-pack.py
-  - /docker/chummercomplete/chummer6-core/tests/test_engine_proof_pack_generator.py
-  - /docker/chummercomplete/chummer6-core/docs/ENGINE_PROOF_PACK.md
-  - /docker/chummercomplete/chummer6-core/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md
-  - /docker/chummercomplete/chummer6-core commit fd15fe87 tightens row-scoped allowed-path authority for src, tests, docs,
+    - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json
+    - /docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py
+    - /docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py
+    - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md
+    - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md
+    - /docker/chummercomplete/chummer-core-engine commit fd15fe87 tightens row-scoped allowed-path authority for src, tests, docs,
     and scripts.
-  - /docker/chummercomplete/chummer6-core commit 44fdda0f fail-closes non-resolving successor queue proof anchors so stale
+    - /docker/chummercomplete/chummer-core-engine commit 44fdda0f fail-closes non-resolving successor queue proof anchors so stale
     closeout evidence cannot keep the proof pack passed.
-  - /docker/chummercomplete/chummer6-core commit cfc465a5 adds checked-in receipt reproducibility proof for ENGINE_PROOF_PACK.generated.json.
-  - /docker/chummercomplete/chummer6-core commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces for
+    - /docker/chummercomplete/chummer-core-engine commit cfc465a5 adds checked-in receipt reproducibility proof for ENGINE_PROOF_PACK.generated.json.
+    - /docker/chummercomplete/chummer-core-engine commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces for
     this completed package.
-  - /docker/chummercomplete/chummer6-core commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof
+    - /docker/chummercomplete/chummer-core-engine commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof
     so future shards verify this closed package instead of repeating it.
-  - /docker/chummercomplete/chummer6-core commit 8dd516ef makes failed engine proof pack generation exit nonzero while still
+    - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still
     writing diagnostic receipts.
-  - /docker/chummercomplete/chummer6-core commit c88178fa tightens design-owned queue scope proof so canonical allowed-path
+    - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path
     or owned-surface drift cannot keep M104 passed.
-  - /docker/chummercomplete/chummer6-core commit 769e7259 pins local commit proof through guard 56048971 so future shards
+    - /docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so future shards
     verify the closed package instead of repeating it.
-  - /docker/chummercomplete/chummer6-core commit d4b3b0ba requires the current 769e7259 guard in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit d4b3b0ba requires the current 769e7259 guard in the generated proof pack,
     unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit a2173476 requires the current d4b3b0ba guard in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit a2173476 requires the current d4b3b0ba guard in the generated proof pack,
     unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in
+    - /docker/chummercomplete/chummer-core-engine commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in
     receipt to active-run hygiene guard 4a56911d.
-  - /docker/chummercomplete/chummer6-core commit b488d109 pins the latest M104 proof pack authority so future shards verify
+    - /docker/chummercomplete/chummer-core-engine commit b488d109 pins the latest M104 proof pack authority so future shards verify
     the closed package instead of repeating it.
-  - /docker/chummercomplete/chummer6-core commit b6fddf74 tightens the current M104 proof pack authority guard so future shards
+    - /docker/chummercomplete/chummer-core-engine commit b6fddf74 tightens the current M104 proof pack authority guard so future shards
     verify the latest closed package.
-  - /docker/chummercomplete/chummer6-core commit f6608678 tightens the latest M104 proof pack local guard so future shards
+    - /docker/chummercomplete/chummer-core-engine commit f6608678 tightens the latest M104 proof pack local guard so future shards
     verify the closed package.
-  - /docker/chummercomplete/chummer6-core commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard
+    - /docker/chummercomplete/chummer-core-engine commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard
     tightening.
-  - /docker/chummercomplete/chummer6-core commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify
+    - /docker/chummercomplete/chummer-core-engine commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify
     the latest closed package.
-  - /docker/chummercomplete/chummer6-core commit 8574f63f pins the M104 proof pack receipt guard.
-  - /docker/chummercomplete/chummer6-core commit 6b3a662c requires the current 8574f63f guard in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.
+    - /docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack,
     unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit
+    - /docker/chummercomplete/chummer-core-engine commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit
     tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof
     pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit e10f2739 pins the current cd30503f queue proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit e10f2739 pins the current cd30503f queue proof floor in the generated proof
     pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated
     proof pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated
+    - /docker/chummercomplete/chummer-core-engine commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated
     proof pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit 18365058 pins the current ea449f7b queue proof guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 18365058 pins the current ea449f7b queue proof guard in the generated proof
     pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit 5031ee41 pins the current 18365058 queue proof guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 5031ee41 pins the current 18365058 queue proof guard in the generated proof
     pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit cbce6a19 pins the current 5031ee41 queue proof guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit cbce6a19 pins the current 5031ee41 queue proof guard in the generated proof
     pack, unit tests, and proof-pack documentation.
-  - /docker/chummercomplete/chummer6-core commit 71441924 pins the current cbce6a19 queue proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 71441924 pins the current cbce6a19 queue proof floor in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must
+    - /docker/chummercomplete/chummer-core-engine commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must
     resolve locally.
-  - /docker/chummercomplete/chummer6-core commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue
+    - /docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue
     staging so future shards verify the unique completed package.
-  - /docker/chummercomplete/chummer6-core commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 22171b35 pins the current 40babebd proof guard in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 05e47cff binds the M104 proof guard to successor queues so future shards
+    - /docker/chummercomplete/chummer-core-engine commit 05e47cff binds the M104 proof guard to successor queues so future shards
     verify the current closed-package guard.
-  - /docker/chummercomplete/chummer6-core commit 93d06011 pins the current 05e47cff queue-bound proof guard in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 93d06011 pins the current 05e47cff queue-bound proof guard in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 31aec38a pins the current 93d06011 queue-bound proof guard in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 31aec38a pins the current 93d06011 queue-bound proof guard in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit ceccc309 pins the current 31aec38a queue-bound proof floor in the generated
+    - /docker/chummercomplete/chummer-core-engine commit ceccc309 pins the current 31aec38a queue-bound proof floor in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 5dff1a2e tightens worker-safe closure evidence guards for task-local files
+    - /docker/chummercomplete/chummer-core-engine commit 5dff1a2e tightens worker-safe closure evidence guards for task-local files
     and run-control helper transcripts.
-  - /docker/chummercomplete/chummer6-core commit 2301a043 pins the current 5dff1a2e worker-safe proof floor in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 2301a043 pins the current 5dff1a2e worker-safe proof floor in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 5c75316f pins the current 2301a043 worker-safe proof floor in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 5c75316f pins the current 2301a043 worker-safe proof floor in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 28be988f pins the current 5c75316f proof floor in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit 28be988f pins the current 5c75316f proof floor in the generated proof pack,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit c6a2ee8e pins the current 28be988f proof floor guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit c6a2ee8e pins the current 28be988f proof floor guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 6684fc89 pins the current c6a2ee8e proof floor guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 6684fc89 pins the current c6a2ee8e proof floor guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit ccbfc6b2 pins the current 6684fc89 proof floor guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit ccbfc6b2 pins the current 6684fc89 proof floor guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 2a3ebcb9 pins the current ccbfc6b2 proof floor guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 2a3ebcb9 pins the current ccbfc6b2 proof floor guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 7501f49a pins the current 2a3ebcb9 proof floor in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit 7501f49a pins the current 2a3ebcb9 proof floor in the generated proof pack,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 36311e16 pins the current ac961fe1 local proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 36311e16 pins the current ac961fe1 local proof floor in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit be5755a6 pins the current db3cc033 queue-cited proof floor in the generated
+    - /docker/chummercomplete/chummer-core-engine commit be5755a6 pins the current db3cc033 queue-cited proof floor in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 8ffec2b1 pins the latest be5755a6 queue proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 8ffec2b1 pins the latest be5755a6 queue proof floor in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 1bcb9b7e pins the current M104 proof pack guard.
-  - /docker/chummercomplete/chummer6-core commit e04d7b88 binds the current M104 proof pack guard into the generator, unit
+    - /docker/chummercomplete/chummer-core-engine commit 1bcb9b7e pins the current M104 proof pack guard.
+    - /docker/chummercomplete/chummer-core-engine commit e04d7b88 binds the current M104 proof pack guard into the generator, unit
     tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 51bb2d8f pins the current a404b474 proof guard in the generated proof pack,
+    - /docker/chummercomplete/chummer-core-engine commit 51bb2d8f pins the current a404b474 proof guard in the generated proof pack,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 39c875fd pins the current d584120b local engine proof floor in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests,
+    - /docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests,
     proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 64b8f873 requires the current faf14925 proof floor guard in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated
+    - /docker/chummercomplete/chummer-core-engine commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated
     proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 6d25fb18 pins the current 06a2e06a proof floor receipt in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 6d25fb18 pins the current 06a2e06a proof floor receipt in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit cc6cf25b pins the M104 current proof floor guard.
-  - /docker/chummercomplete/chummer6-core commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit
+    - /docker/chummercomplete/chummer-core-engine commit cc6cf25b pins the M104 current proof floor guard.
+    - /docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit
     tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit
+    - /docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit
     tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit
+    - /docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit
     tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator,
+    - /docker/chummercomplete/chummer-core-engine commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator,
+    - /docker/chummercomplete/chummer-core-engine commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator,
+    - /docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator,
     unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit 2f430d09 pins the current 498dff3d queue mirror proof floor in the generator,
+    - /docker/chummercomplete/chummer-core-engine commit 2f430d09 pins the current 498dff3d queue mirror proof floor in the generator,
     unit tests, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop
+    - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop
     evidence cannot close the package.
-  - /docker/chummercomplete/chummer6-core commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof
+    - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof
     pack, unit tests, proof-pack documentation, and checked-in receipt.
-  - /docker/chummercomplete/chummer6-core commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue,
+    - /docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue,
     and design queue package-local commit evidence must resolve locally.
-  - /docker/chummercomplete/chummer6-core commit c84b251f pins the M104 package-commit citation guard as an explicit local
+    - /docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local
     proof floor.
-  - /docker/chummercomplete/chummer6-core commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and
+    - /docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and
     budget metadata stay release-bound and explainable.
-  - /docker/chummercomplete/chummer6-core commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions
+    - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions
     and import aggregate coverage fail closed.
-  - /docker/chummercomplete/chummer6-core commit 1b53f23f tightens M104 task-local machine-status proof guards across registry,
+    - /docker/chummercomplete/chummer-core-engine commit 1b53f23f tightens M104 task-local machine-status proof guards across registry,
     Fleet queue, design queue, closeout, and checked-in receipt proof.
   allowed_paths:
-  - src
-  - tests
-  - docs
-  - scripts
+    - src
+    - tests
+    - docs
+    - scripts
   owned_surfaces:
-  - engine_proof_pack
-  - import_oracle_discipline
+    - engine_proof_pack
+    - import_oracle_discipline
 - title: Emit provenance and conflict receipts for workspace restore and continuity
   task: Make roaming workspace, entitlement replication, stale state, and conflict posture explicit and recoverable.
   package_id: next90-m105-hub-workspace-continuity
@@ -1941,16 +1969,16 @@ items:
     packet receipt, generator, focused tests, registry row, and queue mirrors instead of reopening the engine-truth anchor
     package.
   proof:
-  - /docker/chummercomplete/chummer6-core/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json
-  - /docker/chummercomplete/chummer6-core/docs/BUILD_LAB_EXPLAIN_PACKETS.md
-  - /docker/chummercomplete/chummer6-core/scripts/generate-build-lab-explain-packets.py
-  - /docker/chummercomplete/chummer6-core/tests/test_build_lab_explain_packets_generator.py
-  - /docker/chummercomplete/chummer6-core/scripts/ai/verify.sh
-  - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine
+  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json
+  - /docker/chummercomplete/chummer-core-engine/docs/BUILD_LAB_EXPLAIN_PACKETS.md
+  - /docker/chummercomplete/chummer-core-engine/scripts/generate-build-lab-explain-packets.py
+  - /docker/chummercomplete/chummer-core-engine/tests/test_build_lab_explain_packets_generator.py
+  - /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-core-engine commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine
     proof truth.
-  - /docker/chummercomplete/chummer6-core commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local
+  - /docker/chummercomplete/chummer-core-engine commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local
     telemetry, active-run handoff, or blocked helper evidence cannot keep the completed package green.
-  - /docker/chummercomplete/chummer6-core commit 95829fcd tightens the M109 packet authority receipt so packet-local approval
+  - /docker/chummercomplete/chummer-core-engine commit 95829fcd tightens the M109 packet authority receipt so packet-local approval
     digests, canonical receipt anchors, Build Lab runtime contract digests, and output-anchor handoff proof fail closed together.
   - python3 tests/test_build_lab_explain_packets_generator.py exits 0.
   - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --check exits 0.
@@ -2503,14 +2531,26 @@ items:
   package_id: next90-m112-mobile-campaign-continuity
   work_task_id: 112.4
   milestone_id: 112
-  status: in_progress
+  status: complete
   wave: W11
   repo: chummer6-mobile
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M112 chummer6-mobile travel and mobile campaign continuity is complete; future shards must verify the closed-package guard, package proof, regression coverage, and canonical queue plus registry rows instead of reopening this slice.
   allowed_paths:
   - src
   - tests
   - docs
   - scripts
+  proof:
+  - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs
+  - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Roaming/RoamingWorkspaceSyncPlanner.cs
+  - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayEntryRecoveryProjector.cs
+  - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html
+  - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs
+  - /docker/chummercomplete/chummer-play/docs/next90-m112-mobile-campaign-continuity.proof.md
+  - /docker/chummercomplete/chummer-play/scripts/verify_next90_m112_mobile_campaign_continuity.py
+  - python3 scripts/verify_next90_m112_mobile_campaign_continuity.py
+  - scripts/ai/with-package-plane.sh dotnet run --project src/Chummer.Play.RegressionChecks/Chummer.Play.RegressionChecks.csproj
   owned_surfaces:
   - campaign_memory:travel
   - campaign_state:mobile
@@ -2705,9 +2745,13 @@ items:
   package_id: next90-m114-core-rule-environment-studio
   work_task_id: 114.1
   milestone_id: 114
-  status: in_progress
+  status: complete
   wave: W12
   repo: chummer6-core
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M114 chummer6-core rule-environment studio contracts are complete; future shards must verify the
+    engine rule-environment studio receipt, standalone verifier, canonical registry row, and queue mirrors instead of
+    reopening the contract slice.
   allowed_paths:
   - src
   - tests
@@ -3099,9 +3143,28 @@ items:
   package_id: next90-m117-hub-artifact-shelf-v2
   work_task_id: 117.1
   milestone_id: 117
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-hub
+  landed_commit: TO_BE_FILLED_M117_COMMIT
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M117 chummer6-hub artifact shelf APIs and audience filters are complete; future shards must verify
+    the artifact-shelf release-proof receipts, canonical registry row, Fleet queue row, and design queue row instead of reopening
+    the signed-in and public artifact shelf slice.
+  proof:
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignWorkspaceServerPlaneService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignSpineService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/PublicCreatorPublicationDiscoveryService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CreatorPublicationRegistryBridge.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Shelf.cshtml
+  - /docker/chummercomplete/chummer6-hub/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py
+  - /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m117_hub_artifact_shelf_v2.py
+  - /docker/chummercomplete/chummer6-hub/tests/test_next90_m117_hub_artifact_shelf_v2.py
+  - python3 scripts/verify_next90_m117_hub_artifact_shelf_v2.py
+  - python3 -m unittest tests/test_next90_m117_hub_artifact_shelf_v2.py
+  - bash scripts/ai/run_services_smoke.sh
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -3149,9 +3212,12 @@ items:
   package_id: next90-m117-hub-registry-artifact-shelf
   work_task_id: 117.2
   milestone_id: 117
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-hub-registry
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M117 chummer6-hub-registry shelf ref normalization is complete; future shards must verify the
+    registry contracts, manifest projection, queue mirrors, and proof hooks instead of reopening this slice.
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts
@@ -3163,10 +3229,18 @@ items:
   task: Add mobile artifact shelf views for campaign, travel, and recap artifacts.
   package_id: next90-m117-mobile-artifact-shelf
   work_task_id: 117.4
+  frontier_id: 3440617449
   milestone_id: 117
-  status: in_progress
+  status: complete
   wave: W13
   repo: chummer6-mobile
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M117 chummer6-mobile artifact shelf is complete; future shards must verify this receipt, registry row, queue row, and design-queue row instead of reopening the mobile artifact shelf package.
+  proof:
+  - /docker/chummercomplete/chummer-play/docs/next90-m117-mobile-artifact-shelf.proof.md
+  - /docker/chummercomplete/chummer-play/scripts/verify_next90_m117_mobile_artifact_shelf.py
+  - /docker/chummercomplete/chummer-play/scripts/materialize_mobile_local_release_proof.py
+  - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
   allowed_paths:
   - src
   - tests
@@ -3479,9 +3553,13 @@ items:
   package_id: next90-m119-mobile-onboarding-continuity
   work_task_id: 119.3
   milestone_id: 119
-  status: in_progress
+  status: complete
   wave: W14
   repo: chummer6-mobile
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M119 chummer6-mobile starter-lane continuity is complete; future shards must verify the mobile
+    onboarding continuity proof, standalone verifier, generated release proof, canonical registry row, and queue mirrors
+    instead of reopening the mobile starter-lane slice.
   allowed_paths:
   - src
   - tests
@@ -3521,19 +3599,35 @@ items:
   owned_surfaces:
   - onboarding_metrics
   - onboarding_claims
-- title: Publish public trust, status, release, and proof-shelf surfaces from governor truth
+- title: Publish public trust, status, release, and proof-shelf surfaces from registry and governor truth.
   task: Compile live, preview, fallback, revoked, fixed, blocked, proof freshness, support pulse, and adoption health into
     public status surfaces.
   package_id: next90-m120-hub-public-launch-health
   work_task_id: 120.1
   milestone_id: 120
-  status: in_progress
+  status: complete
+  landed_commit: TO_BE_FILLED_M120_COMMIT
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M120 chummer6-hub public trust and launch-health publication package is complete; future shards must verify
+    the launch-health contract, canonical registry row, queue parity, and local+served proof before reopening this package.
   wave: W14
   repo: chummer6-hub
   allowed_paths:
   - Chummer.Run.Api
   - scripts
   - tests
+  proof:
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicProgressController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/ViewModels/SiteViewModels.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Status.cshtml
+  - /docker/chummercomplete/chummer6-hub/tests/RunServicesSmoke/Program.cs
+  - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py
+  - /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m120_hub_public_launch_health.py
+  - /docker/chummercomplete/chummer6-hub/tests/test_next90_m120_hub_public_launch_health.py
+  - python3 scripts/verify_next90_m120_hub_public_launch_health.py
+  - python3 -m unittest tests/test_next90_m120_hub_public_launch_health.py
+  - bash scripts/ai/verify.sh
   owned_surfaces:
   - public_trust_surface:v3
   - launch_health:public
@@ -3543,9 +3637,22 @@ items:
   package_id: next90-m120-fleet-launch-pulse
   work_task_id: 120.3
   milestone_id: 120
-  status: in_progress
+  status: complete
   wave: W14
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: '19878082'
+  do_not_reopen_reason: M120 Fleet package 'Compile launch pulse and adoption health into governor packets' is complete; future
+    shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors
+    instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m120_fleet_launch_pulse.py
+  - /docker/fleet/scripts/verify_next90_m120_fleet_launch_pulse.py
+  - /docker/fleet/tests/test_materialize_next90_m120_fleet_launch_pulse.py
+  - /docker/fleet/tests/test_verify_next90_m120_fleet_launch_pulse.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m120-fleet-launch-pulse-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -3660,9 +3767,27 @@ items:
   work_task_id: '121.3'
   frontier_id: 7834909683
   milestone_id: 121
-  status: not_started
+  status: complete
   wave: W15
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M121 chummer6-ui desktop GM Runboard route is complete; future shards must verify the desktop
+    runboard proof, focused guard tests, canonical registry row, and queue mirrors instead of reopening this slice.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M121GmRunboardRouteGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m121-ui-gm-runboard-route-check.sh
+  - bash scripts/ai/milestones/next90-m121-ui-gm-runboard-route-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M121GmRunboardRouteGuardTests"
+    --no-restore
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests"
+    --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3706,9 +3831,21 @@ items:
   task: Bind live action economy and GM Runboard proof into journey gates, acceptance language, and no-VTT boundary policy.
   package_id: next90-m121-design-bind-live-action-economy-and-gm-runboard-proof-into-jour
   work_task_id: '121.6'
-  frontier_id: 1062733633
+  frontier_id: 1797015630
   milestone_id: 121
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M121 chummer6-design live action economy and GM Runboard proof into journey gates, acceptance language, and no-VTT boundary policy is complete. Future shards must verify the journey-gate links, acceptance-language proof posture, no-VTT boundary policy, and queue/registry lock markers before reopening this package.
+  proof:
+    - /docker/chummercomplete/chummer-design/products/chummer/LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md
+    - /docker/chummercomplete/chummer-design/products/chummer/GM_RUNBOARD_LIVE_OPERATIONS.md
+    - /docker/chummercomplete/chummer-design/products/chummer/SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md
+    - /docker/chummercomplete/chummer-design/products/chummer/GOLDEN_JOURNEY_RELEASE_GATES.yaml
+    - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m121-design-bind-live-action-economy-and-gm-runboard-proof-into-jour-closeout.md
+    - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m121_design_bind_live_action_economy_and_gm_runboard_proof.py
+    - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
   wave: W15
   repo: chummer6-design
   allowed_paths:
@@ -3806,7 +3943,20 @@ items:
   work_task_id: '122.6'
   frontier_id: 2050325965
   milestone_id: 122
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M122 chummer6-design BLACK LEDGER MVP receipt semantics, spoiler policy, and adoption confidence gates are complete. Future shards must verify the adoption receipt gate, consequence spoiler policy, and queue/registry lock markers before reopening this package.
+  proof:
+    - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_ADOPTION_WIZARD.md
+    - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_ADOPTION_START_FROM_TODAY_FLOW.md
+    - /docker/chummercomplete/chummer-design/products/chummer/BLACK_LEDGER_MVP_001.md
+    - /docker/chummercomplete/chummer-design/products/chummer/NEWSREEL_AND_CITY_TICKER_MODEL.md
+    - /docker/chummercomplete/chummer-design/products/chummer/GOLDEN_JOURNEY_RELEASE_GATES.yaml
+    - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m122-design-finalize-black-ledger-mvp-receipt-semantics-spoiler-poli-closeout.md
+    - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m122_design_black_ledger_receipt_semantics.py
+    - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh
   wave: W15
   repo: chummer6-design
   allowed_paths:
@@ -4055,9 +4205,22 @@ items:
   work_task_id: '125.3'
   frontier_id: 5150581210
   milestone_id: 125
-  status: not_started
+  status: complete
   wave: W17
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 3c270136
+  do_not_reopen_reason: M125 Fleet package 'Add signal-cluster-to-queue synthesis for repeated ProductLift, Katteb, ClickRank,
+    support, and public-guide findings.' is complete; future shards must verify the repo-local materializer/verifier, generated
+    proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m125_fleet_signal_cluster_queue.py
+  - /docker/fleet/scripts/verify_next90_m125_fleet_signal_cluster_queue.py
+  - /docker/fleet/tests/test_materialize_next90_m125_fleet_signal_cluster_queue.py
+  - /docker/fleet/tests/test_verify_next90_m125_fleet_signal_cluster_queue.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M125_FLEET_SIGNAL_CLUSTER_QUEUE.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M125_FLEET_SIGNAL_CLUSTER_QUEUE.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m125-fleet-signal-cluster-queue-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4119,9 +4282,22 @@ items:
   work_task_id: '126.2'
   frontier_id: 6039766471
   milestone_id: 126
-  status: not_started
+  status: complete
   wave: W17
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: f963c1fc
+  do_not_reopen_reason: M126 Fleet package 'Teach the supervisor to stage bounded horizon-conversion queue slices only after
+    owner handoff gates are satisfied.' is complete; future shards must verify the repo-local materializer/verifier, generated
+    proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m126_fleet_horizon_handoff_queue.py
+  - /docker/fleet/scripts/verify_next90_m126_fleet_horizon_handoff_queue.py
+  - /docker/fleet/tests/test_materialize_next90_m126_fleet_horizon_handoff_queue.py
+  - /docker/fleet/tests/test_verify_next90_m126_fleet_horizon_handoff_queue.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M126_FLEET_HORIZON_HANDOFF_QUEUE.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M126_FLEET_HORIZON_HANDOFF_QUEUE.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m126-fleet-horizon-handoff-queue-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4270,9 +4446,21 @@ items:
   work_task_id: '127.4'
   frontier_id: 6924107419
   milestone_id: 127
-  status: not_started
+  status: complete
   wave: W18
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: eadc2f1c
+  do_not_reopen_reason: M127 Fleet release-truth gates are complete; future shards must verify the canonical registry row,
+    both queue rows, the generated gate packet, and the focused queue-overlay regressions instead of reopening this release-truth
+    closure guard.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m127_fleet_release_truth_gates.py
+  - /docker/fleet/scripts/verify_next90_m127_fleet_release_truth_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m127_fleet_release_truth_gates.py
+  - /docker/fleet/tests/test_verify_next90_m127_fleet_release_truth_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M127_FLEET_RELEASE_TRUTH_GATES.generated.json
+  - /docker/fleet/feedback/2026-05-05-next90-m127-fleet-release-truth-gates-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4475,17 +4663,17 @@ items:
   landed_commit: 7d5a0167
   do_not_reopen_reason: M145 chummer6-media-factory explain presenter siblings is complete; future shards must verify this package via the closure proof floor, package tests, registry row, queue rows, and focused closeout commands instead of reopening this package.
   proof:
-  - /docker/chummercomplete/chummer6-media-factory/src/Chummer.Media.Factory.Runtime/Assets/ExplainPresenterSiblingRenderingService.cs
-  - /docker/chummercomplete/chummer6-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
-  - /docker/chummercomplete/chummer6-media-factory/src/Chummer.Media.Contracts/README.md
-  - /docker/chummercomplete/chummer6-media-factory/tests/ExplainPresenterSiblingSmoke/Program.cs
-  - /docker/chummercomplete/chummer6-media-factory/tests/test_explain_presenter_sibling_rendering.py
-  - /docker/chummercomplete/chummer6-media-factory/tests/test_m145_successor_package_authority.py
-  - /docker/chummercomplete/chummer6-media-factory/tests/test_m145_explain_presenter_proof.py
-  - /docker/chummercomplete/chummer6-media-factory/docs/NEXT90_M145_EXPLAIN_PRESENTER_SIBLINGS_PROOF_FLOOR.md
-  - /docker/chummercomplete/chummer6-media-factory/scripts/ai/materialize_media_release_proof.py
-  - /docker/chummercomplete/chummer6-media-factory/scripts/ai/verify.sh
-  - /docker/chummercomplete/chummer6-media-factory/scripts/ai/verify_m145_explain_presenter_siblings.sh
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/ExplainPresenterSiblingRenderingService.cs
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs
+  - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/README.md
+  - /docker/fleet/repos/chummer-media-factory/tests/ExplainPresenterSiblingSmoke/Program.cs
+  - /docker/fleet/repos/chummer-media-factory/tests/test_explain_presenter_sibling_rendering.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m145_successor_package_authority.py
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m145_explain_presenter_proof.py
+  - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M145_EXPLAIN_PRESENTER_SIBLINGS_PROOF_FLOOR.md
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m145_explain_presenter_siblings.sh
   wave: W28
   repo: chummer6-media-factory
   allowed_paths:
@@ -4535,6 +4723,20 @@ items:
   status: done
   wave: W28
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M145 chummer6-design explain-every-value canon is complete; future shards must verify the explain
+    canon docs, validator, feedback closeout note, and canonical registry plus fleet queue rows instead of reopening this
+    source-anchor and bounded-follow-up design slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md
+  - /docker/chummercomplete/chummer-design/products/chummer/SOURCE_AWARE_EXPLAIN_PUBLIC_TRUST_HOOK.md
+  - /docker/chummercomplete/chummer-design/products/chummer/SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md
+  - /docker/chummercomplete/chummer-design/products/chummer/BUILD_LAB_PRODUCT_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md
+  - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PRODUCT_BAR.md
+  - /docker/chummercomplete/chummer-design/products/chummer/SURFACE_DESIGN_SYSTEM_AND_AI_REVIEW_LOOP.md
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m145_design_explain_every_value_canon.py
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m145-design-explain-every-value-canon-closeout.md
   allowed_paths:
   - products
   - scripts
@@ -4564,9 +4766,22 @@ items:
   work_task_id: '128.5'
   frontier_id: 6911125913
   milestone_id: 128
-  status: not_started
+  status: complete
   wave: W18
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 8946b545
+  do_not_reopen_reason: M128 Fleet package 'Add freshness and contradiction monitors for telemetry, privacy, retention, localization,
+    support, and crash proof planes.' is complete; future shards must verify the repo-local materializer/verifier, generated
+    proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m128_fleet_trust_plane_monitors.py
+  - /docker/fleet/scripts/verify_next90_m128_fleet_trust_plane_monitors.py
+  - /docker/fleet/tests/test_materialize_next90_m128_fleet_trust_plane_monitors.py
+  - /docker/fleet/tests/test_verify_next90_m128_fleet_trust_plane_monitors.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M128_FLEET_TRUST_PLANE_MONITORS.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M128_FLEET_TRUST_PLANE_MONITORS.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m128-fleet-trust-plane-monitors-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4581,9 +4796,25 @@ items:
   work_task_id: '128.6'
   frontier_id: 7477646343
   milestone_id: 128
-  status: not_started
+  status: complete
   wave: W18
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M128 chummer6-design trust-completion canon is complete; future shards must verify the localization,
+    telemetry, privacy-retention, feedback-status, and experience-metrics canon docs, validator, feedback closeout note,
+    and canonical registry plus Fleet queue rows instead of reopening this design slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_AND_LANGUAGE_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_PARITY_MATRIX.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/PRODUCT_USAGE_TELEMETRY_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PRIVACY_AND_RETENTION_BOUNDARIES.md
+  - /docker/chummercomplete/chummer-design/products/chummer/FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md
+  - /docker/chummercomplete/chummer-design/products/chummer/FEEDBACK_AND_CRASH_STATUS_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/EXPERIENCE_SUCCESS_METRICS.md
+  - /docker/chummercomplete/chummer-design/products/chummer/METRICS_AND_SLOS.yaml
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m128_design_trust_completion_canon.py
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m128-design-trust-completion-canon-closeout.md
   allowed_paths:
   - products
   - scripts
@@ -4646,9 +4877,22 @@ items:
   work_task_id: '129.4'
   frontier_id: 7997916353
   milestone_id: 129
-  status: not_started
+  status: complete
   wave: W19
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 2008339d
+  do_not_reopen_reason: M129 Fleet package 'Keep participant-lane auth lane-local while emitting signed contribution receipts
+    and sponsor-session execution metadata.' is complete; future shards must verify the repo-local materializer/verifier,
+    generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m129_fleet_participation_lane_receipts.py
+  - /docker/fleet/scripts/verify_next90_m129_fleet_participation_lane_receipts.py
+  - /docker/fleet/tests/test_materialize_next90_m129_fleet_participation_lane_receipts.py
+  - /docker/fleet/tests/test_verify_next90_m129_fleet_participation_lane_receipts.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m129-fleet-participation-lane-receipts-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4680,9 +4924,24 @@ items:
   work_task_id: '129.6'
   frontier_id: 3846410661
   milestone_id: 129
-  status: not_started
+  status: complete
   wave: W19
   repo: chummer6-design
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M129 chummer6-design public-auth and community-ledger canon is complete; future shards must verify
+    the public-auth, user-model, identity-channel-linking, account-aware front-door, and community-sponsorship canon docs,
+    standard validator wiring, feedback closeout note, and the canonical registry plus design queue rows instead of reopening
+    the account-aware front-door canon slice.
+  proof:
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_AUTH_FLOW.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_USER_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/IDENTITY_AND_CHANNEL_LINKING_MODEL.md
+  - /docker/chummercomplete/chummer-design/products/chummer/ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md
+  - /docker/chummercomplete/chummer-design/products/chummer/NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md
+  - /docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SPONSORSHIP_BACKLOG.md
+  - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_PART_REGISTRY.yaml
+  - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m129_design_account_community_canon.py
+  - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m129-design-account-community-canon-closeout.md
   allowed_paths:
   - products
   - scripts
@@ -4714,9 +4973,22 @@ items:
   work_task_id: '130.2'
   frontier_id: 7382989835
   milestone_id: 130
-  status: not_started
+  status: complete
   wave: W19
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: df0824d7
+  do_not_reopen_reason: M130 Fleet provider stewardship monitors are complete; future shards must verify the repo-local provider-health
+    monitor scripts, cached-input fallback, generated proof packet, focused regressions, and canonical queue mirrors instead
+    of reopening provider-health, credit-runway, kill-switch, fallback, or route-stewardship closure through prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m130_fleet_provider_stewardship.py
+  - /docker/fleet/scripts/verify_next90_m130_fleet_provider_stewardship.py
+  - /docker/fleet/tests/test_materialize_next90_m130_fleet_provider_stewardship.py
+  - /docker/fleet/tests/test_verify_next90_m130_fleet_provider_stewardship.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M130_FLEET_PROVIDER_STEWARDSHIP.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M130_FLEET_PROVIDER_STEWARDSHIP.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m130-fleet-provider-stewardship-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4864,9 +5136,22 @@ items:
   work_task_id: '131.5'
   frontier_id: 5694544514
   milestone_id: 131
-  status: not_started
+  status: complete
   wave: W19
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 774c3d1e
+  do_not_reopen_reason: M131 Fleet package 'Verify public-guide regeneration, visibility-source freshness, crawl-budget discipline,
+    and unsupported-claim rejection gates.' is complete; future shards must verify the repo-local materializer/verifier, generated
+    proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m131_fleet_public_guide_gates.py
+  - /docker/fleet/scripts/verify_next90_m131_fleet_public_guide_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m131_fleet_public_guide_gates.py
+  - /docker/fleet/tests/test_verify_next90_m131_fleet_public_guide_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M131_FLEET_PUBLIC_GUIDE_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M131_FLEET_PUBLIC_GUIDE_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m131-fleet-public-guide-gates-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -4984,9 +5269,22 @@ items:
   work_task_id: '132.6'
   frontier_id: 8249224665
   milestone_id: 132
-  status: not_started
+  status: complete
   wave: W20
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: b495f946
+  do_not_reopen_reason: M132 Fleet deterministic horizon queue gating is complete; future shards must verify the repo-local
+    scheduler gate scripts, generated proof packet, focused regressions, and canonical queue mirrors instead of reopening
+    deterministic horizon staging through guide prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m132_fleet_deterministic_horizon_queue.py
+  - /docker/fleet/scripts/verify_next90_m132_fleet_deterministic_horizon_queue.py
+  - /docker/fleet/tests/test_materialize_next90_m132_fleet_deterministic_horizon_queue.py
+  - /docker/fleet/tests/test_verify_next90_m132_fleet_deterministic_horizon_queue.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M132_FLEET_DETERMINISTIC_HORIZON_QUEUE.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M132_FLEET_DETERMINISTIC_HORIZON_QUEUE.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m132-fleet-deterministic-horizon-queue-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5121,9 +5419,22 @@ items:
   work_task_id: '133.7'
   frontier_id: 2336165027
   milestone_id: 133
-  status: not_started
+  status: complete
   wave: W21
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 49d89879
+  do_not_reopen_reason: M133 Fleet package 'Monitor media/social horizon proof freshness, consent gates, unsupported public
+    claims, and provider-health stop conditions.' is complete; future shards must verify the repo-local materializer/verifier,
+    generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m133_fleet_media_social_horizon_monitors.py
+  - /docker/fleet/scripts/verify_next90_m133_fleet_media_social_horizon_monitors.py
+  - /docker/fleet/tests/test_materialize_next90_m133_fleet_media_social_horizon_monitors.py
+  - /docker/fleet/tests/test_verify_next90_m133_fleet_media_social_horizon_monitors.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M133_FLEET_MEDIA_SOCIAL_HORIZON_MONITORS.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M133_FLEET_MEDIA_SOCIAL_HORIZON_MONITORS.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m133-fleet-media-social-horizon-monitors-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5264,9 +5575,21 @@ items:
   work_task_id: '135.2'
   frontier_id: 7361549676
   milestone_id: 135
-  status: not_started
+  status: complete
   wave: W22
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: a4c06b25
+  do_not_reopen_reason: M135 Fleet design queued-coverage verification is complete; future shards must verify the canonical
+    registry row, both queue rows, the generated packet, and the focused queue-overlay regressions instead of reopening this
+    closure guard.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m135_fleet_design_queued_coverage.py
+  - /docker/fleet/scripts/verify_next90_m135_fleet_design_queued_coverage.py
+  - /docker/fleet/tests/test_materialize_next90_m135_fleet_design_queued_coverage.py
+  - /docker/fleet/tests/test_verify_next90_m135_fleet_design_queued_coverage.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M135_FLEET_DESIGN_QUEUED_COVERAGE.generated.json
+  - /docker/fleet/feedback/2026-05-05-next90-m135-fleet-design-queued-coverage-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5328,9 +5651,37 @@ items:
   work_task_id: '135.6'
   frontier_id: 8351771106
   milestone_id: 135
-  status: not_started
+  status: complete
   wave: W22
   repo: chummer6-ui
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M135 chummer6-ui desktop surface coverage is complete; future shards must verify the closure receipt,
+    veteran-familiarity gate, focused desktop guards, canonical registry row, and queue mirrors instead of reopening
+    the workbench/publication/restore/support surface bundle.
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopRuleEnvironmentStudioWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopSupportWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M135DesktopSurfaceCoverageGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M105_UI_RESTORE_CONTINUITY.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M116_UI_CREATOR_PUBLICATION.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M118_UI_ORGANIZER_OPS.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M145_UI_DESKTOP_EXPLAIN_DRAWER_AND_FOLLOW_UP.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M135_UI_DESKTOP_SURFACE_COVERAGE.generated.json
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/veteran-task-time-evidence-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m135-ui-desktop-surface-coverage-check.sh
+  - bash scripts/ai/milestones/veteran-task-time-evidence-gate.sh
+  - bash scripts/ai/milestones/next90-m135-ui-desktop-surface-coverage-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M135DesktopSurfaceCoverageGuardTests" --no-restore
+  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -5376,9 +5727,19 @@ items:
   work_task_id: '135.9'
   frontier_id: 4720040715
   milestone_id: 135
-  status: not_started
   wave: W22
   repo: chummer6-media-factory
+  status: complete
+  landed_commit: unlanded
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M135 chummer6-media-factory is complete; future shards must verify the repo-local proof floor, release-proof package entry, and canonical queue/registry mirrors instead of reopening the media coverage bundle.
+  proof:
+  - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M135_MEDIA_COVERAGE_PROOF_FLOOR.md
+  - /docker/fleet/repos/chummer-media-factory/tests/test_m135_media_coverage_proof.py
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m135_media_coverage.sh
+  - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json
+  - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/ARTIFACT_PUBLICATION_CERTIFICATION.generated.json
   allowed_paths:
   - src
   - tests
@@ -5394,9 +5755,20 @@ items:
   work_task_id: '135.10'
   frontier_id: 4019469848
   milestone_id: 135
-  status: not_started
+  status: complete
   wave: W22
   repo: executive-assistant
+  landed_commit: unlanded
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M135 executive-assistant closure coverage is complete; future shards must verify the EA closure bundle, generated proof, source package guards, and canonical queue/registry mirrors instead of reopening the compile, signal, companion, public-copy, operator-packet, provider-digest, and followthrough closure slice.
+  proof:
+  - /docker/EA/docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml
+  - /docker/EA/docs/chummer_closure_coverage/README.md
+  - /docker/EA/docs/chummer_closure_coverage/SUCCESSOR_HANDOFF_CLOSEOUT.yaml
+  - /docker/EA/scripts/materialize_next90_m135_ea_closure_coverage.py
+  - /docker/EA/scripts/verify_next90_m135_ea_closure_coverage.py
+  - /docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json
+  - /docker/EA/feedback/2026-05-05-next90-m135-ea-closure-coverage-progress.md
   allowed_paths:
   - scripts
   - feedback
@@ -5624,9 +5996,23 @@ items:
   work_task_id: '136.6'
   frontier_id: 2277811964
   milestone_id: 136
-  status: not_started
+  status: complete
   wave: W23
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 6c8dd0c1
+  do_not_reopen_reason: M136 Fleet package 'Fail closed on aggregate readiness when family-level parity proof, sub-dialog
+    screenshot packs, dialog-level element inventories, or continuity journey receipts are stale or missing.' is complete;
+    future shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry
+    mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m136_fleet_aggregate_readiness_parity_gates.py
+  - /docker/fleet/scripts/verify_next90_m136_fleet_aggregate_readiness_parity_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m136_fleet_aggregate_readiness_parity_gates.py
+  - /docker/fleet/tests/test_verify_next90_m136_fleet_aggregate_readiness_parity_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_AGGREGATE_READINESS_PARITY_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_AGGREGATE_READINESS_PARITY_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-aggregate-readiness-parity-gates-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5676,9 +6062,22 @@ items:
   work_task_id: '136.9'
   frontier_id: 4491585022
   milestone_id: 136
-  status: not_started
+  status: complete
   wave: W23
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 0e17649e
+  do_not_reopen_reason: M136 Fleet package 'Bind the machine-readable human parity matrix into audit/gate consumption so hard
+    families cannot close on prose-only proof.' is complete; future shards must verify the repo-local materializer/verifier,
+    generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m136_fleet_parity_matrix_gate_binding.py
+  - /docker/fleet/scripts/verify_next90_m136_fleet_parity_matrix_gate_binding.py
+  - /docker/fleet/tests/test_materialize_next90_m136_fleet_parity_matrix_gate_binding.py
+  - /docker/fleet/tests/test_verify_next90_m136_fleet_parity_matrix_gate_binding.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_MATRIX_GATE_BINDING.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_MATRIX_GATE_BINDING.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-parity-matrix-gate-binding-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5711,9 +6110,22 @@ items:
   work_task_id: '136.11'
   frontier_id: 8422537713
   milestone_id: 136
-  status: not_started
+  status: complete
   wave: W23
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: d4978043
+  do_not_reopen_reason: M136 Fleet derived release-health planes are complete; future shards must verify the repo-local derivation
+    scripts, generated plane packet, focused regressions, and canonical queue mirrors instead of reopening structural-green
+    or flagship-ready closure on prose-only posture.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m136_fleet_derived_release_health_planes.py
+  - /docker/fleet/scripts/verify_next90_m136_fleet_derived_release_health_planes.py
+  - /docker/fleet/tests/test_materialize_next90_m136_fleet_derived_release_health_planes.py
+  - /docker/fleet/tests/test_verify_next90_m136_fleet_derived_release_health_planes.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_DERIVED_RELEASE_HEALTH_PLANES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_DERIVED_RELEASE_HEALTH_PLANES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-derived-release-health-planes-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5799,9 +6211,22 @@ items:
   work_task_id: '136.16'
   frontier_id: 2977536653
   milestone_id: 136
-  status: not_started
+  status: complete
   wave: W23
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 9d5b89a9
+  do_not_reopen_reason: M136 Fleet package 'Fail parity closeout when remaining deltas are not classified as must-match, may-improve,
+    or may-remove-if-non-degrading in the audit artifacts.' is complete; future shards must verify the repo-local materializer/verifier,
+    generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m136_fleet_parity_divergence_class_gate.py
+  - /docker/fleet/scripts/verify_next90_m136_fleet_parity_divergence_class_gate.py
+  - /docker/fleet/tests/test_materialize_next90_m136_fleet_parity_divergence_class_gate.py
+  - /docker/fleet/tests/test_verify_next90_m136_fleet_parity_divergence_class_gate.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_DIVERGENCE_CLASS_GATE.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_DIVERGENCE_CLASS_GATE.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-parity-divergence-class-gate-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5852,9 +6277,22 @@ items:
   work_task_id: '136.19'
   frontier_id: 7496747405
   milestone_id: 136
-  status: not_started
+  status: complete
   wave: W23
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: ae27a569
+  do_not_reopen_reason: M136 Fleet explicit SR4 and SR6 readiness closeout is complete; future shards must verify the repo-local
+    ruleset-closeout scripts, generated packet, focused regressions, and canonical queue mirrors instead of reopening SR4
+    or SR6 parity closure through broad desktop readiness inheritance.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m136_fleet_sr4_sr6_readiness_closeout.py
+  - /docker/fleet/scripts/verify_next90_m136_fleet_sr4_sr6_readiness_closeout.py
+  - /docker/fleet/tests/test_materialize_next90_m136_fleet_sr4_sr6_readiness_closeout.py
+  - /docker/fleet/tests/test_verify_next90_m136_fleet_sr4_sr6_readiness_closeout.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_SR4_SR6_READINESS_CLOSEOUT.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_SR4_SR6_READINESS_CLOSEOUT.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-sr4-sr6-readiness-closeout-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -5973,9 +6411,22 @@ items:
   work_task_id: '137.7'
   frontier_id: 9074685645
   milestone_id: 137
-  status: not_started
+  status: complete
   wave: W24
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 79a43ac5
+  do_not_reopen_reason: M137 Fleet ecosystem seam monitors are complete; future shards must verify the repo-local monitor
+    scripts, generated proof artifacts, and canonical queue mirrors instead of reopening unsupported ecosystem-claim, stale
+    seam-proof, consent-drift, or public-posture monitoring by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m137_fleet_ecosystem_seam_monitors.py
+  - /docker/fleet/scripts/verify_next90_m137_fleet_ecosystem_seam_monitors.py
+  - /docker/fleet/tests/test_materialize_next90_m137_fleet_ecosystem_seam_monitors.py
+  - /docker/fleet/tests/test_verify_next90_m137_fleet_ecosystem_seam_monitors.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M137_FLEET_ECOSYSTEM_SEAM_MONITORS.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M137_FLEET_ECOSYSTEM_SEAM_MONITORS.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m137-fleet-ecosystem-seam-monitors-progress.md
   allowed_paths:
   - scripts
   - tests
@@ -6148,9 +6599,22 @@ items:
   work_task_id: '138.9'
   frontier_id: 4764536356
   milestone_id: 138
-  status: not_started
+  status: complete
   wave: W25
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 8bac3fe6
+  do_not_reopen_reason: M138 Fleet package 'Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence
+    receipts, or Foundry-first handoff receipts are stale, missing, or contradicted by public posture.' is complete; future
+    shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors
+    instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m138_fleet_hero_path_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m138_fleet_hero_path_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m138_fleet_hero_path_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m138_fleet_hero_path_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_CLOSEOUT_GATES.generated.md
   allowed_paths:
   - scripts
   - tests
@@ -6166,9 +6630,22 @@ items:
   work_task_id: '138.10'
   frontier_id: 7914546694
   milestone_id: 138
-  status: not_started
+  status: complete
   wave: W25
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: aa4c3901
+  do_not_reopen_reason: M138 Fleet newcomer-path projections are complete; future shards must verify the repo-local projection
+    scripts, generated packet, focused regressions, and canonical queue mirrors instead of reopening READY_FOR_TONIGHT, role-kit,
+    VTT-acceptance, or newcomer-path public-truth binding through prose only.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m138_fleet_hero_path_projections.py
+  - /docker/fleet/scripts/verify_next90_m138_fleet_hero_path_projections.py
+  - /docker/fleet/tests/test_materialize_next90_m138_fleet_hero_path_projections.py
+  - /docker/fleet/tests/test_verify_next90_m138_fleet_hero_path_projections.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_PROJECTIONS.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_PROJECTIONS.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m138-fleet-hero-path-projections-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -6324,9 +6801,22 @@ items:
   work_task_id: '139.9'
   frontier_id: 3411981369
   milestone_id: 139
-  status: not_started
+  status: complete
   wave: W26
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 4e533af5
+  do_not_reopen_reason: M139 Fleet package 'Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and
+    appeals states, creator analytics bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory.'
+    is complete; future shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical
+    queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m139_fleet_operational_trust_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m139_fleet_operational_trust_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m139_fleet_operational_trust_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m139_fleet_operational_trust_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_OPERATIONAL_TRUST_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_OPERATIONAL_TRUST_CLOSEOUT_GATES.generated.md
   allowed_paths:
   - scripts
   - tests
@@ -6342,9 +6832,22 @@ items:
   work_task_id: '139.10'
   frontier_id: 2565904250
   milestone_id: 139
-  status: not_started
+  status: complete
   wave: W26
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: e35ae17c
+  do_not_reopen_reason: M139 Fleet package 'Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY,
+    CREATOR_PUBLICATION_ANALYTICS_SCHEMA, and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and
+    public-trust projections.' is complete; future shards must verify the repo-local materializer/verifier, generated proof
+    artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m139_fleet_release_health_public_trust_projections.py
+  - /docker/fleet/scripts/verify_next90_m139_fleet_release_health_public_trust_projections.py
+  - /docker/fleet/tests/test_materialize_next90_m139_fleet_release_health_public_trust_projections.py
+  - /docker/fleet/tests/test_verify_next90_m139_fleet_release_health_public_trust_projections.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_RELEASE_HEALTH_PUBLIC_TRUST_PROJECTIONS.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_RELEASE_HEALTH_PUBLIC_TRUST_PROJECTIONS.generated.md
   allowed_paths:
   - scripts
   - tests
@@ -6497,9 +7000,22 @@ items:
   work_task_id: '140.9'
   frontier_id: 4145512253
   milestone_id: 140
-  status: not_started
+  status: complete
   wave: W27
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: d16124ed
+  do_not_reopen_reason: M140 Fleet portability and cadence closeout gates are complete; future shards must verify the repo-local
+    gate scripts, generated proof packet, and canonical queue mirrors instead of reopening runner-passport, dispatch cadence,
+    creator operating-system, or LTD cadence closure through broad public posture prose.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m140_fleet_portability_and_cadence_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m140_fleet_portability_and_cadence_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m140_fleet_portability_and_cadence_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m140_fleet_portability_and_cadence_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M140_FLEET_PORTABILITY_AND_CADENCE_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M140_FLEET_PORTABILITY_AND_CADENCE_CLOSEOUT_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m140-fleet-portability-and-cadence-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -6515,9 +7031,26 @@ items:
   work_task_id: '141.1'
   frontier_id: 2354698282
   milestone_id: 141
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M141 chummer6-ui translator, XML amendment, and Hero Lab direct route proof is complete; future shards must verify the closed-package receipt, focused guard test, runtime-backed screenshot gates, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W22P
   repo: chummer6-ui
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/veteran-task-time-evidence-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
+  - bash scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M141DirectImportRouteProofGuardTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -6533,9 +7066,25 @@ items:
   work_task_id: '141.2'
   frontier_id: 4304178368
   milestone_id: 141
-  status: not_started
+  status: complete
+  landed_commit: unlanded
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M141 chummer6-core import-route deterministic receipt lane is complete; future shards must verify the closed-package receipt, Python guard tests, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W22P
   repo: chummer6-core
+  proof:
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs
+  - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m141-import-route-receipts.py
+  - /docker/chummercomplete/chummer-core-engine/tests/test_next90_m141_import_route_receipts.py
+  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
+  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md
+  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json
+  - python3 tests/test_next90_m141_import_route_receipts.py
+  - python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check
+  - bash scripts/ai/verify.sh
   allowed_paths:
   - src
   - tests
@@ -6551,9 +7100,32 @@ items:
   work_task_id: '141.3'
   frontier_id: 4062147200
   milestone_id: 141
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M141 chummer6-hub import-route review-required guard is complete; future shards must verify the
+    route/support/publication proof receipt, canonical registry row, queue mirrors, and local+served Hub proof instead of
+    reopening this slice.
   wave: W22P
   repo: chummer6-hub
+  proof:
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ImportRouteParityProofGuardService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/PublicReleaseManifestService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/PublicTrustPulseService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/SignedInTrustStatusService.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/DownloadsCompatibilityController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/CampaignSpineController.cs
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/PublicCreatorPublication.cshtml
+  - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Shelf.cshtml
+  - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py
+  - /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m141_hub_import_route_review_required.py
+  - /docker/chummercomplete/chummer6-hub/tests/test_next90_m141_hub_import_route_review_required.py
+  - /docker/chummercomplete/chummer6-hub/tests/test_hub_local_release_proof_native_support_route.py
+  - /docker/chummercomplete/chummer6-hub/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json
+  - python3 scripts/verify_next90_m141_hub_import_route_review_required.py
+  - python3 -m unittest tests/test_next90_m141_hub_import_route_review_required.py
+  - python3 -m unittest tests/test_hub_local_release_proof_native_support_route.py
+  - bash scripts/ai/verify.sh
   allowed_paths:
   - Chummer.Run.Api
   - scripts
@@ -6585,9 +7157,22 @@ items:
   work_task_id: '141.5'
   frontier_id: 4147587006
   milestone_id: 141
-  status: not_started
+  status: complete
   wave: W22P
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: c099200f
+  do_not_reopen_reason: M141 fleet import-route closeout gate is complete; future shards must verify the repo-local gate scripts,
+    generated proof artifacts, and canonical queue/registry mirrors instead of reopening the translator, XML, Hero Lab, and
+    adjacent import-route parity closeout slice.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m141_fleet_import_route_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m141_fleet_import_route_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m141_fleet_import_route_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m141_fleet_import_route_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m141-fleet-import-route-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -6603,9 +7188,27 @@ items:
   work_task_id: '142.1'
   frontier_id: 9095697868
   milestone_id: 142
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M142 chummer6-ui dense builder/career, dice/initiative, and contacts/lifestyles/notes direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local gates, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W22P
   repo: chummer6-ui
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M142DirectWorkflowProofGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m142-ui-direct-workflow-proof-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/materialize-desktop-workflow-execution-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
+  - bash scripts/ai/milestones/next90-m142-ui-direct-workflow-proof-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M142DirectWorkflowProofGuardTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -6672,9 +7275,22 @@ items:
   work_task_id: '142.5'
   frontier_id: 7414599441
   milestone_id: 142
-  status: not_started
+  status: complete
   wave: W22P
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: c931e462
+  do_not_reopen_reason: M142 fleet route-local proof closeout gate is complete; future shards must verify the repo-local gate
+    scripts, generated proof artifacts, and canonical queue/registry mirrors instead of reopening dense workbench, dice or
+    initiative, and identity or lifestyle parity closeout by family prose.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m142_fleet_route_local_proof_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m142_fleet_route_local_proof_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m142_fleet_route_local_proof_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m142_fleet_route_local_proof_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m142-fleet-route-local-proof-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -6688,9 +7304,30 @@ items:
   work_task_id: '143.1'
   frontier_id: 6764868619
   milestone_id: 143
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M143 chummer6-ui print/export/exchange and SR6 supplement/house-rule direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local output gates, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W22P
   repo: chummer6-ui
+  proof:
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M143DirectOutputProofGuardTests.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m143-ui-direct-output-proof-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/section-host-ruleset-parity-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/generated-dialog-element-parity-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m114-ui-rule-studio-check.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh
+  - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
+  - bash scripts/ai/milestones/next90-m143-ui-direct-output-proof-check.sh
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M143DirectOutputProofGuardTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -6706,9 +7343,28 @@ items:
   work_task_id: '143.2'
   frontier_id: 2778308338
   milestone_id: 143
-  status: not_started
+  status: complete
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M143 chummer6-core deterministic export/print/supplement and rule-environment receipts are complete; future shards must verify the checked-in receipt, focused parity tests, canonical registry row, and queue mirrors instead of reopening this slice.
   wave: W22P
   repo: chummer6-core
+  proof:
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs
+  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs
+  - /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py
+  - /docker/chummercomplete/chummer-core-engine/tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py
+  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
+  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json
+  - CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+  - python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py
+  - python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json --check
   allowed_paths:
   - src
   - tests
@@ -6774,9 +7430,22 @@ items:
   work_task_id: '143.6'
   frontier_id: 8787562259
   milestone_id: 143
-  status: not_started
+  status: complete
   wave: W22P
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: c851228a
+  do_not_reopen_reason: M143 fleet route-local output closeout gate is complete; future shards must verify the repo-local
+    gate scripts, generated proof artifacts, and canonical queue/registry mirrors instead of reopening print or export or
+    exchange and SR6 supplement or house-rule parity closeout by broad family prose.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m143_fleet_route_local_output_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m143_fleet_route_local_output_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m143_fleet_route_local_output_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m143_fleet_route_local_output_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m143-fleet-route-local-output-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -6842,9 +7511,22 @@ items:
   work_task_id: '144.4'
   frontier_id: 4185937434
   milestone_id: 144
-  status: not_started
+  status: complete
   wave: W22P
   repo: fleet
+  completion_action: verify_closed_package_only
+  landed_commit: 13f25fd6
+  do_not_reopen_reason: M144 fleet desktop proof integrity closeout gate is complete; future shards must verify the repo-local
+    guard scripts, generated proof artifacts, and canonical queue mirrors instead of reopening desktop-client readiness closure
+    while executable-gate, startup-smoke, and release-channel tuple proof drift.
+  proof:
+  - /docker/fleet/scripts/materialize_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py
+  - /docker/fleet/scripts/verify_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py
+  - /docker/fleet/tests/test_materialize_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py
+  - /docker/fleet/tests/test_verify_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py
+  - /docker/fleet/.codex-studio/published/NEXT90_M144_FLEET_DESKTOP_PROOF_INTEGRITY_CLOSEOUT_GATES.generated.json
+  - /docker/fleet/.codex-studio/published/NEXT90_M144_FLEET_DESKTOP_PROOF_INTEGRITY_CLOSEOUT_GATES.generated.md
+  - /docker/fleet/feedback/2026-05-05-next90-m144-fleet-desktop-proof-integrity-closeout.md
   allowed_paths:
   - scripts
   - tests
@@ -6852,4 +7534,4 @@ items:
   - feedback
   owned_surfaces:
   - fail_closeout_when_desktop_client_readiness_is_green_wit:fleet
-source_queue_fingerprint: 54adabd13bfac91400a264ad5189ce5f3b51ad5a
+source_queue_fingerprint: 6184015a25d7f7ae103ae56183e6d62658f83557

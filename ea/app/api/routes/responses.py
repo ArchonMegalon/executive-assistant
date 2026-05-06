@@ -31,6 +31,7 @@ from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.services.brain_router import BrainRouterService
 from app.services.tool_execution_common import ToolExecutionError
+from app.yaml_inputs import load_yaml_dict
 from app.services.brain_catalog import (
     DEFAULT_PUBLIC_MODEL,
     FAST_PUBLIC_MODEL,
@@ -749,11 +750,7 @@ def _design_product_path(filename: str) -> Path:
 
 def _load_design_yaml_dict(filename: str) -> dict[str, object]:
     path = _design_product_path(filename)
-    try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def _scorecard_entry(scorecard_id: str) -> dict[str, object]:

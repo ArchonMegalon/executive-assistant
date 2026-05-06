@@ -9,6 +9,25 @@ This wave turns `chummer.run` into a real account-aware install, update, and sup
 Some `M0` ingredients already exist in canon today.
 This wave closes the remaining coherence, coverage, and runtime-loop gaps so those surfaces stop feeling provisional.
 
+## Canon closure for M129
+
+M129 closes the public-auth, identity and channel-linking, participation, account-aware front-door, and community-ledger canon into one reusable story.
+
+The closure binds these design-owned sources together:
+
+* `PUBLIC_AUTH_FLOW.md` for the guest-to-registered route split
+* `PUBLIC_USER_MODEL.md` for guest, registered, claimed-install, and community-ledger posture
+* `IDENTITY_AND_CHANNEL_LINKING_MODEL.md` for linked identities, linked channels, and companion-channel boundaries
+* `ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md` for install claim, channel posture, and recovery truth
+* `COMMUNITY_SPONSORSHIP_BACKLOG.md` for the Hub/Fleet/EA community-ledger split
+
+Rules:
+
+* one public account-aware front door exists
+* `/participate` is the guest-readable entry; `/home` and `/account` are the signed-in shells
+* claim, participation, reward, entitlement, channel, and recovery posture must map back to the same Hub-owned community ledger
+* Fleet receipt semantics stay downstream evidence, not account truth
+
 ## Milestones
 
 ### M0 — Canon and control-loop closure

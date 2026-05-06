@@ -1,5 +1,5 @@
 shared_truth_bundle_id: ea-m120-launch-pulse-followthrough-v1
-generated_at: "2026-05-05T13:45:00Z"
+generated_at: "2026-05-06T04:55:43Z"
 status: task_proven
 source_anchor_ids:
   - fleet_launch_pulse_packet
@@ -51,11 +51,11 @@ launch_followthrough_draft_specimen:
     public_status_body: "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating)."
   adoption_health_snapshot:
     state: pass
-    summary: Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 20 weekly snapshots are on record for the current public trust posture.
+    summary: Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 22 weekly snapshots are on record for the current public trust posture.
   proof_freshness_holds:
-    state: blocked
-    missing_input_count: 2
-    stale_input_count: 2
+    state: pass
+    missing_input_count: 0
+    stale_input_count: 0
     publish_state: hold
   public_copy_guardrails:
     allowed_posture_terms:
@@ -67,7 +67,7 @@ launch_followthrough_draft_specimen:
       - blocked
     bounded_claim_rule: Keep launch followthrough in draft posture until proof freshness is no longer blocked and the launch pulse itself is publishable.
   next_safe_actions:
-    - Refresh stale or missing proof inputs before widening public launch copy.
+    - Refresh the draft whenever launch-pulse, weekly governor, release-channel, or support truth changes.
     - Keep operator copy aligned to Fleet's freeze_launch decision window.
 reporter_followthrough_specimen:
   packet_kind: reporter_followthrough:public
@@ -95,4 +95,4 @@ reporter_followthrough_specimen:
     known_issue_summary: Preview caveats still apply, but the current shelf has recent install, claimed-device recovery, clustered release notification, community closure, bounded offline prefetch, and support proof instead of only manifest presence.
   publish_hold_reason:
     state: hold
-    summary: Keep reporter and public followthrough in preview-bounded hold while launch-pulse proof freshness is blocked, even though support risk is low and the current rollout state is promoted_preview.
+    summary: Keep reporter and public followthrough in preview-bounded hold until a later package promotes publication, even though public followthrough, proof freshness, and support risk are green and the current rollout state is promoted_preview.

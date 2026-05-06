@@ -120,13 +120,13 @@ waves:
       - 104
   - id: W8
     name: Make continuity and product-governor boring
-    status: in_progress
+    status: complete
     milestone_ids:
       - 105
       - 106
   - id: W9
     name: Make artifact proof and concierge first-party
-    status: in_progress
+    status: complete
     milestone_ids:
       - 107
       - 109
@@ -1969,6 +1969,19 @@ milestones:
       - id: 112.4
         owner: chummer6-mobile
         title: Make travel and mobile campaign continuity explicit for stale, cached, and action-required campaign state.
+        status: complete
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M112 chummer6-mobile travel and mobile campaign continuity is complete; future shards must verify the closed-package guard, package proof, regression coverage, and canonical queue plus registry rows instead of reopening this slice.
+        evidence:
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs now keeps `MobileCampaignCurrentState`, `MobileCampaignStateSummary`, `MobileCampaignCachedState`, `MobileCampaignStaleState`, `MobileCampaignActionRequired`, and `MobileCampaignStateLabels` explicit so the mobile shell exposes current posture plus cached, stale, and action-required campaign continuity instead of compressing that posture into one generic summary rail.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Roaming/RoamingWorkspaceSyncPlanner.cs now keeps `TravelCampaignCurrentState`, `TravelCampaignStateSummary`, `TravelCampaignCachedState`, `TravelCampaignStaleState`, `TravelCampaignActionRequired`, and `TravelCampaignStateLabels` explicit so claimed-device travel restore stays bounded, stale-aware, and action-concrete before reopen or resume.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayEntryRecoveryProjector.cs now repeats the travel continuity cached, stale, and action-required breakdown inside post-failure recovery actions so recovery copy cannot collapse back into generic failure prose before the restore card loads.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html now renders dedicated mobile and travel continuity cards with tone-aware current-state, cached-state, stale-state, and action-required fields plus explicit workspace and restore action-required rails.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs proves the projection fields, restore-plan fields, recovery-action breakdown, shell bindings, and continuity-tone behavior through the repo-local regression suite.
+          - /docker/chummercomplete/chummer-play/docs/next90-m112-mobile-campaign-continuity.proof.md records the closed-package proof posture, canonical queue and registry anchors, and verification commands for future shards.
+          - /docker/chummercomplete/chummer-play/scripts/verify_next90_m112_mobile_campaign_continuity.py fail-closes queue, registry, proof-doc, generated-proof, and implementation-marker drift against the canonical closed-package posture.
+          - python3 scripts/verify_next90_m112_mobile_campaign_continuity.py exits 0.
+          - scripts/ai/with-package-plane.sh dotnet run --project src/Chummer.Play.RegressionChecks/Chummer.Play.RegressionChecks.csproj exits 0.
       - id: 112.5
         owner: chummer6-design
         title: Update campaign OS canon so downtime, heat, faction, and contact truth are first-class product promises.
@@ -2111,6 +2124,10 @@ milestones:
         title: Publish rule-environment studio contracts for amend-package lifecycle, promotion, diff, and explain receipts.
         status: complete
         landed_commit: TBD_COMMIT
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M114 chummer6-core rule-environment studio contracts are complete; future shards must verify the
+          engine rule-environment studio receipt, standalone verifier, canonical registry row, and queue mirrors instead of
+          reopening the contract slice.
         evidence:
           - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md
           - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Content/RuleEnvironmentStudioContracts.cs
@@ -2288,7 +2305,7 @@ milestones:
       - chummer6-ui
       - chummer6-mobile
       - chummer6-design
-    status: in_progress
+    status: complete
     dependencies:
       - 107
       - 108
@@ -2302,14 +2319,23 @@ milestones:
       - id: 117.1
         owner: chummer6-hub
         title: Build artifact shelf APIs and audience filters for personal, campaign, creator, and public views.
+        status: complete
+        evidence:
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs now serves the governed artifact shelf page, versioned public shelf APIs, compatibility shelf APIs, and public creator-publication detail route from one bounded controller path.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignWorkspaceServerPlaneService.cs and /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignSpineService.cs now stamp recap entries with audience and publication posture before signed-in personal, campaign, creator, and public filters are applied.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/PublicCreatorPublicationDiscoveryService.cs and /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CreatorPublicationRegistryBridge.cs keep public creator discovery published-only, manifest-authority-backed, and sibling-packet-aware before those packets widen onto the shared shelf.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Shelf.cshtml keeps audience, publication state, caption, trust, moderation, and next-step posture visible on the governed signed-in and public artifact shelf rails.
+          - /docker/chummercomplete/chummer6-hub/tests/RunServicesSmoke/Program.cs proves personal, campaign, creator, and public artifact views plus the mirrored shelf APIs keep proof, preview, caption, sibling-packet, locale, retention, and publication-state truth attached to the shared artifact lane.
+          - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py, /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m117_hub_artifact_shelf_v2.py, and /docker/chummercomplete/chummer6-hub/tests/test_next90_m117_hub_artifact_shelf_v2.py keep the closed-package queue, registry, and release-proof receipts executable inside the repo.
+          - python3 scripts/verify_next90_m117_hub_artifact_shelf_v2.py exits 0, python3 -m unittest tests/test_next90_m117_hub_artifact_shelf_v2.py exits 0, and bash scripts/ai/run_services_smoke.sh keeps the dedicated M117 verifier on the shared verify lane.
       - id: 117.2
         owner: chummer6-hub-registry
         title: Normalize shelf refs for preview, caption, packet, locale, retention, and publication state.
         status: complete
         completion_action: verify_closed_package_only
         do_not_reopen_reason: M117 chummer6-hub-registry shelf ref normalization is complete;
-          future shards must verify the registry contract surface, release-channel projection,
-          queue mirrors, and proof hooks instead of reopening this slice.
+          future shards must verify the registry contracts, manifest projection, queue mirrors,
+          and proof hooks instead of reopening this slice.
         evidence:
           - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/ReleaseChannelContracts.cs defines the normalized preview, caption, packet, locale, retention, shelf, and publication-state fields for artifact-identity, publication-binding, and exchange-lineage registry rows.
           - /docker/chummercomplete/chummer-hub-registry/Chummer.Run.Registry/Services/ReleaseChannelManifestStore.cs preserves the same normalized shelf refs and publication posture when runtime consumers load the published release-channel manifest.
@@ -2330,6 +2356,17 @@ milestones:
       - id: 117.4
         owner: chummer6-mobile
         title: Add mobile artifact shelf views for campaign, travel, and recap artifacts.
+        status: complete
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M117 chummer6-mobile artifact shelf is complete; future shards must verify the mobile proof receipt, standalone verifier, generated release proof, registry row, queue row, and design-queue row instead of reopening the mobile artifact shelf package.
+        evidence:
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Core/Application/PlayCampaignWorkspaceLiteProjector.cs now keeps SelectedArtifactView, ArtifactShelfSelectionSummary, SelectedRecapArtifactSummary, SelectedRecapArtifactHref, and four explicit artifact shelf browse lanes so personal, campaign, travel, and creator/public-adjacent recap browsing stay visible on the owned mobile shell.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/PlayWebApplication.cs and /docker/chummercomplete/chummer-play/src/Chummer.Play.Web/wwwroot/index.html now round-trip artifactView and artifactId through the installable shell, keep selected recap-artifact deep links separate from shelf-browse follow-through, and preserve session-aware and role-aware /artifacts redirects for campaign and travel shelf reopening.
+          - /docker/chummercomplete/chummer-play/src/Chummer.Play.RegressionChecks/Program.cs keeps campaign, travel, and recap shelf visibility, role-concrete shelf links, travel-view reopening, and selected recap-artifact identity executable in repo-local regression coverage.
+          - /docker/chummercomplete/chummer-play/docs/next90-m117-mobile-artifact-shelf.proof.md records the package scope, canonical queue/registry closure anchors, and do-not-reopen proof for future shards.
+          - /docker/chummercomplete/chummer-play/scripts/verify_next90_m117_mobile_artifact_shelf.py fail-closes canonical queue, design queue, registry, generated-proof package receipt, and worker-unsafe proof drift for this completed package.
+          - /docker/chummercomplete/chummer-play/scripts/materialize_mobile_local_release_proof.py and /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json now publish the mobile_artifact_shelf journey plus the closed package receipt for next90-m117-mobile-artifact-shelf.
+          - /docker/chummercomplete/chummer-play/scripts/ai/verify.sh runs the M117 closure verifier together with the repo-local release-proof generation path.
       - id: 117.5
         owner: chummer6-design
         title: Keep shelf policy tied to audience, locale, retention, and inspectable source truth.
@@ -2478,6 +2515,15 @@ milestones:
       - id: 119.3
         owner: chummer6-mobile
         title: Add travel/mobile starter continuity for primer, briefing, and recap artifacts.
+        status: complete
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M119 chummer6-mobile starter-lane continuity is complete; future shards must verify the mobile
+          onboarding continuity proof, standalone verifier, generated release proof, canonical registry row, and queue mirrors
+          instead of reopening the mobile starter-lane slice.
+        evidence:
+          - /docker/chummercomplete/chummer-play/docs/next90-m119-mobile-onboarding-continuity.proof.md
+          - /docker/chummercomplete/chummer-play/scripts/verify_next90_m119_mobile_onboarding_continuity.py
+          - /docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json
       - id: 119.4
         owner: chummer6-media-factory
         title: Render starter primer, first-session briefing, and support-safe onboarding companion artifacts.
@@ -2519,7 +2565,7 @@ milestones:
       - fleet
       - executive-assistant
       - chummer6-design
-    status: in_progress
+    status: complete
     dependencies:
       - 101
       - 106
@@ -2541,6 +2587,24 @@ milestones:
       - id: 120.3
         owner: fleet
         title: Compile launch pulse, adoption health, support risk, and proof freshness into governor-ready public status packets.
+        package_id: next90-m120-fleet-launch-pulse
+        status: complete
+        landed_commit: '19878082'
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M120 Fleet package 'Compile launch pulse, adoption health, support risk, and proof freshness into
+          governor-ready public status packets.' is complete; future shards must verify the repo-local materializer/verifier, generated
+          proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+        evidence:
+        - /docker/fleet/scripts/materialize_next90_m120_fleet_launch_pulse.py and /docker/fleet/scripts/verify_next90_m120_fleet_launch_pulse.py
+          keep the Fleet package for Compile launch pulse, adoption health, support risk, and proof freshness into governor-ready
+          public status packets. materialized and verifier-checked against canonical queue and registry truth.
+        - /docker/fleet/tests/test_materialize_next90_m120_fleet_launch_pulse.py and /docker/fleet/tests/test_verify_next90_m120_fleet_launch_pulse.py
+          keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+        - /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.md
+          publish the current Fleet proof packet for this completed work task.
+        - /docker/fleet/feedback/2026-05-05-next90-m120-fleet-launch-pulse-closeout.md records the shipped package proof and closeout
+          posture for this Fleet task.
+        - /docker/fleet commit 19878082 landed this Fleet package closure.
       - id: 120.4
         owner: executive-assistant
         title: Draft reporter, operator, and public followthrough from launch-pulse truth without inventing release claims.
@@ -2595,6 +2659,13 @@ milestones:
       owner: chummer6-ui
       title: Add the desktop GM Runboard route with initiative, action budgets, scene objectives, opposition refs, and ResolutionReport
         entry.
+      status: complete
+      evidence:
+      - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs now provides a dedicated GM Runboard desktop surface with initiative, action-budget, scene-objective, heat-posture, opposition-ref, and ResolutionReport-entry summaries plus focused follow-through actions.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs now promote the GM Runboard route directly from the existing desktop campaign and organizer follow-through surfaces.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs and /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs now keep `gm_runboard` available as an explicit desktop startup surface instead of hiding the route behind broader campaign workspace entrypoints.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M121GmRunboardRouteGuardTests.cs, and /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m121-ui-gm-runboard-route-check.sh fail closed when the GM Runboard route, startup surface, registry proof, or queue mirrors drift from the closed package contract.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json records the closed-package receipt for `next90-m121-ui-add-the-desktop-gm-runboard-route-with-initiative-action`.
     - id: '121.4'
       owner: chummer6-mobile
       title: Add player table cards, between-turn affordances, and GM-lite continuity views for live combat confidence.
@@ -2605,6 +2676,16 @@ milestones:
     - id: '121.6'
       owner: chummer6-design
       title: Bind live action economy and GM Runboard proof into journey gates, acceptance language, and no-VTT boundary policy.
+      status: complete
+      evidence:
+        - /docker/chummercomplete/chummer-design/products/chummer/LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md now keeps the live-play action economy and between-turn affordance contract bound to explain, counterfactual, and non-VTT play posture.
+        - /docker/chummercomplete/chummer-design/products/chummer/GM_RUNBOARD_LIVE_OPERATIONS.md now binds the GM Runboard scope to action-budget/initiative/initiative-summary receipts and a hard `not a second source of truth` posture.
+        - /docker/chummercomplete/chummer-design/products/chummer/SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md now prevents rulebook hosting from becoming authority while defining local binding and stale-page behavior.
+        - /docker/chummercomplete/chummer-design/products/chummer/GOLDEN_JOURNEY_RELEASE_GATES.yaml now anchors runboard continuity and action-economy follow-on gates to the design canon.
+        - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m121-design-bind-live-action-economy-and-gm-runboard-proof-into-jour-closeout.md closes this package with proof scope, do-not-reopen posture, and scope boundaries.
+        - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m121_design_bind_live_action_economy_and_gm_runboard_proof.py now fail-closes required docs, registry row, queue proof, and frontier proof for this package.
+        - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh now includes the M121 runboard proof-binding validator in standard design verification.
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml now records the package-closeout proof and do-not-reopen boundary for this frontier package.
   - id: 122
     title: Campaign adoption, runner goals, and first BLACK LEDGER consequence
     wave: W15
@@ -2649,6 +2730,17 @@ milestones:
     - id: '122.6'
       owner: chummer6-design
       title: Finalize BLACK LEDGER MVP receipt semantics, spoiler policy, and adoption confidence gates in canonical design.
+      status: complete
+      evidence:
+        - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_ADOPTION_WIZARD.md now defines `CampaignAdoptionReceipt`, replay-safe confidence gates, and the rule that blocked adoption cannot masquerade as safe-to-play campaign truth.
+        - /docker/chummercomplete/chummer-design/products/chummer/CAMPAIGN_ADOPTION_START_FROM_TODAY_FLOW.md now turns adoption confidence into an explicit ready/playable-with-review/blocked gate with receipt semantics and cleanup actions.
+        - /docker/chummercomplete/chummer-design/products/chummer/BLACK_LEDGER_MVP_001.md now binds the first consequence loop to receipt-chain semantics, spoiler-class policy, and adoption-gated player-safe publication.
+        - /docker/chummercomplete/chummer-design/products/chummer/NEWSREEL_AND_CITY_TICKER_MODEL.md now requires spoiler-class posture and `redaction_basis` on player-safe outputs so renders cannot leak GM-only aftermath.
+        - /docker/chummercomplete/chummer-design/products/chummer/GOLDEN_JOURNEY_RELEASE_GATES.yaml now anchors milestone-122 adoption and BLACK LEDGER follow-on gates to the canonical design docs that define those verdicts.
+        - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m122-design-finalize-black-ledger-mvp-receipt-semantics-spoiler-poli-closeout.md closes this package with proof anchors and do-not-reopen boundaries.
+        - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m122_design_black_ledger_receipt_semantics.py now fail-closes required docs, registry row, queue proof, and frontier parity for this package.
+        - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh now includes the M122 BLACK LEDGER receipt-semantics validator in standard design verification.
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml now records the package-closeout proof and do-not-reopen boundary for this frontier package.
   - id: 123
     title: Open Runs and Community Hub table-formation loop
     wave: W16
@@ -2773,6 +2865,23 @@ milestones:
     - id: '125.3'
       owner: fleet
       title: Add signal-cluster-to-queue synthesis for repeated ProductLift, Katteb, ClickRank, support, and public-guide findings.
+      package_id: next90-m125-fleet-add-signal-cluster-to-queue-synthesis-for-repeated-produ
+      status: complete
+      landed_commit: 3c270136
+      do_not_reopen_reason: M125 Fleet package 'Add signal-cluster-to-queue synthesis for repeated ProductLift, Katteb, ClickRank,
+        support, and public-guide findings.' is complete; future shards must verify the repo-local materializer/verifier, generated
+        proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m125_fleet_signal_cluster_queue.py and /docker/fleet/scripts/verify_next90_m125_fleet_signal_cluster_queue.py
+        keep the Fleet package for Add signal-cluster-to-queue synthesis for repeated ProductLift, Katteb, ClickRank, support,
+        and public-guide findings. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m125_fleet_signal_cluster_queue.py and /docker/fleet/tests/test_verify_next90_m125_fleet_signal_cluster_queue.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M125_FLEET_SIGNAL_CLUSTER_QUEUE.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M125_FLEET_SIGNAL_CLUSTER_QUEUE.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m125-fleet-signal-cluster-queue-progress.md records the shipped package proof
+        and closeout posture for this Fleet task.
+      - /docker/fleet commit 3c270136 landed this Fleet package closure.
     - id: '125.4'
       owner: executive-assistant
       title: Compile weekly public-signal digests, content patch packets, and closeout drafts without owning canon or roadmap
@@ -2813,6 +2922,23 @@ milestones:
     - id: '126.2'
       owner: fleet
       title: Teach the supervisor to stage bounded horizon-conversion queue slices only after owner handoff gates are satisfied.
+      package_id: next90-m126-fleet-teach-the-supervisor-to-stage-bounded-horizon-conversion
+      status: complete
+      landed_commit: f963c1fc
+      do_not_reopen_reason: M126 Fleet package 'Teach the supervisor to stage bounded horizon-conversion queue slices only after
+        owner handoff gates are satisfied.' is complete; future shards must verify the repo-local materializer/verifier, generated
+        proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m126_fleet_horizon_handoff_queue.py and /docker/fleet/scripts/verify_next90_m126_fleet_horizon_handoff_queue.py
+        keep the Fleet package for Teach the supervisor to stage bounded horizon-conversion queue slices only after owner handoff
+        gates are satisfied. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m126_fleet_horizon_handoff_queue.py and /docker/fleet/tests/test_verify_next90_m126_fleet_horizon_handoff_queue.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M126_FLEET_HORIZON_HANDOFF_QUEUE.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M126_FLEET_HORIZON_HANDOFF_QUEUE.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m126-fleet-horizon-handoff-queue-progress.md records the shipped package proof
+        and closeout posture for this Fleet task.
+      - /docker/fleet commit f963c1fc landed this Fleet package closure.
     - id: '126.3'
       owner: chummer6-core
       title: Define deterministic proof contracts for ALICE, KARMA FORGE, Table Pulse, rule-environment, and simulation-adjacent
@@ -2868,6 +2994,12 @@ milestones:
       owner: fleet
       title: Promote platform acceptance, release evidence packs, repo hardening, and external-host proof orchestration into
         repeatable gates.
+      status: complete
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m127_fleet_release_truth_gates.py now accepts the live generated queue overlay shape and materializes one release-truth gate packet from the canonical registry, guide, platform acceptance matrix, public downloads and updater policy, repo hardening truth, external-proof runbook, and flagship readiness packet.
+      - /docker/fleet/scripts/verify_next90_m127_fleet_release_truth_gates.py plus /docker/fleet/tests/test_materialize_next90_m127_fleet_release_truth_gates.py and /docker/fleet/tests/test_verify_next90_m127_fleet_release_truth_gates.py now fail closed on queue-overlay drift, verifier drift, and repo-root bootstrap drift so the closure packet cannot silently outrun canon.
+      - /docker/fleet/.codex-studio/published/NEXT90_M127_FLEET_RELEASE_TRUTH_GATES.generated.json publishes the live pass receipt for `next90-m127-fleet-promote-platform-acceptance-release-evidence-packs-repo` while still surfacing real runtime warnings around preview-platform posture, proposed hardening initiatives, and blocked flagship readiness.
+      - /docker/fleet/feedback/2026-05-05-next90-m127-fleet-release-truth-gates-progress.md records the shipped packet, queue-overlay hardening, live blocked release-gate posture, and do-not-reopen scope for the Fleet-owned slice.
     - id: '127.5'
       owner: chummer6-design
       title: Close release-pipeline, desktop-auto-update, public-downloads, repo-hygiene, and release-evidence design coverage.
@@ -2915,10 +3047,44 @@ milestones:
       owner: fleet
       title: Add freshness and contradiction monitors for telemetry, privacy, retention, localization, support, and crash proof
         planes.
+      package_id: next90-m128-fleet-add-freshness-and-contradiction-monitors-for-telemetry-p
+      status: complete
+      landed_commit: 8946b545
+      do_not_reopen_reason: M128 Fleet package 'Add freshness and contradiction monitors for telemetry, privacy, retention, localization,
+        support, and crash proof planes.' is complete; future shards must verify the repo-local materializer/verifier, generated
+        proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m128_fleet_trust_plane_monitors.py and /docker/fleet/scripts/verify_next90_m128_fleet_trust_plane_monitors.py
+        keep the Fleet package for Add freshness and contradiction monitors for telemetry, privacy, retention, localization, support,
+        and crash proof planes. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m128_fleet_trust_plane_monitors.py and /docker/fleet/tests/test_verify_next90_m128_fleet_trust_plane_monitors.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M128_FLEET_TRUST_PLANE_MONITORS.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M128_FLEET_TRUST_PLANE_MONITORS.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m128-fleet-trust-plane-monitors-progress.md records the shipped package proof
+        and closeout posture for this Fleet task.
+      - /docker/fleet commit 8946b545 landed this Fleet package closure.
     - id: '128.6'
       owner: chummer6-design
       title: Close localization, telemetry, privacy, retention, feedback, crash, support-status, and experience-metrics canon
         coverage.
+      status: complete
+      evidence:
+      - /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_AND_LANGUAGE_SYSTEM.md and /docker/chummercomplete/chummer-design/products/chummer/LOCALIZATION_PARITY_MATRIX.yaml
+        now keep locale scope, fallback rules, translation domains, and parity-matrix expectations explicit for desktop and hosted surfaces.
+      - /docker/chummercomplete/chummer-design/products/chummer/PRODUCT_USAGE_TELEMETRY_MODEL.md and /docker/chummercomplete/chummer-design/products/chummer/PRODUCT_USAGE_TELEMETRY_EVENT_SCHEMA.md
+        now keep telemetry value, event-shape, opt-out posture, and bounded hosted product-improvement telemetry canonized in design.
+      - /docker/chummercomplete/chummer-design/products/chummer/PRIVACY_AND_RETENTION_BOUNDARIES.md now binds telemetry, support,
+        crash, install-linking, survey, and provider traces to explicit privacy, retention, redaction, and release-gate posture.
+      - /docker/chummercomplete/chummer-design/products/chummer/FEEDBACK_AND_CRASH_REPORTING_SYSTEM.md and /docker/chummercomplete/chummer-design/products/chummer/FEEDBACK_AND_CRASH_STATUS_MODEL.md
+        now keep intake, support-case truth, crash handling, and reporter-visible status communication anchored to canonical release truth.
+      - /docker/chummercomplete/chummer-design/products/chummer/EXPERIENCE_SUCCESS_METRICS.md and /docker/chummercomplete/chummer-design/products/chummer/METRICS_AND_SLOS.yaml
+        now close the user-facing experience-metrics and release-scorecard canon for this trust wave.
+      - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m128_design_trust_completion_canon.py fail-closes
+        drift in the canon docs, validator wiring, feedback closeout note, canonical registry row, design queue row, and Fleet queue mirror for this completed package.
+      - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh now requires the M128 trust-completion validator during standard design-repo verification.
+      - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m128-design-trust-completion-canon-closeout.md
+        records the package scope, validation commands, and do-not-reopen posture for future shards.
   - id: 129
     title: Account, identity, channel linking, participation, entitlements, and community ledger completion
     wave: W19
@@ -2956,8 +3122,24 @@ milestones:
         ritual.
     - id: '129.4'
       owner: fleet
-      title: Keep participant-lane auth lane-local while emitting signed contribution receipts and sponsor-session execution
-        metadata.
+      title: Keep participant-lane auth lane-local while emitting signed contribution receipts and sponsor-session execution metadata.
+      package_id: next90-m129-fleet-keep-participant-lane-auth-lane-local-while-emitting-sig
+      status: complete
+      landed_commit: 2008339d
+      do_not_reopen_reason: M129 Fleet package 'Keep participant-lane auth lane-local while emitting signed contribution receipts
+        and sponsor-session execution metadata.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m129_fleet_participation_lane_receipts.py and /docker/fleet/scripts/verify_next90_m129_fleet_participation_lane_receipts.py
+        keep the Fleet package for Keep participant-lane auth lane-local while emitting signed contribution receipts and sponsor-session
+        execution metadata. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m129_fleet_participation_lane_receipts.py and /docker/fleet/tests/test_verify_next90_m129_fleet_participation_lane_receipts.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m129-fleet-participation-lane-receipts-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit 2008339d landed this Fleet package closure.
     - id: '129.5'
       owner: executive-assistant
       title: Compile contribution, participation, entitlement, channel, and reward followthrough packets from Hub/Fleet receipts
@@ -2966,6 +3148,16 @@ milestones:
       owner: chummer6-design
       title: Close public-auth, identity/channel-linking, participation, account-aware front-door, and community-ledger canon
         coverage.
+      status: complete
+      evidence:
+        - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_AUTH_FLOW.md now states that `/participate` is the guest-readable account-aware front door while `/home` and `/account` remain the signed-in community-ledger shell.
+        - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_USER_MODEL.md now defines community-ledger relationship states for claim, membership, participation, reward, entitlement, linked-channel, and recovery posture without implying ledger membership for guests.
+        - /docker/chummercomplete/chummer-design/products/chummer/IDENTITY_AND_CHANNEL_LINKING_MODEL.md now states that linked identities and linked channels attach to the Hub community ledger and cannot stand in for reward, entitlement, or sponsor-session truth.
+        - /docker/chummercomplete/chummer-design/products/chummer/ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md now binds account-aware front-door posture to Hub community-ledger plus Registry-backed channel truth instead of local auth folklore.
+        - /docker/chummercomplete/chummer-design/products/chummer/NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md, /docker/chummercomplete/chummer-design/products/chummer/COMMUNITY_SPONSORSHIP_BACKLOG.md, and /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_PART_REGISTRY.yaml now close the public front door, community-ledger split, and Hub surface summary into one canon bundle.
+        - /docker/chummercomplete/chummer-design/scripts/ai/validate_next90_m129_design_account_community_canon.py fail-closes doc drift, standard verifier drift, feedback closeout drift, and canonical registry plus design queue drift for this completed package.
+        - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh now requires the M129 validator during standard repo verification.
+        - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m129-design-account-community-canon-closeout.md records the package closeout posture and do-not-reopen rule for future shards.
   - id: 130
     title: External tools, LTD provider stewardship, and governed integration adapter completion
     wave: W19
@@ -2998,6 +3190,23 @@ milestones:
       owner: fleet
       title: Add provider-health, credit-runway, kill-switch, fallback, and route-stewardship monitors for all governed external
         tools.
+      package_id: next90-m130-fleet-add-provider-health-credit-runway-kill-switch-fallback-a
+      status: complete
+      landed_commit: df0824d7
+      do_not_reopen_reason: M130 Fleet package 'Add provider-health, credit-runway, kill-switch, fallback, and route-stewardship
+        monitors for all governed external tools.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m130_fleet_provider_stewardship.py and /docker/fleet/scripts/verify_next90_m130_fleet_provider_stewardship.py
+        keep the Fleet package for Add provider-health, credit-runway, kill-switch, fallback, and route-stewardship monitors for
+        all governed external tools. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m130_fleet_provider_stewardship.py and /docker/fleet/tests/test_verify_next90_m130_fleet_provider_stewardship.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M130_FLEET_PROVIDER_STEWARDSHIP.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M130_FLEET_PROVIDER_STEWARDSHIP.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m130-fleet-provider-stewardship-progress.md records the shipped package proof
+        and closeout posture for this Fleet task.
+      - /docker/fleet commit df0824d7 landed this Fleet package closure.
     - id: '130.3'
       owner: chummer6-hub
       title: Implement hosted intake adapters for ProductLift, Deftform, Icanpreneur, surveys, public concierge, and channel
@@ -3055,6 +3264,23 @@ milestones:
       owner: fleet
       title: Verify public-guide regeneration, visibility-source freshness, crawl-budget discipline, and unsupported-claim rejection
         gates.
+      package_id: next90-m131-fleet-verify-public-guide-regeneration-visibility-source-fresh
+      status: complete
+      landed_commit: 774c3d1e
+      do_not_reopen_reason: M131 Fleet package 'Verify public-guide regeneration, visibility-source freshness, crawl-budget discipline,
+        and unsupported-claim rejection gates.' is complete; future shards must verify the repo-local materializer/verifier, generated
+        proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m131_fleet_public_guide_gates.py and /docker/fleet/scripts/verify_next90_m131_fleet_public_guide_gates.py
+        keep the Fleet package for Verify public-guide regeneration, visibility-source freshness, crawl-budget discipline, and
+        unsupported-claim rejection gates. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m131_fleet_public_guide_gates.py and /docker/fleet/tests/test_verify_next90_m131_fleet_public_guide_gates.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M131_FLEET_PUBLIC_GUIDE_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M131_FLEET_PUBLIC_GUIDE_GATES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m131-fleet-public-guide-gates-progress.md records the shipped package proof and
+        closeout posture for this Fleet task.
+      - /docker/fleet commit 774c3d1e landed this Fleet package closure.
     - id: '131.6'
       owner: chummer6-media-factory
       title: Render public guide imagery, share cards, thumbnails, structured video, narrated media, and asset siblings from
@@ -3104,6 +3330,23 @@ milestones:
     - id: '132.6'
       owner: fleet
       title: Schedule deterministic horizon slices only after owner handoff gates, proof scopes, and stop conditions are satisfied.
+      package_id: next90-m132-fleet-schedule-deterministic-horizon-slices-only-after-owner-h
+      status: complete
+      landed_commit: b495f946
+      do_not_reopen_reason: M132 Fleet package 'Schedule deterministic horizon slices only after owner handoff gates, proof scopes,
+        and stop conditions are satisfied.' is complete; future shards must verify the repo-local materializer/verifier, generated
+        proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m132_fleet_deterministic_horizon_queue.py and /docker/fleet/scripts/verify_next90_m132_fleet_deterministic_horizon_queue.py
+        keep the Fleet package for Schedule deterministic horizon slices only after owner handoff gates, proof scopes, and stop
+        conditions are satisfied. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m132_fleet_deterministic_horizon_queue.py and /docker/fleet/tests/test_verify_next90_m132_fleet_deterministic_horizon_queue.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M132_FLEET_DETERMINISTIC_HORIZON_QUEUE.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M132_FLEET_DETERMINISTIC_HORIZON_QUEUE.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m132-fleet-deterministic-horizon-queue-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit b495f946 landed this Fleet package closure.
     - id: '132.7'
       owner: chummer6-design
       title: Close deterministic horizon canon, public claim language, owner handoff gates, and build-path promotion criteria.
@@ -3164,6 +3407,23 @@ milestones:
       owner: fleet
       title: Monitor media/social horizon proof freshness, consent gates, unsupported public claims, and provider-health stop
         conditions.
+      package_id: next90-m133-fleet-monitor-media-social-horizon-proof-freshness-consent-gat
+      status: complete
+      landed_commit: 49d89879
+      do_not_reopen_reason: M133 Fleet package 'Monitor media/social horizon proof freshness, consent gates, unsupported public
+        claims, and provider-health stop conditions.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m133_fleet_media_social_horizon_monitors.py and /docker/fleet/scripts/verify_next90_m133_fleet_media_social_horizon_monitors.py
+        keep the Fleet package for Monitor media/social horizon proof freshness, consent gates, unsupported public claims, and
+        provider-health stop conditions. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m133_fleet_media_social_horizon_monitors.py and /docker/fleet/tests/test_verify_next90_m133_fleet_media_social_horizon_monitors.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M133_FLEET_MEDIA_SOCIAL_HORIZON_MONITORS.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M133_FLEET_MEDIA_SOCIAL_HORIZON_MONITORS.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m133-fleet-media-social-horizon-monitors-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit 49d89879 landed this Fleet package closure.
     - id: '133.8'
       owner: chummer6-design
       title: Close media/social horizon canon, artifact manifest rules, table-pulse consent, and public explainer posture.
@@ -3248,10 +3508,27 @@ milestones:
       owner: chummer6-design
       title: Materialize a canonical design coverage ledger mapping every source family to implemented, queued, future-only,
         or non-goal posture.
+      status: complete
+      evidence:
+      - /docker/chummercomplete/chummer-design/products/chummer/sync/sync-manifest.yaml now carries the canonical
+        source-family groups, repo aliases, and mirror subset ownership that the M135 coverage ledger binds to executable
+        downstream repos.
+      - /docker/chummercomplete/chummer-design/products/chummer/sync/LOCAL_MIRROR_PUBLISH_BACKLOG.md and /docker/chummercomplete/chummer-design/products/chummer/sync/LOCAL_MIRROR_PUBLISH_EVIDENCE.md
+        now cover all nine downstream repos, including fleet and executive-assistant, with current parity-cycle timestamps
+        and checksum-backed mirror proof.
+      - /docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml now reflects the 2026-05-06
+        mirror refresh cycle so Fleet can verify ledger freshness against the current canonical review date and checksum
+        instead of stale carry-forward evidence.
     - id: '135.2'
       owner: fleet
       title: Add full-design queued-coverage verification, mirror freshness checks, missing-row detection, and status-plane
         reporting.
+      status: complete
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m135_fleet_design_queued_coverage.py now accepts the live generated queue overlay shape and materializes the M135 queued-coverage packet directly from the canonical registry, guide, queue mirrors, mirror evidence, and status plane without false missing-row failures.
+      - /docker/fleet/scripts/verify_next90_m135_fleet_design_queued_coverage.py and /docker/fleet/tests/test_materialize_next90_m135_fleet_design_queued_coverage.py plus /docker/fleet/tests/test_verify_next90_m135_fleet_design_queued_coverage.py now fail closed on queue-overlay drift, verifier drift, and repo-root bootstrap drift so the closure packet cannot silently outrun canon.
+      - /docker/fleet/.codex-studio/published/NEXT90_M135_FLEET_DESIGN_QUEUED_COVERAGE.generated.json publishes the live pass receipt for `next90-m135-fleet-add-full-design-queued-coverage-verification-mirror-fres` while still surfacing remaining runtime blockers owned by design mirror freshness and task 135.1.
+      - /docker/fleet/feedback/2026-05-05-next90-m135-fleet-design-queued-coverage-progress.md records the hardening change, current live blocker set, and do-not-reopen posture for the Fleet-owned closure slice.
     - id: '135.3'
       owner: chummer6-core
       title: Close engine contract-set, package bootstrap, deterministic proof, interop, import/export, and rules-boundary coverage.
@@ -3266,6 +3543,14 @@ milestones:
       owner: chummer6-ui
       title: Close desktop workbench, Build Lab, GM Runboard, publication, restore, support, and veteran-familiarity surface
         coverage.
+      status: complete
+      evidence:
+      - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs now keep desktop workbench follow-through for creator publication, GM Runboard, restore continuity, support recovery, and Build Lab review visible from the home and campaign shells instead of hiding them behind a generic reopen route.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs, /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs, /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopRuleEnvironmentStudioWindow.cs, and /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopSupportWindow.cs now provide the dedicated publication, escalation, build-path/explain, and support surfaces named by this closure slice.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs and /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs keep GM Runboard, organizer operations, rule-environment studio, support, and support-case routes available as explicit desktop startup surfaces instead of collapsing veteran follow-through back into a single launcher path.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M135DesktopSurfaceCoverageGuardTests.cs, and /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m135-ui-desktop-surface-coverage-check.sh now fail closed when the canonical registry row, queue mirrors, veteran-familiarity guardrails, or top-level desktop route markers drift from the closed package contract.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M105_UI_RESTORE_CONTINUITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M116_UI_CREATOR_PUBLICATION.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M118_UI_ORGANIZER_OPS.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M145_UI_DESKTOP_EXPLAIN_DRAWER_AND_FOLLOW_UP.generated.json remain pass receipts and anchor the M135 closure bundle on real shipped sub-slice evidence.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M135_UI_DESKTOP_SURFACE_COVERAGE.generated.json records the closed-package receipt for `next90-m135-ui-close-desktop-workbench-build-lab-gm-runboard-publicatio`.
     - id: '135.7'
       owner: chummer6-mobile
       title: Close mobile play shell, reconnect, replay, travel cache, table cards, recap, and offline/degraded-state coverage.
@@ -3276,10 +3561,34 @@ milestones:
     - id: '135.9'
       owner: chummer6-media-factory
       title: Close media contracts, render jobs, previews, manifests, archive, provider adapters, and asset lifecycle coverage.
+      status: complete
+      evidence:
+      - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py now publishes one
+        repo-wide M135 closure package that pins media contracts, render jobs, previews, manifests, archive posture,
+        provider adapters, and asset lifecycle proof on top of the existing media-factory successor floors.
+      - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M135_MEDIA_COVERAGE_PROOF_FLOOR.md,
+        /docker/fleet/repos/chummer-media-factory/tests/test_m135_media_coverage_proof.py, and
+        /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m135_media_coverage.sh now fail closed on canonical
+        queue or registry drift, duplicate package rows, stale published proof snapshots, and missing repo-local proof
+        citations for the M135 closure bundle.
+      - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs,
+        /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Rendering/MediaRenderKind.cs,
+        /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/MediaRenderJobService.cs, and
+        /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/StructuredMediaRecipeExecutionService.cs
+        keep contract, render-job, preview, and lifecycle truth explicit for the closure slice without widening ownership.
+      - /docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json and
+        /docker/fleet/repos/chummer-media-factory/.codex-studio/published/ARTIFACT_PUBLICATION_CERTIFICATION.generated.json
+        now carry the current M135 closure package entry as published proof.
     - id: '135.10'
       owner: executive-assistant
-      title: Close EA compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage
-        without canon authority.
+      title: Close EA compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage without canon authority.
+      status: complete
+      evidence:
+      - /docker/EA/docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml, /docker/EA/docs/chummer_closure_coverage/SUCCESSOR_HANDOFF_CLOSEOUT.yaml, /docker/EA/scripts/materialize_next90_m135_ea_closure_coverage.py, and /docker/EA/scripts/verify_next90_m135_ea_closure_coverage.py now publish one verify-only EA closure bundle that binds compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage to existing packet and design truth without widening authority.
+      - /docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json now summarizes the live M106, M113, M118, M120, M129, and M145 source contracts, plus provider-digest and public-copy guard markers, as one fail-closed closure receipt.
+      - /docker/EA/scripts/chummer6_provider_readiness.py and /docker/EA/scripts/chummer6_guide_worker.py remain explicit bounded source surfaces for provider digest and public copy coverage by requiring readiness-state output, overlay checks, anti-planning language guards, blank-CTA guards, and truncated-copy guards instead of freeform copy.
+      - python3 scripts/materialize_next90_m135_ea_closure_coverage.py, python3 scripts/verify_next90_m135_ea_closure_coverage.py, python3 scripts/verify_next90_m113_operator_safe_packets.py, python3 scripts/verify_next90_m118_ea_organizer_packets.py, python3 scripts/verify_next90_m129_ea_participation_followthrough_packets.py, and python3 -m py_compile scripts/chummer6_provider_readiness.py scripts/chummer6_guide_worker.py all exit 0.
+
   - id: 136
     title: Calm-under-pressure payoff, veteran-depth parity, and campaign continuity closure
     wave: W23
@@ -3369,6 +3678,25 @@ milestones:
       owner: fleet
       title: Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs, dialog-level element
         inventories, or continuity journey receipts are stale or missing.
+      package_id: next90-m136-fleet-fail-closed-on-aggregate-readiness-when-family-level-parity-proof-sub
+      status: complete
+      landed_commit: 6c8dd0c1
+      do_not_reopen_reason: M136 Fleet package 'Fail closed on aggregate readiness when family-level parity proof, sub-dialog
+        screenshot packs, dialog-level element inventories, or continuity journey receipts are stale or missing.' is complete;
+        future shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry
+        mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m136_fleet_aggregate_readiness_parity_gates.py and /docker/fleet/scripts/verify_next90_m136_fleet_aggregate_readiness_parity_gates.py
+        keep the Fleet package for Fail closed on aggregate readiness when family-level parity proof, sub-dialog screenshot packs,
+        dialog-level element inventories, or continuity journey receipts are stale or missing. materialized and verifier-checked
+        against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m136_fleet_aggregate_readiness_parity_gates.py and /docker/fleet/tests/test_verify_next90_m136_fleet_aggregate_readiness_parity_gates.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_AGGREGATE_READINESS_PARITY_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_AGGREGATE_READINESS_PARITY_GATES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-aggregate-readiness-parity-gates-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit 6c8dd0c1 landed this Fleet package closure.
     - id: '136.7'
       owner: chummer6-design
       title: Close calm-under-pressure, veteran-depth, continuity, and human-feeling parity canon plus acceptance language from the vision
@@ -3379,13 +3707,51 @@ milestones:
         and behavioral verdict fields and explicit removable-extra reasons.
     - id: '136.9'
       owner: fleet
-      title: Bind the machine-readable human parity matrix into audit/gate consumption so hard families cannot close on prose-only proof.
+      title: Bind the machine-readable human parity matrix into audit/gate consumption so hard families cannot close on prose-only
+        proof.
+      package_id: next90-m136-fleet-bind-the-machine-readable-human-parity-matrix-into-audit-gate-consumpt
+      status: complete
+      landed_commit: 0e17649e
+      do_not_reopen_reason: M136 Fleet package 'Bind the machine-readable human parity matrix into audit/gate consumption so hard
+        families cannot close on prose-only proof.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m136_fleet_parity_matrix_gate_binding.py and /docker/fleet/scripts/verify_next90_m136_fleet_parity_matrix_gate_binding.py
+        keep the Fleet package for Bind the machine-readable human parity matrix into audit/gate consumption so hard families
+        cannot close on prose-only proof. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m136_fleet_parity_matrix_gate_binding.py and /docker/fleet/tests/test_verify_next90_m136_fleet_parity_matrix_gate_binding.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_MATRIX_GATE_BINDING.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_MATRIX_GATE_BINDING.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-parity-matrix-gate-binding-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit 0e17649e landed this Fleet package closure.
     - id: '136.10'
       owner: chummer6-design
       title: Publish machine-readable flagship readiness planes plus divergence classes for must-match, may-improve, and may-remove-if-non-degrading review.
     - id: '136.11'
       owner: fleet
-      title: Publish derived release-health planes from live proof so structural green cannot masquerade as SR5 veteran, durability, explainability, or public-shelf readiness.
+      title: Publish derived release-health planes from live proof so structural green cannot masquerade as SR5 veteran, durability,
+        explainability, or public-shelf readiness.
+      package_id: next90-m136-fleet-publish-derived-release-health-planes-from-live-proof-so-structural-gr
+      status: complete
+      landed_commit: d4978043
+      do_not_reopen_reason: M136 Fleet package 'Publish derived release-health planes from live proof so structural green cannot
+        masquerade as SR5 veteran, durability, explainability, or public-shelf readiness.' is complete; future shards must verify
+        the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors instead of reopening
+        this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m136_fleet_derived_release_health_planes.py and /docker/fleet/scripts/verify_next90_m136_fleet_derived_release_health_planes.py
+        keep the Fleet package for Publish derived release-health planes from live proof so structural green cannot masquerade
+        as SR5 veteran, durability, explainability, or public-shelf readiness. materialized and verifier-checked against canonical
+        queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m136_fleet_derived_release_health_planes.py and /docker/fleet/tests/test_verify_next90_m136_fleet_derived_release_health_planes.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_DERIVED_RELEASE_HEALTH_PLANES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_DERIVED_RELEASE_HEALTH_PLANES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-derived-release-health-planes-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit d4978043 landed this Fleet package closure.
     - id: '136.12'
       owner: chummer6-core
       title: Bind data durability, custom-data survival, rules explainability, and large-sheet performance evidence into release-bound engine proof.
@@ -3400,7 +3766,26 @@ milestones:
       title: Close raw promoted desktop recovery-trust proof on every advertised platform with non-borrowed startup, update, rollback, restore, and first-launch receipts.
     - id: '136.16'
       owner: fleet
-      title: Fail parity closeout when remaining deltas are not classified as must-match, may-improve, or may-remove-if-non-degrading in the audit artifacts.
+      title: Fail parity closeout when remaining deltas are not classified as must-match, may-improve, or may-remove-if-non-degrading
+        in the audit artifacts.
+      package_id: next90-m136-fleet-fail-parity-closeout-when-remaining-deltas-are-not-classified-as-must
+      status: complete
+      landed_commit: 9d5b89a9
+      do_not_reopen_reason: M136 Fleet package 'Fail parity closeout when remaining deltas are not classified as must-match, may-improve,
+        or may-remove-if-non-degrading in the audit artifacts.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m136_fleet_parity_divergence_class_gate.py and /docker/fleet/scripts/verify_next90_m136_fleet_parity_divergence_class_gate.py
+        keep the Fleet package for Fail parity closeout when remaining deltas are not classified as must-match, may-improve, or
+        may-remove-if-non-degrading in the audit artifacts. materialized and verifier-checked against canonical queue and registry
+        truth.
+      - /docker/fleet/tests/test_materialize_next90_m136_fleet_parity_divergence_class_gate.py and /docker/fleet/tests/test_verify_next90_m136_fleet_parity_divergence_class_gate.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_DIVERGENCE_CLASS_GATE.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_PARITY_DIVERGENCE_CLASS_GATE.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-parity-divergence-class-gate-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit 9d5b89a9 landed this Fleet package closure.
     - id: '136.17'
       owner: chummer6-ui-kit
       title: Bind large-sheet, dense-roster, status-strip, and workbench-noise budgets into the flagship desktop preset so dense-workbench-ready proof is not theme-fragile.
@@ -3409,7 +3794,27 @@ milestones:
       title: Extract Chummer5A screenshot baselines, first-minute task packs, import/export fixtures, and dense-workbench compare packs into the parity lab as governed oracle inputs.
     - id: '136.19'
       owner: fleet
-      title: Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead of letting adjacent coverage inherit from broad desktop readiness.
+      title: Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead of letting adjacent coverage inherit
+        from broad desktop readiness.
+      package_id: next90-m136-fleet-publish-explicit-sr4-and-sr6-readiness-plane-closeout-from-direct-proo
+      status: complete
+      landed_commit: ae27a569
+      do_not_reopen_reason: M136 Fleet package 'Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead
+        of letting adjacent coverage inherit from broad desktop readiness.' is complete; future shards must verify the repo-local
+        materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure
+        slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m136_fleet_sr4_sr6_readiness_closeout.py and /docker/fleet/scripts/verify_next90_m136_fleet_sr4_sr6_readiness_closeout.py
+        keep the Fleet package for Publish explicit SR4 and SR6 readiness-plane closeout from direct proofs instead of letting
+        adjacent coverage inherit from broad desktop readiness. materialized and verifier-checked against canonical queue and
+        registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m136_fleet_sr4_sr6_readiness_closeout.py and /docker/fleet/tests/test_verify_next90_m136_fleet_sr4_sr6_readiness_closeout.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_SR4_SR6_READINESS_CLOSEOUT.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M136_FLEET_SR4_SR6_READINESS_CLOSEOUT.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m136-fleet-sr4-sr6-readiness-closeout-progress.md records the shipped package
+        proof and closeout posture for this Fleet task.
+      - /docker/fleet commit ae27a569 landed this Fleet package closure.
   - id: 137
     title: Ecosystem leverage, community formation, and acquisition-fit integration seams
     wave: W24
@@ -3459,8 +3864,26 @@ milestones:
         from governed truth only.
     - id: '137.7'
       owner: fleet
-      title: Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture mismatch across first-party and
-        integration-ready lanes.
+      title: Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture mismatch across first-party
+        and integration-ready lanes.
+      package_id: next90-m137-fleet-monitor-unsupported-ecosystem-claims-stale-seam-proof-consent-drift-an
+      status: complete
+      landed_commit: 79a43ac5
+      do_not_reopen_reason: M137 Fleet package 'Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture
+        mismatch across first-party and integration-ready lanes.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m137_fleet_ecosystem_seam_monitors.py and /docker/fleet/scripts/verify_next90_m137_fleet_ecosystem_seam_monitors.py
+        keep the Fleet package for Monitor unsupported ecosystem claims, stale seam proof, consent drift, and public-posture mismatch
+        across first-party and integration-ready lanes. materialized and verifier-checked against canonical queue and registry
+        truth.
+      - /docker/fleet/tests/test_materialize_next90_m137_fleet_ecosystem_seam_monitors.py and /docker/fleet/tests/test_verify_next90_m137_fleet_ecosystem_seam_monitors.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M137_FLEET_ECOSYSTEM_SEAM_MONITORS.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M137_FLEET_ECOSYSTEM_SEAM_MONITORS.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet/feedback/2026-05-05-next90-m137-fleet-ecosystem-seam-monitors-progress.md records the shipped package proof
+        and closeout posture for this Fleet task.
+      - /docker/fleet commit 79a43ac5 landed this Fleet package closure.
     - id: '137.8'
       owner: chummer6-design
       title: Close ecosystem leverage, integration seams, acquisition-fit posture, and non-shadow-truth boundaries in canonical design.
@@ -3517,10 +3940,46 @@ milestones:
       title: Compile beginner-friction, gear-paralysis, rule-ambiguity, and adoption-confidence packets from governed truth without becoming a second product brain.
     - id: '138.9'
       owner: fleet
-      title: Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence receipts, or Foundry-first handoff receipts are stale, missing, or contradicted by public posture.
+      title: Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence receipts, or Foundry-first
+        handoff receipts are stale, missing, or contradicted by public posture.
+      package_id: next90-m138-fleet-fail-closeout-when-the-90-second-newcomer-path-ready-for-tonight-verdi
+      status: complete
+      landed_commit: 8bac3fe6
+      do_not_reopen_reason: M138 Fleet package 'Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence
+        receipts, or Foundry-first handoff receipts are stale, missing, or contradicted by public posture.' is complete; future
+        shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors
+        instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m138_fleet_hero_path_closeout_gates.py and /docker/fleet/scripts/verify_next90_m138_fleet_hero_path_closeout_gates.py
+        keep the Fleet package for Fail closeout when the 90-second newcomer path, Ready for Tonight verdicts, adoption-confidence
+        receipts, or Foundry-first handoff receipts are stale, missing, or contradicted by public posture. materialized and verifier-checked
+        against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m138_fleet_hero_path_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m138_fleet_hero_path_closeout_gates.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_CLOSEOUT_GATES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet commit 8bac3fe6 landed this Fleet package closure.
     - id: '138.10'
       owner: fleet
-      title: Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE, and related newcomer-path proof into machine-readable readiness and public-truth projections.
+      title: Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE, and related newcomer-path proof into
+        machine-readable readiness and public-truth projections.
+      package_id: next90-m138-fleet-bind-ready-for-tonight-gates-role-kit-registry-vtt-export-target-accep
+      status: complete
+      landed_commit: aa4c3901
+      do_not_reopen_reason: M138 Fleet package 'Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE,
+        and related newcomer-path proof into machine-readable readiness and public-truth projections.' is complete; future shards
+        must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors instead
+        of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m138_fleet_hero_path_projections.py and /docker/fleet/scripts/verify_next90_m138_fleet_hero_path_projections.py
+        keep the Fleet package for Bind READY_FOR_TONIGHT_GATES, ROLE_KIT_REGISTRY, VTT_EXPORT_TARGET_ACCEPTANCE, and related
+        newcomer-path proof into machine-readable readiness and public-truth projections. materialized and verifier-checked against
+        canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m138_fleet_hero_path_projections.py and /docker/fleet/tests/test_verify_next90_m138_fleet_hero_path_projections.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_PROJECTIONS.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M138_FLEET_HERO_PATH_PROJECTIONS.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet commit aa4c3901 landed this Fleet package closure.
   - id: 139
     title: GM tonight pack, world broadcast cadence, creator analytics, community safety, and cognitive-load trust closure
     wave: W26
@@ -3574,10 +4033,46 @@ milestones:
       title: Compile world-broadcast, safety, creator, and accessibility followthrough packets from governed sources without outrunning canon or privacy bounds.
     - id: '139.9'
       owner: fleet
-      title: Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and appeals states, creator analytics bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory.
+      title: Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and appeals states, creator analytics
+        bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory.
+      package_id: next90-m139-fleet-fail-closeout-when-tonight-pack-proof-broadcast-cadence-proof-moderati
+      status: complete
+      landed_commit: 4e533af5
+      do_not_reopen_reason: M139 Fleet package 'Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and
+        appeals states, creator analytics bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory.'
+        is complete; future shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical
+        queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m139_fleet_operational_trust_closeout_gates.py and /docker/fleet/scripts/verify_next90_m139_fleet_operational_trust_closeout_gates.py
+        keep the Fleet package for Fail closeout when tonight-pack proof, broadcast cadence proof, moderation and appeals states,
+        creator analytics bounds, or accessibility and cognitive-load gates are stale, missing, or contradictory. materialized
+        and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m139_fleet_operational_trust_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m139_fleet_operational_trust_closeout_gates.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_OPERATIONAL_TRUST_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_OPERATIONAL_TRUST_CLOSEOUT_GATES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet commit 4e533af5 landed this Fleet package closure.
     - id: '139.10'
       owner: fleet
-      title: Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY, CREATOR_PUBLICATION_ANALYTICS_SCHEMA, and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and public-trust projections.
+      title: Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY, CREATOR_PUBLICATION_ANALYTICS_SCHEMA,
+        and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and public-trust projections.
+      package_id: next90-m139-fleet-bind-community-safety-event-and-appeal-states-world-broadcast-recipe-r
+      status: complete
+      landed_commit: e35ae17c
+      do_not_reopen_reason: M139 Fleet package 'Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY,
+        CREATOR_PUBLICATION_ANALYTICS_SCHEMA, and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and
+        public-trust projections.' is complete; future shards must verify the repo-local materializer/verifier, generated proof
+        artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m139_fleet_release_health_public_trust_projections.py and /docker/fleet/scripts/verify_next90_m139_fleet_release_health_public_trust_projections.py
+        keep the Fleet package for Bind COMMUNITY_SAFETY_EVENT_AND_APPEAL_STATES, WORLD_BROADCAST_RECIPE_REGISTRY, CREATOR_PUBLICATION_ANALYTICS_SCHEMA,
+        and ACCESSIBILITY_COGNITIVE_LOAD_GATES into machine-readable release-health and public-trust projections. materialized
+        and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m139_fleet_release_health_public_trust_projections.py and /docker/fleet/tests/test_verify_next90_m139_fleet_release_health_public_trust_projections.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_RELEASE_HEALTH_PUBLIC_TRUST_PROJECTIONS.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M139_FLEET_RELEASE_HEALTH_PUBLIC_TRUST_PROJECTIONS.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet commit e35ae17c landed this Fleet package closure.
   - id: 140
     title: Runner passport, weekly world dispatch, creator operating system, and LTD-powered cadence closure
     wave: W27
@@ -3629,7 +4124,25 @@ milestones:
       title: Compile recruitment, reactivation, creator-health, and clinic followthrough packets from governed truth without becoming a second product authority.
     - id: '140.9'
       owner: fleet
-      title: Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system fields, or LTD cadence bindings are stale, missing, or contradicted by public posture.
+      title: Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system fields, or LTD cadence
+        bindings are stale, missing, or contradicted by public posture.
+      package_id: next90-m140-fleet-fail-closeout-when-runner-passport-proof-weekly-dispatch-cadence-creat
+      status: complete
+      landed_commit: d16124ed
+      do_not_reopen_reason: M140 Fleet package 'Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system
+        fields, or LTD cadence bindings are stale, missing, or contradicted by public posture.' is complete; future shards must
+        verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors instead of
+        reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m140_fleet_portability_and_cadence_closeout_gates.py and /docker/fleet/scripts/verify_next90_m140_fleet_portability_and_cadence_closeout_gates.py
+        keep the Fleet package for Fail closeout when runner-passport proof, weekly dispatch cadence, creator operating-system
+        fields, or LTD cadence bindings are stale, missing, or contradicted by public posture. materialized and verifier-checked
+        against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m140_fleet_portability_and_cadence_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m140_fleet_portability_and_cadence_closeout_gates.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M140_FLEET_PORTABILITY_AND_CADENCE_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M140_FLEET_PORTABILITY_AND_CADENCE_CLOSEOUT_GATES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet commit d16124ed landed this Fleet package closure.
   - id: 141
     title: Direct parity proof for translator, XML amendment, Hero Lab, and adjacent import routes
     wave: W22P
@@ -3658,18 +4171,48 @@ milestones:
     - id: '141.1'
       owner: chummer6-ui
       title: Capture direct screenshot and runtime proof for translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle routes.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M141 chummer6-ui translator, XML amendment, and Hero Lab direct route proof is complete; future shards must verify the closed-package receipt, focused guard test, runtime-backed screenshot gates, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs, and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs keep the translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle flows bound to direct screenshot-backed and runtime-backed desktop route proof instead of broad family prose.
+      - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/veteran-task-time-evidence-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json keep the direct screenshot pack, runtime-backed route receipts, and published closure proof aligned for translator, XML amendment, Hero Lab importer, and adjacent import-oracle coverage.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, verify wiring, or worker-safe flagship frontier evidence drift from the completed package contract.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json records the closed-package receipt for `next90-m141-ui-capture-direct-screenshot-and-runtime-proof-for-translator-xml-amendment`.
     - id: '141.2'
       owner: chummer6-core
       title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M141 chummer6-core import-route deterministic receipt lane is complete; future shards must verify the closed-package receipt, Python guard tests, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs and Chummer.Infrastructure/Xml/XmlToolCatalogService.cs keep the deterministic import-oracle, translator, custom-data/XML bridge, and amend-package receipt contracts wired onto `/api/tools/master-index`.
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs and Chummer.Tests/ApiIntegrationTests.cs pin the service posture and serialized API shape for `customDataXmlBridgeDeterministicReceipt`, `translatorDeterministicReceipt`, `importOracleDeterministicReceipt`, and `amendPackageDeterministicReceipt`.
+      - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m141-import-route-receipts.py, tests/test_next90_m141_import_route_receipts.py, docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md, docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md, and .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json keep the closed-package queue/registry proof, worker-safe guard, and checked-in receipt aligned for this core lane.
+      - python3 tests/test_next90_m141_import_route_receipts.py, python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check, and bash scripts/ai/verify.sh fail closed when the package proof or its canonical closure rows drift.
     - id: '141.3'
       owner: chummer6-hub
       title: Keep route, support, and publication surfaces from claiming parity for these routes unless the direct proof receipts are current.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M141 chummer6-hub import-route review-required guard is complete; future shards must verify the route/support/publication proof receipt, canonical registry row, queue mirrors, and local+served Hub proof instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ImportRouteParityProofGuardService.cs requires current local release-proof receipts for `menu:translator`, `menu:xml_editor`, `menu:hero_lab_importer`, and `workflow:import_oracle` before parity-sensitive Hub routes can claim current coverage.
+      - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/PublicReleaseManifestService.cs, PublicTrustPulseService.cs, and SignedInTrustStatusService.cs keep download, support, and signed-in trust posture on the review-required lane whenever those direct import-route receipts are stale or missing.
+      - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/PublicLandingController.cs, DownloadsCompatibilityController.cs, CampaignSpineController.cs, Views/PublicLanding/PublicCreatorPublication.cshtml, and Views/PublicLanding/Shelf.cshtml keep public route, support, and publication surfaces from claiming parity early.
+      - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py, /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m141_hub_import_route_review_required.py, /docker/chummercomplete/chummer6-hub/tests/test_next90_m141_hub_import_route_review_required.py, and /docker/chummercomplete/chummer6-hub/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json fail closed when queue/registry closeout or local+served proof receipts drift from the landed Hub review-required guard.
     - id: '141.4'
       owner: executive-assistant
       title: Compile route-local screenshot packs and compare packets for translator, XML amendment, Hero Lab, and import-oracle proof without inventing parity.
     - id: '141.5'
       owner: fleet
       title: Fail closeout when any of the five route or family rows in this milestone remain `no`, blank, stale, or unsupported by direct proof receipts.
+      status: complete
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m141_fleet_import_route_closeout_gates.py and /docker/fleet/scripts/verify_next90_m141_fleet_import_route_closeout_gates.py now fail closed when the milestone 141 route and family rows drift from direct proof receipts or when the canonical closeout metadata reopens.
+      - /docker/fleet/tests/test_materialize_next90_m141_fleet_import_route_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m141_fleet_import_route_closeout_gates.py now cover append-style queue ingestion, direct field-shape requirements, and canonical closeout metadata so stale rows or reopened packages break the gate.
+      - /docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.md record the current pass state for translator, XML amendment, Hero Lab, and the two family rows against screenshot-backed, runtime-backed, and core deterministic import receipts.
+      - python3 scripts/materialize_next90_m141_fleet_import_route_closeout_gates.py, python3 scripts/verify_next90_m141_fleet_import_route_closeout_gates.py --json, and python3 -m unittest tests.test_materialize_next90_m141_fleet_import_route_closeout_gates tests.test_verify_next90_m141_fleet_import_route_closeout_gates all exit 0.
   - id: 142
     title: Direct parity proof for dense workbench, dice utilities, and identity or lifestyle workflows
     wave: W22P
@@ -3698,6 +4241,14 @@ milestones:
     - id: '142.1'
       owner: chummer6-ui
       title: Close direct screenshot and runtime proof for dense builder and career flows, dice or initiative utilities, and contacts or lifestyles or notes workflows.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M142 chummer6-ui dense builder/career, dice/initiative, and contacts/lifestyles/notes direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local gates, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/materialize-desktop-workflow-execution-gate.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh keep dense builder/career, dice/initiative, and contacts/lifestyles/notes proof bound to direct screenshot-backed and runtime-backed route receipts instead of family prose.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json keep the three milestone-142 parity families aligned to route-local proof.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M142DirectWorkflowProofGuardTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m142-ui-direct-workflow-proof-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, audit evidence, or verify wiring drift from the completed package contract.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json records the closed-package receipt for `next90-m142-ui-close-direct-screenshot-and-runtime-proof-for-dense-builder-and-career-fl`.
     - id: '142.2'
       owner: chummer6-ui-kit
       title: Bind dense-workbench and noise-budget proof for these families into the flagship preset and fail-close on stale chrome regressions.
@@ -3710,6 +4261,12 @@ milestones:
     - id: '142.5'
       owner: fleet
       title: Fail closeout when any route in this milestone closes on family prose, stale captures, or missing task-speed and runtime receipts.
+      status: complete
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m142_fleet_route_local_proof_closeout_gates.py and /docker/fleet/scripts/verify_next90_m142_fleet_route_local_proof_closeout_gates.py now fail closed when milestone 142 family rows rely on family prose, stale captures, or reopened canonical closeout metadata instead of route-local proof receipts.
+      - /docker/fleet/tests/test_materialize_next90_m142_fleet_route_local_proof_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m142_fleet_route_local_proof_closeout_gates.py now cover direct route-local evidence requirements plus the canonical closeout metadata so stale or reopened rows break the gate.
+      - /docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.md record the current pass state for dense builder/career, dice/initiative, and identity/contacts/lifestyles/history against route-local receipts and dense-workbench proof surfaces.
+      - python3 scripts/materialize_next90_m142_fleet_route_local_proof_closeout_gates.py, python3 scripts/verify_next90_m142_fleet_route_local_proof_closeout_gates.py --json, and python3 -m unittest tests.test_materialize_next90_m142_fleet_route_local_proof_closeout_gates tests.test_verify_next90_m142_fleet_route_local_proof_closeout_gates all exit 0.
   - id: 143
     title: Direct parity proof for print/export/exchange and SR6 supplements or house-rule workflows
     wave: W22P
@@ -3739,9 +4296,25 @@ milestones:
     - id: '143.1'
       owner: chummer6-ui
       title: Capture direct screenshot and runtime proof for print, export, exchange, SR6 supplement, and house-rule workflows.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M143 chummer6-ui print/export/exchange and SR6 supplement/house-rule direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local output gates, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/section-host-ruleset-parity-check.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/generated-dialog-element-parity-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh keep print/export/exchange plus SR6 supplement/house-rule proof bound to direct screenshot-backed and runtime-backed route receipts instead of family prose.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json keep the milestone-143 parity families aligned to route-local output proof.
+      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M143DirectOutputProofGuardTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m143-ui-direct-output-proof-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, route-local receipts, or verify wiring drift from the completed package contract.
+      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json records the closed-package receipt for `next90-m143-ui-capture-direct-screenshot-and-runtime-proof-for-print-export-exchange-sr6`.
     - id: '143.2'
       owner: chummer6-core
       title: Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M143 chummer6-core deterministic export/print/supplement and rule-environment receipts are complete; future shards must verify the checked-in receipt, focused parity tests, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs, /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs, /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs, and /docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs keep the SR6 successor-lane and workspace exchange receipts deterministic and bound to the export/print plus supplement/house-rule parity families.
+      - /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs, /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs, /docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs, and /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs fail closed when those deterministic receipt contracts drift from the governed parity routes.
+      - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py, /docker/chummercomplete/chummer-core-engine/tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py, /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md, and /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json record and verify the closed-package receipt for `next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi`.
+      - CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false, python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py, and python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json --check all exit 0.
     - id: '143.3'
       owner: chummer6-hub
       title: Bind exchange and outward-facing output routes to visible receipt or bounded-failure posture instead of silent optimistic claims.
@@ -3754,6 +4327,12 @@ milestones:
     - id: '143.6'
       owner: fleet
       title: Fail closeout when these families remain green only by broad family prose, missing outputs, or stale route-local receipts.
+      status: complete
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m143_fleet_route_local_output_closeout_gates.py and /docker/fleet/scripts/verify_next90_m143_fleet_route_local_output_closeout_gates.py now fail closed when milestone 143 families rely on broad family prose, missing outputs, or reopened canonical closeout metadata instead of route-local output receipts.
+      - /docker/fleet/tests/test_materialize_next90_m143_fleet_route_local_output_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m143_fleet_route_local_output_closeout_gates.py now cover route-local output evidence requirements plus canonical closeout metadata so stale or reopened rows break the gate.
+      - /docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.md record the current pass state for print/export/exchange and SR6 supplement/house-rule families against route-local receipts and output proof surfaces.
+      - python3 scripts/materialize_next90_m143_fleet_route_local_output_closeout_gates.py, python3 scripts/verify_next90_m143_fleet_route_local_output_closeout_gates.py --json, and python3 -m unittest tests.test_materialize_next90_m143_fleet_route_local_output_closeout_gates tests.test_verify_next90_m143_fleet_route_local_output_closeout_gates all exit 0.
   - id: 144
     title: Desktop executable proof integrity and publishable flagship-route closure
     wave: W22P
@@ -3791,7 +4370,23 @@ milestones:
       title: Keep public and signed-in shelf bytes, proof routes, and release truth aligned with the same promoted tuple receipts.
     - id: '144.4'
       owner: fleet
-      title: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel tuple proof.
+      title: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel
+        tuple proof.
+      package_id: next90-m144-fleet-fail-closeout-when-desktop-client-readiness-is-green-without-matching
+      status: complete
+      landed_commit: 13f25fd6
+      do_not_reopen_reason: M144 Fleet package 'Fail closeout when desktop-client readiness is green without matching executable-gate,
+        startup-smoke, and release-channel tuple proof.' is complete; future shards must verify the repo-local materializer/verifier,
+        generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+      evidence:
+      - /docker/fleet/scripts/materialize_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py and /docker/fleet/scripts/verify_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py
+        keep the Fleet package for Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke,
+        and release-channel tuple proof. materialized and verifier-checked against canonical queue and registry truth.
+      - /docker/fleet/tests/test_materialize_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py and /docker/fleet/tests/test_verify_next90_m144_fleet_desktop_proof_integrity_closeout_gates.py
+        keep focused regression coverage on canonical alignment and package blocking logic for this Fleet package.
+      - /docker/fleet/.codex-studio/published/NEXT90_M144_FLEET_DESKTOP_PROOF_INTEGRITY_CLOSEOUT_GATES.generated.json and /docker/fleet/.codex-studio/published/NEXT90_M144_FLEET_DESKTOP_PROOF_INTEGRITY_CLOSEOUT_GATES.generated.md
+        publish the current Fleet proof packet for this completed work task.
+      - /docker/fleet commit 13f25fd6 landed this Fleet package closure.
   - id: 145
     title: Explain every visible value with grounded follow-up and bounded presenter mode
     wave: W28
@@ -3803,7 +4398,7 @@ milestones:
     - executive-assistant
     - fleet
     - chummer6-design
-    status: in_progress
+    status: complete
     dependencies:
     - 104
     - 109
@@ -3912,3 +4507,5 @@ milestones:
         records the shipped canon, proof anchors, and do-not-reopen scope for the design-owned slice.
       - /docker/chummercomplete/chummer-design/scripts/ai/verify.sh now checks the new canon doc and README reference so the
         contract cannot quietly disappear from standard design verification.
+      - /docker/chummercomplete/chummer-design/products/chummer/maintenance/feedback_archive/2026-05-05-next90-m145-design-explain-every-value-canon-closeout.md
+        records the package closeout posture, validation commands, and do-not-reopen rule for future shards.

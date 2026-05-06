@@ -341,6 +341,18 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
 
 
+def test_deploy_script_keeps_fastestvpn_overlay_explicit() -> None:
+    deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert 'EA_ENABLE_FASTESTVPN=1' in deploy
+    assert 'if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then' in deploy
+    assert "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found" in deploy
+    assert "If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`." in readme
+    assert "If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`." in runbook
+
+
 def test_milestone_uses_status_model_and_release_tags() -> None:
     milestone = json.loads((ROOT / "MILESTONE.json").read_text(encoding="utf-8"))
 

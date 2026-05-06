@@ -7,6 +7,16 @@ Purpose: capture the Hub-first community sponsorship wave as executable canon in
 * `chummer6-hub` owns the product plane: user accounts, generic groups, memberships, join/boost codes, fact ledger, reward journal, entitlement journal, participation UX, and receipt-derived community projections.
 * `fleet` owns the execution plane: dynamic participant lanes, lane-local device-auth execution, worker lifecycle, mission telemetry, and signed contribution receipts.
 * `executive-assistant` owns provider/lane telemetry and synthesis support, not community product truth.
+* Hub = account / community / ledger / entitlement plane
+* Fleet = sponsored worker / execution plane
+* EA = provider / lane / telemetry plane
+
+## Public front-door coherence
+
+* `/participate` is the guest-readable explainer and the first account-aware community entry.
+* `/home` and `/account` are the signed-in shells where claim, membership, participation, reward, entitlement, linked-channel, and recovery posture appear.
+* linked identities, linked channels, and claimed installs attach to the Hub community ledger; they do not replace it.
+* Fleet receipts can project contribution and sponsor-session evidence, but they do not mint account, reward, or entitlement truth on their own.
 
 ## Current state
 

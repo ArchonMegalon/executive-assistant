@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,8 +19,7 @@ SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/
 
 
 def _yaml(path: Path) -> dict:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return payload if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def test_pack_identity_and_scope() -> None:

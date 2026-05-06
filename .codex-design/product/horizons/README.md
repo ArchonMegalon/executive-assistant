@@ -10,11 +10,15 @@ Before adding or changing a horizon, read `../HORIZON_DESIGN_INSTRUCTIONS.md`. H
 
 * `nexus-pan.md` - matrix, device, and shared-state continuity
 * `alice.md` - build quality and comparative analysis
+* `quicksilver.md` - expert-speed shell control for dense build and audit flows
 * `karma-forge.md` - governed house-rule and alternate-ruleset evolution
+* `edition-studio.md` - edition-specific authored heads and expression posture
 * `black-ledger.md` - persistent campaign-adjacent world-state and mission-market effects
 * `community-hub.md` - governed open-run recruitment, scheduling, and closeout over a living world map
 * `knowledge-fabric.md` - build-time knowledge projections and grounded explainability
+* `onramp.md` - guided first-build and recovery path for new/skeptical users
 * `jackpoint.md` - grounded dossier, recap, narrated briefing, and artifact-studio lane
+* `run-control.md` - GM campaign control, prep, roster, scene, and recap operations
 * `runsite.md` - bounded explorable location packs for GM run sites
 * `runbook-press.md` - long-form primers, handbooks, campaign books, and creator publishing support
 * `ghostwire.md` - replay, after-action review, and forensics lane

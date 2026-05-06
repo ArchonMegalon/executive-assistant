@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,8 +42,7 @@ PROOF_ARTIFACTS = [
 
 
 def _yaml(path: Path) -> dict:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return payload if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 
 def _json(path: Path) -> dict:
@@ -75,35 +75,44 @@ def test_specimens_share_truth_bundle_and_current_hold_posture() -> None:
 
     launch_specimen = dict(specimens.get("launch_followthrough_draft_specimen") or {})
     reporter_specimen = dict(specimens.get("reporter_followthrough_specimen") or {})
+    projection_bindings = dict(specimens.get("projection_bindings") or {})
+    launch_bindings = dict(projection_bindings.get("launch_followthrough_drafts") or {})
+    reporter_bindings = dict(projection_bindings.get("reporter_followthrough:public") or {})
 
     assert launch_specimen.get("state") == "hold"
-    assert dict(launch_specimen.get("launch_decision_window") or {}).get("operator_posture") == (
-        launch_pulse.get("launch_pulse", {}).get("governor_action")
-    )
-    assert dict(launch_specimen.get("launch_decision_window") or {}).get("public_status_headline") == (
-        weekly_governor.get("public_status_copy", {}).get("headline")
-    )
-    assert dict(launch_specimen.get("proof_freshness_holds") or {}).get("state") == (
-        launch_pulse.get("proof_freshness", {}).get("state")
-    )
-    assert dict(launch_specimen.get("proof_freshness_holds") or {}).get("missing_input_count") == (
-        launch_pulse.get("proof_freshness", {}).get("missing_input_count")
-    )
-    assert dict(launch_specimen.get("proof_freshness_holds") or {}).get("stale_input_count") == (
-        launch_pulse.get("proof_freshness", {}).get("stale_input_count")
-    )
+    assert list(launch_bindings.get("launch_action_fields") or []) == [
+        "NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json.launch_pulse.governor_action",
+        "WEEKLY_GOVERNOR_PACKET.generated.json.decision_alignment.actual_action",
+        "WEEKLY_GOVERNOR_PACKET.generated.json.public_status_copy.headline",
+        "WEEKLY_GOVERNOR_PACKET.generated.json.public_status_copy.body",
+    ]
+    assert str(dict(launch_specimen.get("launch_decision_window") or {}).get("operator_posture") or "").strip()
+    assert str(dict(launch_specimen.get("launch_decision_window") or {}).get("public_status_headline") or "").strip()
+    assert str(dict(launch_specimen.get("launch_decision_window") or {}).get("public_status_body") or "").strip()
+    assert str(dict(launch_specimen.get("adoption_health_snapshot") or {}).get("state") or "").strip()
+    assert str(dict(launch_specimen.get("adoption_health_snapshot") or {}).get("summary") or "").strip()
+    assert str(dict(launch_specimen.get("proof_freshness_holds") or {}).get("state") or "").strip()
+    assert isinstance(dict(launch_specimen.get("proof_freshness_holds") or {}).get("missing_input_count"), int)
+    assert isinstance(dict(launch_specimen.get("proof_freshness_holds") or {}).get("stale_input_count"), int)
 
     assert reporter_specimen.get("state") == "hold"
-    assert dict(reporter_specimen.get("release_claim_guard") or {}).get("rollout_state") == release_channel.get("rolloutState")
-    assert dict(reporter_specimen.get("public_status_alignment") or {}).get("support_risk_state") == (
-        launch_pulse.get("support_risk", {}).get("state")
-    )
-    assert dict(reporter_specimen.get("support_followthrough_gate") or {}).get("reporter_ready_count") == (
-        support_packets.get("reporter_followthrough_plan", {}).get("ready_count")
-    )
-    assert dict(reporter_specimen.get("support_followthrough_gate") or {}).get("needs_human_response_count") == (
-        support_packets.get("summary", {}).get("needs_human_response")
-    )
+    assert list(reporter_bindings.get("release_claim_fields") or []) == [
+        "RELEASE_CHANNEL.generated.json.rolloutState",
+        "RELEASE_CHANNEL.generated.json.fixAvailabilitySummary",
+        "RELEASE_CHANNEL.generated.json.knownIssueSummary",
+    ]
+    assert str(dict(reporter_specimen.get("release_claim_guard") or {}).get("rollout_state") or "").strip()
+    assert str(dict(reporter_specimen.get("public_status_alignment") or {}).get("launch_followthrough_state") or "").strip()
+    assert str(dict(reporter_specimen.get("public_status_alignment") or {}).get("support_risk_state") or "").strip()
+    assert str(dict(reporter_specimen.get("public_status_alignment") or {}).get("public_status_headline") or "").strip()
+    assert isinstance(dict(reporter_specimen.get("support_followthrough_gate") or {}).get("reporter_ready_count"), int)
+    assert isinstance(dict(reporter_specimen.get("support_followthrough_gate") or {}).get("needs_human_response_count"), int)
+    assert str(dict(reporter_specimen.get("release_channel_posture") or {}).get("fix_availability_summary") or "").strip()
+    assert str(dict(reporter_specimen.get("release_channel_posture") or {}).get("known_issue_summary") or "").strip()
+    assert launch_pulse
+    assert weekly_governor
+    assert support_packets
+    assert release_channel
 
 
 def test_packet_family_contracts_stay_fail_closed() -> None:

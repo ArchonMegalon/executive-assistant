@@ -1,0 +1,60 @@
+{
+  "started_at_utc": "2026-05-06T14:01:42Z",
+  "results": [
+    {
+      "account_label": "ONEMIN_AI_API_KEY_FALLBACK_27",
+      "owner_email": "fi@chummer.run",
+      "status": "ui_lane_failure",
+      "failure_code": "challenge_required",
+      "duration_seconds": 32.722,
+      "worker_returncode": 1,
+      "error": "template_worker_failed:[\"Error: Submit Login:auth_request_failed:console:Access to XMLHttpRequest at 'https://api.1min.ai/auth/login' from origin 'https://app.1min.ai' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.\\n    at throwIfAuthRequestFailed (/docker/fleet/state/browseract_ui_worker_shared/template-worker-fuyyyj7f/worker.js:426:13)\\n    at authAdvanced (/docker/fleet/state/browseract_ui_worker_shared/template-worker-fuyyyj7f/worker.js:438:9)\\n    at\ntemplate_worker_failed:[\"Error: Submit Login:auth_request_failed:console:Access to XMLHttpRequest at 'https://api.1min.ai/auth/login' from origin 'https://app.1min.ai' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.\\n    at throwIfAuthRequestFailed (/docker/fleet/state/browseract_ui_worker_shared/template-worker-fuyyyj7f/worker.js:426:13)\\n    at authAdvanced (/docker/fleet/state/browseract_ui_worker_shared/template-worker-fuyyyj7f/worker.js:438:9)\\n    at",
+      "asset_path": "",
+      "screenshot_path": "",
+      "warnings": [],
+      "proxy_server": "http://ea-fastestvpn-proxy:3128",
+      "proxy_service_name": "ea-fastestvpn-proxy",
+      "attempt": 3
+    }
+  ],
+  "rotations": [
+    {
+      "returncode": 0,
+      "duration_seconds": 11.091,
+      "service_name": "ea-fastestvpn-proxy",
+      "stdout": "[rotate-fastestvpn-proxy] selecting config via FASTESTVPN_CONFIG_SELECT_MODE=random\n#1 [internal] load local bake definitions\n#1 reading from stdin 542B done\n#1 DONE 0.0s\n\n#2 [internal] load build definition from Dockerfile\n#2 transferring dockerfile: 573B done\n#2 DONE 0.0s\n\n#3 [internal] load metadata for docker.io/library/alpine:3.20\n#3 DONE 0.4s\n\n#4 [internal] load .dockerignore\n#4 transferring context: 2B done\n#4 DONE 0.0s\n\n#5 [1/5] FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc\n#5 DONE 0.0s\n\n#6 [internal] load build context\n#6 transferring context: 4.21kB 0.0s done\n#6 DONE 0.1s\n\n#7 [2/5] RUN apk add --no-cache     bash     ca-certificates     coreutils     grep     netcat-openbsd     openvpn     sed     tinyproxy\n#7 CACHED\n\n#8 [3/5] COPY docker/fastestvpn-proxy/start.sh /usr/local/bin/fastestvpn-proxy-start\n#8 CACHED\n\n#9 [4/5] COPY docker/fastestvpn-proxy/tinyproxy.conf.template /etc/tinyproxy/tinyproxy.conf.template\n#9 CACHED\n\n#10 [5/5] RUN chmod +x /usr/local/bin/fastestvpn-proxy-start &&     mkdir -p /state /vpn/fastestvpn &&     touch /tmp/openvpn.log /tmp/openvpn-status.log\n#10 CACHED\n\n#11 exporting to image\n#11 exporting layers done\n#11 writing image sha256:8e68da57b53e1888b06dc689ff120c95323d4effa6296dce7154c664a7e40fa9 0.0s done\n#11 naming to docker.io/library/ea-fastestvpn-proxy:latest done\n#11 DONE 0.0s\n\n#12 resolving provenance for metadata file\n#12 DONE 0.0s\nNAME                  IMAGE                        COMMAND                  SERVICE               CREATED          STATUS                   PORTS\nea-fastestvpn-proxy   ea-fastestvpn-proxy:latest   \"/usr/local/bin/fast\u2026\"   ea-fastestvpn-proxy   10 seconds ago   Up 5 seconds (healthy)   0.0.0.0:9312->3128/tcp, [::]:9312->3128/tcp\n",
+      "stderr": " Image ea-fastestvpn-proxy:latest Building \n Image ea-fastestvpn-proxy:latest Built \ntime=\"2026-05-06T16:02:17+02:00\" level=warning msg=\"Found orphan containers ([ea-cloudflared]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up.\"\n Container ea-fastestvpn-proxy Recreate \n Container ea-fastestvpn-proxy Recreated \n Container ea-fastestvpn-proxy Starting \n Container ea-fastestvpn-proxy Started \n",
+      "reason": "ONEMIN_AI_API_KEY_FALLBACK_27:challenge_required:retry"
+    },
+    {
+      "returncode": 0,
+      "duration_seconds": 7.861,
+      "service_name": "ea-fastestvpn-proxy-ie",
+      "stdout": "[rotate-fastestvpn-proxy] selecting config via FASTESTVPN_CONFIG_SELECT_MODE=random\n#1 [internal] load local bake definitions\n#1 reading from stdin 551B done\n#1 DONE 0.0s\n\n#2 [internal] load build definition from Dockerfile\n#2 transferring dockerfile: 573B done\n#2 DONE 0.0s\n\n#3 [internal] load metadata for docker.io/library/alpine:3.20\n#3 DONE 0.4s\n\n#4 [internal] load .dockerignore\n#4 transferring context: 2B done\n#4 DONE 0.0s\n\n#5 [1/5] FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc\n#5 DONE 0.0s\n\n#6 [internal] load build context\n#6 transferring context: 190B done\n#6 DONE 0.0s\n\n#7 [2/5] RUN apk add --no-cache     bash     ca-certificates     coreutils     grep     netcat-openbsd     openvpn     sed     tinyproxy\n#7 CACHED\n\n#8 [3/5] COPY docker/fastestvpn-proxy/start.sh /usr/local/bin/fastestvpn-proxy-start\n#8 CACHED\n\n#9 [4/5] COPY docker/fastestvpn-proxy/tinyproxy.conf.template /etc/tinyproxy/tinyproxy.conf.template\n#9 CACHED\n\n#10 [5/5] RUN chmod +x /usr/local/bin/fastestvpn-proxy-start &&     mkdir -p /state /vpn/fastestvpn &&     touch /tmp/openvpn.log /tmp/openvpn-status.log\n#10 CACHED\n\n#11 exporting to image\n#11 exporting layers done\n#11 writing image sha256:1567bfe9419398713047289167b3626811a5f50795f1b61de6be74baa331dcbd done\n#11 naming to docker.io/library/ea-fastestvpn-proxy:latest done\n#11 DONE 0.0s\n\n#12 resolving provenance for metadata file\n#12 DONE 0.0s\nNAME                     IMAGE                        COMMAND                  SERVICE                  CREATED         STATUS                   PORTS\nea-fastestvpn-proxy-ie   ea-fastestvpn-proxy:latest   \"/usr/local/bin/fast\u2026\"   ea-fastestvpn-proxy-ie   7 seconds ago   Up 6 seconds (healthy)   \n",
+      "stderr": " Image ea-fastestvpn-proxy:latest Building \n Image ea-fastestvpn-proxy:latest Built \ntime=\"2026-05-06T16:03:05+02:00\" level=warning msg=\"Found orphan containers ([ea-cloudflared]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up.\"\n Container ea-fastestvpn-proxy-ie Recreate \n Container ea-fastestvpn-proxy-ie Recreated \n Container ea-fastestvpn-proxy-ie Starting \n Container ea-fastestvpn-proxy-ie Started \n",
+      "reason": "ONEMIN_AI_API_KEY_FALLBACK_27:challenge_required:retry"
+    }
+  ],
+  "resumed": false,
+  "proxy_server": "http://ea-fastestvpn-proxy:3128",
+  "proxy_pool": [
+    "http://ea-fastestvpn-proxy:3128",
+    "http://ea-fastestvpn-proxy-ie:3128"
+  ],
+  "worker_docker_network": "ea_default",
+  "rotate_every": 1,
+  "retry_challenge": 2,
+  "timeout_seconds": 180,
+  "pause_seconds": 3.0,
+  "total_accounts_requested": 1,
+  "resumed_skip_count": 0,
+  "finished_at_utc": "2026-05-06T14:03:48Z",
+  "duration_seconds": 125.741,
+  "success_count": 0,
+  "failure_count": 1,
+  "processed_count": 1,
+  "total_remaining_credits": 0,
+  "failure_code_counts": {
+    "challenge_required": 1
+  }
+}

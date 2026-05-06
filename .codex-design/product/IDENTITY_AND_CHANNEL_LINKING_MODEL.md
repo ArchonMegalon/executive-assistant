@@ -88,6 +88,16 @@ Canonical distinction:
 
 These are separate records and separate policy decisions.
 
+## Community-ledger rule
+
+Linked identities and linked channels attach to the Hub community ledger; they do not replace it.
+
+That means:
+
+* reward journal, entitlement journal, sponsor-session status, and group membership are separate community records
+* a linked channel is never proof of reward, entitlement, or sponsor-session completion
+* `/home` and `/account` may explain identity, channel, participation, reward, and recovery posture together, but each fact still comes from its own Hub-owned record
+
 ## Install claim rule
 
 Desktop installs are claimable after download.

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from app.yaml_inputs import load_yaml_dict
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK_PATH = ROOT / "docs" / "chummer_participation_followthrough_packets" / "CHUMMER_PARTICIPATION_FOLLOWTHROUGH_PACKET_PACK.yaml"
@@ -17,8 +18,7 @@ HUB_PROOF_PATH = Path("/docker/chummercomplete/chummer6-hub-m112/.codex-studio/p
 FLEET_PROOF_PATH = Path("/docker/fleet/.codex-studio/published/NEXT90_M129_FLEET_PARTICIPATION_LANE_RECEIPTS.generated.json")
 
 def _yaml(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    return load_yaml_dict(path)
 
 def _json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8")) or {}
