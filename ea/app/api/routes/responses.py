@@ -4646,7 +4646,7 @@ def _tool_shim_latest_package_work_prompt(history_items: list[dict[str, object]]
         item_type = str(item.get("type") or "").strip().lower()
         if item_type == "input_text":
             text = _extract_textish(item.get("text"))
-            if text and _tool_shim_is_package_work_prompt(text):
+            if text and (_tool_shim_is_package_work_prompt(text) or _tool_shim_staged_commands(text)):
                 return text
             continue
         if item_type != "message":
@@ -4663,7 +4663,7 @@ def _tool_shim_latest_package_work_prompt(history_items: list[dict[str, object]]
             ).strip()
         else:
             text = _extract_textish(content)
-        if text and _tool_shim_is_package_work_prompt(text):
+        if text and (_tool_shim_is_package_work_prompt(text) or _tool_shim_staged_commands(text)):
             return text
     return ""
 
@@ -4703,10 +4703,13 @@ def _tool_shim_is_package_work_prompt(text: str) -> bool:
     return any(
         marker in normalized
         for marker in (
+            "operator-prepared fleet unblock context:",
+            "active slice override",
             "system re-entry.",
             "read from disk before coding:",
             "then inspect the current repository state before changing anything.",
             "current slice:",
+            "owner repo for this pass:",
             "package scope:",
             "isolated worktree:",
             "allowed paths:",
@@ -6062,6 +6065,14 @@ def _tool_shim_direct_staged_first_command(
     if git_workflow_command and _tool_shim_command_identity(git_workflow_command) not in executed_commands:
         return git_workflow_command
     if (
+        _tool_shim_is_package_work_prompt(latest_user_text)
+        and len(commands) >= 2
+        and not executed_commands
+    ):
+        first_command = _tool_shim_rewrite_operator_unblock_command(commands[0])
+        second_command = _tool_shim_rewrite_operator_unblock_command(commands[1])
+        return f"{first_command} ; {second_command}"
+    if (
         readiness_remedy_context
         and len(commands) >= 2
         and not executed_commands
@@ -6142,13 +6153,10 @@ def _tool_shim_direct_post_staged_repo_hunks_command(
     repo_hunks_command = _tool_shim_build_staged_repo_hunks_command(commands)
     if _tool_shim_is_package_work_prompt(latest_user_text):
         package_repo_diff_command = _tool_shim_build_package_scope_repo_diff_command(latest_user_text)
-        package_repo_hunks_command = _tool_shim_build_package_scope_repo_hunks_command(latest_user_text)
-        if package_repo_diff_command and package_repo_hunks_command:
+        if package_repo_diff_command:
             if not _tool_shim_command_sequence_executed(history_items, package_repo_diff_command):
                 return None
-            if _tool_shim_command_sequence_executed(history_items, package_repo_hunks_command):
-                return None
-            return package_repo_hunks_command
+            return None
     if not repo_diff_command or not repo_hunks_command:
         return None
     if not _tool_shim_command_sequence_executed(history_items, repo_diff_command):
@@ -6164,15 +6172,37 @@ def _tool_shim_direct_post_package_scope_repo_hunks_command(
 ) -> str | None:
     if not _tool_shim_is_package_work_prompt(latest_user_text):
         return None
+    repo_diff_command = _tool_shim_build_package_scope_repo_diff_command(latest_user_text)
     repo_hunks_command = _tool_shim_build_package_scope_repo_hunks_command(latest_user_text)
     search_command = _tool_shim_build_package_scope_search_command(latest_user_text)
-    if not repo_hunks_command or not search_command:
+    if not repo_diff_command or not search_command:
         return None
-    if not _tool_shim_command_sequence_executed(history_items, repo_hunks_command):
+    if not _tool_shim_command_sequence_executed(history_items, repo_diff_command):
         return None
     if _tool_shim_command_sequence_executed(history_items, search_command):
         return None
+    for path_text in _tool_shim_active_slice_followup_paths(latest_user_text):
+        read_command = _tool_shim_direct_file_read_command(path_text, max_lines=180)
+        if not _tool_shim_command_sequence_executed(history_items, read_command):
+            return f"{search_command} ; {read_command}"
     return search_command
+
+
+def _tool_shim_direct_post_package_scope_search_read_command(
+    latest_user_text: str,
+    history_items: list[dict[str, object]],
+) -> str | None:
+    if not _tool_shim_is_package_work_prompt(latest_user_text):
+        return None
+    search_command = _tool_shim_build_package_scope_search_command(latest_user_text)
+    if not search_command or not _tool_shim_command_sequence_executed(history_items, search_command):
+        return None
+    for path_text in _tool_shim_active_slice_followup_paths(latest_user_text):
+        read_command = _tool_shim_direct_file_read_command(path_text, max_lines=180)
+        if _tool_shim_command_sequence_executed(history_items, read_command):
+            continue
+        return read_command
+    return None
 
 
 def _tool_shim_direct_post_readiness_materialize_command(
@@ -6202,6 +6232,60 @@ def _tool_shim_package_scope_text(latest_user_text: str) -> str:
     if not match:
         return ""
     return str(match.group(1) or "").strip()
+
+
+def _tool_shim_bulleted_section_paths(latest_user_text: str, heading: str) -> list[str]:
+    prompt = str(latest_user_text or "")
+    if not prompt or not heading:
+        return []
+    marker = f"{heading}:"
+    marker_index = prompt.find(marker)
+    if marker_index < 0:
+        return []
+    trailing_lines = prompt[marker_index + len(marker):].splitlines()
+    paths: list[str] = []
+    seen_paths: set[str] = set()
+    for raw_line in trailing_lines:
+        line = str(raw_line or "").strip()
+        if not line:
+            if paths:
+                break
+            continue
+        if not line.startswith("- "):
+            if paths:
+                break
+            continue
+        candidate = line[2:].strip()
+        if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
+            candidate = candidate[1:-1].strip()
+        if not candidate.startswith("/"):
+            if paths:
+                break
+            continue
+        normalized_candidate = candidate.rstrip(",:;")
+        if normalized_candidate in seen_paths:
+            continue
+        paths.append(normalized_candidate)
+        seen_paths.add(normalized_candidate)
+    return paths
+
+
+def _tool_shim_active_slice_followup_paths(latest_user_text: str) -> list[str]:
+    prompt = str(latest_user_text or "")
+    if not _tool_shim_is_package_work_prompt(prompt):
+        return []
+    result: list[str] = []
+    seen_paths: set[str] = set()
+    for heading, limit in (
+        ("Edit these files first for this pass", 3),
+        ("Map or strengthen these tests first for this pass", 2),
+    ):
+        for path_text in _tool_shim_bulleted_section_paths(prompt, heading)[:limit]:
+            if path_text in seen_paths:
+                continue
+            result.append(path_text)
+            seen_paths.add(path_text)
+    return result
 
 
 def _tool_shim_package_current_slice_text(latest_user_text: str) -> str:
@@ -7941,9 +8025,20 @@ def _tool_shim_decision(
     request_deadline_monotonic: float | None = None,
 ) -> _ToolShimDecision:
     latest_user_text = _tool_shim_latest_user_text(history_items)
-    package_prompt_text = latest_user_text if _tool_shim_is_package_work_prompt(latest_user_text) else _tool_shim_latest_package_work_prompt(history_items)
+    instructions_text = _extract_textish(instructions)
+    package_prompt_text = ""
+    for candidate_text in (
+        latest_user_text,
+        instructions_text,
+        _tool_shim_latest_package_work_prompt(history_items),
+    ):
+        if not candidate_text:
+            continue
+        if _tool_shim_is_package_work_prompt(candidate_text) or _tool_shim_staged_commands(candidate_text):
+            package_prompt_text = candidate_text
+            break
     package_work_context = bool(package_prompt_text)
-    staged_prompt_text = package_prompt_text or latest_user_text
+    staged_prompt_text = package_prompt_text or latest_user_text or instructions_text
     direct_final_text = _tool_shim_direct_final_text(history_items)
     if direct_final_text is not None:
         return _ToolShimDecision(
@@ -8018,6 +8113,20 @@ def _tool_shim_decision(
                 upstream_result=_tool_shim_local_upstream_result(
                     package_scope_search_cmd,
                     reason="task_local_package_scope_search",
+                ),
+            )
+        package_scope_read_cmd = _tool_shim_direct_post_package_scope_search_read_command(
+            staged_prompt_text,
+            history_items,
+        )
+        if package_scope_read_cmd:
+            return _ToolShimDecision(
+                kind="function_call",
+                tool_name="exec_command",
+                arguments={"cmd": package_scope_read_cmd, "max_output_tokens": 1800},
+                upstream_result=_tool_shim_local_upstream_result(
+                    package_scope_read_cmd,
+                    reason="task_local_package_scope_read",
                 ),
             )
         readiness_materialize_cmd = _tool_shim_direct_post_readiness_materialize_command(
@@ -9533,7 +9642,17 @@ def _run_response(
             "stream": stream,
             "input_item_types": [str(item.get("type") or "") for item in parsed_input.input_items if isinstance(item, dict)],
             "supported_tools": [str(tool.get("name") or "") for tool in supported_tools],
+            "latest_prompt_chars": len(latest_prompt),
+            "latest_prompt_sha256": hashlib.sha256(latest_prompt.encode("utf-8", errors="ignore")).hexdigest()
+            if latest_prompt
+            else "",
             "latest_prompt_excerpt": _tool_shim_truncate_text(latest_prompt, limit=800),
+            "latest_user_text_chars": len(_tool_shim_latest_user_text(history_items)),
+            "latest_user_text_sha256": hashlib.sha256(
+                _tool_shim_latest_user_text(history_items).encode("utf-8", errors="ignore")
+            ).hexdigest()
+            if _tool_shim_latest_user_text(history_items)
+            else "",
             "latest_user_text_excerpt": _tool_shim_truncate_text(_tool_shim_latest_user_text(history_items), limit=800),
             "history_item_types_tail": [
                 str(item.get("type") or "")

@@ -48,9 +48,9 @@ When a public concierge widget appears on `/downloads`, `/now`, `/help`, or anot
 
 ## Public content optimization bounds
 
-Katteb-assisted articles and guide improvements must be reviewed against approved Chummer source packets.
+Guide-optimization-assisted articles and guide improvements must be reviewed against approved Chummer source packets.
 
-Accepted content changes flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes. Katteb must not invent rules, support answers, unshipped availability, or campaign/world truth.
+Accepted content changes flow upstream into `chummer6-design` or public-guide source registries before generated guide output changes. Guide optimization must not invent rules, support answers, unshipped availability, or campaign/world truth.
 
 ## Closure rule
 

@@ -635,7 +635,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 7be45a1b hardens M102 encoded hash separator secret redaction.
           - /docker/chummercomplete/chummer6-hub commit e054d2f1 pins the M102 encoded hash proof floor.
           - /docker/chummercomplete/chummer6-hub commit 43e273e9 hardens M102 native support secret redaction.
-#           - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
+          - /docker/chummercomplete/chummer6-hub commit d86cce39 tightens the M102 successor frontier proof.
           - /docker/chummercomplete/chummer6-hub commit aa318f30 tightens the M102 encoded proof marker guard.
           - /docker/chummercomplete/chummer6-hub commit 607139bc hardens M102 HTML hash separator redaction.
           - /docker/chummercomplete/chummer6-hub commit 0a007077 tightens M102 compressed helper proof guard.
@@ -815,94 +815,94 @@ milestones:
         title: Build golden oracle suites for creation, advancement, augment, matrix, magic, vehicle, source-toggle, and amend-package rules.
         status: complete
         evidence:
-          - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json reports status=passed with required oracle suites creation, advancement, augment, matrix, magic, vehicle, source_toggle, and amend_package.
-          - /docker/chummercomplete/chummer6-core commit 00800059 adds fail-closed successor authority and oracle/budget generator tests.
-          - /docker/chummercomplete/chummer6-core commit fd15fe87 tightens row-scoped successor queue allowed-path authority for src, tests, docs, and scripts.
-          - /docker/chummercomplete/chummer6-core commit 44fdda0f fail-closes non-resolving successor queue proof anchors so stale closeout evidence cannot keep the proof pack passed.
+          - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json reports status=passed with required oracle suites creation, advancement, augment, matrix, magic, vehicle, source_toggle, and amend_package.
+          - /docker/chummercomplete/chummer-core-engine commit 00800059 adds fail-closed successor authority and oracle/budget generator tests.
+          - /docker/chummercomplete/chummer-core-engine commit fd15fe87 tightens row-scoped successor queue allowed-path authority for src, tests, docs, and scripts.
+          - /docker/chummercomplete/chummer-core-engine commit 44fdda0f fail-closes non-resolving successor queue proof anchors so stale closeout evidence cannot keep the proof pack passed.
           - python3 tests/test_engine_proof_pack_generator.py exits 0.
       - id: 104.2
         owner: chummer6-core
         title: Publish a release-bound engine proof pack with load, explain, diff/apply, import, and export-prep budgets.
         status: complete
         evidence:
-          - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json reports successor_wave_authority=passed and unresolved successor_wave_authority/oracle_suites/performance_budgets/release_commands/import_oracle_discipline all empty.
-          - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json now requires the next90-m104-core-proof-pack queue row to retain allowed_paths src, tests, docs, and scripts.
-          - /docker/chummercomplete/chummer6-core commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces and records queue_allowed_paths, queue_owned_surfaces, and empty unexpected drift arrays in ENGINE_PROOF_PACK.generated.json.
-#           - /docker/chummercomplete/chummer6-core commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof so future shards verify this closed package instead of repeating it.
-          - /docker/chummercomplete/chummer6-core/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md records the package-local do-not-reopen rule and exact closed-scope verification commands for future shards.
-          - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json now reports missing_queue_proof_anchors=[] after resolving the package proof anchors on disk.
-          - /docker/chummercomplete/chummer6-core commit cfc465a5 adds a checked-in receipt reproducibility guard so ENGINE_PROOF_PACK.generated.json cannot drift from scripts/generate-engine-proof-pack.py except generated_at.
-          - /docker/chummercomplete/chummer6-core commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.
-          - /docker/chummercomplete/chummer6-core commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.
-          - /docker/chummercomplete/chummer6-core commit 769e7259 pins local commit proof through guard 56048971 so the completed M104 proof pack cannot pass if the latest guard disappears.
-          - /docker/chummercomplete/chummer6-core commit d4b3b0ba requires the current 769e7259 guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit a2173476 requires the current d4b3b0ba guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in receipt to active-run hygiene guard 4a56911d.
-          - /docker/chummercomplete/chummer6-core commit b488d109 pins the latest M104 proof pack authority so future shards verify the closed package instead of repeating it.
-          - /docker/chummercomplete/chummer6-core commit b6fddf74 tightens the current M104 proof pack authority guard so future shards verify the latest closed package.
-          - /docker/chummercomplete/chummer6-core commit f6608678 tightens the latest M104 proof pack local guard so future shards verify the closed package.
-          - /docker/chummercomplete/chummer6-core commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard tightening.
-          - /docker/chummercomplete/chummer6-core commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify the latest closed package.
-          - /docker/chummercomplete/chummer6-core commit 8574f63f pins the M104 proof pack receipt guard.
-          - /docker/chummercomplete/chummer6-core commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit e10f2739 pins the current cd30503f queue proof floor in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit 18365058 pins the current ea449f7b queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit 5031ee41 pins the current 18365058 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit cbce6a19 pins the current 5031ee41 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
-          - /docker/chummercomplete/chummer6-core commit 71441924 pins the current cbce6a19 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must resolve locally.
-          - /docker/chummercomplete/chummer6-core commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.
-          - /docker/chummercomplete/chummer6-core commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 05e47cff binds the M104 proof guard to successor queues so future shards verify the current closed-package guard.
-          - /docker/chummercomplete/chummer6-core commit 93d06011 pins the current 05e47cff queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 31aec38a pins the current 93d06011 queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit ceccc309 pins the current 31aec38a queue-bound proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 5dff1a2e tightens worker-safe closure evidence guards for task-local files and run-control helper transcripts.
-          - /docker/chummercomplete/chummer6-core commit 2301a043 pins the current 5dff1a2e worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 5c75316f pins the current 2301a043 worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 28be988f pins the current 5c75316f proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit c6a2ee8e pins the current 28be988f proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 6684fc89 pins the current c6a2ee8e proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit ccbfc6b2 pins the current 6684fc89 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 2a3ebcb9 pins the current ccbfc6b2 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 7501f49a pins the current 2a3ebcb9 proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 36311e16 pins the current ac961fe1 local proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit be5755a6 pins the current db3cc033 queue-cited proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 8ffec2b1 pins the latest be5755a6 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 1bcb9b7e pins the current M104 proof pack guard.
-          - /docker/chummercomplete/chummer6-core commit e04d7b88 binds the current M104 proof pack guard into the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 51bb2d8f pins the current a404b474 proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 6d25fb18 pins the current 06a2e06a proof floor receipt in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit cc6cf25b pins the M104 current proof floor guard.
-          - /docker/chummercomplete/chummer6-core commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit 2f430d09 pins the current 498dff3d queue mirror proof floor in the generator, unit tests, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.
-          - /docker/chummercomplete/chummer6-core commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
-          - /docker/chummercomplete/chummer6-core commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.
-          - /docker/chummercomplete/chummer6-core commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
-          - /docker/chummercomplete/chummer6-core commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
-          - /docker/chummercomplete/chummer6-core commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
-          - /docker/chummercomplete/chummer6-core commit 1b53f23f tightens M104 task-local machine-status proof guards across registry, Fleet queue, design queue, closeout, and checked-in receipt proof.
+          - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json reports successor_wave_authority=passed and unresolved successor_wave_authority/oracle_suites/performance_budgets/release_commands/import_oracle_discipline all empty.
+          - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json now requires the next90-m104-core-proof-pack queue row to retain allowed_paths src, tests, docs, and scripts.
+          - /docker/chummercomplete/chummer-core-engine commit 86040e30 fail-closes unassigned queue allowed paths or owned surfaces and records queue_allowed_paths, queue_owned_surfaces, and empty unexpected drift arrays in ENGINE_PROOF_PACK.generated.json.
+#           - /docker/chummercomplete/chummer-core-engine commit 35cd27b4 pins successor frontier 3227666051 into the completed queue proof so future shards verify this closed package instead of repeating it.
+          - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md records the package-local do-not-reopen rule and exact closed-scope verification commands for future shards.
+          - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json now reports missing_queue_proof_anchors=[] after resolving the package proof anchors on disk.
+          - /docker/chummercomplete/chummer-core-engine commit cfc465a5 adds a checked-in receipt reproducibility guard so ENGINE_PROOF_PACK.generated.json cannot drift from scripts/generate-engine-proof-pack.py except generated_at.
+          - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.
+          - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.
+          - /docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so the completed M104 proof pack cannot pass if the latest guard disappears.
+          - /docker/chummercomplete/chummer-core-engine commit d4b3b0ba requires the current 769e7259 guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit a2173476 requires the current d4b3b0ba guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in receipt to active-run hygiene guard 4a56911d.
+          - /docker/chummercomplete/chummer-core-engine commit b488d109 pins the latest M104 proof pack authority so future shards verify the closed package instead of repeating it.
+          - /docker/chummercomplete/chummer-core-engine commit b6fddf74 tightens the current M104 proof pack authority guard so future shards verify the latest closed package.
+          - /docker/chummercomplete/chummer-core-engine commit f6608678 tightens the latest M104 proof pack local guard so future shards verify the closed package.
+          - /docker/chummercomplete/chummer-core-engine commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard tightening.
+          - /docker/chummercomplete/chummer-core-engine commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify the latest closed package.
+          - /docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.
+          - /docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit e10f2739 pins the current cd30503f queue proof floor in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit 18365058 pins the current ea449f7b queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit 5031ee41 pins the current 18365058 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit cbce6a19 pins the current 5031ee41 queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.
+          - /docker/chummercomplete/chummer-core-engine commit 71441924 pins the current cbce6a19 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must resolve locally.
+          - /docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.
+          - /docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 05e47cff binds the M104 proof guard to successor queues so future shards verify the current closed-package guard.
+          - /docker/chummercomplete/chummer-core-engine commit 93d06011 pins the current 05e47cff queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 31aec38a pins the current 93d06011 queue-bound proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit ceccc309 pins the current 31aec38a queue-bound proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 5dff1a2e tightens worker-safe closure evidence guards for task-local files and run-control helper transcripts.
+          - /docker/chummercomplete/chummer-core-engine commit 2301a043 pins the current 5dff1a2e worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 5c75316f pins the current 2301a043 worker-safe proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 28be988f pins the current 5c75316f proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit c6a2ee8e pins the current 28be988f proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 6684fc89 pins the current c6a2ee8e proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit ccbfc6b2 pins the current 6684fc89 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 2a3ebcb9 pins the current ccbfc6b2 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 7501f49a pins the current 2a3ebcb9 proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 36311e16 pins the current ac961fe1 local proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit be5755a6 pins the current db3cc033 queue-cited proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 8ffec2b1 pins the latest be5755a6 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 1bcb9b7e pins the current M104 proof pack guard.
+          - /docker/chummercomplete/chummer-core-engine commit e04d7b88 binds the current M104 proof pack guard into the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 51bb2d8f pins the current a404b474 proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 6d25fb18 pins the current 06a2e06a proof floor receipt in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit cc6cf25b pins the M104 current proof floor guard.
+          - /docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit 2f430d09 pins the current 498dff3d queue mirror proof floor in the generator, unit tests, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.
+          - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
+          - /docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.
+          - /docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
+          - /docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
+          - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
+          - /docker/chummercomplete/chummer-core-engine commit 1b53f23f tightens M104 task-local machine-status proof guards across registry, Fleet queue, design queue, closeout, and checked-in receipt proof.
           - dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll exits 0.
           - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0 for load, explain, diff/apply, import, and export-prep workloads.
       - id: 104.3
@@ -986,7 +986,7 @@ milestones:
         status: complete
         evidence:
           - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_RELEASE_ACCEPTANCE.yaml now requires the release-bound engine proof pack to publish oracle-suite coverage, import-certification truth, and performance budgets for the promoted desktop release as part of flagship acceptance.
-          - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml now ties core rules/import families to /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json and fail-closes gold-ready parity truth when the promoted-desktop engine proof pack drops oracle, import, or budget coverage.
+          - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_PARITY_REGISTRY.yaml now ties core rules/import families to /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json and fail-closes gold-ready parity truth when the promoted-desktop engine proof pack drops oracle, import, or budget coverage.
           - /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json already reports flagship_ready=ready, veteran_ready=ready, parity_lab_ready=true, and zero flagship families below target, so the design-owned acceptance/parity canon now consumes the same release-bound proof lane that the readiness plane is already publishing.
 
   - id: 105
@@ -1219,9 +1219,9 @@ milestones:
         title: Preserve ruleset and amend-environment fingerprints through sync, restore, and replay-safe continuation.
         status: complete
         evidence:
-          - /docker/chummercomplete/chummer6-core/Chummer.CoreEngine.Tests/Program.cs keeps runtime fingerprint determinism, restore-lineage normalization, replay-safe stale recovery, import ruleset identity, and amend-package coverage under executable test lock.
-          - /docker/chummercomplete/chummer6-core/docs/CORE_RUNTIME_RESTORE_RUNBOOK.md makes deterministic runtime bundles, replay-safe restore, and explain/runtime continuity part of the operator-facing proof path instead of ambient lore.
-          - /docker/chummercomplete/chummer6-core/.codex-studio/published/ENGINE_PROOF_PACK.generated.json and /docker/chummercomplete/chummer6-core/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md keep promoted-desktop oracle suites, release-bound budgets, import-certification coverage, and checked-in release commands explicit for the ruleset and amend-environment continuation lane.
+          - /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs keeps runtime fingerprint determinism, restore-lineage normalization, replay-safe stale recovery, import ruleset identity, and amend-package coverage under executable test lock.
+          - /docker/chummercomplete/chummer-core-engine/docs/CORE_RUNTIME_RESTORE_RUNBOOK.md makes deterministic runtime bundles, replay-safe restore, and explain/runtime continuity part of the operator-facing proof path instead of ambient lore.
+          - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json and /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md keep promoted-desktop oracle suites, release-bound budgets, import-certification coverage, and checked-in release commands explicit for the ruleset and amend-environment continuation lane.
 
   - id: 106
     title: Product-governor weekly adoption and measured rollout loop
@@ -1460,7 +1460,7 @@ milestones:
           - /docker/chummercomplete/chummer6-hub commit 700343bc pins M107 format scope proof floor.
           - /docker/chummercomplete/chummer6-hub commit 65484700 tightens M107 artifact factory source-pack family proof.
           - /docker/chummercomplete/chummer6-hub commit d5a4a61b tightens M107 artifact factory aggregate receipt and public proof shelf refs.
-#           - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
+          - successor frontier 1421219975 pinned for next90-m107-hub-artifact-factory repeat prevention.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/ArtifactFactoryOrchestrationService.cs rejects unapproved or provider-specific source packs and emits media-factory output bindings for preview, caption, packet, audio, and video formats.
           - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/InternalArtifactFactoryController.cs and Chummer.Run.Api/ServiceCollectionBoundedContextExtensions.cs bind the recipe-backed job launcher to the internal authenticated Hub orchestration endpoint.
           - /docker/chummercomplete/chummer6-hub/Chummer.Tests/ArtifactFactoryOrchestrationServiceTests.cs proves release, support, fix, and publication bundles route through approved source-pack receipts.
@@ -1638,12 +1638,12 @@ milestones:
         status: complete
         landed_commit: a52603c9
         evidence:
-          - /docker/chummercomplete/chummer6-core commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth for artifact-factory companion generation.
-          - /docker/chummercomplete/chummer6-core commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local telemetry, active-run handoff, or blocked helper evidence cannot keep the completed package green.
-          - /docker/chummercomplete/chummer6-core commit 95829fcd tightens the M109 packet authority receipt so packet-local approval digests, canonical receipt anchors, Build Lab runtime contract digests, and output-anchor handoff proof fail closed together.
-          - /docker/chummercomplete/chummer6-core/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json reports status=passed, four approved packets, twelve approved anchors, and companion-only artifact-factory rules that preserve JSON pointers and anchor digests.
-          - /docker/chummercomplete/chummer6-core/scripts/generate-build-lab-explain-packets.py requires the passed M104 engine proof pack, M109 registry authority, Fleet queue row, design queue row, and the `build_lab_explain_packets` plus `engine_truth:artifact_anchors` owned surfaces before approving packets.
-          - /docker/chummercomplete/chummer6-core/tests/test_build_lab_explain_packets_generator.py fail-closes missing engine truth, regressed anchor status, design queue drift, duplicate queue rows, and stale checked-in receipts.
+          - /docker/chummercomplete/chummer-core-engine commit a52603c9 exposes approved Build Lab explain packet anchors from M104 engine proof truth for artifact-factory companion generation.
+          - /docker/chummercomplete/chummer-core-engine commit a4dcffb6 tightens the M109 packet authority guard so mixed-case worker-local telemetry, active-run handoff, or blocked helper evidence cannot keep the completed package green.
+          - /docker/chummercomplete/chummer-core-engine commit 95829fcd tightens the M109 packet authority receipt so packet-local approval digests, canonical receipt anchors, Build Lab runtime contract digests, and output-anchor handoff proof fail closed together.
+          - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/BUILD_LAB_EXPLAIN_PACKETS.generated.json reports status=passed, four approved packets, twelve approved anchors, and companion-only artifact-factory rules that preserve JSON pointers and anchor digests.
+          - /docker/chummercomplete/chummer-core-engine/scripts/generate-build-lab-explain-packets.py requires the passed M104 engine proof pack, M109 registry authority, Fleet queue row, design queue row, and the `build_lab_explain_packets` plus `engine_truth:artifact_anchors` owned surfaces before approving packets.
+          - /docker/chummercomplete/chummer-core-engine/tests/test_build_lab_explain_packets_generator.py fail-closes missing engine truth, regressed anchor status, design queue drift, duplicate queue rows, and stale checked-in receipts.
           - python3 tests/test_build_lab_explain_packets_generator.py exits 0.
           - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --check exits 0.
           - python3 scripts/generate-build-lab-explain-packets.py --repo-root . --out /tmp/chummer6-core-build-lab-explain-packets.generated.json exits 0.
@@ -2110,7 +2110,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: complete
+    status: in_progress
     dependencies:
       - 104
       - 109
@@ -2161,7 +2161,7 @@ milestones:
         status: complete
         evidence:
           - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/CampaignSpineService.cs projects rules navigator answers with stable ExplainEntryId values, before/after diffs, and rule-environment studio lifecycle posture on signed-in campaign surfaces.
-          - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Support/SupportAssistantService.cs forwards shared ExplainEntryId values into support and install-aware build citations so assistant answers stay grounded in the same campaign and build receipt lane.
+          - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Support/SupportAssistantService.cs forwards RulesNavigator ExplainEntryId values into support citations and install-aware build citations so assistant answers stay grounded in the same campaign and build receipt lane.
           - /docker/chummercomplete/chummer.run-services/tests/RunServicesSmoke/Program.cs proves campaign rules, signed-in support answers, and install-aware build questions reuse the same explain receipt ids and return rails.
           - /docker/chummercomplete/chummer.run-services/scripts/materialize_hub_local_release_proof.py closes the successor proof package and publishes the campaign_rule_environment_receipts, support_rule_environment_receipts, and install_aware_support_receipts rows as verify-only evidence.
           - /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m114_hub_rule_environment_receipts.py and /docker/chummercomplete/chummer.run-services/tests/test_next90_m114_hub_rule_environment_receipts.py fail closed on queue, registry, source, and release-proof drift for the shared rule-environment receipt lane.
@@ -2718,6 +2718,15 @@ milestones:
       owner: chummer6-core
       title: Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK
         LEDGER flows.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M122 chummer6-core campaign adoption, runner-goal, and BLACK LEDGER deterministic receipts are complete; future shards must verify the checked-in receipt, focused receipt tests, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Campaign/CampaignAdvanceReceiptContracts.cs and /docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/DefaultCampaignAdvanceReceiptService.cs define the canonical adoption-confidence, reward, downtime, goal-update, BLACK LEDGER consequence, and deterministic parity-family receipts for this package.
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/ICampaignAdvanceReceiptService.cs and /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs keep the M122 receipt builder wired as a package-owned core service seam.
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/CampaignAdvanceReceiptServiceTests.cs and /docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs pin governed, blocked, review-required, and achieved-goal deterministic outcomes behind the focused `next90-m122-campaign-advance-receipts` filter.
+      - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/Compliance/MigrationComplianceTests.cs, /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh, /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m122-campaign-advance-receipts.py, and /docker/chummercomplete/chummer-core-engine/tests/test_next90_m122_campaign_advance_receipts.py fail closed when the package proof, verify wiring, canonical registry row, or queue mirrors drift.
+      - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md and /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json record the closed-package contract surface, verification commands, and checked-in deterministic receipt for this core lane.
     - id: '122.3'
       owner: chummer6-ui
       title: Surface campaign adoption, runner goal pins, ResolutionReport closeout, and BLACK LEDGER consequence proof on desktop.
@@ -4175,10 +4184,10 @@ milestones:
       completion_action: verify_closed_package_only
       do_not_reopen_reason: M141 chummer6-ui translator, XML amendment, and Hero Lab direct route proof is complete; future shards must verify the closed-package receipt, focused guard test, runtime-backed screenshot gates, canonical registry row, and queue mirrors instead of reopening this slice.
       evidence:
-      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs, and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs keep the translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle flows bound to direct screenshot-backed and runtime-backed desktop route proof instead of broad family prose.
-      - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/veteran-task-time-evidence-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json keep the direct screenshot pack, runtime-backed route receipts, and published closure proof aligned for translator, XML amendment, Hero Lab importer, and adjacent import-oracle coverage.
-      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, verify wiring, or worker-safe flagship frontier evidence drift from the completed package contract.
-      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json records the closed-package receipt for `next90-m141-ui-capture-direct-screenshot-and-runtime-proof-for-translator-xml-amendment`.
+      - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs, and /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs keep the translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle flows bound to direct screenshot-backed and runtime-backed desktop route proof instead of broad family prose.
+      - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/veteran-task-time-evidence-gate.sh, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/b14-flagship-ui-release-gate.sh, and /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json keep the direct screenshot pack, runtime-backed route receipts, and published closure proof aligned for translator, XML amendment, Hero Lab importer, and adjacent import-oracle coverage.
+      - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh, and /docker/chummercomplete/chummer6-ui/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, verify wiring, or worker-safe flagship frontier evidence drift from the completed package contract.
+      - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json records the closed-package receipt for `next90-m141-ui-capture-direct-screenshot-and-runtime-proof-for-translator-xml-amendment`.
     - id: '141.2'
       owner: chummer6-core
       title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.
@@ -4318,6 +4327,14 @@ milestones:
     - id: '143.3'
       owner: chummer6-hub
       title: Bind exchange and outward-facing output routes to visible receipt or bounded-failure posture instead of silent optimistic claims.
+      status: complete
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M143 chummer6-hub exchange and outward-facing output route receipt posture is complete; future shards must verify the repo-local proof receipt, focused guard tests, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+      - /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Controllers/PublicLandingController.cs, /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Controllers/InstallLinkingController.cs, /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Controllers/CampaignSpineController.cs, and /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Views/PublicLanding/PublicCreatorPublication.cshtml bind install recovery exchange, release-bundle proof, creator-publication detail, and campaign-federation routes to visible route receipts or explicit bounded-failure posture instead of silent optimistic claims.
+      - /docker/chummercomplete/chummer.run-services/scripts/verify_next90_m143_hub_exchange_output_receipts.py, /docker/chummercomplete/chummer.run-services/tests/test_next90_m143_hub_exchange_output_receipts.py, /docker/chummercomplete/chummer.run-services/scripts/ai/verify.sh, and /docker/chummercomplete/chummer.run-services/tests/RunServicesSmoke/Program.cs fail closed when canonical registry rows, queue mirrors, repo-local proof receipts, route-currentness guards, or outward-facing bounded-failure assertions drift from the completed package contract.
+      - /docker/chummercomplete/chummer.run-services/scripts/materialize_hub_local_release_proof.py, /docker/chummercomplete/chummer.run-services/.codex-studio/published/HUB_LOCAL_RELEASE_PROOF.generated.json, and /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/wwwroot/proofs/mac-codex-release/HUB_LOCAL_RELEASE_PROOF.generated.json record the closed-package receipt for `next90-m143-hub-bind-exchange-and-outward-facing-output-routes-to-visible-receipt-or-bou`.
+      - python3 scripts/verify_next90_m143_hub_exchange_output_receipts.py and python3 -m unittest tests/test_next90_m143_hub_exchange_output_receipts.py exit 0.
     - id: '143.4'
       owner: chummer6-hub-registry
       title: Keep public or signed-in release and exchange surfaces from overstating output readiness when proof receipts are stale or incomplete.

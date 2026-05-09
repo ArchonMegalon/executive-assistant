@@ -10,16 +10,16 @@ defaults:
   owner: chummer6-hub
   render_owner: chummer6-media-factory
   registry_owner: chummer6-hub-registry
-  widget_lane: FacePop
-  booking_lane: Lunacal
-  intake_lane: Deftform
-  long_form_video_lane: vidBoard
-  packet_lane: MarkupGo
-  preview_lane: PeekShot
-  survey_lane: MetaSurvey
+  widget_lane: concierge_widget
+  booking_lane: human_booking
+  intake_lane: structured_intake
+  long_form_video_lane: explainer_video
+  packet_lane: briefing_packet
+  preview_lane: preview_gallery
+  survey_lane: post_flow_survey
   approval_lane:
     - hub_owned_approval_ui
-    - ApproveThis
+    - review_approval_ui
   public_only_widget_surfaces:
     - downloads
     - now_page

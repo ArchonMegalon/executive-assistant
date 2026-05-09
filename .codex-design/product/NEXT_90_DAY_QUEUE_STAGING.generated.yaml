@@ -7037,18 +7037,18 @@ items:
   wave: W22P
   repo: chummer6-ui
   proof:
-  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj
-  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh
-  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/veteran-task-time-evidence-gate.sh
-  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh
-  - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh
-  - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
+  - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs
+  - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs
+  - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs
+  - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs
+  - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs
+  - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Chummer.Tests.csproj
+  - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh
+  - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/veteran-task-time-evidence-gate.sh
+  - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/b14-flagship-ui-release-gate.sh
+  - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh
+  - /docker/chummercomplete/chummer6-ui/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
   - bash scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh
   - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M141DirectImportRouteProofGuardTests" --no-restore
   allowed_paths:

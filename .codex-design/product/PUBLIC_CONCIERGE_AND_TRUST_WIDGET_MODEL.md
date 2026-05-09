@@ -7,10 +7,10 @@ Project Chummer already has a strong first-party release, support, campaign, and
 This document defines the missing product layer between:
 
 * first-party truth surfaces (`/downloads`, `/now`, `/contact`, artifact pages, campaign invite pages)
-* bounded humanized guidance (`FacePop`)
-* structured intake (`Deftform`)
-* human booking or escalation (`Lunacal`)
-* polished explainer and briefing artifacts (`vidBoard`, `Soundmadeseen`, `MarkupGo`, `PeekShot`)
+* bounded humanized guidance (`concierge_widget`)
+* structured intake (`structured_intake`)
+* human booking or escalation (`human_booking`)
+* polished explainer and briefing artifacts (`explainer_video`, `audio_briefing`, `briefing_packet`, `preview_gallery`)
 
 The goal is not to turn Chummer into a vendor-widget collage. The goal is to create high-trust concierge experiences that make the product feel alive while keeping support, install, publication, and campaign truth first-party.
 
@@ -19,17 +19,17 @@ The goal is not to turn Chummer into a vendor-widget collage. The goal is to cre
 What is already strong:
 
 * Chummer already has `PUBLIC_VIDEO_BRIEFS.yaml` and `MEDIA_ARTIFACT_RECIPE_REGISTRY.yaml` for structured presenter-video and sibling artifact families.
-* `vidBoard` is already promoted for release explainers, campaign primers, mission briefings, runsite orientation clips, support-closure videos, and creator promo videos.
+* the long-form explainer lane is already promoted for release explainers, campaign primers, mission briefings, runsite orientation clips, support-closure videos, and creator promo videos.
 * `table-pulse` already has a bounded post-session media and coaching lane.
 * Hub already owns the public trust shelf, downloads, support intake, private case truth, human escalation, and publication shaping.
 
 What this model closes:
 
 * no first-class public concierge or trust-widget model
-* no machine-readable workflow family for `FacePop -> Deftform -> Lunacal -> Hub` handoff
+* no machine-readable workflow family for `concierge_widget -> structured_intake -> human_booking -> Hub` handoff
 * no first-class testimonial or response-capture lane
 * no policy exception for public, low-risk trust widgets on Hub-owned pages
-* drift between the recently acquired tools (`FacePop`, `Lunacal`, `Deftform`) and the design or EA inventory
+* drift between the external concierge tools and the design or EA inventory
 
 ## Core product idea
 
@@ -75,8 +75,8 @@ Recovery is allowed on public concierge surfaces only as an orientation or routi
 Allowed recovery moves:
 
 * open the first-party recovery article or install-help page
-* route to Deftform pre-intake when structured details help support
-* route to Lunacal when the documented escalation policy says a human help session is warranted
+* route to structured intake when structured details help support
+* route to human booking when the documented escalation policy says a human help session is warranted
 * route to first-party relinking, release, or status copy that explains what the user can safely do next
 
 Forbidden recovery moves:
@@ -108,10 +108,10 @@ Allowed handoff destinations:
 
 * first-party help articles or release pages
 * Hub-owned support intake
-* Deftform structured intake
-* Lunacal booking pages
+* structured-intake forms
+* human-booking pages
 * approved artifact or media pages
-* MetaSurvey post-flow usefulness capture
+* post-flow usefulness capture
 
 ### Explicitly forbidden surfaces
 
@@ -130,7 +130,7 @@ No concierge widget on:
 
 ## Tool roles
 
-### FacePop
+### Concierge widget
 
 Primary role: public trust widget and branching concierge.
 
@@ -151,7 +151,7 @@ Must not:
 * become auth or account truth
 * appear as the desktop or mobile support brain
 
-### Lunacal
+### Human booking
 
 Primary role: human escalation and scheduling backend.
 
@@ -169,7 +169,7 @@ Must not:
 * own campaign or install truth
 * be the only route to help
 
-### Deftform
+### Structured intake
 
 Primary role: structured intake backend.
 
@@ -187,17 +187,17 @@ Must not:
 * become account truth
 * become the only submission path for crash or bug reporting
 
-### vidBoard and sibling media tools
+### Explainer video and sibling media tools
 
 Primary role: polished explainer and companion artifact lane.
 
 Pattern:
 
-* FacePop = short human concierge layer
-* vidBoard = polished long-form explainer or primer
-* MarkupGo = detailed packet
-* PeekShot = preview or share card
-* Soundmadeseen = narrated companion fallback
+* concierge_widget = short human concierge layer
+* explainer_video = polished long-form explainer or primer
+* briefing_packet = detailed packet
+* preview_gallery = preview or share card
+* audio_briefing = narrated companion fallback
 
 ## Canonical workflow families
 
@@ -209,15 +209,15 @@ Entry:
 
 Flow:
 
-1. FacePop host greets the visitor.
+1. The concierge host greets the visitor.
 2. Visitor chooses one of:
    * Download now
    * Which platform should I pick?
    * I need setup help
 3. `Download now` routes to first-party download truth.
-4. `Which platform should I pick?` routes to a short vidBoard explainer or first-party support article.
-5. `I need setup help` opens a Deftform support-enrichment form.
-6. If the form signals a human-help case, route to Lunacal for a short setup clinic.
+4. `Which platform should I pick?` routes to a short explainer video or first-party support article.
+5. `I need setup help` opens a structured support-enrichment form.
+6. If the form signals a human-help case, route to human booking for a short setup clinic.
 7. Hub records the pre-intake, booking receipt, and final support-case linkage.
 
 ### 2. Campaign invite concierge
@@ -228,16 +228,16 @@ Entry:
 
 Flow:
 
-1. FacePop greets the invited player or GM.
+1. The concierge widget greets the invited player or GM.
 2. Branches:
    * Watch campaign primer
    * Open primer packet
    * Book a session-zero or onboarding call
    * Submit a concept or questions form
-3. vidBoard provides the primer video.
-4. MarkupGo provides the detailed primer packet.
-5. Lunacal handles session-zero booking.
-6. Deftform handles structured concept or question intake.
+3. The explainer video provides the primer.
+4. The briefing packet provides the detailed primer packet.
+5. Human booking handles session-zero booking.
+6. Structured intake handles concept or question intake.
 7. Hub writes the real invite, campaign, and follow-up truth.
 
 ### 3. Creator consult and launch funnel
@@ -248,15 +248,15 @@ Entry:
 
 Flow:
 
-1. FacePop asks what the creator needs:
+1. The concierge widget asks what the creator needs:
    * How publishing works
    * Book a consult
    * Submit interest or details
    * Watch a creator promo explainer
-2. vidBoard provides the creator explainer.
-3. Lunacal handles consult booking.
-4. Deftform handles structured submission or intake.
-5. MetaSurvey optionally captures usefulness after the flow.
+2. The explainer video provides the creator explainer.
+3. Human booking handles consult booking.
+4. Structured intake handles structured submission or intake.
+5. The post-flow survey optionally captures usefulness after the flow.
 
 ### 4. Release concierge and fix confirmation
 
@@ -266,14 +266,14 @@ Entry:
 
 Flow:
 
-1. FacePop host summarizes the current release in one short greeting.
+1. The concierge host summarizes the current release in one short greeting.
 2. Branches:
    * Watch what changed
    * Read release notes
    * Need help updating?
-3. vidBoard provides the localized release explainer.
-4. MarkupGo and Documentation.AI provide the text siblings.
-5. Setup or update difficulty routes to Deftform and, if needed, Lunacal.
+3. The explainer video provides the localized release explainer.
+4. The briefing packet and Documentation.AI provide the text siblings.
+5. Setup or update difficulty routes to structured intake and, if needed, human booking.
 6. Hub remains the owner of the case, release truth, and closure status.
 
 ### 5. Testimonial and proof shelf
@@ -284,12 +284,12 @@ Entry:
 
 Flow:
 
-1. Chummer sends the user to a FacePop review-capture page.
-2. FacePop captures video or audio response.
+1. Chummer sends the user to a concierge review-capture page.
+2. The concierge capture flow records video or audio response.
 3. Hub receives webhook receipts and creates a moderated testimonial intake item.
-4. ApproveThis or a Hub-owned moderation UI approves publication.
+4. A review-approval UI or Hub-owned moderation UI approves publication.
 5. Media Factory renders safe derivatives if needed.
-6. PeekShot builds preview cards; Registry stores publication references.
+6. The preview-gallery lane builds preview cards; Registry stores publication references.
 
 ### 6. Runsite orientation funnel
 
@@ -299,13 +299,13 @@ Entry:
 
 Flow:
 
-1. FacePop host asks whether the visitor wants:
+1. The concierge host asks whether the visitor wants:
    * quick orientation
    * route-first view
    * explorable tour
-2. vidBoard provides a short host-led orientation clip.
+2. The explainer-video lane provides a short host-led orientation clip.
 3. AvoMap and Crezlo Tours provide route or explorable modes.
-4. PeekShot provides teasers and preview cards.
+4. The preview-gallery lane provides teasers and preview cards.
 
 ## Data and receipt model
 

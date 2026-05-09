@@ -1,14 +1,14 @@
 product: chummer
 surface: chummer.run
 version: 1
-headline: Shadowrun rules truth, with clear explanations.
-subhead: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and a clearer view of what works today.
+headline: Build a runner, explain every ruling, and recover the campaign.
+subhead: Start with the current preview, inspect the modifier trail, and keep the next session moving with explainable math, durable state, and visible recovery paths.
 proof_line: Public preview, honest status, and a visible walkthrough of the files, named flows, and recent checks posted today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
-  - label: Create account to install
-    href: /signup?next=/downloads
+  - label: Open downloads
+    href: /downloads
     emphasis: primary
   - label: See what works today
     href: /now
@@ -25,8 +25,8 @@ secondary_highlights:
   - Rules explanations
   - Local-first continuity
 product_proof_eyebrow: Preview snapshot
-product_proof_intro: Create account to install the current preview, inspect one visible explanation trail, and see what the posted files and named flows actually show today without reading that snapshot as a finished-product claim, a fallback recommendation, or a substitute for the install shelf.
-product_proof_primary_label: Create account to install
+product_proof_intro: Open downloads for the current preview, inspect one visible explanation trail, and see what the posted files and named flows actually show today without reading that snapshot as a finished-product claim, a fallback recommendation, or a substitute for the install shelf.
+product_proof_primary_label: Open downloads
 product_proof_primary_href: /downloads
 product_proof_secondary_label: Inspect the explanation trail
 product_proof_secondary_href: /now#real-rules-truth
@@ -77,6 +77,15 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: weekly pulse, release posture, and current caution only
+  - path: /progress
+    title: Progress
+    audience: public
+    purpose: progress_surface
+    requires_auth: false
+    guest_fallback: /progress
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public progress report only
   - path: /horizons
     title: Roadmap
     audience: public
@@ -167,6 +176,18 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: current public support/contact path only
+  - path: /contact/submitted/{caseId}
+    title: Support case submitted
+    audience: public
+    purpose: support_submission_receipt
+    requires_auth: false
+    guest_fallback: /contact/submitted/{caseId}
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: first-party support submission receipt route only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/contact/submitted/{caseId}")]'
   - path: /participate
     title: Participate
     audience: public
@@ -185,6 +206,24 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: public feedback entry only
+  - path: /feedback/operations
+    title: Feedback operations
+    audience: public
+    purpose: public_feedback_operations
+    requires_auth: false
+    guest_fallback: /feedback/operations
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public feedback operations packet only
+  - path: /feedback/operations/lookup
+    title: Feedback operations lookup
+    audience: public
+    purpose: public_feedback_operations
+    requires_auth: false
+    guest_fallback: /feedback/operations/lookup
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public feedback operations lookup only
   - path: /participate/karma-forge
     title: KARMA FORGE discovery
     audience: public
@@ -194,6 +233,18 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: governed discovery entry only
+  - path: /participate/karma-forge/submitted/{submissionId}
+    title: KARMA FORGE submitted
+    audience: public
+    purpose: governed_future_signal_receipt
+    requires_auth: false
+    guest_fallback: /participate/karma-forge/submitted/{submissionId}
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: governed discovery submission receipt route only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/participate/karma-forge/submitted/{submissionId}")]'
   - path: /artifacts
     title: Featured artifacts
     audience: public
@@ -568,20 +619,20 @@ registered_routes:
 sections:
   - id: hero
     eyebrow: Explainable Shadowrun
-    title: Shadowrun rules truth, with clear explanations.
-    intro: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and a clearer view of what works today.
+    title: Build a runner, explain every ruling, and recover the campaign.
+    intro: Start with the current preview, inspect the modifier trail, and keep the next session moving with explainable math, durable state, and visible recovery paths.
     audience: public
     route: /
   - id: product_proof
     eyebrow: Real product snapshot
     title: One concrete result, one visible trail, one current build
-    intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+    intro: Open downloads for the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
     audience: public
     route: /
   - id: start_here
     eyebrow: How Chummer helps at the table
-    title: What comes after the core walkthrough
-    intro: "Once the build, explanation trail, and continuity path feel trustworthy, the next product jobs are publication and improvement."
+    title: Five ways Chummer helps at the table
+    intro: "After the first install and proof pass, the next product jobs are build, explain, campaign continuity, exchange, and improvement."
     audience: public
     route: /
   - id: why_trust_it

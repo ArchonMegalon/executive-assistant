@@ -16,7 +16,7 @@ sources:
   participation_workflow: products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
   public_media_policy: products/chummer/PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md
   public_guide_image_curation: products/chummer/PUBLIC_GUIDE_IMAGE_CURATION.yaml
-  productlift_bridge: products/chummer/PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md
+  public_signal_bridge: products/chummer/PUBLIC_SIGNAL_FEEDBACK_ROADMAP_BRIDGE.md
   katteb_public_guide_lane: products/chummer/KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md
   public_site_visibility_policy: products/chummer/PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md
   public_signal_pipeline: products/chummer/PUBLIC_SIGNAL_TO_CANON_PIPELINE.md
@@ -34,8 +34,8 @@ rules:
 - FAQ/help pages must source required participation/privacy/free-later language from PUBLIC_FAQ_REGISTRY.yaml and PUBLIC_HELP_COPY.md.
 - Deep-source pages may link to repo scopes and implementation detail, but first-contact pages must not.
 - Downstream media lanes must treat PUBLIC_GUIDE_IMAGE_CURATION.yaml manual editorial-cover source overrides as the strongest local canon unless an explicit reopen path is requested.
-- ProductLift-backed `/feedback`, `/roadmap`, and `/changelog` pages are public projections only; they must keep first-party fallback paths and may not become support, release, or roadmap truth.
-- Katteb may audit or draft public guide and article improvements only from approved source packets; accepted suggestions must return to Chummer-owned source before generated guide output changes.
+- Hosted `/feedback`, `/roadmap`, and `/changelog` projections are public direction surfaces only; they must keep first-party fallback paths and may not become support, release, or roadmap truth.
+- Guide optimization lanes may audit or draft public guide and article improvements only from approved source packets; accepted suggestions must return to Chummer-owned source before generated guide output changes.
 - ClickRank may audit public guide and site visibility, metadata, schema, internal links, and AI-search readiness, but accepted recommendations must return to Chummer-owned source before generated guide or public site output changes.
 pages:
   root_story:
@@ -87,7 +87,7 @@ pages:
   feedback_page:
     source: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
     include:
-      key: productlift_public_feedback
+      key: public_feedback
     required_topics:
     - public ideas
     - votes and comments
@@ -96,7 +96,7 @@ pages:
   roadmap_projection:
     source: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
     include:
-      key: productlift_public_roadmap
+      key: public_roadmap
     required_topics:
     - public direction
     - projection-only posture
@@ -104,7 +104,7 @@ pages:
   changelog_projection:
     source: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
     include:
-      key: productlift_changelog
+      key: public_changelog
     required_topics:
     - shipped updates
     - voter closeout

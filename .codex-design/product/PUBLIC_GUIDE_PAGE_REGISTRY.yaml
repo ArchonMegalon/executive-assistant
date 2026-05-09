@@ -257,7 +257,7 @@ page_types:
     forbidden_terms:
     - participant burst lane
     - internal control plane
-    - ProductLift
+    - public feedback board
     - design canon
     - projections from Chummer-owned truth
     - premium participation
@@ -287,7 +287,7 @@ page_types:
     - preview honesty
     - free-later explanation
     forbidden_terms:
-    - ProductLift
+    - public feedback board
     - design canon
     - projections from Chummer-owned truth
   download_page:

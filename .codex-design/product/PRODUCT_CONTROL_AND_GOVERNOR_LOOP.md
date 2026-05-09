@@ -105,7 +105,7 @@ This control-plane layer compiles into:
 * `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md` for operator authority
 * `PRODUCT_HEALTH_SCORECARD.yaml` for weekly pulse
 * `PUBLIC_SIGNAL_TO_CANON_PIPELINE.md` for public signal and content optimization routing
-* `PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md` and `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md` for bounded external public-surface posture
+* `PUBLIC_SIGNAL_FEEDBACK_ROADMAP_BRIDGE.md` and `KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md` for bounded external public-surface posture
 
 ## Non-goals
 

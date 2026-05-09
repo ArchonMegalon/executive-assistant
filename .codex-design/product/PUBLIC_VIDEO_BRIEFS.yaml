@@ -35,7 +35,7 @@ video_families:
     audience: public
     duration_seconds_target: 60
     duration_seconds_max: 120
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: branded_presenter
     sibling_artifacts:
       - release_notes_page
@@ -51,7 +51,7 @@ video_families:
     audience: signed_in_user
     duration_seconds_target: 45
     duration_seconds_max: 90
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: neutral_presenter
     sibling_artifacts:
       - support_case_update
@@ -71,7 +71,7 @@ video_families:
       - blocker_followthrough
     duration_seconds_target: 45
     duration_seconds_max: 120
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: faceless
     locale_fallback_chain:
       - requested_locale
@@ -126,7 +126,7 @@ video_families:
       - diagnostics_or_support_followthrough
     duration_seconds_target: 45
     duration_seconds_max: 120
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: faceless
     locale_fallback_chain:
       - requested_locale
@@ -185,7 +185,7 @@ video_families:
     spoiler_class: primer_safe
     duration_seconds_target: 90
     duration_seconds_max: 180
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: neutral_presenter
     locale_fallback_chain:
       - requested_locale
@@ -212,7 +212,7 @@ video_families:
     spoiler_class: player_safe_by_default
     duration_seconds_target: 60
     duration_seconds_max: 120
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: neutral_presenter
     locale_fallback_chain:
       - requested_locale
@@ -240,7 +240,7 @@ video_families:
       - gm_route_review
     duration_seconds_target: 45
     duration_seconds_max: 90
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: faceless
     locale_fallback_chain:
       - requested_locale
@@ -281,7 +281,7 @@ video_families:
     audience: public_or_creator_followers
     duration_seconds_target: 45
     duration_seconds_max: 90
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: branded_presenter
     sibling_artifacts:
       - preview_card
@@ -294,7 +294,7 @@ video_families:
     audience: campaign_members
     duration_seconds_target: 60
     duration_seconds_max: 120
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: faceless
     sibling_artifacts:
       - player_safe_recap_packet
@@ -312,7 +312,7 @@ video_families:
     audience: gm_only
     duration_seconds_target: 90
     duration_seconds_max: 180
-    preferred_lane: vidBoard
+    preferred_lane: explainer_video
     avatar_posture: faceless
     sibling_artifacts:
       - gm_debrief_packet
@@ -321,9 +321,9 @@ video_families:
       - approved_gm_debrief_script
       - approved_coaching_packet
 render_companions:
-  preview_lane: PeekShot
-  document_lane: MarkupGo
-  narration_lane: Soundmadeseen
+  preview_lane: preview_gallery
+  document_lane: briefing_packet
+  narration_lane: audio_briefing
   motion_support_lane: Mootion
   route_support_lane: AvoMap
   explorable_support_lane: Crezlo_Tours
