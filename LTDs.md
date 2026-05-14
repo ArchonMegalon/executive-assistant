@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-05-08
+Updated: 2026-05-14
 
 ## Workspace Integration Tier Guide
 
@@ -56,13 +56,15 @@ Updated: 2026-05-08
 | `ProductLift.dev` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password and license key only | Owned for public feedback intake, voting, roadmap/changelog projection, and private product-signal capture. Promote to `Tier 2` after domain split, webhook/API signal ingestion, and design-triage mapping are verified. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
+| `Syllabbles` | `Tier 3` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 3 account is now seeded locally for dispatch-draft and long-form story pilot work; no active runtime lane or structured verification is pinned yet. |
+| `blipai.app` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Account is seeded locally with the shared login pattern; plan/tier and structured verification are still pending. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Referenced historically as a possible projection surface, not active runtime storage | Keep out of the hot-path runtime database role; use only as a curated projection if revived. |
 | `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
 
-- `39` total LTD products tracked
+- `41` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -108,6 +110,8 @@ Use this section to track missing tier/email/account facts discovered through th
 | `ProductLift.dev` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-22T00:00:00Z | Tier 5 is confirmed manually and local credentials plus the license key are now seeded for public feedback intake, roadmap/changelog projection, and webhook/API signal mapping; no structured BrowserAct account-detail verification run is recorded yet. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Signitic` | `tibor@girschele.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 4 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
+| `Syllabbles` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Tier 3 and shared credentials were seeded manually for the Black Ledger dispatch draft lane; structured verification and any BrowserAct capture are still pending. |
+| `blipai.app` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Shared credentials are now seeded locally; plan/tier and structured verification are still pending. |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
 | `Unmixr AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Vizologi` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
