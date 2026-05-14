@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import os
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class ProjectionTable:
+    table_name: str
+    record_count: int
+    sample_keys: tuple[str, ...]
+
+
+def _sample_keys(records: list[dict[str, Any]]) -> tuple[str, ...]:
+    if not records:
+        return ()
+    return tuple(sorted(records[0].keys()))
+
+
+def build_teable_projection_records() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "product_signals": [
+            {
+                "signal_id": "signal_feedback_preview_001",
+                "public_title": "Feedback lane keeps public signal separate from private support",
+                "source": "chummer_public",
+                "status": "triaged",
+                "votes": 7,
+                "follows": 2,
+                "privacy_status": "public_safe",
+                "updated_at": "2026-05-14T00:00:00Z",
+            }
+        ],
+        "black_ledger_dispatches": [
+            {
+                "dispatch_id": "ledger_dispatch_emerald-sprawl-prelude_turn_0001",
+                "world_id": "emerald-sprawl-prelude",
+                "turn": 1,
+                "title": "Turn 1 — The city is moving",
+                "status": "published",
+                "gate_status": "pass",
+                "published_url": "/ledger/dispatches/ledger_dispatch_emerald-sprawl-prelude_turn_0001",
+                "updated_at": "2026-05-14T00:00:00Z",
+            }
+        ],
+        "tick_news_delivery": [
+            {
+                "batch_id": "tick_news_turn_0002",
+                "world_id": "emerald-sprawl-prelude",
+                "turn": 2,
+                "policy": "operator_only",
+                "recipient_count": 1,
+                "status": "sent",
+                "delivery_ref_redacted": "delivery_954bfaad4681e20d",
+                "updated_at": "2026-05-14T00:00:00Z",
+            }
+        ],
+        "package_pressure": [
+            {
+                "package_id": "desktop-preview",
+                "package_type": "desktop",
+                "status": "preview",
+                "votes": 3,
+                "follows": 1,
+                "proof_url": "/packages/desktop-preview",
+                "updated_at": "2026-05-14T00:00:00Z",
+            }
+        ],
+        "ltd_adapter_readiness": [
+            {
+                "adapter_id": "productlift_signal_adapter",
+                "tool": "productlift",
+                "level": "dry_run",
+                "status": "ready",
+                "last_verified": "2026-05-14T00:00:00Z",
+                "blocker": "",
+                "owner_repo": "executive-assistant",
+            }
+        ],
+    }
+
+
+def _dotenv_value(name: str) -> str:
+    dotenv = Path("/docker/EA/.env")
+    if not dotenv.is_file():
+        return ""
+    prefix = f"{name}="
+    for raw_line in dotenv.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or not line.startswith(prefix):
+            continue
+        return line[len(prefix):].strip().strip("'").strip('"')
+    return ""
+
+
+def build_teable_projection_summary() -> dict[str, Any]:
+    records = build_teable_projection_records()
+    return {
+        "api_key_present": bool(str(os.environ.get("TEABLE_API_KEY") or "").strip() or _dotenv_value("TEABLE_API_KEY")),
+        "tables": [
+            {
+                "table_name": name,
+                "record_count": len(rows),
+                "sample_keys": list(_sample_keys(rows)),
+            }
+            for name, rows in records.items()
+        ],
+    }
