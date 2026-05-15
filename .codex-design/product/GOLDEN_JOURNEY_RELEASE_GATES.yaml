@@ -3,6 +3,17 @@ surface: release_control
 version: 1
 last_reviewed: 2026-04-16
 purpose: Canonical six-journey release gate layer for proving the campaign OS as a lived system instead of only a coherent repo graph.
+contract_sources:
+  - FLAGSHIP_UX_PRINCIPLE_MAP.md
+  - FAILURE_MODE_JOURNEY_SCRIPTS.md
+  - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+  - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+
+promotion_rules:
+  - Golden journey promotion must remain consistent with the flagship UX principle map.
+  - First-run, no-data, and post-recovery posture for promoted journeys must follow `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`.
+  - Failure and escalation copy for promoted journeys must follow `FAILURE_MODE_JOURNEY_SCRIPTS.md`.
+  - Long-running promoted actions must declare retry, cancel, rollback, or safe-fallback posture according to `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`.
 
 queued_follow_on_gates:
   - id: player_completes_sr6_combat_round_with_action_budget

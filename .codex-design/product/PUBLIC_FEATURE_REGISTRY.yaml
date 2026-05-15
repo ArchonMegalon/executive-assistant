@@ -2,6 +2,30 @@ product: chummer
 surface: chummer.run
 version: 1
 cards:
+  - id: productlift_feedback
+    bucket: supporting_reads
+    title: Public feedback
+    summary: Public ideas and voting stay on a Chummer-owned signal board and never become product truth by themselves.
+    href: /feedback
+    badge: Public input
+    audience: public
+    image_family: archive_stair
+  - id: productlift_roadmap
+    bucket: supporting_reads
+    title: Public roadmap
+    summary: Public roadmap cards show direction without becoming roadmap truth.
+    href: /roadmap
+    badge: Projection
+    audience: public
+    image_family: archive_stair
+  - id: productlift_changelog
+    bucket: supporting_reads
+    title: Public changelog
+    summary: Public closeout and changelog projection stay subordinate to Chummer-owned release truth.
+    href: /changelog
+    badge: Closeout
+    audience: public
+    image_family: archive_stair
   - id: product_story
     bucket: start_here
     title: Build
@@ -159,6 +183,33 @@ cards:
     audience: public
     image_family: streetfront
     action_label: See continuity in preview
+  - id: real_package_browser
+    bucket: whats_real_now
+    title: Package browser
+    summary: Public package rails now keep install, rules, artifact, and community package posture on one first-party route family.
+    href: /packages
+    badge: Live now
+    audience: public
+    image_family: prop_cluster
+    action_label: Open package browser
+  - id: real_mobile_projection
+    bucket: whats_real_now
+    title: Mobile and PWA projection
+    summary: The first-party mobile projection keeps installability, reconnect posture, and role-aware entry visible before native shells are complete.
+    href: /mobile
+    badge: Inspectable
+    audience: public
+    image_family: streetfront
+    action_label: Open mobile projection
+  - id: real_anarchy_preview
+    bucket: whats_real_now
+    title: Shadowrun Anarchy preview
+    summary: A dedicated rules-light lane for Black Ledger, dispatches, and mobile continuity now exists as a first-party preview.
+    href: /anarchy
+    badge: Playable preview
+    audience: public
+    image_family: streetfront
+    action_label: Open Anarchy
   - id: real_release_shelf
     bucket: whats_real_now
     title: Preview releases, channels, and notes
@@ -233,7 +284,7 @@ cards:
     detail_route: /roadmap/karma-forge
     render_mode: external_explainer
     action_label: Start KARMA FORGE discovery
-    detail_primary_href: /participate/karma-forge
+    detail_primary_href: /karma-forge
     detail_primary_label: Start KARMA FORGE discovery
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     fallback_label: Read the horizon brief
@@ -311,8 +362,8 @@ cards:
     detail_route: /roadmap/community-hub
     render_mode: external_explainer
     action_label: Read the network horizon
-    detail_primary_href: /roadmap/black-ledger
-    detail_primary_label: See the world-state foundation
+    detail_primary_href: /ledger
+    detail_primary_label: Open the world-state hub
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -321,14 +372,14 @@ cards:
   - id: horizon_black_ledger
     bucket: coming_next
     title: BLACK LEDGER
-    summary: Keep city pressure, faction motion, and mission-market drift visible between runs.
+    summary: Keep city pressure, faction motion, and mission-market drift visible between runs, starting with a seeded preview world whose first turn already ran.
     href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
     badge: Research
     audience: public
     image_family: boulevard_of_futures
     detail_route: /roadmap/black-ledger
-    render_mode: external_explainer
-    action_label: See the related artifact preview
+    render_mode: first_party_hub
+    action_label: Open the Black Ledger hub
     detail_primary_href: /artifacts/replay-after-action
     detail_primary_label: See the related artifact preview
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
@@ -387,7 +438,7 @@ cards:
     detail_primary_label: Open downloads
     pain: Early-access products stop feeling real when the current build is vague or hard to verify.
     payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
-    proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, and a first-party download path."
+    proof_note: "Proof: the current preview has a real installer shelf, explicit release posture, a first-party download path, and a seeded Black Ledger world already visible on public routes."
     microproof: Installer shelf|Preview channel|Account-aware handoff
   - id: artifact_mac_codex_release_pipeline
     bucket: featured_artifacts
@@ -536,12 +587,12 @@ cards:
     bucket: participate
     title: Start KARMA FORGE discovery
     summary: Turn house-rule pain into governed discovery packets with guided prompts, clear change notes, and governed routing.
-    href: /participate/karma-forge
+    href: /karma-forge
     badge: Public
     audience: public
     image_family: boulevard_of_futures
-    guest_href: /participate/karma-forge
-    registered_href: /participate/karma-forge
+    guest_href: /karma-forge
+    registered_href: /karma-forge
     action_label: Start KARMA FORGE discovery
   - id: participate_booster
     bucket: participate
@@ -552,20 +603,20 @@ cards:
     audience: public
     image_family: solo_operator
     cta_kind: explainer
-    guest_href: /login?next=/participate/codex
+    guest_href: /auth/google/start?next=%2Fparticipate%2Fcodex
     registered_href: /participate/codex
     action_label: Open guided contribution
   - id: participate_beta
     bucket: participate
     title: Join the beta waitlist
     summary: Raise your hand for follow-up previews and future gated surfaces.
-    href: /account/settings
+    href: /account/participation
     badge: Registered soon
     audience: public
     image_family: dossier_desk
     cta_kind: signup
-    guest_href: /signup?next=/account/settings
-    registered_href: /account/settings
+    guest_href: /signup?next=/account/participation
+    registered_href: /account/participation
     action_label: Join beta waitlist
   - id: release_latest
     bucket: release_shelf

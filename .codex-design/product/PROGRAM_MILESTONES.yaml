@@ -1,5 +1,5 @@
 product: chummer
-last_reviewed: 2026-05-09
+last_reviewed: 2026-05-13
 release_track: vnext-foundation
 repo_boundary_purity:
 - repo: chummer6-design
@@ -707,12 +707,12 @@ executable_queue:
   milestone: F3
   status: done
   backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
-  notes: "Latest recurring follow-up on 2026-05-09T01:09:37Z: checksum parity again matched across all seven WL-D007 review-template mirror targets, and fresh no-change parity evidence for the live canonical mirror paths plus current destination publish refs was appended in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md` without reopening completed WL-D007/WL-D010/WL-D011/WL-D012 rows."
+  notes: "Latest recurring follow-up on 2026-05-12T19:28:36Z: checksum parity again matched across all seven WL-D007 review-template mirror targets, and fresh no-change parity evidence for the live canonical roots for ui/hub/mobile, the live core root at `/docker/chummercomplete/chummer-core-engine/.codex-design/review/REVIEW_CONTEXT.md`, and the live alias-resolved roots for ui-kit/hub-registry/media-factory, together with refreshed current destination publish refs including `chummer6-ui` at `89311ae2` and `chummer6-hub` at `bbedb8ca`, was appended in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md` without reopening completed WL-D007/WL-D010/WL-D011/WL-D012 rows."
 - id: WL-D016
   milestone: F3
   status: done
   backlog: products/chummer/sync/TRUTH_MAINTENANCE_BACKLOG.md
-  notes: "Closed 2026-03-19: `WL-D016 Cycle 2026-03-19A` revalidated ownership, contract, blocker, and milestone truth after the final release-closeout edits; the lane now reopens only when a new canonical delta appears."
+  notes: "Closed 2026-03-19; latest requested follow-up on 2026-05-13 revalidated ownership, contract, blocker, and milestone truth with no canon drift, refreshed `last_reviewed`, and recorded the explicit no-change cycle closeout in `products/chummer/maintenance/TRUTH_MAINTENANCE_LOG.md`."
 - id: WL-D045
   milestone: I0
   status: done
@@ -732,7 +732,7 @@ executable_queue:
   milestone: F3
   status: done
   backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
-  notes: "Closed 2026-03-19; latest requested follow-up on 2026-05-09T01:09:37Z reconfirmed checksum parity across all seven review-template targets at the live canonical mirror paths, and the current no-change evidence is recorded in `REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`."
+  notes: "Closed 2026-03-19; latest requested follow-up on 2026-05-12T19:28:36Z reconfirmed checksum parity across all seven review-template targets at the current live mirror roots, with refreshed destination refs and no-change evidence recorded in `REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`."
 - id: WL-D018
   milestone: F3
   status: done

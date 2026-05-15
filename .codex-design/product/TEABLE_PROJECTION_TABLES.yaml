@@ -1,0 +1,17 @@
+version: 1
+tables:
+  product_signals:
+    key: signal_id
+    fields: [signal_id, public_title, source, status, votes, follows, privacy_status, updated_at]
+  black_ledger_dispatches:
+    key: dispatch_id
+    fields: [dispatch_id, world_id, turn, title, status, gate_status, published_url, updated_at]
+  tick_news_delivery:
+    key: batch_id
+    fields: [batch_id, world_id, turn, policy, recipient_count, status, delivery_ref_redacted, updated_at]
+  package_pressure:
+    key: package_id
+    fields: [package_id, package_type, status, votes, follows, proof_url, updated_at]
+  ltd_adapter_readiness:
+    key: adapter_id
+    fields: [adapter_id, tool, level, status, last_verified, blocker, owner_repo]

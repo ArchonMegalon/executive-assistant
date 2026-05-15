@@ -18,6 +18,7 @@ sources:
   public_guide_image_curation: products/chummer/PUBLIC_GUIDE_IMAGE_CURATION.yaml
   public_signal_bridge: products/chummer/PUBLIC_SIGNAL_FEEDBACK_ROADMAP_BRIDGE.md
   katteb_public_guide_lane: products/chummer/KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md
+  katteb_vendor_name: Katteb
   public_site_visibility_policy: products/chummer/PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md
   public_signal_pipeline: products/chummer/PUBLIC_SIGNAL_TO_CANON_PIPELINE.md
   public_feedback_registry: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml

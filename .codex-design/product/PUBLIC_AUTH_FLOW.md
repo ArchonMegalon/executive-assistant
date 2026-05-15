@@ -66,7 +66,7 @@ Forbidden public wording:
 
 * guest access to `/home` must redirect or fall back to `/login?next=/home`
 * guest access to `/account` must redirect or fall back to `/login?next=/account`
-* guest access to `/participate/codex` must redirect or fall back to `/login?next=/participate/codex`
+* guest access to `/participate/codex` must redirect or fall back to `/auth/google/start?next=%2Fparticipate%2Fcodex`
 * `/participate` remains the public explainer and must not require sign-in
 * guest-visible participation CTAs should prefer `/participate` first; the deep `/participate/codex` lane is a later step, not the first public landing target
 

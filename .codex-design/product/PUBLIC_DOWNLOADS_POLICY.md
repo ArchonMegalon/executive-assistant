@@ -21,7 +21,9 @@ Build artifacts, installers, archives, update payloads, and preview clients must
 
 Allowed primary CTA labels include:
 
+* `Open downloads`
 * `Create account to install`
+* `Create account for guided install`
 * `Install the current preview`
 * `Download for Windows`
 * `Download for Linux`

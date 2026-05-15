@@ -192,6 +192,40 @@ flows:
         - fallback_head_or_manual_update_paths_must_be_labeled_fallback
         - recovery_copy_must_not_imply_fix_shipped_for_this_user
 
+  - id: support_entry_concierge
+    audience: public_or_pre_auth_help_entry
+    entry_surface: public_help_entry
+    widget_goal: sort public signal, private support, install continuity, and human handoff before intake
+    branches:
+      - id: public_feedback
+        target: public_feedback_board
+      - id: private_support
+        target: first_party_support_intake
+      - id: install_continuity
+        target: account_linked_install_recovery
+      - id: human_help
+        target: human_support_handoff
+    proof_anchors:
+      - public_private_boundary
+      - first_party_support_truth
+      - locale
+      - fallback_link_set
+    posture:
+      widget_surface_posture: preview
+      fixed_route_target: public_contact_path
+      fallback_route_targets:
+        - public_contact_path
+        - public_feedback_board
+        - public_downloads_page
+      recovery_route_targets:
+        - first_party_support_intake
+        - account_linked_install_recovery
+        - public_install_recovery_article
+      copy_requirements:
+        - private_support_truth_must_stay_first_party
+        - public_feedback_must_not_pose_as_private_support
+        - install_recovery_must_keep_downloads_and_account_followthrough_separate
+
   - id: testimonial_capture
     audience: opted_in_user
     entry_surface: post_success_link

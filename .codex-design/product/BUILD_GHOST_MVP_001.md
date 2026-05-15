@@ -137,3 +137,5 @@ If BUILD GHOST works, ALICE stops being vague "build advice" and becomes a concr
 * inspect the tradeoff
 * keep the source safe
 * commit only when the user means it
+
+That same compare bench should also support a guided review posture where the player can step through the delta, explain output, and apply path without surrendering mechanical authority.

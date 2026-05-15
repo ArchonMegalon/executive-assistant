@@ -1,0 +1,20 @@
+version: 1
+routes:
+  - path: /ledger
+    purpose: flagship_public_hub
+    privacy_posture: aggregate_only
+  - path: /black-ledger
+    purpose: alias
+    target: /ledger
+  - path: /ledger/stats
+    purpose: stat_drilldown
+    privacy_posture: aggregate_only
+  - path: /ledger/factions
+    purpose: faction_pressure
+    privacy_posture: aggregate_only
+  - path: /ledger/packages
+    purpose: package_heat
+    privacy_posture: aggregate_only
+  - path: /ledger/closeouts
+    purpose: proof_backed_closeouts
+    privacy_posture: aggregate_only

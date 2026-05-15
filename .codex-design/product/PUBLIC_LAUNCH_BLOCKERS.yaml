@@ -1,0 +1,60 @@
+version: v4
+purpose: Public launch blockers for the V4 gold janitor audit.
+blockers:
+  - id: BLK-001
+    blocking_if_true: Live homepage or downloads posture keeps `Create account to install` as the primary acquisition CTA while public canon says `Open downloads`.
+    verification:
+      - python3 scripts/diff_public_manifest_live.py --base-url https://chummer.run
+  - id: BLK-002
+    blocking_if_true: Public feedback pages name providers, LTDs, operator internals, environment variables, or webhook secret names.
+    verification:
+      - python3 scripts/public_forbidden_string_scan.py --base-url https://chummer.run
+      - python3 scripts/public_operator_leak_scan.py --base-url https://chummer.run
+  - id: BLK-003
+    blocking_if_true: Public feedback copy implies a working closeout loop while the loop is still preview-only or missing bounded proof.
+    verification:
+      - python3 scripts/public_copy_truth_gate.py --base-url https://chummer.run --route /feedback
+  - id: BLK-004
+    blocking_if_true: Hub public-surface docs claim package, mobile, PWA, play, or concierge routes that are absent from central canon.
+    verification:
+      - python3 scripts/reconcile_public_route_families.py
+  - id: BLK-005
+    blocking_if_true: Package browser routes are claimed without direct route proof.
+    verification:
+      - python3 scripts/verify_package_public_routes.py --base-url https://chummer.run
+  - id: BLK-006
+    blocking_if_true: Mobile or PWA public routes are claimed without hosted route proof.
+    verification:
+      - python3 scripts/verify_public_routes_from_manifest.py --strict-positive --seed-receipts --base-url https://chummer.run
+  - id: BLK-007
+    blocking_if_true: Submitted receipt routes are counted as success without seeded positive proof.
+    verification:
+      - python3 scripts/verify_public_routes_from_manifest.py --strict-positive --seed-receipts --base-url https://chummer.run
+  - id: BLK-008
+    blocking_if_true: Required completion design docs or this blocker spec are missing.
+    verification:
+      - python3 scripts/check_completion_design_docs.py
+  - id: BLK-009
+    blocking_if_true: Source and download boundaries are ambiguous or public acquisition lands on GitHub release-style artifact shelves.
+    verification:
+      - python3 scripts/diff_public_manifest_live.py --base-url https://chummer.run
+  - id: BLK-010
+    blocking_if_true: Canonical `chummer.run` domain behavior is unproven.
+    verification:
+      - python3 scripts/canonical_domain_audit.py
+  - id: BLK-011
+    blocking_if_true: Ruleset stubs or UI landmarks are being counted as serious mechanics proof.
+    verification:
+      - python3 scripts/classify_ruleset_readiness.py
+  - id: BLK-012
+    blocking_if_true: Janitor baseline, final, or regression reports are missing or still carry unresolved P0 or P1 findings.
+    verification:
+      - python3 scripts/run_gold_janitor.py --final --include-live https://chummer.run
+  - id: BLK-013
+    blocking_if_true: Public artifact or operator runbooks are being promoted as product proof.
+    verification:
+      - python3 scripts/public_operator_leak_scan.py --base-url https://chummer.run
+  - id: BLK-014
+    blocking_if_true: Public privacy, IP, or sourcebook scans are missing or failing.
+    verification:
+      - python3 scripts/support_feedback_privacy_gate.py

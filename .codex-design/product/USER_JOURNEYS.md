@@ -15,6 +15,10 @@ This file keeps the center of gravity legible as one product story for the expla
 
 `FLAGSHIP_PRODUCT_BAR.md` defines the craftsmanship bar for those journeys.
 `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` defines the release-ready proof that the journeys feel flagship grade rather than merely mapped.
+`FLAGSHIP_UX_PRINCIPLE_MAP.md` links the same journeys across onboarding, safety, recovery, and closure.
+`FAILURE_MODE_JOURNEY_SCRIPTS.md` defines the minimum recovery-copy and escalation contract for the promoted routes.
+`ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md` defines first-run and no-data posture.
+`LONG_RUNNING_ACTION_SAFETY_CONTRACT.md` defines retry, cancel, rollback, and safe fallback posture for long-running routes.
 
 ## Build
 
@@ -149,3 +153,4 @@ Canonical detail:
 If a repo changes one of these cross-head journeys, it must update the detailed journey doc and this top-level map before implementation lands.
 If a release claim depends on these journeys, the same change must keep `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` and `METRICS_AND_SLOS.yaml` honest.
 If a horizon or extension makes the story harder to explain than `build correctly, explain clearly, run reliably, recover calmly, carry the campaign forward`, the horizon is ahead of the product center of gravity.
+If a promoted route changes its failure copy, recovery posture, or empty-state story, it must also update `FAILURE_MODE_JOURNEY_SCRIPTS.md`, `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`, or `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md` before the release claim can advance.

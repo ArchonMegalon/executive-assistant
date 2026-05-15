@@ -146,6 +146,9 @@ scorecards:
       - name: unresolved_known_issue_without_guidance
         target: 0
         measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
+      - name: unclassified_release_or_support_status_words
+        target: 0
+        measurement: Public, support, and in-product status words must conform to `KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md`.
 
   - id: public_signal_closeout
     owner_repo: chummer6-hub
@@ -299,6 +302,12 @@ scorecards:
       - name: flagship_acceptance_failures_open
         target: 0
         measurement: Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml may not remain open without a bounded preview explanation and owner.
+      - name: flagship_ux_principle_map_drift
+        target: 0
+        measurement: Cross-surface onboarding, safety, recovery, and closure claims must remain aligned with `FLAGSHIP_UX_PRINCIPLE_MAP.md`.
+      - name: campaign_operability_scores_below_flagship
+        target: 0
+        measurement: Promoted flagship surfaces must score `3` across every dimension in `CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml`.
 
 release_gates:
   - id: public_surface_honesty

@@ -20,12 +20,15 @@ guest_shell_actions:
   - label: Create account
     href: /signup?next=/home
     emphasis: primary
+account_aware_install_cta_label: Create account to install
 secondary_highlights:
   - Deterministic engine
   - Rules explanations
   - Local-first continuity
+  - Black Ledger turn 1 ran
+  - Public signal board stays first-party
 product_proof_eyebrow: Preview snapshot
-product_proof_intro: Open downloads for the current preview, inspect one visible explanation trail, and see what the posted files and named flows actually show today without reading that snapshot as a finished-product claim, a fallback recommendation, or a substitute for the install shelf.
+product_proof_intro: Open downloads for the current preview, inspect one visible explanation trail, and see what the posted files, named flows, and seeded Black Ledger world already show today without reading that snapshot as a finished-product claim, a fallback recommendation, or a substitute for the install shelf.
 product_proof_primary_label: Open downloads
 product_proof_primary_href: /downloads
 product_proof_secondary_label: Inspect the explanation trail
@@ -68,6 +71,15 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: proof shelf honesty only
+  - path: /now/concierge
+    title: Release concierge
+    audience: public
+    purpose: guided_release_wrapper
+    requires_auth: false
+    guest_fallback: /now/concierge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded release-routing wrapper only
   - path: /status
     title: Status
     audience: public
@@ -122,6 +134,153 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: proof shelf honesty only
+  - path: /downloads/concierge
+    title: Downloads concierge
+    audience: public
+    purpose: guided_download_wrapper
+    requires_auth: false
+    guest_fallback: /downloads/concierge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded setup-routing wrapper only
+  - path: /packages
+    title: Packages
+    audience: public
+    purpose: package_browser
+    requires_auth: false
+    guest_fallback: /packages
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public package class and compatibility browser only
+  - path: /packages/{packageId}
+    title: Package detail
+    audience: public
+    purpose: package_detail
+    requires_auth: false
+    guest_fallback: /packages/{packageId}
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public package detail only
+    verification_path: /packages/desktop-preview
+  - path: /packages/{packageId}/vote
+    title: Package vote
+    audience: public
+    purpose: package_vote_intent
+    requires_auth: false
+    guest_fallback: /packages/{packageId}/vote
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: package vote intent route only
+    verification_path: /packages/desktop-preview/vote
+  - path: /packages/{packageId}/follow
+    title: Package follow
+    audience: public
+    purpose: package_follow_intent
+    requires_auth: false
+    guest_fallback: /packages/{packageId}/follow
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: package follow intent route only
+    verification_path: /packages/desktop-preview/follow
+  - path: /mobile
+    title: Mobile and PWA
+    audience: public
+    purpose: mobile_projection
+    requires_auth: false
+    guest_fallback: /mobile
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public mobile and installability projection only
+  - path: /pwa
+    title: PWA alias
+    audience: public
+    purpose: mobile_projection
+    requires_auth: false
+    guest_fallback: /pwa
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public alias into the mobile projection only
+  - path: /play
+    title: Play shell
+    audience: public
+    purpose: play_projection
+    requires_auth: false
+    guest_fallback: /play
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded role-aware play entry only
+  - path: /player
+    title: Player alias
+    audience: public
+    purpose: play_projection
+    requires_auth: false
+    guest_fallback: /player
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded play alias only
+  - path: /gm
+    title: GM alias
+    audience: public
+    purpose: play_projection
+    requires_auth: false
+    guest_fallback: /gm
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded play alias only
+  - path: /observer
+    title: Observer alias
+    audience: public
+    purpose: play_projection
+    requires_auth: false
+    guest_fallback: /observer
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded play alias only
+  - path: /anarchy
+    title: Shadowrun Anarchy
+    audience: public
+    purpose: dedicated_ruleset_preview
+    requires_auth: false
+    guest_fallback: /anarchy
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: dedicated rules-light route family only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/anarchy")]'
+  - path: /play/anarchy
+    title: Anarchy play shell
+    audience: public
+    purpose: dedicated_ruleset_play_projection
+    requires_auth: false
+    guest_fallback: /play/anarchy
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: rules-light mobile play shell only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/play/anarchy")]'
+  - path: /ledger/anarchy
+    title: Anarchy ledger lane
+    audience: public
+    purpose: dedicated_ruleset_ledger_projection
+    requires_auth: false
+    guest_fallback: /ledger/anarchy
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: receipt-backed Anarchy and Black Ledger integration only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/anarchy")]'
+  - path: /session
+    title: Legacy session alias
+    audience: public
+    purpose: play_projection
+    requires_auth: false
+    guest_fallback: /session
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: legacy alias redirecting into the play shell only
   - path: /help
     title: Help
     audience: public
@@ -176,6 +335,15 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: current public support/contact path only
+  - path: /contact/concierge
+    title: Support routing concierge
+    audience: public
+    purpose: support_wrapper
+    requires_auth: false
+    guest_fallback: /contact/concierge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded support-routing wrapper only
   - path: /contact/submitted/{caseId}
     title: Support case submitted
     audience: public
@@ -197,6 +365,24 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: public explainer only
+  - path: /join/concierge
+    title: Invite concierge
+    audience: public
+    purpose: campaign_invite_wrapper
+    requires_auth: false
+    guest_fallback: /join/concierge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: bounded invite-routing wrapper only
+  - path: /join/primer
+    title: Invite primer
+    audience: public
+    purpose: campaign_invite_primer
+    requires_auth: false
+    guest_fallback: /join/primer
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: first-session invite orientation only
   - path: /feedback
     title: Feedback
     audience: public
@@ -233,6 +419,21 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: governed discovery entry only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/participate/karma-forge")]'
+  - path: /karma-forge
+    title: KARMA FORGE alias
+    audience: public
+    purpose: governed_future_signal_entry
+    requires_auth: false
+    guest_fallback: /participate/karma-forge
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: governed discovery alias only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/karma-forge")]'
   - path: /participate/karma-forge/submitted/{submissionId}
     title: KARMA FORGE submitted
     audience: public
@@ -434,6 +635,129 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: roadmap detail only
+  - path: /ledger
+    title: BLACK LEDGER hub
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: aggregate-only Black Ledger hub
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger")]'
+  - path: /black-ledger
+    title: BLACK LEDGER alias
+    audience: public
+    purpose: flagship_public_hub_alias
+    requires_auth: false
+    guest_fallback: /ledger
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: aggregate-only Black Ledger alias
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/black-ledger")]'
+  - path: /ledger/stats
+    title: BLACK LEDGER stats
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/stats
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: aggregate-only stat drilldown
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/stats")]'
+  - path: /ledger/factions
+    title: BLACK LEDGER factions
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/factions
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: aggregate-only faction drilldown
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/factions")]'
+  - path: /ledger/packages
+    title: BLACK LEDGER packages
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/packages
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: aggregate-only package drilldown
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/packages")]'
+  - path: /ledger/closeouts
+    title: BLACK LEDGER closeouts
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/closeouts
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: proof-backed closeout drilldown
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/closeouts")]'
+  - path: /ledger/dispatches
+    title: BLACK LEDGER dispatch archive
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/dispatches
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: receipt-backed public-safe dispatch archive only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/dispatches")]'
+  - path: /ledger/dispatches/{dispatchId}
+    title: BLACK LEDGER dispatch detail
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/dispatches/{dispatchId}
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: receipt-backed public-safe dispatch detail only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/dispatches/{dispatchId}")]'
+    verification_path: /ledger/dispatches/ledger_dispatch_emerald-sprawl-prelude_turn_0001
+  - path: /ledger/turns/{turn}/dispatches
+    title: BLACK LEDGER turn dispatch archive
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/turns/{turn}/dispatches
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: receipt-backed public-safe turn dispatch archive only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/turns/{turn}/dispatches")]'
+    verification_path: /ledger/turns/1/dispatches
+  - path: /ledger/factions/{factionId}/dispatches
+    title: BLACK LEDGER faction dispatch archive
+    audience: public
+    purpose: flagship_public_hub
+    requires_auth: false
+    guest_fallback: /ledger/factions/{factionId}/dispatches
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: receipt-backed public-safe faction dispatch archive only
+    verification_mode: controller_contract
+    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+    verification_pattern: '[HttpGet("/ledger/factions/{factionId}/dispatches")]'
+    verification_path: /ledger/factions/ashline-circle/dispatches
   - path: /roadmap/ghostwire
     title: GHOSTWIRE detail
     audience: public
@@ -562,6 +886,25 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: profile and linked-identity shell
+  - path: /account/packages
+    title: Account packages
+    audience: registered
+    purpose: tracked_package_summary
+    requires_auth: true
+    guest_fallback: /login?next=/account/packages
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: tracked package summary route
+  - path: /account/packages/{packageId}
+    title: Account package detail
+    audience: registered
+    purpose: tracked_package_summary
+    requires_auth: true
+    guest_fallback: /login?next=/account/packages/{packageId}
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: tracked package detail route
+    verification_path: /account/packages/desktop-preview
   - path: /account/support
     title: Account support
     audience: registered
@@ -607,15 +950,33 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: advanced account diagnostics route
+  - path: /admin/packages
+    title: Package operator summary
+    audience: registered
+    purpose: operator_package_summary
+    requires_auth: true
+    guest_fallback: /login?next=/admin/packages
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: bounded package operator summary route
   - path: /participate/codex
     title: Guided contribution
     audience: registered
     purpose: signed_in_participation
     requires_auth: true
-    guest_fallback: /login?next=/participate/codex
+    guest_fallback: /auth/google/start?next=%2Fparticipate%2Fcodex
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: signed-in participation flow
+  - path: /account/participation
+    title: Participation dashboard
+    audience: registered
+    purpose: signed_in_participation
+    requires_auth: true
+    guest_fallback: /login?next=/account/participation
+    must_exist: true
+    placeholder_allowed: true
+    placeholder_requirements: signed-in participation dashboard
 sections:
   - id: hero
     eyebrow: Explainable Shadowrun

@@ -1,0 +1,31 @@
+version: 1
+models:
+  ProductSignalReceipt:
+    fields:
+      - signal_id
+      - source
+      - source_route
+      - signal_type
+      - public_title
+      - public_summary
+      - status
+      - votes
+      - follows
+      - privacy_status
+      - source_receipts
+      - created_at_utc
+  ProductLiftProjectionReceipt:
+    fields:
+      - projection_receipt_id
+      - signal_id
+      - backend
+      - project_key
+      - action
+      - dry_run
+      - payload_hash
+      - public_safe
+      - created_at_utc
+policies:
+  source_of_truth: chummer_only
+  provider_projection_only: true
+  private_support_forbidden: true

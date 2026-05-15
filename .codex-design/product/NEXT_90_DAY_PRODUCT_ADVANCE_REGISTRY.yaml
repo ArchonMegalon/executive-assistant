@@ -3548,6 +3548,12 @@ milestones:
       owner: chummer6-hub-registry
       title: Close registry persistence, release-channel, artifact lineage, publication, entitlement, and compatibility-boundary
         coverage.
+      status: complete
+      evidence:
+      - RELEASE_CHANNEL.generated.json and /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json now publish canonical `registryBoundaryCoverage` closure truth.
+      - scripts/materialize_public_release_channel.py plus /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py derive and fail-close the canonical `registryBoundaryCoverage` payload.
+      - scripts/verify_next90_m135_registry_boundary_coverage.py plus /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m135_registry_boundary_coverage.py keep the queue row, mirror row, closeout, and published-boundary projection pinned.
+      - docs/next90-m135-registry-boundary-coverage.closeout.md records the shipped proof anchors.
     - id: '135.6'
       owner: chummer6-ui
       title: Close desktop workbench, Build Lab, GM Runboard, publication, restore, support, and veteran-familiarity surface
@@ -4254,10 +4260,10 @@ milestones:
       completion_action: verify_closed_package_only
       do_not_reopen_reason: M142 chummer6-ui dense builder/career, dice/initiative, and contacts/lifestyles/notes direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local gates, canonical registry row, and queue mirrors instead of reopening this slice.
       evidence:
-      - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/materialize-desktop-workflow-execution-gate.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh keep dense builder/career, dice/initiative, and contacts/lifestyles/notes proof bound to direct screenshot-backed and runtime-backed route receipts instead of family prose.
-      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json keep the three milestone-142 parity families aligned to route-local proof.
-      - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M142DirectWorkflowProofGuardTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m142-ui-direct-workflow-proof-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, audit evidence, or verify wiring drift from the completed package contract.
-      - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json records the closed-package receipt for `next90-m142-ui-close-direct-screenshot-and-runtime-proof-for-dense-builder-and-career-fl`.
+      - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/materialize-desktop-workflow-execution-gate.sh, and /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/b14-flagship-ui-release-gate.sh keep dense builder/career, dice/initiative, and contacts/lifestyles/notes proof bound to direct screenshot-backed and runtime-backed route receipts instead of family prose.
+      - /docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json, and /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json keep the three milestone-142 parity families aligned to route-local proof.
+      - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Compliance/Next90M142DirectWorkflowProofGuardTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/next90-m142-ui-direct-workflow-proof-check.sh, and /docker/chummercomplete/chummer6-ui/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, audit evidence, or verify wiring drift from the completed package contract.
+      - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json records the closed-package receipt for `next90-m142-ui-close-direct-screenshot-and-runtime-proof-for-dense-builder-and-career-fl`.
     - id: '142.2'
       owner: chummer6-ui-kit
       title: Bind dense-workbench and noise-budget proof for these families into the flagship preset and fail-close on stale chrome regressions.
@@ -4382,6 +4388,12 @@ milestones:
     - id: '144.2'
       owner: chummer6-hub-registry
       title: Keep release-channel tuple coverage, startup-smoke receipt identity, and local verifier routing fail-closed on proof drift.
+      status: complete
+      evidence:
+      - scripts/verify_public_release_channel.py keeps promoted tuple coverage, startup-smoke receipt identity, and receipt freshness fail-closed against the published release-channel bundle.
+      - scripts/verify_next90_m144_registry_release_tuple_proof.py plus /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m144_registry_release_tuple_proof.py keep the local successor mirror row, queue row, closeout, published proof, and verifier-routing hook executable.
+      - scripts/ai/verify.sh now routes through the published-bundle verifier and the M144 package verifier before repo builds/tests run.
+      - docs/next90-m144-registry-release-tuple-proof.closeout.md records the shipped proof anchors.
     - id: '144.3'
       owner: chummer6-hub
       title: Keep public and signed-in shelf bytes, proof routes, and release truth aligned with the same promoted tuple receipts.

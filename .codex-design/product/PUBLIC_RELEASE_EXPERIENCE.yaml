@@ -10,6 +10,8 @@ proof_scope_summary: Public proof language is scoped to the files, named flows, 
 flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, proof cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+known_issue_language_source: KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md
+responsiveness_budgets_source: FLAGSHIP_RESPONSIVENESS_BUDGETS.yaml
 desktop_flagship_head: Chummer.Avalonia
 desktop_cut_summary: The current desktop wave treats Avalonia as the primary desktop preview head, ships one clear desktop route on the public shelf, and reserves flagship wording for lanes that independently satisfy flagship acceptance.
 supported_locale_targets:
@@ -61,7 +63,7 @@ public_channel_labels:
     label: Preview channel
 guest_gate_heading: Preview access
 guest_gate_summary: Create a Chummer account first when the current preview requires a linked download handoff, recovery path, or support history from the first launch.
-guest_gate_primary_label: Create account to install
+guest_gate_primary_label: Create account for guided install
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Keep this install linked from the first launch
 signed_in_dispatch_summary: Start the same published download from the signed-in handoff page and follow the platform-specific guided install path that keeps the install linked to your account from the first successful launch.
