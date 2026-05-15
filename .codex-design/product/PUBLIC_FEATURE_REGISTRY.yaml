@@ -210,6 +210,15 @@ cards:
     audience: public
     image_family: streetfront
     action_label: Open Anarchy
+  - id: real_black_ledger_command_map
+    bucket: whats_real_now
+    title: Black Ledger command map
+    summary: The Ledger now exposes a first-party tactical map, replay lane, and public-safe faction/event context instead of only static stats and dispatch cards.
+    href: /ledger/map
+    badge: Live now
+    audience: public
+    image_family: archive_stair
+    action_label: Open the command map
   - id: real_release_shelf
     bucket: whats_real_now
     title: Preview releases, channels, and notes
