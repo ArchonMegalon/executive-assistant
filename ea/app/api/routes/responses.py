@@ -9152,7 +9152,7 @@ def _run_survival_response(
         "principal_id": context.principal_id,
         "survival_lane": True,
         "survival_background": True,
-        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "chatplayground,gemini_web,gemini_vortex,onemin"),
+        "survival_route_order": str(os.environ.get("EA_SURVIVAL_ROUTE_ORDER") or "onemin,gemini_vortex,gemini_web,chatplayground"),
     }
     if codex_profile:
         response_metadata.update(

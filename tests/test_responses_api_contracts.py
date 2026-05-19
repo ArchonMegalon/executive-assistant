@@ -4892,7 +4892,7 @@ def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch:
     assert created_body["model"] == "ea-coder-survival"
     assert created_body["metadata"]["codex_profile"] == "survival"
     assert created_body["metadata"]["codex_lane"] == "survival"
-    assert created_body["metadata"]["survival_route_order"] == "chatplayground,gemini_web,gemini_vortex,onemin"
+    assert created_body["metadata"]["survival_route_order"] == "onemin,gemini_vortex,gemini_web,chatplayground"
 
     response_id = created_body["id"]
     completed_body: dict[str, object] | None = None
