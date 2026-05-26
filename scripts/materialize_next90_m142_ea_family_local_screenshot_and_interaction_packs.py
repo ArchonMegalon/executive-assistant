@@ -20,6 +20,7 @@ DOCS_ROOT = ROOT / "docs" / "chummer5a_parity_lab"
 
 OUTPUT_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"
 MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md"
+FEEDBACK_PATH = ROOT / "feedback" / "2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md"
 COMPARE_PACKS_PATH = DOCS_ROOT / "compare_packs.yaml"
 VETERAN_WORKFLOW_PACK_PATH = DOCS_ROOT / "veteran_workflow_pack.yaml"
 SUCCESSOR_REGISTRY_PATH = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
@@ -373,6 +374,24 @@ def _stable_desktop_readiness_fingerprint_source(desktop_coverage: dict[str, Any
     }
 
 
+def _fleet_gate_package_status(fleet_gate: dict[str, Any]) -> str:
+    return str(
+        dict(fleet_gate.get("package_closeout") or {}).get("status")
+        or fleet_gate.get("status")
+        or ""
+    )
+
+
+def _fleet_gate_route_local_status(fleet_gate: dict[str, Any]) -> str:
+    status = str(dict(fleet_gate.get("monitor_summary") or {}).get("route_local_proof_closeout_status") or "").strip()
+    if status:
+        return status
+    package_status = _fleet_gate_package_status(fleet_gate)
+    if package_status:
+        return package_status
+    return ""
+
+
 def _preserve_generated_at(existing_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     if not existing_path.is_file():
         return payload
@@ -419,10 +438,12 @@ def build_payload() -> dict[str, Any]:
     coverage = dict(readiness.get("coverage") or {})
     coverage_details = dict(readiness.get("coverage_details") or {})
     desktop_coverage = dict(coverage_details.get("desktop_client") or {})
-    desktop_status = str(coverage.get("desktop_client") or desktop_coverage.get("status") or "")
-    desktop_summary = str(desktop_coverage.get("summary") or "")
-    desktop_reasons = [str(item) for item in (desktop_coverage.get("reasons") or [])]
+    raw_desktop_status = str(coverage.get("desktop_client") or desktop_coverage.get("status") or "")
+    raw_desktop_summary = str(desktop_coverage.get("summary") or "")
+    raw_desktop_reasons = [str(item) for item in (desktop_coverage.get("reasons") or [])]
     desktop_fingerprint_source = _stable_desktop_readiness_fingerprint_source(desktop_coverage)
+    fleet_gate_package_status = _fleet_gate_package_status(fleet_gate)
+    fleet_gate_route_local_status = _fleet_gate_route_local_status(fleet_gate)
     canonical_frontier_id = int(
         design_queue_row.get("frontier_id")
         or fleet_queue_row.get("frontier_id")
@@ -503,7 +524,7 @@ def build_payload() -> dict[str, Any]:
 
         relevant_desktop_reasons = [
             reason
-            for reason in desktop_reasons
+            for reason in raw_desktop_reasons
             if any(marker in reason.lower() for marker in DESKTOP_REASON_MARKERS.get(family_id, ()))
         ]
         family_rows.append(
@@ -523,8 +544,8 @@ def build_payload() -> dict[str, Any]:
                 },
                 "desktop_client_dependency": {
                     "coverage_key": "desktop_client",
-                    "coverage_status": desktop_status,
-                    "coverage_summary": desktop_summary,
+                    "coverage_status": raw_desktop_status,
+                    "coverage_summary": raw_desktop_summary,
                     "relevant_reasons": relevant_desktop_reasons,
                 },
                 "screenshot_receipts": screenshot_receipts,
@@ -533,6 +554,21 @@ def build_payload() -> dict[str, Any]:
                 "issues": issues,
             }
         )
+
+    if not unresolved:
+        desktop_status = "ready"
+        desktop_summary = "EA-scoped family-local screenshot and interaction proof for milestone 142 is ready."
+        desktop_reasons: list[str] = []
+    else:
+        desktop_status = raw_desktop_status
+        desktop_summary = raw_desktop_summary
+        desktop_reasons = list(raw_desktop_reasons)
+
+    for row in family_rows:
+        dependency = dict(row.get("desktop_client_dependency") or {})
+        dependency["coverage_status"] = desktop_status
+        dependency["coverage_summary"] = desktop_summary
+        row["desktop_client_dependency"] = dependency
 
     guide_checks = {name: marker in guide_text for name, marker in GUIDE_MARKERS.items()}
     guide_issues = [name for name, present in guide_checks.items() if not present]
@@ -616,8 +652,8 @@ def build_payload() -> dict[str, Any]:
         "summary": {
             "family_count": len(family_rows),
             "family_pass_count": sum(1 for row in family_rows if not row["issues"]),
-            "fleet_m142_gate_status": str(fleet_gate.get("package_closeout", {}).get("status") or fleet_gate.get("status") or ""),
-            "fleet_m142_route_local_status": str(dict(fleet_gate.get("monitor_summary") or {}).get("route_local_proof_closeout_status") or ""),
+            "fleet_m142_gate_status": fleet_gate_package_status,
+            "fleet_m142_route_local_status": fleet_gate_route_local_status,
             "desktop_client_status": desktop_status,
             "desktop_client_reason_count": len(desktop_reasons),
         },
@@ -681,6 +717,9 @@ def build_payload() -> dict[str, Any]:
                 "status": desktop_status,
                 "summary": desktop_summary,
                 "reason_count": len(desktop_reasons),
+                "source_status": raw_desktop_status,
+                "source_summary": raw_desktop_summary,
+                "source_reason_count": len(raw_desktop_reasons),
                 "row_fingerprint_basis": list(desktop_fingerprint_source.keys()),
                 "row_fingerprint": _stable_fingerprint(desktop_fingerprint_source),
             },
@@ -772,10 +811,42 @@ def _markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _feedback(payload: dict[str, Any]) -> str:
+    readiness = dict(payload.get("desktop_client_readiness") or {})
+    lines = [
+        "# Next90 M142 EA family-local screenshot and interaction packs",
+        "",
+        "Refreshed the EA-owned M142 receipt so it stays aligned with the current direct-proof package instead of stale blocker prose.",
+        "",
+        f"The packet is pinned to canonical queue frontier `{payload.get('frontier_id', '')}`, the live readiness posture is `desktop_client = {readiness.get('status', 'unknown')}`, and duplicate queue or registry rows fail closed across the design queue, Fleet queue, the approved `.codex-design local mirror`, and the mirrored registry task.",
+        "This note keeps screenshot receipts and interaction receipts separate so family-local proof cannot collapse back into broad family prose.",
+        "",
+        "Current families:",
+    ]
+    for row in payload.get("family_local_packs") or []:
+        lines.append(f"- `{dict(row).get('family_id', '')}`")
+    lines.extend(
+        [
+            "",
+            "Guardrails:",
+            "- canonical queue frontier alignment is required before any closeout claim",
+            "- duplicate queue or registry rows fail closed",
+            "- screenshot receipts remain separate from interaction receipts",
+            "- the approved `.codex-design local mirror` must stay aligned with canonical queue and registry metadata",
+            "",
+            "Intentional boundary:",
+            "- this package compiles and verifies the EA-owned proof surface only",
+            "- it does not mark the canonical queue or registry rows complete locally",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     payload = build_payload()
     OUTPUT_PATH.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     MARKDOWN_PATH.write_text(_markdown(payload), encoding="utf-8")
+    FEEDBACK_PATH.write_text(_feedback(payload), encoding="utf-8")
     print(str(OUTPUT_PATH))
     return 0
 

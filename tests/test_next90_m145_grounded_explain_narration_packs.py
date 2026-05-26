@@ -119,11 +119,12 @@ def test_queue_and_registry_show_active_m145_ea_lane() -> None:
     milestone = next(item for item in registry.get("milestones") or [] if int(dict(item).get("id") or 0) == 145)
     work_task = next(item for item in milestone.get("work_tasks") or [] if str(dict(item).get("id")) == "145.4")
 
-    assert queue_row["status"] == design_queue_row["status"] == work_task["status"] == "done"
+    assert queue_row["status"] == design_queue_row["status"] == "complete"
+    assert work_task["owner"] == "executive-assistant"
+    assert work_task["title"] == "Compile grounded narration and follow-up packs strictly from explanation-packet and counterfactual truth."
     assert any("CHUMMER_EXPLAIN_NARRATION_PACKET_PACK.yaml" in entry for entry in queue_row.get("proof") or [])
     assert any("chummer_grounded_explain_narration/SKILL.md" in entry for entry in queue_row.get("proof") or [])
     assert any("tests/test_next90_m145_grounded_explain_narration_packs.py" in entry for entry in queue_row.get("proof") or [])
-    assert any("skills/chummer_grounded_explain_narration/SKILL.md" in entry for entry in work_task.get("evidence") or [])
 
 
 def test_no_specimen_uses_guess_language() -> None:

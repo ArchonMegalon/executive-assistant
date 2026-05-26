@@ -24,17 +24,6 @@ Registered routes:
 * `/account`
 * `/participate/codex`
 
-## Account-aware front-door rule
-
-Chummer has one public front door, not separate auth, participation, and community-ledger stories.
-
-That means:
-
-* `/participate` is the guest-readable account-aware front door for contribution and community interest
-* `/home` and `/account` are the signed-in community-ledger shell for claim, entitlement, participation, reward, channel, and recovery posture
-* public auth, linked identity and channel state, install claim, and participation wording must all describe the same Hub-owned account and community-ledger model instead of parallel intent models
-* guest users may learn, install, and decide later; specific community-ledger posture only appears after a Hub account or claimed install exists
-
 ## Download and install linking rule
 
 Public stable/open downloads remain guest-readable.
@@ -66,7 +55,7 @@ Forbidden public wording:
 
 * guest access to `/home` must redirect or fall back to `/login?next=/home`
 * guest access to `/account` must redirect or fall back to `/login?next=/account`
-* guest access to `/participate/codex` must redirect or fall back to `/auth/google/start?next=%2Fparticipate%2Fcodex`
+* guest access to `/participate/codex` must redirect or fall back to `/login?next=/participate/codex`
 * `/participate` remains the public explainer and must not require sign-in
 * guest-visible participation CTAs should prefer `/participate` first; the deep `/participate/codex` lane is a later step, not the first public landing target
 

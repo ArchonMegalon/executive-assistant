@@ -4603,7 +4603,7 @@ items:
   work_task_id: '145.4'
   frontier_id: 1454045404
   milestone_id: 145
-  status: done
+  status: complete
   wave: W28
   repo: executive-assistant
   proof:
@@ -4692,7 +4692,7 @@ items:
   work_task_id: '145.7'
   frontier_id: 1457045707
   milestone_id: 145
-  status: done
+  status: complete
   wave: W28
   repo: chummer6-design
   completion_action: verify_closed_package_only
@@ -5608,26 +5608,9 @@ items:
   work_task_id: '135.5'
   frontier_id: 1800141525
   milestone_id: 135
-  status: complete
+  status: not_started
   wave: W22
   repo: chummer6-hub-registry
-  completion_action: verify_closed_package_only
-  do_not_reopen_reason: M135.5 chummer6-hub-registry registry boundary coverage is complete; future shards must verify
-    the canonical registryBoundaryCoverage projection, queue row, mirror row, closeout, and package verifier instead
-    of reopening the persistence, release-channel, artifact-lineage, publication, entitlement, and compatibility boundary
-    slice.
-  proof:
-  - /docker/chummercomplete/chummer-hub-registry/docs/RELEASE_CHANNEL_PIPELINE.md
-  - /docker/chummercomplete/chummer-hub-registry/docs/next90-m135-registry-boundary-coverage.closeout.md
-  - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m135_registry_boundary_coverage.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m135_registry_boundary_coverage.py
-  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
-  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
-  - python3 scripts/verify_public_release_channel.py .codex-studio/published
-  - python3 -m unittest scripts/test_verify_public_release_channel.py scripts/test_verify_next90_m120_registry_launch_truth.py scripts/test_verify_next90_m135_registry_boundary_coverage.py
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts
@@ -7386,9 +7369,22 @@ items:
   work_task_id: '143.4'
   frontier_id: 5248695888
   milestone_id: 143
-  status: not_started
+  status: complete
   wave: W22P
   repo: chummer6-hub-registry
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M143 chummer6-hub-registry output-readiness posture is complete; future shards must verify the repo-local proof note, focused guard tests, canonical registry row, queue row, and published release-channel projection instead of reopening this slice.
+  proof:
+  - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_materialize_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m143_registry_output_readiness.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m143_registry_output_readiness.py
+  - /docker/chummercomplete/chummer-hub-registry/docs/next90-m143-registry-output-readiness.closeout.md
+  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+  - python3 scripts/verify_next90_m143_registry_output_readiness.py
+  - python3 -m unittest scripts/test_verify_next90_m143_registry_output_readiness.py
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts
@@ -7468,25 +7464,9 @@ items:
   work_task_id: '144.2'
   frontier_id: 9104322752
   milestone_id: 144
-  status: complete
+  status: not_started
   wave: W22P
   repo: chummer6-hub-registry
-  completion_action: verify_closed_package_only
-  do_not_reopen_reason: M144.2 chummer6-hub-registry release-channel tuple coverage and startup-smoke receipt identity are complete;
-    future shards must verify the local mirror row, queue row, closeout, published tuple proof, and verifier-routing guard
-    instead of reopening the registry proof-drift slice.
-  proof:
-  - /docker/chummercomplete/chummer-hub-registry/docs/RELEASE_CHANNEL_PIPELINE.md
-  - /docker/chummercomplete/chummer-hub-registry/docs/next90-m144-registry-release-tuple-proof.closeout.md
-  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m144_registry_release_tuple_proof.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m144_registry_release_tuple_proof.py
-  - /docker/chummercomplete/chummer-hub-registry/scripts/ai/verify.sh
-  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
-  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
-  - python3 scripts/verify_public_release_channel.py .codex-studio/published
-  - python3 -m unittest scripts/test_verify_public_release_channel.py scripts/test_verify_next90_m144_registry_release_tuple_proof.py
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts
@@ -7539,4 +7519,706 @@ items:
   - feedback
   owned_surfaces:
   - fail_closeout_when_desktop_client_readiness_is_green_wit:fleet
-source_queue_fingerprint: 6184015a25d7f7ae103ae56183e6d62658f83557
+- title: Canonize the release-label resolver, public platform matrix, desktop-gold acceptance, and flagship release language
+    so no public surface can hand-author stronger truth than proof allows.
+  task: Canonize the release-label resolver, public platform matrix, desktop-gold acceptance, and flagship release language
+    so no public surface can hand-author stronger truth than proof allows.
+  package_id: next90-m146-design-canonical-release-truth-recovery
+  work_task_id: '146.1'
+  frontier_id: 1461014601
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - feedback
+  owned_surfaces:
+  - canonical_release_label_policy:design
+  - public_platform_matrix_truth:design
+  - desktop_gold_acceptance:design
+- title: Remove registry overclaim, make release-channel truth deterministic, quarantine unproven heads or platforms, and
+    fail-close any stronger-than-proof release label.
+  task: Remove registry overclaim, make release-channel truth deterministic, quarantine unproven heads or platforms, and
+    fail-close any stronger-than-proof release label.
+  package_id: next90-m146-registry-release-channel-truth-recovery
+  work_task_id: '146.2'
+  frontier_id: 1462014602
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-hub-registry
+  allowed_paths:
+  - Chummer.Hub.Registry
+  owned_surfaces:
+  - release_channel_truth:registry
+  - platform_and_head_promotion_truth:registry
+  - macos_and_blazor_quarantine:registry
+- title: Rebuild public and signed-in release surfaces from canonical snapshot truth, remove internal endpoint leakage, and
+    keep repeated route fetches stable.
+  task: Rebuild public and signed-in release surfaces from canonical snapshot truth, remove internal endpoint leakage, and
+    keep repeated route fetches stable.
+  package_id: next90-m146-hub-public-surface-convergence
+  work_task_id: '146.3'
+  frontier_id: 1463014603
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  owned_surfaces:
+  - public_release_projection:hub
+  - repeated_route_truth:hub
+  - internal_endpoint_purge:hub
+- title: Replace hand-authored release and migration truth with generated guide sections that match the canonical release
+    snapshot and core receipts.
+  task: Replace hand-authored release and migration truth with generated guide sections that match the canonical release
+    snapshot and core receipts.
+  package_id: next90-m146-guide-release-truth-convergence
+  work_task_id: '146.4'
+  frontier_id: 1464014604
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: Chummer6
+  allowed_paths:
+  - .
+  - scripts
+  owned_surfaces:
+  - generated_release_guide_truth:guide
+  - migration_copy_from_receipts:guide
+- title: Regenerate current import, parity, explain, export, and print receipts and bind migration claims strictly to the
+    receipt ladder per platform and route.
+  task: Regenerate current import, parity, explain, export, and print receipts and bind migration claims strictly to the
+    receipt ladder per platform and route.
+  package_id: next90-m146-core-import-and-parity-truth
+  work_task_id: '146.5'
+  frontier_id: 1465014605
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-core
+  allowed_paths:
+  - src
+  - tests
+  - scripts
+  - .codex-studio
+  owned_surfaces:
+  - core_release_receipts:core
+  - migration_route_truth:core
+  - import_parity_truth:core
+- title: Rebuild desktop executable, first-minute, workflow, visual, update, rollback, revoke, and support proof so promoted
+    desktop gold is fresh, binary-tied, and head-specific.
+  task: Rebuild desktop executable, first-minute, workflow, visual, update, rollback, revoke, and support proof so promoted
+    desktop gold is fresh, binary-tied, and head-specific.
+  package_id: next90-m146-ui-desktop-gold-proof-recovery
+  work_task_id: '146.6'
+  frontier_id: 1466014606
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Desktop.Runtime
+  - Chummer.Tests
+  - scripts
+  - .codex-studio
+  owned_surfaces:
+  - desktop_gold_proof:ui
+  - first_minute_and_workflow_receipts:ui
+  - visual_evidence_validation:ui
+- title: Regenerate package-release truth for downstream UI consumption and fail-close on stale accessibility, dense-workbench,
+    or contract-boundary evidence.
+  task: Regenerate package-release truth for downstream UI consumption and fail-close on stale accessibility, dense-workbench,
+    or contract-boundary evidence.
+  package_id: next90-m146-ui-kit-package-release-truth
+  work_task_id: '146.7'
+  frontier_id: 1467014607
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-ui-kit
+  allowed_paths:
+  - .codex-studio
+  - feedback
+  owned_surfaces:
+  - ui_kit_package_release_truth:ui_kit
+  - downstream_consumption_proof:ui_kit
+- title: Regenerate public mobile proof when mobile is claimed or narrow every mobile public claim to preview, proof-only,
+    blocked, or unsupported consistently.
+  task: Regenerate public mobile proof when mobile is claimed or narrow every mobile public claim to preview, proof-only,
+    blocked, or unsupported consistently.
+  package_id: next90-m146-mobile-public-posture-truth
+  work_task_id: '146.8'
+  frontier_id: 1468014608
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-mobile
+  allowed_paths:
+  - src
+  - tests
+  - scripts
+  - .codex-studio
+  owned_surfaces:
+  - mobile_public_release_truth:mobile
+  - mobile_proof_posture:mobile
+- title: Bound media manifests to owning release proof so no public visual implies stable, gold, replacement, or all-platform
+    truth without receipts.
+  task: Bound media manifests to owning release proof so no public visual implies stable, gold, replacement, or all-platform
+    truth without receipts.
+  package_id: next90-m146-media-proof-boundary-hardening
+  work_task_id: '146.9'
+  frontier_id: 1469014609
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  - .codex-studio
+  owned_surfaces:
+  - media_claim_boundary:media_factory
+  - public_visual_manifest_truth:media_factory
+- title: Wire repeated-route crawl, public-truth convergence, package-boundary, repo-release-posture, proof-freshness, and
+    master desktop and release gates so poisoned release truth cannot stay green.
+  task: Wire repeated-route crawl, public-truth convergence, package-boundary, repo-release-posture, proof-freshness, and
+    master desktop and release gates so poisoned release truth cannot stay green.
+  package_id: next90-m146-fleet-release-recovery-gate-stack
+  work_task_id: '146.10'
+  frontier_id: 1461004610
+  milestone_id: 146
+  status: not_started
+  wave: W29
+  repo: fleet
+  allowed_paths:
+  - scripts/check_consistency.py
+  - scripts/materialize_fleet_queue_overlay.py
+  - scripts/materialize_package_compile_overlay.py
+  - scripts/materialize_support_case_packets.py
+  - scripts/materialize_public_progress_report.py
+  - scripts/materialize_release_completeness_ledger.py
+  - scripts/materialize_campaign_os_continuity_monitor.py
+  - scripts/materialize_proof_orchestration.py
+  - scripts/chummer_design_supervisor.py
+  - tests/test_studio_publish_contract.py
+  - tests/test_materialize_support_case_packets.py
+  - tests/test_materialize_fleet_queue_overlay.py
+  - tests/test_published_queue_overlay.py
+  - tests/test_published_work_package_contracts.py
+  - tests/test_materialize_compile_manifest.py
+  - tests/test_materialize_package_compile_overlay.py
+  - tests/test_materialize_proof_orchestration.py
+  - tests/test_materialize_campaign_os_continuity_monitor.py
+  - tests/test_materialize_release_completeness_ledger.py
+  - tests/test_public_progress_report.py
+  - .codex-studio/published/QUEUE.generated.yaml
+  - .codex-studio/published/WORKPACKAGES.generated.yaml
+  - .codex-studio/published/SUPPORT_CASE_PACKETS.generated.json
+  - .codex-studio/published/PROGRESS_REPORT.generated.json
+  - .codex-studio/published/PROGRESS_HISTORY.generated.json
+  - .codex-studio/published/PROOF_ORCHESTRATION.generated.json
+  - .codex-studio/published/RELEASE_COMPLETENESS_LEDGER.generated.json
+  - .codex-studio/published/CAMPAIGN_OS_CONTINUITY_LIVENESS.generated.json
+  - feedback
+  owned_surfaces:
+  - master_release_gate_stack:fleet
+  - repeated_route_crawl_truth:fleet
+  - proof_freshness_and_boundary_gates:fleet
+- title: Canonize the flagship information architecture, shared shell contracts, route kill or keep map, and contextual side-panel
+    navigation model.
+  task: Canonize the flagship information architecture, shared shell contracts, route kill or keep map, and contextual side-panel
+    navigation model.
+  package_id: next90-m147-design-flagship-shell-canon
+  work_task_id: '147.1'
+  frontier_id: 1471014701
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: chummer6-design
+  allowed_paths:
+  - products
+  - scripts
+  - feedback
+  owned_surfaces:
+  - flagship_information_architecture:design
+  - shared_shell_contracts:design
+  - route_kill_keep_matrix:design
+- title: Implement the shared public and authenticated flagship shells, move route-local sub-navigation into the side rail,
+    and split acquisition, help, and capability surfaces by role.
+  task: Implement the shared public and authenticated flagship shells, move route-local sub-navigation into the side rail,
+    and split acquisition, help, and capability surfaces by role.
+  package_id: next90-m147-hub-flagship-shell-implementation
+  work_task_id: '147.2'
+  frontier_id: 1472014702
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - scripts
+  - tests
+  owned_surfaces:
+  - flagship_public_shell:hub
+  - flagship_authenticated_shell:hub
+  - contextual_side_panel_navigation:hub
+- title: Regenerate the public guide so README, download, status, FAQ, help, migration, and now surfaces mirror the flagship
+    information architecture instead of legacy route sprawl.
+  task: Regenerate the public guide so README, download, status, FAQ, help, migration, and now surfaces mirror the flagship
+    information architecture instead of legacy route sprawl.
+  package_id: next90-m147-guide-flagship-ia-convergence
+  work_task_id: '147.3'
+  frontier_id: 1473014703
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: Chummer6
+  allowed_paths:
+  - .
+  - scripts
+  owned_surfaces:
+  - flagship_guide_ia:guide
+  - generated_flagship_release_sections:guide
+- title: Align flagship desktop and world-facing UI affordances with the new shell, readable surface tokens, and grounded globe
+    or territory interaction contracts.
+  task: Align flagship desktop and world-facing UI affordances with the new shell, readable surface tokens, and grounded globe
+    or territory interaction contracts.
+  package_id: next90-m147-ui-flagship-affordance-alignment
+  work_task_id: '147.4'
+  frontier_id: 1474014704
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: chummer6-ui
+  allowed_paths:
+  - Chummer.Avalonia
+  - Chummer.Tests
+  - scripts
+  owned_surfaces:
+  - flagship_ui_affordances:ui
+  - readable_surface_tokens:ui
+  - grounded_globe_contracts:ui
+- title: Rebuild flagship visuals, globe-linked media manifests, and proof-safe presentation assets so visuals reinforce the
+    product story without becoming proof authority.
+  task: Rebuild flagship visuals, globe-linked media manifests, and proof-safe presentation assets so visuals reinforce the
+    product story without becoming proof authority.
+  package_id: next90-m147-media-flagship-visual-rebuild
+  work_task_id: '147.5'
+  frontier_id: 1475014705
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: chummer6-media-factory
+  allowed_paths:
+  - src
+  - tests
+  - docs
+  - scripts
+  owned_surfaces:
+  - flagship_visual_system:media_factory
+  - globe_linked_media_manifests:media_factory
+- title: Enforce the cutover with crawl, route-retirement, and flagship-surface convergence gates so legacy branches cannot
+    reappear after the shell rebuild.
+  task: Enforce the cutover with crawl, route-retirement, and flagship-surface convergence gates so legacy branches cannot
+    reappear after the shell rebuild.
+  package_id: next90-m147-fleet-flagship-cutover-gates
+  work_task_id: '147.6'
+  frontier_id: 1476014706
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: fleet
+  allowed_paths:
+  - scripts/materialize_status_plane.py
+  - scripts/verify_status_plane_semantics.py
+  - scripts/materialize_journey_gates.py
+  - scripts/refresh_flagship_readiness_proof.sh
+  - scripts/materialize_flagship_product_readiness.py
+  - tests/test_materialize_status_plane.py
+  - tests/test_materialize_public_progress_report.py
+  - tests/test_readiness_taxonomy.py
+  - tests/test_controller_routing.py
+  - tests/test_runtime_autoheal_contracts.py
+  - tests/test_rebuild_loop_autoheal_e2e.py
+  - .codex-studio/published/STATUS_PLANE.generated.yaml
+  - .codex-studio/published/JOURNEY_GATES.generated.json
+  - .codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  owned_surfaces:
+  - flagship_cutover_gates:fleet
+  - route_retirement_crawl:fleet
+- title: Harden controller, admin, keeper, and queue truth until runtime rows, project rows, and published status all stay
+    converged at rest without operator resync.
+  task: Harden controller, admin, keeper, and queue truth until runtime rows, project rows, and published status all stay
+    converged at rest without operator resync.
+  package_id: next90-m147-fleet-rest-state-convergence
+  work_task_id: '147.7'
+  frontier_id: 1477014707
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: fleet
+  allowed_paths:
+  - controller/app.py
+  - admin/app.py
+  - scripts/fleet_ooda_keeper.py
+  - scripts/run_fleet_ooda_codex_timer.sh
+  - tests/test_controller_routing.py
+  - tests/test_admin_forecast.py
+  - tests/test_fleet_ooda_keeper.py
+  - tests/test_runtime_autoheal_contracts.py
+  - .codex-studio/published/STATUS_PLANE.generated.yaml
+  - state/status-plane.verify.json
+  owned_surfaces:
+  - runtime_projection_convergence:fleet
+  - truthful_status_eta_surface:fleet
+  - self_heal_rest_state:fleet
+- title: Stabilize 1min credit and billing authority so refresh, aggregate provenance, top-up truth, and operator-visible
+    runway stay fresh without stale cache ambiguity.
+  task: Stabilize 1min credit and billing authority so refresh, aggregate provenance, top-up truth, and operator-visible
+    runway stay fresh without stale cache ambiguity.
+  package_id: next90-m147-fleet-credit-authority-hardening
+  work_task_id: '147.8'
+  frontier_id: 1478014708
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: fleet
+  allowed_paths:
+  - scripts/codexea_route.py
+  - scripts/refresh_onemin_billing_daily.sh
+  - tests/test_refresh_onemin_credits_contract.py
+  - tests/test_codexea_route.py
+  - state/onemin_credit_history.csv
+  - state/onemin_credit_renewal_schedule.json
+  - state/onemin_renewal_ledger.json
+  owned_surfaces:
+  - onemin_credit_authority:fleet
+  - billing_refresh_provenance:fleet
+  - operator_credit_runway_truth:fleet
+- title: Finish hardening canonical downloads truth so live manifest, desktop surface refs, install-aware registry, and
+    canonical verifier all converge from one authority at publish time.
+  task: Finish hardening canonical downloads truth so live manifest, desktop surface refs, install-aware registry, and
+    canonical verifier all converge from one authority at publish time.
+  package_id: next90-m147-hub-live-release-truth-hardening
+  work_task_id: '147.9'
+  frontier_id: 1479014709
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api
+  - Chummer.Tests
+  - scripts
+  - feedback
+  owned_surfaces:
+  - canonical_release_manifest_truth:hub
+  - desktop_surface_truth:hub
+  - install_aware_registry_truth:hub
+- title: Close the flagship release as an at-rest system by turning the audit into hard gates for operations, billing freshness,
+    release truth, and public readiness.
+  task: Close the flagship release as an at-rest system by turning the audit into hard gates for operations, billing freshness,
+    release truth, and public readiness.
+  package_id: next90-m147-fleet-at-rest-readiness-gates
+  work_task_id: '147.10'
+  frontier_id: 14710014710
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: fleet
+  allowed_paths:
+  - scripts/materialize_flagship_product_readiness.py
+  - scripts/materialize_public_progress_report.py
+  - scripts/materialize_status_plane.py
+  - scripts/verify_status_plane_semantics.py
+  - scripts/refresh_flagship_readiness_proof.sh
+  - tests/test_materialize_flagship_product_readiness.py
+  - tests/test_materialize_status_plane.py
+  - tests/test_materialize_public_progress_report.py
+  - tests/test_readiness_taxonomy.py
+  - .codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  - .codex-studio/published/PROGRESS_REPORT.generated.json
+  - .codex-studio/published/STATUS_PLANE.generated.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_AT_REST_AUDIT.md
+  owned_surfaces:
+  - flagship_at_rest_release_bar:fleet
+  - flagship_operational_readiness:fleet
+  - flagship_billing_and_release_gates:fleet
+- title: Prove the flagship stack stays at rest across repeated real runs by capturing soak receipts for projection truth,
+    ETA honesty, billing freshness, and canonical release convergence without manual operator correction.
+  task: Prove the flagship stack stays at rest across repeated real runs by capturing soak receipts for projection truth,
+    ETA honesty, billing freshness, and canonical release convergence without manual operator correction.
+  package_id: next90-m147-fleet-rest-soak-proof
+  work_task_id: '147.11'
+  frontier_id: 14711014711
+  milestone_id: 147
+  status: not_started
+  wave: W30
+  repo: fleet
+  allowed_paths:
+  - scripts/materialize_flagship_product_readiness.py
+  - scripts/materialize_public_progress_report.py
+  - scripts/materialize_status_plane.py
+  - scripts/verify_status_plane_semantics.py
+  - scripts/refresh_flagship_readiness_proof.sh
+  - scripts/refresh_onemin_billing_daily.sh
+  - tests/test_materialize_flagship_product_readiness.py
+  - tests/test_materialize_status_plane.py
+  - tests/test_materialize_public_progress_report.py
+  - tests/test_refresh_onemin_credits_contract.py
+  - .codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
+  - .codex-studio/published/PROGRESS_REPORT.generated.json
+  - .codex-studio/published/STATUS_PLANE.generated.yaml
+  - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_AT_REST_AUDIT.md
+  owned_surfaces:
+  - flagship_rest_soak_receipts:fleet
+  - flagship_projection_stability:fleet
+  - flagship_repeat_release_confidence:fleet
+- title: Canonize the docs-gold closeout bar from the newest EA generator reaudit so remaining Chummer6 public-guide deltas
+    are explicit, bounded, and fleet-executable instead of lingering as audit prose.
+  task: Canonize the docs-gold closeout bar from the newest EA generator reaudit so remaining Chummer6 public-guide deltas
+    are explicit, bounded, and fleet-executable instead of lingering as audit prose.
+  package_id: next90-m153-design-docs-gold-closeout-canon
+  work_task_id: '153.1'
+  frontier_id: 1531015301
+  milestone_id: 153
+  status: not_started
+  wave: W31
+  repo: chummer6-design
+  allowed_paths:
+  - products/chummer/CHUMMER6_DOCS_EA_GENERATOR_REAUDIT_V2_INTEGRATION_20260524.md
+  - products/chummer/PUBLIC_GUIDE_NEW_SECTION_VERDICT.yaml
+  - products/chummer/HORIZON_REGISTRY.yaml
+  - products/chummer/horizons
+  - scripts/ai
+  owned_surfaces:
+  - docs_gold_acceptance_canon:design
+  - new_section_verdict_canon:design
+- title: Generate README, STATUS, DOWNLOAD, FAQ, and adjacent public-guide pages from one release-truth packet so the
+    Chummer6 docs stop drifting between manually phrased surfaces.
+  task: Generate README, STATUS, DOWNLOAD, FAQ, and adjacent public-guide pages from one release-truth packet so the Chummer6
+    docs stop drifting between manually phrased surfaces.
+  package_id: next90-m153-guide-release-truth-unification
+  work_task_id: '153.2'
+  frontier_id: 1532015302
+  milestone_id: 153
+  status: not_started
+  wave: W31
+  repo: Chummer6
+  allowed_paths:
+  - .
+  - scripts
+  owned_surfaces:
+  - generated_release_truth_packet:guide
+  - public_docs_release_truth_alignment:guide
+- title: Surface Runner Passport honestly in the generated Chummer6 guide or emit an explicit omission receipt that stays
+    visible and machine-checked from the same verdict system.
+  task: Surface Runner Passport honestly in the generated Chummer6 guide or emit an explicit omission receipt that stays
+    visible and machine-checked from the same verdict system.
+  package_id: next90-m153-guide-runner-passport-surface-closeout
+  work_task_id: '153.3'
+  frontier_id: 1533015303
+  milestone_id: 153
+  status: not_started
+  wave: W31
+  repo: Chummer6
+  allowed_paths:
+  - .
+  - scripts
+  owned_surfaces:
+  - runner_passport_public_visibility:guide
+  - verdict_backed_omission_receipts:guide
+- title: Upgrade the EA docs generator from blacklist-heavy copy defense to positive semantic section contracts for verdict
+    classes like public_route_live, support_assistant_page, private_operator_surface, and design_canon_only.
+  task: Upgrade the EA docs generator from blacklist-heavy copy defense to positive semantic section contracts for verdict
+    classes like public_route_live, support_assistant_page, private_operator_surface, and design_canon_only.
+  package_id: next90-m153-ea-docs-generator-positive-contracts
+  work_task_id: '153.4'
+  frontier_id: 1534015304
+  milestone_id: 153
+  status: not_started
+  wave: W31
+  repo: executive-assistant
+  allowed_paths:
+  - scripts
+  - skills
+  - docs
+  owned_surfaces:
+  - positive_docs_generation_contracts:ea
+  - verdict_class_semantic_schemas:ea
+- title: Fail-close the final Chummer6 docs generation verdict so docs gold is only published when release truth, verdict
+    representation, and shipped-claim posture all agree.
+  task: Fail-close the final Chummer6 docs generation verdict so docs gold is only published when release truth, verdict
+    representation, and shipped-claim posture all agree.
+  package_id: next90-m153-fleet-docs-gold-closeout-gates
+  work_task_id: '153.5'
+  frontier_id: 1535015305
+  milestone_id: 153
+  status: not_started
+  wave: W31
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio/published
+  - /docker/chummercomplete/chummer-design/products/chummer/CHUMMER6_DOCS_EA_GENERATOR_REAUDIT_V2_INTEGRATION_20260524.md
+  owned_surfaces:
+  - docs_gold_verdict_gate:fleet
+  - public_guide_release_truth_gates:fleet
+- title: Fail-close PWA notification assets and actions so push, click, and close stay first-party, route-bounded, and flagship-safe.
+  task: Fail-close PWA notification assets and actions so push, click, and close stay first-party, route-bounded, and flagship-safe.
+  package_id: next90-m154-hub-pwa-notification-asset-and-action-bounds
+  work_task_id: '154.1'
+  frontier_id: 1541015401
+  milestone_id: 154
+  status: not_started
+  wave: W32
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api/wwwroot/service-worker.js
+  - scripts
+  - tests
+  owned_surfaces:
+  - pwa_notification_asset_bounds:hub
+  - pwa_notification_action_routes:hub
+- title: Add real browser/runtime flagship proof for the PWA command rail instead of relying on source-text assertions alone.
+  task: Add real browser/runtime flagship proof for the PWA command rail instead of relying on source-text assertions alone.
+  package_id: next90-m154-hub-pwa-runtime-browser-proof
+  work_task_id: '154.2'
+  frontier_id: 1542015402
+  milestone_id: 154
+  status: not_started
+  wave: W32
+  repo: chummer6-hub
+  allowed_paths:
+  - tests
+  - scripts
+  - .codex-studio/published
+  owned_surfaces:
+  - pwa_runtime_browser_proof:hub
+  - flagship_pwa_acceptance:hub
+- title: Make the public-guide sync fail on stale destination files and keep mirrored docs trees exact instead of append-only.
+  task: Make the public-guide sync fail on stale destination files and keep mirrored docs trees exact instead of append-only.
+  package_id: next90-m154-guide-public-guide-sync-prune-contract
+  work_task_id: '154.3'
+  frontier_id: 1543015403
+  milestone_id: 154
+  status: not_started
+  wave: W32
+  repo: Chummer6
+  allowed_paths:
+  - scripts
+  - HORIZONS
+  - assets
+  owned_surfaces:
+  - public_guide_sync_prune_contract:guide
+  - stale_docs_rejection:guide
+- title: Collapse duplicated horizon route-stage copy into one proof-backed source so flagship docs cannot drift between canon and copy-pack layers.
+  task: Collapse duplicated horizon route-stage copy into one proof-backed source so flagship docs cannot drift between canon and copy-pack layers.
+  package_id: next90-m154-design-horizon-route-stage-single-source
+  work_task_id: '154.4'
+  frontier_id: 1544015404
+  milestone_id: 154
+  status: not_started
+  wave: W32
+  repo: chummer6-design
+  allowed_paths:
+  - products/chummer/HORIZON_PUBLIC_COPY_PACK.md
+  - products/chummer/HORIZON_REGISTRY.yaml
+  - products/chummer/horizons
+  - scripts/ai
+  owned_surfaces:
+  - horizon_route_stage_single_source:design
+  - flagship_horizon_copy_coherence:design
+- title: Add a fleet-owned flagship gold gate that rejects release claims when PWA runtime proof, docs sync exactness, and route-stage truth disagree.
+  task: Add a fleet-owned flagship gold gate that rejects release claims when PWA runtime proof, docs sync exactness, and route-stage truth disagree.
+  package_id: next90-m154-fleet-flagship-gold-coherence-gates
+  work_task_id: '154.5'
+  frontier_id: 1545015405
+  milestone_id: 154
+  status: not_started
+  wave: W32
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio/published
+  - /docker/chummercomplete/_completion/gold_readiness_closure
+  owned_surfaces:
+  - flagship_gold_coherence_gate:fleet
+  - pwa_docs_route_truth_gate:fleet
+- title: Prevent authenticated command-lane pages from being replayed out of shared PWA caches so offline support does not leak signed-in account surfaces after sign-out.
+  task: Prevent authenticated command-lane pages from being replayed out of shared PWA caches so offline support does not leak signed-in account surfaces after sign-out.
+  package_id: next90-m155-hub-pwa-auth-cache-privacy-bounds
+  work_task_id: '155.1'
+  frontier_id: 1551015501
+  milestone_id: 155
+  status: not_started
+  wave: W33
+  repo: chummer6-hub
+  allowed_paths:
+  - Chummer.Run.Api/wwwroot/service-worker.js
+  - scripts
+  - tests
+  owned_surfaces:
+  - pwa_authenticated_cache_privacy_bounds:hub
+  - offline_account_surface_fail_closed:hub
+- title: Upgrade the PWA flagship proof from route and source-text checks to real browser assertions for role entry, manifest registration, service worker presence, and notification-route behavior.
+  task: Upgrade the PWA flagship proof from route and source-text checks to real browser assertions for role entry, manifest registration, service worker presence, and notification-route behavior.
+  package_id: next90-m155-hub-pwa-runtime-role-contract-proof
+  work_task_id: '155.2'
+  frontier_id: 1552015502
+  milestone_id: 155
+  status: not_started
+  wave: W33
+  repo: chummer6-hub
+  allowed_paths:
+  - tests
+  - scripts
+  - .codex-studio/published
+  owned_surfaces:
+  - pwa_role_route_runtime_contracts:hub
+  - browser_level_pwa_acceptance:hub
+- title: Replace brittle string-rewrite guide shell transforms with structured section-aware rendering so flagship docs cannot silently drift on harmless upstream wording edits.
+  task: Replace brittle string-rewrite guide shell transforms with structured section-aware rendering so flagship docs cannot silently drift on harmless upstream wording edits.
+  package_id: next90-m155-guide-structured-shell-transform-contracts
+  work_task_id: '155.3'
+  frontier_id: 1553015503
+  milestone_id: 155
+  status: not_started
+  wave: W33
+  repo: Chummer6
+  allowed_paths:
+  - scripts
+  - README.md
+  - STATUS.md
+  - HELP.md
+  - FAQ.md
+  - DOWNLOAD.md
+  owned_surfaces:
+  - structured_public_guide_shell_transforms:guide
+  - flagship_shell_transform_drift_guard:guide
+- title: Add a fleet-owned flagship gold privacy-and-proof-depth gate that rejects release claims when authenticated cache bounds, browser-runtime PWA proof, and structured docs-shell rendering are not all green together.
+  task: Add a fleet-owned flagship gold privacy-and-proof-depth gate that rejects release claims when authenticated cache bounds, browser-runtime PWA proof, and structured docs-shell rendering are not all green together.
+  package_id: next90-m155-fleet-flagship-gold-privacy-proof-gates
+  work_task_id: '155.4'
+  frontier_id: 1554015504
+  milestone_id: 155
+  status: not_started
+  wave: W33
+  repo: fleet
+  allowed_paths:
+  - scripts
+  - tests
+  - .codex-studio/published
+  - /docker/chummercomplete/_completion/gold_readiness_closure
+  owned_surfaces:
+  - flagship_gold_privacy_gate:fleet
+  - flagship_gold_proof_depth_gate:fleet
+source_queue_fingerprint: e350c3be89d2f3ff2b04c700b0b4f43b554b9ad9

@@ -1,0 +1,176 @@
+{
+  "anchor": {
+    "anchor_id": "mara_voss",
+    "display_name": "Mara Voss",
+    "host_performance_prompt": "Photorealistic cyberpunk newsroom broadcast with a believable elf anchor, natural skin detail, subtle head movement, realistic mouth movement, professional desk posture, and no watermark.",
+    "role": "primary anchor",
+    "visual_mode": "photoreal",
+    "voice": {
+      "accent": "neutral international English",
+      "delivery": "calm, dry, precise, credible",
+      "pace": "medium-slow for headlines, faster for bulletin detail"
+    }
+  },
+  "contract_name": "black_ledger_newsroom.editorial_packet.v1",
+  "episode": {
+    "duration_target_seconds": 60,
+    "episode_id": "black-ledger-turn1-bulletin-sample",
+    "episode_type": "turn_newsreel",
+    "public_safe_summary": "The city moved first. Matrix pressure rises near a research site. The record stays public-safe.",
+    "publish_scope": "public",
+    "source_receipt_ids": [
+      "BLACK_LEDGER_TURN1_TICK_RECEIPT",
+      "FACTION_SCORE_DELTA_RECEIPT",
+      "NEWSROOM_PUBLIC_SAFETY_RECEIPT"
+    ],
+    "status": "editorial_ready",
+    "title": "Turn 1: The City Moved First",
+    "truth_layer": "receipt_backed_with_public_safe_reconstruction"
+  },
+  "generated_at": "2026-05-25T16:35:46Z",
+  "provider_posture": {
+    "ea_role": "headline_variants_safety_rewrites_provider_inventory",
+    "editorial_truth_owner": "hub",
+    "render_owner": "media_factory"
+  },
+  "render_contract": {
+    "jobs": [
+      "HostPerformanceRenderJob",
+      "BrollRenderJob",
+      "CompositeEpisodeJob"
+    ],
+    "media_factory_contract_version": "black-ledger-newsroom-media-factory-v1",
+    "quality_metrics": {
+      "audio_required": true,
+      "broll_clip_count_minimum": 2,
+      "caption_required": true,
+      "host_visible_seconds_minimum": 8,
+      "min_duration_seconds": 20,
+      "min_resolution": "1920x1080",
+      "preferred_resolution": "3840x2160",
+      "scene_change_count_minimum": 3,
+      "watermark_allowed": false
+    }
+  },
+  "segments": [
+    {
+      "broll_cues": [
+        {
+          "cue_id": "geoscape_turn1",
+          "duration_seconds": 6,
+          "prompt": "High-end cinematic geoscape insert with faction pressure pulses, route arcs, heat bars, and source receipt markers.",
+          "public_safety_notes": "No private map overlays, no false product claims, no licensed real-world map texture.",
+          "render_status": "pending",
+          "scene_type": "geoscape"
+        },
+        {
+          "cue_id": "rain_city",
+          "duration_seconds": 5,
+          "prompt": "Photorealistic rainy cyberpunk city block at night with patrol lights, puddle reflections, and restrained street movement.",
+          "public_safety_notes": "Atmosphere only; no private player identities or readable copyrighted text.",
+          "render_status": "pending",
+          "scene_type": "street_camera"
+        }
+      ],
+      "headline": "The city moved first.",
+      "lower_third": "MARA VOSS | BLACK LEDGER NEWSROOM",
+      "order": 1,
+      "script_lines": [
+        "Good evening. The Black Ledger moved again.",
+        "Turn 1 closed with a visible pressure shift, one faction losing quiet ground, and a signal trail that did not stay buried."
+      ],
+      "segment_id": "open",
+      "source_receipt_ids": [
+        "BLACK_LEDGER_TURN1_TICK_RECEIPT",
+        "FACTION_SCORE_DELTA_RECEIPT",
+        "NEWSROOM_PUBLIC_SAFETY_RECEIPT"
+      ],
+      "ticker_lines": [
+        "TURN 1 CLOSED",
+        "PUBLIC-SAFE RECEIPTS ACTIVE",
+        "PRIVATE TABLE DETAILS REDACTED"
+      ],
+      "visual_truth": "public_safe_reconstruction"
+    },
+    {
+      "broll_cues": [
+        {
+          "cue_id": "facility_exterior",
+          "duration_seconds": 6,
+          "prompt": "Photorealistic public-safe reconstruction of a research facility exterior at night during a security incident.",
+          "public_safety_notes": "No logos, no floorplans, no private GM map details.",
+          "render_status": "pending",
+          "scene_type": "facility_exterior"
+        },
+        {
+          "cue_id": "matrix_trace_room",
+          "duration_seconds": 6,
+          "prompt": "Photorealistic cyberpunk operations room with a decker tracing a signal across translucent screens.",
+          "public_safety_notes": "Abstract node graphs only; no sourcebook text or private campaign topology.",
+          "render_status": "pending",
+          "scene_type": "matrix_trace"
+        }
+      ],
+      "headline": "Matrix pressure rises near a research site.",
+      "lower_third": "MATRIX PRESSURE | PUBLIC-SAFE RECONSTRUCTION",
+      "order": 2,
+      "script_lines": [
+        "The loudest signal came from a research-site breach.",
+        "The public record shows Matrix pressure rising, but the private table details stay sealed."
+      ],
+      "segment_id": "matrix_breach",
+      "source_receipt_ids": [
+        "BLACK_LEDGER_TURN1_TICK_RECEIPT",
+        "FACTION_SCORE_DELTA_RECEIPT",
+        "NEWSROOM_PUBLIC_SAFETY_RECEIPT"
+      ],
+      "ticker_lines": [
+        "MATRIX HEAT +",
+        "GHOSTLINE TRACE CONFIDENCE RISING"
+      ],
+      "visual_truth": "public_safe_reconstruction"
+    },
+    {
+      "broll_cues": [
+        {
+          "cue_id": "newsroom_globe_close",
+          "duration_seconds": 4,
+          "prompt": "Close cinematic newsroom globe insert with controlled amber alert bars and a final receipt-backed signoff composition.",
+          "public_safety_notes": "Editorial graphic only; no hidden evidence revealed.",
+          "render_status": "pending",
+          "scene_type": "dossier_graphic"
+        }
+      ],
+      "headline": "The record stays public-safe.",
+      "lower_third": "BLACK LEDGER | THE CITY REPORTS BACK",
+      "order": 3,
+      "script_lines": [
+        "That is the public record.",
+        "The private fallout stays with the tables that earned it."
+      ],
+      "segment_id": "close",
+      "source_receipt_ids": [
+        "BLACK_LEDGER_TURN1_TICK_RECEIPT",
+        "FACTION_SCORE_DELTA_RECEIPT",
+        "NEWSROOM_PUBLIC_SAFETY_RECEIPT"
+      ],
+      "ticker_lines": [
+        "NEXT BULLETIN AFTER VERIFIED RECEIPTS"
+      ],
+      "visual_truth": "public_safe_reconstruction"
+    }
+  ],
+  "watch_page_contract": {
+    "public_disclosure": "Some visuals are public-safe reconstructions generated from Chummer receipts. Private table details stay private.",
+    "required_sections": [
+      "video",
+      "transcript",
+      "source_receipts",
+      "public_safety_note",
+      "reconstruction_note",
+      "publish_timestamp",
+      "episode_type",
+      "feedback_link"
+    ]
+  }
+}

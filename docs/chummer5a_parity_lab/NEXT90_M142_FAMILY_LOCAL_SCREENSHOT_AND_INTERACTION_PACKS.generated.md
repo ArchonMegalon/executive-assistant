@@ -6,7 +6,7 @@
 
 ## Desktop readiness
 - `desktop_client`: `ready`
-- summary: Desktop install, release-channel, and flagship workbench proof are current.
+- summary: EA-scoped family-local screenshot and interaction proof for milestone 142 is ready.
 
 ## Family summary
 - `dense_builder_and_career_workflows`: pass

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
@@ -16,6 +16,90 @@ async def _prewarm_provider_health_cache() -> None:
         await prewarm_provider_health_snapshot_cache(lightweight=True)
     except Exception:
         return
+
+
+def _include_public_routes(
+    app: FastAPI,
+    *,
+    settings,
+    landing_setup_router: APIRouter,
+    landing_actions_router: APIRouter,
+    landing_channel_router: APIRouter,
+    landing_objects_router: APIRouter,
+    landing_workspace_router: APIRouter,
+    landing_router: APIRouter,
+    health_router: APIRouter,
+    register_router: APIRouter,
+) -> None:
+    app.include_router(landing_setup_router)
+    app.include_router(landing_actions_router)
+    app.include_router(landing_channel_router)
+    app.include_router(landing_objects_router)
+    app.include_router(landing_workspace_router)
+    app.include_router(landing_router)
+    if settings.public_results_enabled:
+        from app.api.routes.public_results import router as public_results_router
+
+        app.include_router(public_results_router)
+    if settings.public_tours_enabled:
+        from app.api.routes.public_tours import router as public_tours_router
+
+        app.include_router(public_tours_router)
+    app.include_router(health_router)
+    app.include_router(register_router)
+
+
+def _include_authenticated_routes(
+    app: FastAPI,
+    *,
+    auth_dependency: list,
+    channels_router: APIRouter,
+    human_router: APIRouter,
+    memory_router: APIRouter,
+    evidence_router: APIRouter,
+    observations_router: APIRouter,
+    onboarding_router: APIRouter,
+    delivery_router: APIRouter,
+    images_router: APIRouter,
+    connectors_router: APIRouter,
+    google_oauth_router: APIRouter,
+    policy_router: APIRouter,
+    providers_router: APIRouter,
+    product_api_delivery_router: APIRouter,
+    product_api_workspace_router: APIRouter,
+    product_api_router: APIRouter,
+    runtime_router: APIRouter,
+    ltd_runtime_router: APIRouter,
+    plans_router: APIRouter,
+    rewrite_router: APIRouter,
+    skills_router: APIRouter,
+    task_contracts_router: APIRouter,
+    tools_router: APIRouter,
+    responses_router: APIRouter,
+) -> None:
+    app.include_router(channels_router, dependencies=auth_dependency)
+    app.include_router(human_router, dependencies=auth_dependency)
+    app.include_router(memory_router, dependencies=auth_dependency)
+    app.include_router(evidence_router, dependencies=auth_dependency)
+    app.include_router(observations_router, dependencies=auth_dependency)
+    app.include_router(onboarding_router, dependencies=auth_dependency)
+    app.include_router(delivery_router, dependencies=auth_dependency)
+    app.include_router(images_router, dependencies=auth_dependency)
+    app.include_router(connectors_router, dependencies=auth_dependency)
+    app.include_router(google_oauth_router)
+    app.include_router(policy_router, dependencies=auth_dependency)
+    app.include_router(providers_router, dependencies=auth_dependency)
+    app.include_router(product_api_delivery_router, dependencies=auth_dependency)
+    app.include_router(product_api_workspace_router, dependencies=auth_dependency)
+    app.include_router(product_api_router, dependencies=auth_dependency)
+    app.include_router(runtime_router, dependencies=auth_dependency)
+    app.include_router(ltd_runtime_router, dependencies=auth_dependency)
+    app.include_router(plans_router, dependencies=auth_dependency)
+    app.include_router(rewrite_router, dependencies=auth_dependency)
+    app.include_router(skills_router, dependencies=auth_dependency)
+    app.include_router(task_contracts_router, dependencies=auth_dependency)
+    app.include_router(tools_router, dependencies=auth_dependency)
+    app.include_router(responses_router, dependencies=auth_dependency)
 
 
 def create_app() -> FastAPI:
@@ -58,44 +142,44 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
     app.router.on_startup.append(_prewarm_provider_health_cache)
-    app.include_router(landing_setup_router)
-    app.include_router(landing_actions_router)
-    app.include_router(landing_channel_router)
-    app.include_router(landing_objects_router)
-    app.include_router(landing_workspace_router)
-    app.include_router(landing_router)
-    if s.public_results_enabled:
-        from app.api.routes.public_results import router as public_results_router
-
-        app.include_router(public_results_router)
-    if s.public_tours_enabled:
-        from app.api.routes.public_tours import router as public_tours_router
-
-        app.include_router(public_tours_router)
-    app.include_router(health_router)
-    app.include_router(register_router)
+    _include_public_routes(
+        app,
+        settings=s,
+        landing_setup_router=landing_setup_router,
+        landing_actions_router=landing_actions_router,
+        landing_channel_router=landing_channel_router,
+        landing_objects_router=landing_objects_router,
+        landing_workspace_router=landing_workspace_router,
+        landing_router=landing_router,
+        health_router=health_router,
+        register_router=register_router,
+    )
     auth_dependency = [Depends(require_request_auth)]
-    app.include_router(channels_router, dependencies=auth_dependency)
-    app.include_router(human_router, dependencies=auth_dependency)
-    app.include_router(memory_router, dependencies=auth_dependency)
-    app.include_router(evidence_router, dependencies=auth_dependency)
-    app.include_router(observations_router, dependencies=auth_dependency)
-    app.include_router(onboarding_router, dependencies=auth_dependency)
-    app.include_router(delivery_router, dependencies=auth_dependency)
-    app.include_router(images_router, dependencies=auth_dependency)
-    app.include_router(connectors_router, dependencies=auth_dependency)
-    app.include_router(google_oauth_router)
-    app.include_router(policy_router, dependencies=auth_dependency)
-    app.include_router(providers_router, dependencies=auth_dependency)
-    app.include_router(product_api_delivery_router, dependencies=auth_dependency)
-    app.include_router(product_api_workspace_router, dependencies=auth_dependency)
-    app.include_router(product_api_router, dependencies=auth_dependency)
-    app.include_router(runtime_router, dependencies=auth_dependency)
-    app.include_router(ltd_runtime_router, dependencies=auth_dependency)
-    app.include_router(plans_router, dependencies=auth_dependency)
-    app.include_router(rewrite_router, dependencies=auth_dependency)
-    app.include_router(skills_router, dependencies=auth_dependency)
-    app.include_router(task_contracts_router, dependencies=auth_dependency)
-    app.include_router(tools_router, dependencies=auth_dependency)
-    app.include_router(responses_router, dependencies=auth_dependency)
+    _include_authenticated_routes(
+        app,
+        auth_dependency=auth_dependency,
+        channels_router=channels_router,
+        human_router=human_router,
+        memory_router=memory_router,
+        evidence_router=evidence_router,
+        observations_router=observations_router,
+        onboarding_router=onboarding_router,
+        delivery_router=delivery_router,
+        images_router=images_router,
+        connectors_router=connectors_router,
+        google_oauth_router=google_oauth_router,
+        policy_router=policy_router,
+        providers_router=providers_router,
+        product_api_delivery_router=product_api_delivery_router,
+        product_api_workspace_router=product_api_workspace_router,
+        product_api_router=product_api_router,
+        runtime_router=runtime_router,
+        ltd_runtime_router=ltd_runtime_router,
+        plans_router=plans_router,
+        rewrite_router=rewrite_router,
+        skills_router=skills_router,
+        task_contracts_router=task_contracts_router,
+        tools_router=tools_router,
+        responses_router=responses_router,
+    )
     return app

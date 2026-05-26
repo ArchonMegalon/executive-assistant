@@ -1,4 +1,32 @@
 services:
+  ea-teable-relay:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile
+    image: ea-rewrite:latest
+    container_name: ea-teable-relay
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TEABLE_RELAY_LISTEN_HOST=${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}
+      - TZ=Europe/Vienna
+    network_mode: host
+    command:
+      - python3
+      - /app/scripts/teable_host_proxy.py
+      - --listen-host
+      - ${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}
+      - --listen-port
+      - "18787"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS --connect-timeout 2 --max-time 10 http://${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}:18787/healthz >/dev/null
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   ea-api:
     build:
       context: .
@@ -21,6 +49,9 @@ services:
       - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
       - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
     ports:
       - "${EA_HOST_PORT:-8090}:8090"
@@ -28,8 +59,13 @@ services:
       - ./config:/config:ro
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
+      ea-teable-relay:
+        condition: service_healthy
       ea-db:
         condition: service_healthy
 
@@ -53,6 +89,7 @@ services:
       - ./config:/config:ro
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
     command:
       - python
@@ -87,13 +124,21 @@ services:
       - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
       - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
+      - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
+      ea-teable-relay:
+        condition: service_healthy
       ea-db:
         condition: service_healthy
 
@@ -116,13 +161,20 @@ services:
       - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
       - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+      - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
+      - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
+      ea-teable-relay:
+        condition: service_healthy
       ea-db:
         condition: service_healthy
 
@@ -143,4 +195,5 @@ services:
 volumes:
   ea_artifacts: {}
   ea_pgdata: {}
+  ea_public_tours: {}
   ea_provider_ledger: {}

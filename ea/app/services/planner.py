@@ -623,6 +623,8 @@ class PlannerService:
                 "share_url",
                 "editor_url",
                 "public_url",
+                "hosted_url",
+                "crezlo_public_url",
                 "workspace_id",
                 "workspace_domain",
                 "creation_mode",
@@ -1029,6 +1031,8 @@ class PlannerService:
             return ("source_text",)
         if normalized == "media_transform":
             return ("feature_type",)
+        if normalized == "crezlo_property_tour":
+            return ("binding_id", "tour_title", "property_url")
         return default_input_keys
 
     def _build_pre_artifact_tool_then_artifact_steps(

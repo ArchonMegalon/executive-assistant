@@ -69,14 +69,48 @@ def main() -> int:
     for source_key, expected_path in (
         ("design_queue", "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
         ("fleet_queue", "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
+        ("local_mirror_queue", "/docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
         ("registry", "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"),
+        ("local_mirror_registry", "/docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"),
         ("fleet_m143_gate", "/docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json"),
     ):
         if dict(source_inputs.get(source_key) or {}).get("path") != expected_path:
             issues.append(f"{source_key} source path drifted")
+    for source_key in ("design_queue", "fleet_queue", "local_mirror_queue"):
+        source_row = dict(source_inputs.get(source_key) or {})
+        if int(source_row.get("match_count") or 0) != 1:
+            issues.append(f"{source_key} match_count drifted")
+        if source_row.get("unique_match") is not True:
+            issues.append(f"{source_key} should have exactly one canonical row")
+        if source_row.get("status") != "not_started":
+            issues.append(f"{source_key} status drifted")
+        if int(source_row.get("frontier_id") or 0) != FRONTIER_ID:
+            issues.append(f"{source_key} frontier drifted")
+        if not str(source_row.get("row_fingerprint") or "").strip():
+            issues.append(f"{source_key} row_fingerprint missing")
+    for source_key in ("registry", "local_mirror_registry"):
+        source_row = dict(source_inputs.get(source_key) or {})
+        if int(source_row.get("match_count") or 0) != 1:
+            issues.append(f"{source_key} match_count drifted")
+        if source_row.get("unique_match") is not True:
+            issues.append(f"{source_key} should have exactly one registry task row")
+        if source_row.get("owner") != "executive-assistant":
+            issues.append(f"{source_key} owner drifted")
+        if not str(source_row.get("row_fingerprint") or "").strip():
+            issues.append(f"{source_key} row_fingerprint missing")
     readiness_input = dict(source_inputs.get("flagship_readiness") or {})
     if readiness_input.get("path") != "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json":
         issues.append("flagship_readiness source path drifted")
+    if readiness_input.get("coverage_key") != "desktop_client":
+        issues.append("flagship_readiness coverage key drifted")
+    if readiness_input.get("status") != dict(payload.get("desktop_client_readiness") or {}).get("status"):
+        issues.append("flagship_readiness status drifted")
+    if int(readiness_input.get("reason_count") or 0) != len(list(dict(payload.get("desktop_client_readiness") or {}).get("reasons") or [])):
+        issues.append("flagship_readiness reason_count drifted")
+    if list(readiness_input.get("row_fingerprint_basis") or []) != ["status", "summary", "reasons", "evidence"]:
+        issues.append("flagship_readiness row_fingerprint_basis drifted")
+    if not str(readiness_input.get("row_fingerprint") or "").strip():
+        issues.append("flagship_readiness row_fingerprint missing")
 
     summary = dict(payload.get("summary") or {})
     if summary.get("fleet_m143_gate_status") != "pass":
@@ -88,8 +122,28 @@ def main() -> int:
     queue_alignment = dict(canonical_monitors.get("queue_alignment") or {})
     if not queue_alignment:
         issues.append("queue_alignment monitor missing")
-    elif not all(bool(value) for value in queue_alignment.values()):
-        issues.append("queue_alignment monitor drifted")
+    else:
+        expected_true_checks = (
+            "design_queue_unique",
+            "fleet_queue_unique",
+            "local_mirror_queue_unique",
+            "registry_task_unique",
+            "local_mirror_registry_task_unique",
+            "design_fleet_queue_fingerprint_matches",
+            "design_local_mirror_queue_fingerprint_matches",
+            "registry_task_owner_matches",
+            "registry_task_title_matches",
+            "local_mirror_queue_owner_matches",
+            "local_mirror_queue_frontier_matches",
+            "local_mirror_queue_allowed_paths_match",
+            "local_mirror_queue_owned_surfaces_match",
+            "local_mirror_registry_task_owner_matches",
+            "local_mirror_registry_task_title_matches",
+            "registry_local_mirror_task_fingerprint_matches",
+        )
+        for key in expected_true_checks:
+            if queue_alignment.get(key) is not True:
+                issues.append(f"queue_alignment {key} drifted")
     fleet_gate = dict(canonical_monitors.get("fleet_gate") or {})
     if not fleet_gate:
         issues.append("fleet_gate monitor missing")
@@ -141,6 +195,12 @@ def main() -> int:
     feedback_text = FEEDBACK_PATH.read_text(encoding="utf-8")
     if "desktop_client" not in feedback_text:
         issues.append("feedback note must mention desktop_client readiness posture")
+    if "canonical queue frontier" not in feedback_text:
+        issues.append("feedback note must mention canonical queue frontier alignment")
+    if ".codex-design local mirror" not in feedback_text:
+        issues.append("feedback note must mention local mirror alignment")
+    if "duplicate queue or registry rows fail closed" not in feedback_text:
+        issues.append("feedback note must mention duplicate canonical row fail-closed posture")
     for forbidden in FORBIDDEN_PROOF_MARKERS:
         if forbidden.lower() in feedback_text.lower():
             issues.append(f"feedback note cites forbidden helper evidence: {forbidden}")

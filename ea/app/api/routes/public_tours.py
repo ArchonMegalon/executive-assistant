@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -93,6 +94,16 @@ def _money(value: object) -> str:
     return "EUR ?"
 
 
+def _safe_live_360_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return normalized
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
@@ -103,6 +114,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     display_title = str(payload.get("display_title") or title).strip() or title
     listing_url = str(payload.get("listing_url") or "").strip()
     hosted_url = str(payload.get("hosted_url") or "").strip()
+    source_virtual_tour_url = _safe_live_360_url(payload.get("source_virtual_tour_url"))
+    brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
     slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
@@ -136,8 +149,39 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     tour_style = html.escape(str(brief.get("tour_style") or "").strip())
     audience = html.escape(str(brief.get("audience") or "").strip())
     cta = html.escape(str(brief.get("call_to_action") or "").strip())
+    brand_html = html.escape(brand_name)
     listing_link = f'<a class="ghost" href="{html.escape(listing_url)}" target="_blank" rel="noreferrer">Open Listing</a>' if listing_url else ""
     hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
+    primary_cta = "Open Live 360" if source_virtual_tour_url else "Open Tour"
+    primary_cta_href = "#live-360" if source_virtual_tour_url else "#viewer"
+    live_shell = (
+        f'''
+        <section id="live-360" class="live-shell">
+          <div class="live-head">
+            <div>
+              <div class="eyebrow">{brand_html} <span>•</span> Live 360</div>
+              <h2>Live Panorama Viewer</h2>
+              <p class="sub">The live browser view below stays entirely inside the {brand_html} public tour surface on this page.</p>
+            </div>
+            <div class="stack">
+              <div class="kv"><b>Brand</b>{brand_html}</div>
+              <div class="kv"><b>Experience</b>Hosted on myexternalbrain.com</div>
+            </div>
+          </div>
+          <div class="live-frame-wrap">
+            <iframe
+              class="live-frame"
+              src="{html.escape(source_virtual_tour_url)}"
+              title="{title_html} live 360 viewer"
+              loading="lazy"
+              allowfullscreen
+              referrerpolicy="no-referrer-when-downgrade"
+            ></iframe>
+          </div>
+        </section>'''
+        if source_virtual_tour_url
+        else ""
+    )
     clickrank_html = clickrank_head_snippet(hostname)
     return f"""<!doctype html>
 <html lang="de">
@@ -274,6 +318,40 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         display: grid;
         gap: 18px;
       }}
+      .live-shell {{
+        display: grid;
+        gap: 16px;
+        padding: 22px;
+        border-radius: 30px;
+        background: rgba(255,255,255,0.76);
+        border: 1px solid rgba(29,28,26,0.12);
+        box-shadow: 0 18px 50px rgba(29,28,26,0.08);
+      }}
+      .live-head {{
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 18px;
+        align-items: start;
+      }}
+      .live-head h2 {{
+        margin: 8px 0 10px;
+        font-size: 1.6rem;
+      }}
+      .live-frame-wrap {{
+        overflow: hidden;
+        border-radius: 30px;
+        background: rgba(18,17,16,0.94);
+        border: 1px solid rgba(29,28,26,0.15);
+        min-height: 540px;
+      }}
+      .live-frame {{
+        display: block;
+        width: 100%;
+        height: 78vh;
+        min-height: 540px;
+        border: 0;
+        background: #111;
+      }}
       .hero-video {{
         overflow: hidden;
         border-radius: 30px;
@@ -403,11 +481,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       }}
       @media (max-width: 900px) {{
         .hero {{ grid-template-columns: 1fr; }}
+        .live-head {{ grid-template-columns: 1fr; }}
       }}
       @media (max-width: 640px) {{
         .shell {{ padding: 14px; }}
         .mast, .panel {{ border-radius: 22px; }}
         .viewer img {{ min-height: 320px; height: 52vh; }}
+        .live-frame-wrap, .live-shell {{ border-radius: 22px; }}
+        .live-frame {{ min-height: 380px; height: 60vh; }}
       }}
     </style>
   </head>
@@ -427,7 +508,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           </div>
           <p class="sub">{teaser}</p>
           <div class="actions">
-            <a class="cta" href="#viewer">Open Tour</a>
+            <a class="cta" href="{primary_cta_href}">{primary_cta}</a>
             {listing_link}
             {hosted_link}
           </div>
@@ -445,6 +526,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </aside>
       </section>
       <section class="stage">
+        {live_shell}
         {(
             f'''<div class="hero-video">
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(scene_data[0]["image_url"])}">

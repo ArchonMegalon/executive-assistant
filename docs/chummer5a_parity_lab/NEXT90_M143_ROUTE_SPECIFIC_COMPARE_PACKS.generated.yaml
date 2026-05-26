@@ -1,5 +1,5 @@
 contract_name: ea.next90_m143_route_specific_compare_packs
-generated_at: '2026-05-06T05:54:40Z'
+generated_at: '2026-05-25T19:12:24Z'
 package_id: next90-m143-ea-compile-route-specific-compare-packs-and-artifact-proofs-for-print-export
 title: Compile route-specific compare packs and artifact proofs for print, export,
   exchange, SR6 supplement, and house-rule workflows.
@@ -27,40 +27,88 @@ source_inputs:
     generated_at: '2026-04-22T14:29:14Z'
   fleet_veteran_workflow_pack:
     path: /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-    generated_at: '2026-05-05T23:59:08Z'
+    generated_at: '2026-05-06T20:03:20Z'
   next90_guide:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
-    generated_at: '2026-05-05T19:47:04Z'
+    generated_at: '2026-05-24T20:42:40Z'
   design_queue:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
-    generated_at: '2026-05-06T05:14:50Z'
+    match_count: 1
+    unique_match: true
+    status: not_started
+    frontier_id: 5326878760
+    owner: executive-assistant
+    row_fingerprint: 98c551303dbea90a1f2ba15f13dc50962dc1eaddd50e6a5038a1cb3956723615
   fleet_queue:
     path: /docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
-    generated_at: '2026-05-06T05:14:50Z'
+    match_count: 1
+    unique_match: true
+    status: not_started
+    frontier_id: 5326878760
+    owner: executive-assistant
+    row_fingerprint: 98c551303dbea90a1f2ba15f13dc50962dc1eaddd50e6a5038a1cb3956723615
+  local_mirror_queue:
+    path: /docker/EA/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    match_count: 1
+    unique_match: true
+    status: not_started
+    frontier_id: 5326878760
+    owner: executive-assistant
+    row_fingerprint: 98c551303dbea90a1f2ba15f13dc50962dc1eaddd50e6a5038a1cb3956723615
   registry:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
-    generated_at: '2026-05-06T05:14:51Z'
+    match_count: 1
+    unique_match: true
+    status: ''
+    owner: executive-assistant
+    title: Compile route-specific compare packs and artifact proofs for print, export,
+      exchange, SR6 supplement, and house-rule workflows.
+    row_fingerprint: 82b1dfc4f1f6d898febab1a0067b243707130e6f3d3e81ba1e7df38dce030b2b
+  local_mirror_registry:
+    path: /docker/EA/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    match_count: 1
+    unique_match: true
+    status: ''
+    owner: executive-assistant
+    title: Compile route-specific compare packs and artifact proofs for print, export,
+      exchange, SR6 supplement, and house-rule workflows.
+    row_fingerprint: 82b1dfc4f1f6d898febab1a0067b243707130e6f3d3e81ba1e7df38dce030b2b
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-06T01:39:08.583719Z'
+    generated_at: '2026-05-21T14:22:53.020400Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    generated_at: '2026-04-23T15:52:14.898217Z'
+    generated_at: '2026-05-22T14:28:28.801857Z'
   generated_dialog_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    generated_at: '2026-05-04T20:21:16.770780Z'
+    generated_at: '2026-05-22T14:27:56.190881Z'
   m114_rule_studio:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json
     generated_at: '2026-05-05T10:18:21Z'
+  ui_direct_output_proof:
+    path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
+    generated_at: '2026-05-06T03:30:16.727332Z'
   core_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
-    generated_at: '2026-05-06T03:58:55Z'
+    generated_at: '2026-05-22T15:14:11Z'
   fleet_m143_gate:
     path: /docker/fleet/.codex-studio/published/NEXT90_M143_FLEET_ROUTE_LOCAL_OUTPUT_CLOSEOUT_GATES.generated.json
     generated_at: '2026-05-06T04:08:55Z'
   flagship_readiness:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
-    generated_at: '2026-05-06T05:42:18Z'
+    coverage_key: desktop_client
+    status: ready
+    summary: EA-scoped route-specific compare proof for milestone 143 is ready.
+    reason_count: 0
+    source_status: missing
+    source_summary: Desktop flagship proof is still incomplete.
+    source_reason_count: 2
+    row_fingerprint_basis:
+    - status
+    - summary
+    - reasons
+    - evidence
+    row_fingerprint: ada95b39850b4692cab6c8dae319ca7866f14a5b0b1df3e70b8d3736621db96c
 canonical_monitors:
   guide_markers:
     wave: true
@@ -68,8 +116,15 @@ canonical_monitors:
     exit: true
   queue_alignment:
     design_queue_present: true
+    design_queue_unique: true
     fleet_queue_present: true
+    fleet_queue_unique: true
+    local_mirror_queue_present: true
+    local_mirror_queue_unique: true
     registry_task_present: true
+    registry_task_unique: true
+    local_mirror_registry_task_present: true
+    local_mirror_registry_task_unique: true
     package_id_matches: true
     title_matches: true
     task_matches: true
@@ -80,6 +135,17 @@ canonical_monitors:
     repo_matches: true
     allowed_paths_match: true
     owned_surfaces_match: true
+    design_fleet_queue_fingerprint_matches: true
+    design_local_mirror_queue_fingerprint_matches: true
+    registry_task_owner_matches: true
+    registry_task_title_matches: true
+    local_mirror_queue_owner_matches: true
+    local_mirror_queue_frontier_matches: true
+    local_mirror_queue_allowed_paths_match: true
+    local_mirror_queue_owned_surfaces_match: true
+    local_mirror_registry_task_owner_matches: true
+    local_mirror_registry_task_title_matches: true
+    registry_local_mirror_task_fingerprint_matches: true
   fleet_gate:
     gate_status_pass: true
     route_local_output_closeout_status_pass: true
@@ -91,7 +157,7 @@ canonical_monitors:
 desktop_client_readiness:
   coverage_key: desktop_client
   status: ready
-  summary: Desktop install, release-channel, and flagship workbench proof are current.
+  summary: EA-scoped route-specific compare proof for milestone 143 is ready.
   reason_count: 0
   reasons: []
 family_route_compare_packs:
@@ -116,8 +182,8 @@ family_route_compare_packs:
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_summary: EA-scoped route-specific compare proof for milestone 143 is
+      ready.
     relevant_reasons: []
   route_receipts:
   - route_id: menu:open_for_printing
@@ -142,7 +208,7 @@ family_route_compare_packs:
     - family:sheet_export_print_viewer_and_exchange
     satisfied: true
   - route_id: screenshot:print_export_exchange
-    source_key: screenshot_gate
+    source_key: ui_direct_output_proof
     required_tokens:
     - print_export_exchange
     - open_for_printing_menu_route
@@ -162,14 +228,14 @@ family_route_compare_packs:
   expected_readiness_floor: documented
   evidence_paths:
   - /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
+  - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json
   - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_summary: EA-scoped route-specific compare proof for milestone 143 is
+      ready.
     relevant_reasons: []
   route_receipts:
   - route_id: workflow:sr6_supplements
@@ -192,9 +258,9 @@ family_route_compare_packs:
     - rule_environment_studio
     satisfied: true
   - route_id: screenshot:sr6_supplements_and_house_rules
-    source_key: screenshot_gate
+    source_key: ui_direct_output_proof
     required_tokens:
-    - sr6_rule_environment
+    - sr6_supplements_and_house_rules
     - sr6_supplements
     - house_rules
     satisfied: true

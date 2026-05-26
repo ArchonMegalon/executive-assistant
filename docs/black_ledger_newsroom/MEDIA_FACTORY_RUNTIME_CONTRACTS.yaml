@@ -1,0 +1,36 @@
+version: black-ledger-newsroom-media-factory-v1
+jobs:
+  HostPerformanceRenderJob:
+    inputs:
+      - episode_id
+      - anchor_id
+      - script_lines
+      - style_profile
+      - voice_profile
+      - duration_target
+      - public_safety_packet
+  BrollRenderJob:
+    inputs:
+      - episode_id
+      - broll_cues
+      - style_profile
+      - public_safety_packet
+  CompositeEpisodeJob:
+    inputs:
+      - host_video
+      - broll_clips
+      - lower_thirds
+      - ticker
+      - caption_vtt
+      - audio_bed
+      - poster_frame
+quality_metrics:
+  min_resolution: 1920x1080
+  preferred_resolution: 3840x2160
+  min_duration_seconds: 20
+  host_visible_seconds_minimum: 8
+  broll_clip_count_minimum: 2
+  scene_change_count_minimum: 3
+  caption_required: true
+  audio_required: true
+  watermark_allowed: false

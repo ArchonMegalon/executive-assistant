@@ -682,16 +682,16 @@ class ProviderRegistryService:
             ProviderBinding(
                 provider_key="teable",
                 display_name="Teable",
-                executable=False,
+                executable=True,
                 capabilities=(
                     ProviderCapability(
                         provider_key="teable",
                         capability_key="table_sync",
                         tool_name="provider.teable.table_sync",
-                        executable=False,
+                        executable=True,
                     ),
                 ),
-                source="catalog",
+                source="runtime",
             ),
             ProviderBinding(
                 provider_key="unmixr",

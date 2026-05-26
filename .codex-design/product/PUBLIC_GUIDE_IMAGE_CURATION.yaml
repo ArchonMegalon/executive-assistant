@@ -1,0 +1,81 @@
+assets:
+  assets/hero/chummer6-hero.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/hero/chummer6-hero.png
+  assets/pages/horizons-index.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/pages/horizons-index.png
+  assets/horizons/karma-forge.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/karma-forge.png
+  assets/horizons/jackpoint.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/jackpoint.png
+  assets/horizons/alice.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/alice.png
+  assets/horizons/nexus-pan.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/nexus-pan.png
+  assets/horizons/runbook-press.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/runbook-press.png
+  assets/horizons/table-pulse.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/table-pulse.png
+  assets/horizons/runsite.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/runsite.png
+  assets/horizons/black-ledger.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/black-ledger.png
+  assets/horizons/community-hub.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/community-hub.png
+  assets/parts/core.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/core.png
+  assets/parts/design.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/design.png
+  assets/parts/hub.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/hub.png
+  assets/parts/hub-registry.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/hub-registry.png
+  assets/parts/media-factory.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/media-factory.png
+  assets/parts/mobile.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/mobile.png
+  assets/parts/ui.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/ui.png
+  assets/parts/ui-kit.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/ui-kit.png
+  assets/pages/parts-index.png:
+    embed_policy: manual
+    review_status: editorial_cover
+    source_override: products/chummer/public-guide-curated-assets/assets/pages/parts-index.png

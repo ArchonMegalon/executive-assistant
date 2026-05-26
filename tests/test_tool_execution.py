@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import urllib.request
 from itertools import count
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from app.services.tool_execution import (
 )
 from app.services.tool_execution_browseract_adapter import BrowserActToolAdapter
 from app.services.tool_execution_gemini_vortex_adapter import GeminiVortexToolAdapter
+from app.services.tool_execution_teable_adapter import TeableToolAdapter
 from app.services.tool_runtime import ToolRuntimeService
 
 
@@ -174,6 +176,113 @@ def test_tool_execution_service_executes_structured_generate_via_brain_router(mo
     assert result.output_json["brain_profile"] == "groundwork"
     assert result.output_json["routed_provider_key"] == "gemini_vortex"
     assert result.receipt_json["logical_tool_name"] == "provider.brain_router.structured_generate"
+
+
+def test_tool_execution_service_executes_teable_table_sync(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    monkeypatch.setenv(
+        "TEABLE_TABLE_SYNC_CONFIG_JSON",
+        json.dumps(
+            {
+                "preference_review_queue": {
+                    "table_id": "tbl_preference_review_queue",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                }
+            }
+        ),
+    )
+
+    observed: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def _request_json(self, *, method: str, url: str, api_key: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        assert api_key == "test-teable-key"
+        observed.append((method, url, body))
+        if method == "GET":
+            return {"records": []}
+        if method == "POST":
+            return {"records": [{"id": "rec_pref_queue_1"}]}
+        raise AssertionError(f"unexpected method {method}")
+
+    monkeypatch.setattr(TeableToolAdapter, "_request_json", _request_json)
+
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-teable-sync-1",
+            step_id="step-teable-sync-1",
+            tool_name="provider.teable.table_sync",
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "preference_profile",
+                "person_id": "self",
+                "tables_json": {
+                    "preference_review_queue": [
+                        {
+                            "projection_id": "pref_node:self:willhaben:soft_preference:preferred_districts",
+                            "display_name": "Tibor",
+                            "domain": "willhaben",
+                            "key": "preferred_districts",
+                            "confidence": 0.8,
+                            "editable_fields_allowlist": ["value_json", "strength"],
+                        }
+                    ]
+                },
+            },
+            context_json={"principal_id": "pref-sync-principal"},
+        )
+    )
+
+    assert result.tool_name == "provider.teable.table_sync"
+    assert result.action_kind == "table.sync"
+    assert result.target_ref == "teable-sync:preference_profile:self"
+    assert result.output_json["synced_tables"] == ["preference_review_queue"]
+    assert result.output_json["created_count"] == 1
+    assert result.output_json["updated_count"] == 0
+    assert result.receipt_json["provider_key"] == "teable"
+    assert observed[0][0] == "GET"
+    assert "/api/table/tbl_preference_review_queue/record?" in observed[0][1]
+    assert observed[1][0] == "POST"
+    assert observed[1][2]["records"][0]["fields"]["projection_id"] == "pref_node:self:willhaben:soft_preference:preferred_districts"
+    assert isinstance(observed[1][2]["records"][0]["fields"]["editable_fields_allowlist"], str)
+
+
+def test_teable_tool_adapter_request_json_uses_browser_style_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    adapter = TeableToolAdapter()
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def _fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+    adapter._request_json(method="GET", url="https://app.teable.ai/api/space", api_key="test-teable-key")
+
+    headers = {str(key).lower(): value for key, value in dict(captured["headers"]).items()}
+    assert headers["authorization"] == "Bearer test-teable-key"
+    assert headers["origin"] == "https://app.teable.ai"
+    assert headers["referer"] == "https://app.teable.ai/"
+    assert "mozilla/5.0" in str(headers["user-agent"]).lower()
 
 
 def test_gemini_vortex_adapter_honors_payload_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4972,6 +5081,126 @@ def test_crezlo_public_tour_bundle_writer_supports_ui_worker_scene_payload(
     assert payload["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
     assert payload["listing_url"] == "https://www.willhaben.at/listing/wahring-ui-worker"
     assert payload["scene_count"] == 2
+    assert payload["brand_name"] == "Pioche Lecombe"
+
+
+def test_crezlo_public_tour_bundle_writer_falls_back_to_requested_media_urls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://ea.example/tours")
+
+    def _fake_download(cls, url: str) -> tuple[bytes, str]:
+        return (f"asset:{url}".encode("utf-8"), "image/jpeg")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_crezlo_download_public_asset",
+        classmethod(_fake_download),
+    )
+
+    hosted_url = BrowserActToolAdapter._publish_crezlo_public_tour_bundle(
+        {
+            "tour_title": "Fallback Media Tour",
+            "tour_id": "tour-crezlo-fallback-1",
+            "slug": "fallback-media-tour",
+            "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/fallback-media-tour",
+            "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-fallback-1",
+            "structured_output_json": {
+                "requested_inputs": {
+                    "tour_title": "Fallback Media Tour",
+                    "property_url": "https://www.willhaben.at/listing/fallback-media-tour",
+                    "scene_strategy": "layout_first",
+                    "scene_selection_json": {"include_floorplans": True},
+                    "media_urls_json": [
+                        "https://assets.example/fallback-photo-1.jpg",
+                        "https://assets.example/fallback-photo-2.jpg",
+                    ],
+                    "floorplan_urls_json": ["https://assets.example/fallback-floorplan-1.jpg"],
+                    "source_virtual_tour_url": "https://360.example.test/view/portal/id/demo-tour",
+                    "panorama_source": "feelestate_kalandra",
+                    "brand_name": "Pioche Lecombe",
+                    "property_facts_json": {
+                        "listing_title": "Fallback Media Tour Listing",
+                    },
+                },
+                "workflow_output_json": {
+                    "tour_detail_json": {},
+                    "file_records_json": [],
+                },
+            },
+        }
+    )
+
+    assert hosted_url == "https://ea.example/tours/fallback-media-tour#live-360"
+    bundle_dir = tmp_path / "fallback-media-tour"
+    assert (bundle_dir / "scene-01.jpg").read_bytes() == b"asset:https://assets.example/fallback-floorplan-1.jpg"
+    assert (bundle_dir / "scene-02.jpg").read_bytes() == b"asset:https://assets.example/fallback-photo-1.jpg"
+    payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert payload["listing_url"] == "https://www.willhaben.at/listing/fallback-media-tour"
+    assert payload["scene_count"] == 3
+    assert payload["scenes"][0]["role"] == "floorplan"
+    assert payload["scenes"][1]["role"] == "photo"
+    assert payload["hosted_url"] == "https://ea.example/tours/fallback-media-tour#live-360"
+    assert payload["source_virtual_tour_url"] == "https://360.example.test/view/portal/id/demo-tour"
+    assert payload["panorama_source"] == "feelestate_kalandra"
+    assert payload["brand_name"] == "Pioche Lecombe"
+
+
+def test_crezlo_public_tour_bundle_writer_replaces_stale_bundle_atomically(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://ea.example/tours")
+
+    slug = "atomic-bundle-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"old-scene-1")
+    (bundle_dir / "scene-02.jpg").write_bytes(b"old-scene-2")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "scenes": [
+                    {"asset_relpath": "scene-01.jpg"},
+                    {"asset_relpath": "scene-02.jpg"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_download(cls, url: str) -> tuple[bytes, str]:
+        return (f"asset:{url}".encode("utf-8"), "image/jpeg")
+
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_crezlo_download_public_asset",
+        classmethod(_fake_download),
+    )
+
+    hosted_url = BrowserActToolAdapter._publish_crezlo_public_tour_bundle(
+        {
+            "tour_title": "Atomic Bundle Tour",
+            "slug": slug,
+            "structured_output_json": {
+                "requested_inputs": {
+                    "tour_title": "Atomic Bundle Tour",
+                    "property_url": "https://www.willhaben.at/listing/atomic-bundle-tour",
+                    "media_urls_json": ["https://assets.example/new-scene-1.jpg"],
+                }
+            },
+        }
+    )
+
+    assert hosted_url == f"https://ea.example/tours/{slug}"
+    assert (bundle_dir / "scene-01.jpg").read_bytes() == b"asset:https://assets.example/new-scene-1.jpg"
+    assert not (bundle_dir / "scene-02.jpg").exists()
+    assert not list(tmp_path.glob(f".{slug}.tmp-*"))
+    assert not list(tmp_path.glob(f".{slug}.bak-*"))
 
 
 def test_crezlo_worker_script_path_resolves_existing_worker() -> None:

@@ -1,11 +1,6 @@
 product: chummer
 surface: chummer.run
 version: 2
-flagship_black_ledger_glass:
-  homepage_art_direction: first_party_html_css_console
-  blurry_wallpaper_backgrounds: forbidden
-  gateway_silhouette_visibility: required
-  stats_legibility: required
 style_epoch:
   mode: single_epoch_per_full_build
   comparison_between_builds: allowed

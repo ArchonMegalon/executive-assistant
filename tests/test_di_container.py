@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -13,6 +14,8 @@ from fastapi.testclient import TestClient
 from app import container as app_container
 from app.domain.models import Artifact, RewriteRequest
 from app.services.policy import PolicyDeniedError
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass(frozen=True)
@@ -277,6 +280,20 @@ class _FakeDeniedContainer(_FakeContainer):
     def __init__(self) -> None:
         super().__init__()
         self.orchestrator = _FakeDeniedOrchestrator()
+
+
+def test_container_module_uses_bootstrap_helpers_for_runtime_components() -> None:
+    source = (REPO_ROOT / "ea/app/container.py").read_text(encoding="utf-8")
+
+    assert "def _bootstrap_runtime_component(" in source
+    assert "def _build_provider_registry(" in source
+    assert "def _build_artifacts(" in source
+    assert "def _build_task_contracts(" in source
+    assert "def _build_channel_runtime(" in source
+    assert "def _build_memory_runtime(" in source
+    assert "def _build_evidence_runtime(" in source
+    assert "def _build_tool_runtime(" in source
+    assert "def _build_onemin_manager(" in source
 
 
 def test_routes_use_app_state_container_dependency() -> None:
@@ -667,6 +684,7 @@ def test_build_container_auto_storage_falls_back_to_memory_profile_when_postgres
     saved_env = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_FALLBACK_ALLOWED": os.environ.get("EA_STORAGE_FALLBACK_ALLOWED"),
         "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
@@ -675,6 +693,7 @@ def test_build_container_auto_storage_falls_back_to_memory_profile_when_postgres
     try:
         os.environ.pop("EA_RUNTIME_MODE", None)
         os.environ["EA_API_TOKEN"] = ""
+        os.environ.pop("EA_STORAGE_FALLBACK_ALLOWED", None)
         os.environ["EA_STORAGE_BACKEND"] = "auto"
         os.environ["EA_LEDGER_BACKEND"] = ""
         os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
@@ -690,6 +709,41 @@ def test_build_container_auto_storage_falls_back_to_memory_profile_when_postgres
         assert container.settings.storage.backend == "memory"
         assert container.runtime_profile.storage_backend == "memory"
         assert container.runtime_profile.source_backend == "memory"
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def test_build_container_auto_storage_does_not_fall_back_when_override_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved_env = {
+        "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
+        "EA_STORAGE_FALLBACK_ALLOWED": os.environ.get("EA_STORAGE_FALLBACK_ALLOWED"),
+        "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
+        "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
+        "DATABASE_URL": os.environ.get("DATABASE_URL"),
+    }
+
+    try:
+        os.environ.pop("EA_RUNTIME_MODE", None)
+        os.environ["EA_API_TOKEN"] = ""
+        os.environ["EA_STORAGE_FALLBACK_ALLOWED"] = "0"
+        os.environ["EA_STORAGE_BACKEND"] = "auto"
+        os.environ["EA_LEDGER_BACKEND"] = ""
+        os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+
+        def _raise_runtime_failure(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("forced postgres bootstrap failure")
+
+        monkeypatch.setattr(app_container, "_build_container_for_settings", _raise_runtime_failure)
+
+        with pytest.raises(RuntimeError, match="forced postgres bootstrap failure"):
+            app_container.build_container()
     finally:
         for key, value in saved_env.items():
             if value is None:

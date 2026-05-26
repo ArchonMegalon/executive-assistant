@@ -141,7 +141,7 @@ ROUTE_SPECS: dict[str, dict[str, Any]] = {
         "required_screenshots": ["40-hero-lab-importer-dialog-light.png"],
         "required_tokens": [
             {
-                "source_key": "ui_flagship_gate",
+                "source_key": "ui_direct_import_route_proof",
                 "tokens": [
                     "ExecuteCommandAsync_hero_lab_importer_opens_dialog_with_import_oracle_lane_posture",
                     "CreateCommandDialog_hero_lab_importer_surfaces_import_oracle_and_adjacent_sr6_posture",
@@ -211,6 +211,11 @@ FAMILY_SPECS: dict[str, dict[str, Any]] = {
         "required_screenshots": ["40-hero-lab-importer-dialog-light.png"],
         "deterministic_receipts": ["importOracleDeterministicReceipt"],
     },
+}
+
+SCREENSHOT_REVIEW_JOB_GROUPS: dict[str, list[str]] = {
+    "translator_xml_custom_data": ["translator", "xml_editor"],
+    "hero_lab_import_oracle": ["hero_lab_importer"],
 }
 
 
@@ -318,6 +323,44 @@ def _workflow_family_row(workflow_pack: dict[str, Any], family_id: str) -> dict[
         if isinstance(row, dict) and str(row.get("id") or "").strip() == family_id:
             return dict(row)
     return {}
+
+
+def _screenshot_review_job(group_jobs: dict[str, Any], group_id: str) -> dict[str, Any]:
+    direct = dict(group_jobs.get(group_id) or {})
+    if direct:
+        return direct
+    member_ids = SCREENSHOT_REVIEW_JOB_GROUPS.get(group_id) or []
+    members = [dict(group_jobs.get(member_id) or {}) for member_id in member_ids if dict(group_jobs.get(member_id) or {})]
+    if not members:
+        return {}
+    screenshots: list[str] = []
+    evidence_keys: list[str] = []
+    test_markers: list[str] = []
+    reasons: list[str] = []
+    frontier_ids: list[int] = []
+    statuses: list[str] = []
+    for member in members:
+        screenshots.extend(str(item) for item in (member.get("screenshots") or []))
+        evidence_keys.extend(str(item) for item in (member.get("evidenceKeys") or []))
+        test_markers.extend(str(item) for item in (member.get("testMarkers") or []))
+        reasons.extend(str(item) for item in (member.get("reasons") or []))
+        frontier_id = member.get("frontierId")
+        if isinstance(frontier_id, int):
+            frontier_ids.append(frontier_id)
+        status = str(member.get("status") or "").strip()
+        if status:
+            statuses.append(status)
+    dedupe = lambda items: list(dict.fromkeys(items))
+    return {
+        "frontierId": frontier_ids[0] if frontier_ids else None,
+        "frontierIds": dedupe(frontier_ids),
+        "status": "pass" if members and all(status == "pass" for status in statuses) else "fail",
+        "screenshots": dedupe(screenshots),
+        "evidenceKeys": dedupe(evidence_keys),
+        "testMarkers": dedupe(test_markers),
+        "reasons": dedupe(reasons),
+        "memberJobIds": member_ids,
+    }
 
 
 def _flatten_rows(payload: object) -> list[dict[str, Any]]:
@@ -624,7 +667,7 @@ def build_payload() -> dict[str, Any]:
         required_artifacts = list(spec["required_compare_artifacts"])
         missing_compare_artifacts = [item for item in required_artifacts if item not in compare_artifacts]
         missing_workflow_artifacts = [item for item in required_artifacts if item not in workflow_artifacts]
-        screenshot_job = dict(screenshot_jobs.get(spec["ui_direct_group"]) or {})
+        screenshot_job = _screenshot_review_job(screenshot_jobs, spec["ui_direct_group"])
         screenshot_receipts = [str(item) for item in (screenshot_job.get("screenshots") or [])]
         missing_screenshots = [item for item in spec["required_screenshots"] if item not in screenshot_receipts]
         direct_receipt_group = dict(direct_route_receipt_checks.get(spec["ui_direct_group"]) or {})
@@ -728,7 +771,7 @@ def build_payload() -> dict[str, Any]:
         workflow_family = _workflow_family_row(workflow_pack, family_id)
         parity_row = dict(parity_rows.get(spec["parity_row_id"]) or {})
         fleet_row = dict(fleet_rows.get(spec["parity_row_id"]) or {})
-        screenshot_job = dict(screenshot_jobs.get(spec["ui_direct_group"]) or {})
+        screenshot_job = _screenshot_review_job(screenshot_jobs, spec["ui_direct_group"])
         direct_receipt_group = dict(direct_route_receipt_checks.get(spec["ui_direct_group"]) or {})
         compare_artifacts = [str(item) for item in (compare_family.get("compare_artifacts") or [])]
         workflow_artifacts = [str(item) for item in (workflow_family.get("compare_artifacts") or [])]

@@ -50,7 +50,7 @@ The product needs:
 * recap, dossier, and roster surfaces with receipts and publication seams
 * a calendar, timeline, or run-control model strong enough to support real prep and live operation
 
-This foundation supports `RUN CONTROL`, `JACKPOINT`, `RUNSITE`, and `TABLE PULSE`.
+This foundation supports `RUN CONTROL`, `JACKPOINT`, `RUNSITE`, `TABLE PULSE LIVE`, and `TABLE PULSE AFTERMATH`.
 
 ### 5. Continuity and degraded-state substrate
 

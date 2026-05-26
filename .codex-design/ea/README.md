@@ -10,6 +10,7 @@ Use `SURFACE_DESIGN_SYSTEM.md` and `COPY_PRINCIPLES.md` when the question is "ho
 Use `DELIVERY_SURFACES.md` when the question is "what does the product deliver outside the browser and how does it behave there?"
 Use `IDENTITY_AND_ACCESS.md` when the question is "how does a person create, return to, or reopen a workspace?"
 Use `FIRST_VALUE_JOURNEY.md` when the question is "what has to work on day one?"
+Use `PREFERENCE_PROFILE_AND_DECISION_ENGINE.md` when the question is "how should EA learn a person's preferences, predict likely decisions, and rank options over time?"
 Use `METRICS_AND_SLOS.yaml` when the question is "what counts as healthy enough to ship?"
 Use `LTD_INTEGRATION_MAP.md` when the question is "which owned tools should accelerate this product?"
 

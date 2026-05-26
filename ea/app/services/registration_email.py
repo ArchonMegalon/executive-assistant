@@ -370,6 +370,7 @@ def send_property_tour_email(
     area_label: str = "",
     rooms_label: str = "",
     price_label: str = "",
+    decision_summary_json: dict[str, object] | None = None,
     sender_email: str = "",
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
@@ -392,6 +393,19 @@ def send_property_tour_email(
     facts = [value for value in (area_label, rooms_label, price_label) if str(value or "").strip()]
     if facts:
         body.extend(["", "Quick facts:", *facts])
+    decision_summary = decision_summary_json if isinstance(decision_summary_json, dict) else {}
+    good_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("good_fit_reasons") or []) if str(value or "").strip()]
+    bad_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("bad_fit_reasons") or []) if str(value or "").strip()]
+    unknowns = [str(value or "").strip() for value in list(decision_summary.get("unknowns") or []) if str(value or "").strip()]
+    recommendation = str(decision_summary.get("recommendation") or "").strip().replace("_", " ")
+    if recommendation:
+        body.extend(["", f"Recommendation: {recommendation}"])
+    if good_fit_reasons:
+        body.extend(["", "Why it could fit:", *[f"- {entry}" for entry in good_fit_reasons[:3]]])
+    if bad_fit_reasons:
+        body.extend(["", "Why it may not fit:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
+    if unknowns:
+        body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
     body.extend(
         [
             "",

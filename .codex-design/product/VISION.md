@@ -226,7 +226,7 @@ Replay and after-action review become explicit end-state capabilities so Chummer
 
 ### Table Pulse
 
-Chummer can optionally turn recorded or uploaded session media into bounded, opt-in GM coaching: spotlight balance, pacing drift, engagement anomalies, interruption patterns, and narrated after-action guidance without becoming live surveillance or canonical session truth.
+Table Pulse splits into two rails: Table Pulse Live for governed in-world heat, packets, and remote reactions during play, and Table Pulse Aftermath for bounded, opt-in GM coaching after play. The aftermath rail can still use recorded or uploaded session media for spotlight balance, pacing drift, engagement anomalies, interruption patterns, and narrated after-action guidance without becoming live surveillance or canonical session truth.
 
 ### Optional Local Co-Processor
 

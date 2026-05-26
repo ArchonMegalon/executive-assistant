@@ -1,6 +1,6 @@
 {
   "contract_name": "ea.next90_m129_participation_followthrough_packets",
-  "generated_at": "2026-05-05T16:34:26Z",
+  "generated_at": "2026-05-22T06:37:38Z",
   "guardrails": {
     "active_package_status": "active_package_proven",
     "claim_guard_rules": [
@@ -170,7 +170,8 @@
         "truth_bundle_id": "ea-m129-participation-followthrough-v1"
       },
       "hold_reasons": [
-        "Fleet participation proof still reports runtime blockers, so contribution and participation followthrough must stay on hold."
+        "Fleet participation proof still reports runtime blockers, so contribution and participation followthrough must stay on hold.",
+        "Hub reusable-account proof no longer exposes the entitlement-journal rail needed for participant followthrough."
       ],
       "packet_kind": "participation_entitlement_followthrough",
       "proof_artifacts": [
@@ -218,7 +219,6 @@
       "gap_id": "fleet_participation_receipt_window_blocked",
       "hold_reason": "Fleet participation proof still reports runtime blockers, so contribution and participation followthrough must stay on hold.",
       "runtime_blockers": [
-        "queue_coverage_monitor: design canon task 129.6 is unknown.",
         "controller_runtime_monitor: participant contribution receipts no longer prove signed sponsor-session execution metadata: sponsor_session_id"
       ],
       "source_anchor_id": "fleet_participation_lane_receipts"
@@ -227,6 +227,16 @@
       "gap_id": "missing_sponsor_session_receipt_projection",
       "hold_reason": "Fleet does not yet prove sponsor_session_id as a clean receipt projection in the current contract window.",
       "source_anchor_id": "fleet_participation_lane_receipts"
+    },
+    {
+      "gap_id": "missing_entitlement_journal_projection",
+      "hold_reason": "Hub reusable-account proof no longer exposes the entitlement-journal rail needed for participant followthrough.",
+      "source_anchor_id": "hub_reusable_account_flows_receipt"
+    },
+    {
+      "gap_id": "missing_reward_journal_projection",
+      "hold_reason": "Hub reusable-account proof no longer exposes the reward-journal rail needed for reward followthrough.",
+      "source_anchor_id": "hub_reusable_account_flows_receipt"
     },
     {
       "gap_id": "missing_hub_or_fleet_channel_ref_projection",
@@ -250,31 +260,20 @@
       "present": true,
       "required": true,
       "runtime_blockers": [
-        "queue_coverage_monitor: design canon task 129.6 is unknown.",
         "controller_runtime_monitor: participant contribution receipts no longer prove signed sponsor-session execution metadata: sponsor_session_id"
       ],
       "sponsor_session_projection_available": false,
       "status": "pass"
     },
     "hub_reusable_account_flows_receipt": {
-      "account_membership_projection_available": true,
-      "entitlement_journal_projection_available": true,
-      "package_id": "next90-m129-hub-build-reusable-account-profile-group-membership-join-cod",
+      "account_membership_projection_available": false,
+      "entitlement_journal_projection_available": false,
       "path": "/docker/chummercomplete/chummer6-hub-m112/.codex-studio/published/NEXT90_M129_HUB_REUSABLE_ACCOUNT_FLOWS.generated.json",
-      "present": true,
+      "present": false,
       "required": true,
-      "required_markers": [
-        "var reusableAccountFlows = new ReusableAccountFlowService(releases).Build(new ReusableAccountFlowContext(",
-        "community reusable account flow should keep account profile on the signed-in account rail.",
-        "community reusable account flow should keep group profile on the governed group rail.",
-        "community reusable account flow should keep membership status on the governed group rail.",
-        "community reusable account flow should keep join-code issuance on the governed group api rail.",
-        "community reusable account flow should keep boost-code issuance on the governed boost-code rail.",
-        "community reusable account flow should keep reward-journal followthrough on the signed-in rewards rail.",
-        "community reusable account flow should keep entitlement-journal followthrough on the signed-in entitlements rail."
-      ],
-      "reward_journal_projection_available": true,
-      "status": "passed"
+      "required_markers": [],
+      "reward_journal_projection_available": false,
+      "status": "missing"
     }
   },
   "status": "passed",

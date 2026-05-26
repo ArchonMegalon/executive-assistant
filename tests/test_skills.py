@@ -1203,8 +1203,12 @@ def test_skill_catalog_can_execute_create_property_tour_skill() -> None:
 
     container = client.app.state.container
 
+    observed_requested_inputs: dict[str, object] = {}
+
     def _fake_crezlo_property_tour(**kwargs: object) -> dict[str, object]:
         requested_inputs = dict(kwargs.get("requested_inputs") or {})
+        observed_requested_inputs.clear()
+        observed_requested_inputs.update(requested_inputs)
         return {
             "task_id": "task-crezlo-skill-1",
             "status": "completed",
@@ -1215,6 +1219,8 @@ def test_skill_catalog_can_execute_create_property_tour_skill() -> None:
                     "share_url": "https://tours.crezlo.com/share/augarten-variant-b",
                     "editor_url": "https://tours.crezlo.com/admin/tours/augarten-variant-b",
                     "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/augarten-variant-b",
+                    "hosted_url": "https://ea.example/tours/augarten-variant-b",
+                    "crezlo_public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/augarten-variant-b",
                 }
             },
         }
@@ -1258,8 +1264,16 @@ def test_skill_catalog_can_execute_create_property_tour_skill() -> None:
     assert body["skill_key"] == "create_property_tour"
     assert body["task_key"] == "create_property_tour"
     assert body["kind"] == "property_tour_packet"
+    assert observed_requested_inputs["proxy_result"] is True
+    assert observed_requested_inputs["theme_name"] == "Editorial Bright"
+    assert observed_requested_inputs["media_urls_json"] == [
+        "https://assets.example/augarten-photo-1.jpg",
+        "https://assets.example/augarten-photo-2.jpg",
+    ]
+    assert observed_requested_inputs["floorplan_urls_json"] == ["https://assets.example/augarten-floorplan-1.jpg"]
     assert body["structured_output_json"]["tour_title"] == "Augarten Variant B"
     assert body["structured_output_json"]["share_url"] == "https://tours.crezlo.com/share/augarten-variant-b"
+    assert body["structured_output_json"]["hosted_url"] == "https://ea.example/tours/augarten-variant-b"
 
     session = client.get(f"/v1/rewrite/sessions/{body['execution_session_id']}")
     assert session.status_code == 200

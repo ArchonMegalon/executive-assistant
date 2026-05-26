@@ -3,8 +3,9 @@ key: table_pulse_debrief_studio_workflows
 owner: chummer6-design
 status: design
 purpose: >
-  Consent-first post-session debrief workflow using Hedy, Unmixr, Nonverbia,
-  Soundmadeseen, MarkupGo, PeekShot, and vidBoard as bounded helpers.
+  Consent-first Table Pulse Aftermath workflow for post-session debrief,
+  recap, and coaching using Hedy, Unmixr, Nonverbia, Soundmadeseen,
+  MarkupGo, PeekShot, and vidBoard as bounded helpers.
 core_rule: No live surveillance, no player scoring, no moderation truth, no canonical session memory from external tools.
 workflow:
   - step: consent_and_upload
@@ -47,3 +48,4 @@ boundaries:
   - player_safe_artifacts_require_review
   - raw_transcripts_have_short_retention
   - no_public_reputation_from_analysis_tools
+  - this_workflow_governs_table_pulse_aftermath_not_table_pulse_live

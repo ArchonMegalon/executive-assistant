@@ -8,6 +8,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 def _client() -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -42,7 +44,7 @@ def test_memory_router_keeps_split_subrouters_mounted_under_v1_memory() -> None:
 
 
 def test_memory_router_module_is_a_thin_aggregator() -> None:
-    source = Path("ea/app/api/routes/memory.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "ea/app/api/routes/memory.py").read_text(encoding="utf-8")
 
     assert "include_router(memory_candidates_router)" in source
     assert "include_router(memory_graph_router)" in source
@@ -53,7 +55,7 @@ def test_memory_router_module_is_a_thin_aggregator() -> None:
 
 
 def test_memory_operations_module_is_a_thin_aggregator() -> None:
-    source = Path("ea/app/api/routes/memory_operations.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "ea/app/api/routes/memory_operations.py").read_text(encoding="utf-8")
 
     assert "include_router(memory_commitments_router)" in source
     assert "include_router(memory_followups_router)" in source

@@ -1,14 +1,14 @@
 product: chummer
 surface: chummer.run
 version: 1
-headline: Build a runner, explain every ruling, and recover the campaign.
-subhead: Start with the current preview, inspect the modifier trail, and keep the next session moving with explainable math, durable state, and visible recovery paths.
-proof_line: Public preview, honest status, and a visible walkthrough of the files, named flows, and recent checks posted today.
+headline: Shadowrun rules truth, with receipts.
+subhead: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
+proof_line: Public preview, honest status, and inspectable proof for the files, named flows, and recent checks posted today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
-  - label: Open downloads
-    href: /downloads
+  - label: Create account to install
+    href: /signup?next=/downloads
     emphasis: primary
   - label: See what works today
     href: /now
@@ -20,24 +20,21 @@ guest_shell_actions:
   - label: Create account
     href: /signup?next=/home
     emphasis: primary
-account_aware_install_cta_label: Create account to install
 secondary_highlights:
   - Deterministic engine
-  - Rules explanations
+  - Rules receipts
   - Local-first continuity
-  - Black Ledger turn 1 ran
-  - Public signal board stays first-party
-product_proof_eyebrow: Preview snapshot
-product_proof_intro: Open downloads for the current preview, inspect one visible explanation trail, and see what the posted files, named flows, and seeded Black Ledger world already show today without reading that snapshot as a finished-product claim, a fallback recommendation, or a substitute for the install shelf.
-product_proof_primary_label: Open downloads
+product_proof_eyebrow: Inspectable preview proof
+product_proof_intro: Create account to install the current preview, inspect one visible trail, and verify what the posted files and named flows can prove today without reading that proof as a flagship-complete claim, a fallback recommendation, or a substitute for the install shelf.
+product_proof_primary_label: Create account to install
 product_proof_primary_href: /downloads
-product_proof_secondary_label: Inspect the explanation trail
+product_proof_secondary_label: Inspect the proof trail
 product_proof_secondary_href: /now#real-rules-truth
-product_proof_topline_label: Posted preview snapshot
-product_proof_scope_line: What you see on the public shelf is scoped to the posted files, named flows, and recent checks visible today; it is not a blanket finished-product claim and it does not outrank the recommended install route.
-product_flagship_boundary_line: Preview pages, fallback routes, artifact explainers, and packet-detail artifacts can show real progress, but they are still preview surfaces rather than finished-product claims.
+product_proof_topline_label: Posted preview proof
+product_proof_scope_line: Proof on the public shelf is scoped to the posted files, named flows, and recent checks you can inspect today; it is not a blanket flagship-complete claim and it does not outrank the recommended install route.
+product_flagship_boundary_line: Preview proof, fallback routes, artifact explainers, and packet-detail artifacts can show real progress, but flagship wording is reserved for surfaces that independently clear the flagship acceptance bar.
 product_proof_result_title: Final pool 9
-product_proof_result_summary: Same inputs, same answer, with the explanation trail, posted-shelf posture, and current boundary still attached.
+product_proof_result_summary: Same inputs, same answer, with the trail, posted-shelf posture, and claim boundary still attached.
 product_proof_trail:
   - Base 11
   - Weather -1
@@ -71,15 +68,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: proof shelf honesty only
-  - path: /now/concierge
-    title: Release concierge
-    audience: public
-    purpose: guided_release_wrapper
-    requires_auth: false
-    guest_fallback: /now/concierge
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded release-routing wrapper only
   - path: /status
     title: Status
     audience: public
@@ -89,15 +77,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: weekly pulse, release posture, and current caution only
-  - path: /progress
-    title: Progress
-    audience: public
-    purpose: progress_surface
-    requires_auth: false
-    guest_fallback: /progress
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public progress report only
   - path: /horizons
     title: Roadmap
     audience: public
@@ -134,153 +113,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: proof shelf honesty only
-  - path: /downloads/concierge
-    title: Downloads concierge
-    audience: public
-    purpose: guided_download_wrapper
-    requires_auth: false
-    guest_fallback: /downloads/concierge
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded setup-routing wrapper only
-  - path: /packages
-    title: Packages
-    audience: public
-    purpose: package_browser
-    requires_auth: false
-    guest_fallback: /packages
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public package class and compatibility browser only
-  - path: /packages/{packageId}
-    title: Package detail
-    audience: public
-    purpose: package_detail
-    requires_auth: false
-    guest_fallback: /packages/{packageId}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public package detail only
-    verification_path: /packages/desktop-preview
-  - path: /packages/{packageId}/vote
-    title: Package vote
-    audience: public
-    purpose: package_vote_intent
-    requires_auth: false
-    guest_fallback: /packages/{packageId}/vote
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: package vote intent route only
-    verification_path: /packages/desktop-preview/vote
-  - path: /packages/{packageId}/follow
-    title: Package follow
-    audience: public
-    purpose: package_follow_intent
-    requires_auth: false
-    guest_fallback: /packages/{packageId}/follow
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: package follow intent route only
-    verification_path: /packages/desktop-preview/follow
-  - path: /mobile
-    title: Mobile and PWA
-    audience: public
-    purpose: mobile_projection
-    requires_auth: false
-    guest_fallback: /mobile
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public mobile and installability projection only
-  - path: /pwa
-    title: PWA alias
-    audience: public
-    purpose: mobile_projection
-    requires_auth: false
-    guest_fallback: /pwa
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public alias into the mobile projection only
-  - path: /play
-    title: Play shell
-    audience: public
-    purpose: play_projection
-    requires_auth: false
-    guest_fallback: /play
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded role-aware play entry only
-  - path: /player
-    title: Player alias
-    audience: public
-    purpose: play_projection
-    requires_auth: false
-    guest_fallback: /player
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded play alias only
-  - path: /gm
-    title: GM alias
-    audience: public
-    purpose: play_projection
-    requires_auth: false
-    guest_fallback: /gm
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded play alias only
-  - path: /observer
-    title: Observer alias
-    audience: public
-    purpose: play_projection
-    requires_auth: false
-    guest_fallback: /observer
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded play alias only
-  - path: /anarchy
-    title: Shadowrun Anarchy
-    audience: public
-    purpose: dedicated_ruleset_preview
-    requires_auth: false
-    guest_fallback: /anarchy
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: dedicated rules-light route family only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/anarchy")]'
-  - path: /play/anarchy
-    title: Anarchy play shell
-    audience: public
-    purpose: dedicated_ruleset_play_projection
-    requires_auth: false
-    guest_fallback: /play/anarchy
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: rules-light mobile play shell only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/play/anarchy")]'
-  - path: /ledger/anarchy
-    title: Anarchy ledger lane
-    audience: public
-    purpose: dedicated_ruleset_ledger_projection
-    requires_auth: false
-    guest_fallback: /ledger/anarchy
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: receipt-backed Anarchy and Black Ledger integration only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/anarchy")]'
-  - path: /session
-    title: Legacy session alias
-    audience: public
-    purpose: play_projection
-    requires_auth: false
-    guest_fallback: /session
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: legacy alias redirecting into the play shell only
   - path: /help
     title: Help
     audience: public
@@ -335,27 +167,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: current public support/contact path only
-  - path: /contact/concierge
-    title: Support routing concierge
-    audience: public
-    purpose: support_wrapper
-    requires_auth: false
-    guest_fallback: /contact/concierge
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded support-routing wrapper only
-  - path: /contact/submitted/{caseId}
-    title: Support case submitted
-    audience: public
-    purpose: support_submission_receipt
-    requires_auth: false
-    guest_fallback: /contact/submitted/{caseId}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: first-party support submission receipt route only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/contact/submitted/{caseId}")]'
   - path: /participate
     title: Participate
     audience: public
@@ -365,24 +176,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: public explainer only
-  - path: /join/concierge
-    title: Invite concierge
-    audience: public
-    purpose: campaign_invite_wrapper
-    requires_auth: false
-    guest_fallback: /join/concierge
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: bounded invite-routing wrapper only
-  - path: /join/primer
-    title: Invite primer
-    audience: public
-    purpose: campaign_invite_primer
-    requires_auth: false
-    guest_fallback: /join/primer
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: first-session invite orientation only
   - path: /feedback
     title: Feedback
     audience: public
@@ -392,24 +185,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: public feedback entry only
-  - path: /feedback/operations
-    title: Feedback operations
-    audience: public
-    purpose: public_feedback_operations
-    requires_auth: false
-    guest_fallback: /feedback/operations
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public feedback operations packet only
-  - path: /feedback/operations/lookup
-    title: Feedback operations lookup
-    audience: public
-    purpose: public_feedback_operations
-    requires_auth: false
-    guest_fallback: /feedback/operations/lookup
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public feedback operations lookup only
   - path: /participate/karma-forge
     title: KARMA FORGE discovery
     audience: public
@@ -419,33 +194,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: governed discovery entry only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/participate/karma-forge")]'
-  - path: /karma-forge
-    title: KARMA FORGE alias
-    audience: public
-    purpose: governed_future_signal_entry
-    requires_auth: false
-    guest_fallback: /participate/karma-forge
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: governed discovery alias only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/karma-forge")]'
-  - path: /participate/karma-forge/submitted/{submissionId}
-    title: KARMA FORGE submitted
-    audience: public
-    purpose: governed_future_signal_receipt
-    requires_auth: false
-    guest_fallback: /participate/karma-forge/submitted/{submissionId}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: governed discovery submission receipt route only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/participate/karma-forge/submitted/{submissionId}")]'
   - path: /artifacts
     title: Featured artifacts
     audience: public
@@ -491,12 +239,12 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: static markdown instructions only
-  - path: /artifacts/explanation-trail
-    title: Explanation trail detail
+  - path: /artifacts/explanation-receipt-trail
+    title: Explanation receipt trail detail
     audience: public
     purpose: artifact_detail
     requires_auth: false
-    guest_fallback: /artifacts/explanation-trail
+    guest_fallback: /artifacts/explanation-receipt-trail
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: artifact detail only
@@ -554,6 +302,42 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: artifact detail only
+  - path: /ledger/newsroom
+    title: Black Ledger newsroom redirect
+    audience: public
+    purpose: public_newsroom_entry
+    requires_auth: false
+    guest_fallback: /ledger/newsroom
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: redirect to the current public-safe newsroom episode only
+  - path: /ledger/newsroom/turn-1-newsreel
+    title: Black Ledger newsroom episode
+    audience: public
+    purpose: public_newsroom_watch
+    requires_auth: false
+    guest_fallback: /ledger/newsroom/turn-1-newsreel
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public-safe newsroom watch surface with transcript, receipts, and disclosure only
+  - path: /ledger/newsroom/turn-1-newsreel/transcript
+    title: Black Ledger newsroom transcript
+    audience: public
+    purpose: public_newsroom_support_file
+    requires_auth: false
+    guest_fallback: /ledger/newsroom/turn-1-newsreel/transcript
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: redirect to the published VTT for the current public-safe newsroom episode only
+  - path: /ledger/newsroom/turn-1-newsreel/receipts
+    title: Black Ledger newsroom receipts
+    audience: public
+    purpose: public_newsroom_receipts
+    requires_auth: false
+    guest_fallback: /ledger/newsroom/turn-1-newsreel/receipts
+    must_exist: true
+    placeholder_allowed: false
+    placeholder_requirements: public-safe newsroom validation packet only
   - path: /roadmap/nexus-pan
     title: NEXUS-PAN detail
     audience: public
@@ -635,207 +419,6 @@ public_routes:
     must_exist: true
     placeholder_allowed: false
     placeholder_requirements: roadmap detail only
-  - path: /ledger
-    title: BLACK LEDGER hub
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: aggregate-only Black Ledger hub
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger")]'
-  - path: /ledger/map
-    title: BLACK LEDGER command map
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/map
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public-safe command map and list fallback only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/map")]'
-    verification_path: /ledger/map
-  - path: /black-ledger
-    title: BLACK LEDGER alias
-    audience: public
-    purpose: flagship_public_hub_alias
-    requires_auth: false
-    guest_fallback: /ledger
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: aggregate-only Black Ledger alias
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/black-ledger")]'
-  - path: /ledger/stats
-    title: BLACK LEDGER stats
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/stats
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: aggregate-only stat drilldown
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/stats")]'
-  - path: /ledger/factions
-    title: BLACK LEDGER factions
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/factions
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: aggregate-only faction drilldown
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/factions")]'
-  - path: /ledger/factions/{factionId}
-    title: BLACK LEDGER faction profile
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/factions/{factionId}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: aggregate-only faction profile with command-map context
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/factions/{factionId}")]'
-    verification_path: /ledger/factions/ashline_circle
-  - path: /ledger/packages
-    title: BLACK LEDGER packages
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/packages
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: aggregate-only package drilldown
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/packages")]'
-  - path: /ledger/closeouts
-    title: BLACK LEDGER closeouts
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/closeouts
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: proof-backed closeout drilldown
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/closeouts")]'
-  - path: /ledger/dispatches
-    title: BLACK LEDGER dispatch archive
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/dispatches
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: receipt-backed public-safe dispatch archive only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/dispatches")]'
-  - path: /ledger/dispatches/{dispatchId}
-    title: BLACK LEDGER dispatch detail
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/dispatches/{dispatchId}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: receipt-backed public-safe dispatch detail only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/dispatches/{dispatchId}")]'
-    verification_path: /ledger/dispatches/ledger_dispatch_emerald-sprawl-prelude_turn_0001
-  - path: /ledger/turns/{turn}
-    title: BLACK LEDGER turn replay
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/turns/{turn}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public-safe command replay route only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/turns/{turn}")]'
-    verification_path: /ledger/turns/1
-  - path: /ledger/turns/{turn}/dispatches
-    title: BLACK LEDGER turn dispatch archive
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/turns/{turn}/dispatches
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: receipt-backed public-safe turn dispatch archive only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/turns/{turn}/dispatches")]'
-    verification_path: /ledger/turns/1/dispatches
-  - path: /ledger/factions/{factionId}/dispatches
-    title: BLACK LEDGER faction dispatch archive
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /ledger/factions/{factionId}/dispatches
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: receipt-backed public-safe faction dispatch archive only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
-    verification_pattern: '[HttpGet("/ledger/factions/{factionId}/dispatches")]'
-    verification_path: /ledger/factions/ashline-circle/dispatches
-  - path: /api/v1/ledger/worlds/{worldId}/map
-    title: BLACK LEDGER map API
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /api/v1/ledger/worlds/{worldId}/map
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public-safe seeded map payload only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/LedgerController.cs
-    verification_pattern: '[HttpGet("worlds/{worldId}/map")]'
-    verification_path: /api/v1/ledger/worlds/emerald-sprawl-prelude/map
-  - path: /api/v1/ledger/worlds/{worldId}/map/turns/{turn}
-    title: BLACK LEDGER map turn API
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /api/v1/ledger/worlds/{worldId}/map/turns/{turn}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public-safe seeded turn map payload only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/LedgerController.cs
-    verification_pattern: '[HttpGet("worlds/{worldId}/map/turns/{turn:int}")]'
-    verification_path: /api/v1/ledger/worlds/emerald-sprawl-prelude/map/turns/1
-  - path: /api/v1/ledger/worlds/{worldId}/map/tick-delta/{fromTurn}/{toTurn}
-    title: BLACK LEDGER tick delta API
-    audience: public
-    purpose: flagship_public_hub
-    requires_auth: false
-    guest_fallback: /api/v1/ledger/worlds/{worldId}/map/tick-delta/{fromTurn}/{toTurn}
-    must_exist: true
-    placeholder_allowed: false
-    placeholder_requirements: public-safe seeded tick delta payload only
-    verification_mode: controller_contract
-    verification_file: Chummer.Run.Api/Controllers/LedgerController.cs
-    verification_pattern: '[HttpGet("worlds/{worldId}/map/tick-delta/{fromTurn:int}/{toTurn:int}")]'
-    verification_path: /api/v1/ledger/worlds/emerald-sprawl-prelude/map/tick-delta/0/1
   - path: /roadmap/ghostwire
     title: GHOSTWIRE detail
     audience: public
@@ -964,25 +547,6 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: profile and linked-identity shell
-  - path: /account/packages
-    title: Account packages
-    audience: registered
-    purpose: tracked_package_summary
-    requires_auth: true
-    guest_fallback: /login?next=/account/packages
-    must_exist: true
-    placeholder_allowed: true
-    placeholder_requirements: tracked package summary route
-  - path: /account/packages/{packageId}
-    title: Account package detail
-    audience: registered
-    purpose: tracked_package_summary
-    requires_auth: true
-    guest_fallback: /login?next=/account/packages/{packageId}
-    must_exist: true
-    placeholder_allowed: true
-    placeholder_requirements: tracked package detail route
-    verification_path: /account/packages/desktop-preview
   - path: /account/support
     title: Account support
     audience: registered
@@ -1028,56 +592,38 @@ registered_routes:
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: advanced account diagnostics route
-  - path: /admin/packages
-    title: Package operator summary
-    audience: registered
-    purpose: operator_package_summary
-    requires_auth: true
-    guest_fallback: /login?next=/admin/packages
-    must_exist: true
-    placeholder_allowed: true
-    placeholder_requirements: bounded package operator summary route
   - path: /participate/codex
     title: Guided contribution
     audience: registered
     purpose: signed_in_participation
     requires_auth: true
-    guest_fallback: /auth/google/start?next=%2Fparticipate%2Fcodex
+    guest_fallback: /login?next=/participate/codex
     must_exist: true
     placeholder_allowed: true
     placeholder_requirements: signed-in participation flow
-  - path: /account/participation
-    title: Participation dashboard
-    audience: registered
-    purpose: signed_in_participation
-    requires_auth: true
-    guest_fallback: /login?next=/account/participation
-    must_exist: true
-    placeholder_allowed: true
-    placeholder_requirements: signed-in participation dashboard
 sections:
   - id: hero
     eyebrow: Explainable Shadowrun
-    title: Build a runner, explain every ruling, and recover the campaign.
-    intro: Start with the current preview, inspect the modifier trail, and keep the next session moving with explainable math, durable state, and visible recovery paths.
+    title: Shadowrun rules truth, with receipts.
+    intro: Build characters, inspect rulings, and keep sessions moving with explainable math, durable state, and clear proof of what works today.
     audience: public
     route: /
   - id: product_proof
-    eyebrow: Real product snapshot
+    eyebrow: Real product proof
     title: One concrete result, one visible trail, one current build
-    intro: Open downloads for the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
+    intro: Create account to install the current preview, inspect one visible trail, and see the same result stay legible when the next device or network wobble shows up.
     audience: public
     route: /
   - id: start_here
     eyebrow: How Chummer helps at the table
-    title: Five ways Chummer helps at the table
-    intro: "After the first install and proof pass, the next product jobs are build, explain, campaign continuity, exchange, and improvement."
+    title: What comes after the core proof
+    intro: "Once the build, explanation trail, and continuity path feel trustworthy, the next product jobs are publication and improvement."
     audience: public
     route: /
   - id: why_trust_it
     eyebrow: Why trust Chummer
-    title: Why it feels trustworthy
-    intro: "The trust model is simple: deterministic rules truth, visible explanations, and local-first continuity."
+    title: Product claims backed by evidence
+    intro: "The trust model is simple: deterministic rules truth, visible receipts, and local-first continuity."
     audience: public
     route: /
   - id: choose_your_lane

@@ -10,6 +10,7 @@ import subprocess
 import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -7132,6 +7133,39 @@ def test_responses_provider_health_reflects_magicx_probe_ready(monkeypatch: pyte
     assert body["providers"]["magixai"]["health_check_enabled"] is True
 
 
+def test_responses_provider_health_fallback_counts_manifest_backed_onemin_slots(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="codex-health", operator=True)
+    from app.api.routes import responses
+
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "")
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps(
+            [
+                {"slot": "primary", "account_name": "ONEMIN_AI_API_KEY", "key": "primary-secret"},
+                {"slot": "fallback_1", "account_name": "ONEMIN_AI_API_KEY_FALLBACK_1", "key": "fallback-secret"},
+            ]
+        ),
+    )
+
+    def raise_timeout(*, lightweight: bool = False) -> dict[str, object]:
+        raise TimeoutError("simulated provider-health timeout")
+
+    monkeypatch.setattr(responses, "_provider_health_report", raise_timeout)
+    responses.invalidate_provider_health_snapshot_cache(lightweight=None)
+
+    response = client.get("/v1/responses/_provider_health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider_health_snapshot"]["source"] == "provider_health_fallback"
+    assert body["providers"]["onemin"]["configured_slots"] == 2
+    assert [slot["account_name"] for slot in body["providers"]["onemin"]["slots"]] == [
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+    ]
+
+
 def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-gemini-health")
 
@@ -7152,6 +7186,1479 @@ def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.Mon
     assert [slot["slot_owner"] for slot in body["providers"]["gemini_vortex"]["slots"]] == ["", ""]
     assert body["provider_config"]["gemini_vortex_command"] == "sh"
     assert body["provider_config"]["gemini_vortex_accounts"] == []
+
+
+def test_package_scope_runtime_helpers_cover_scope_parsing_and_command_building(tmp_path: Path) -> None:
+    from app.api.routes import responses_package_scope_runtime as runtime
+
+    worktree = tmp_path / "isolated-worktree"
+    prompt = f"""
+    Current slice:
+    SR6 house rule export proof before coding compare route supplement.
+    Package scope: chummer-presentation
+    Isolated worktree: {worktree}
+    Allowed paths: src, tests, .git, src
+
+    Edit these files first for this pass:
+    - {worktree / "src" / "ui.ts"}
+    - {worktree / "src" / "api.ts"}
+    - {worktree / "src" / "api.ts"}
+    - relative/path.ts
+
+    Map or strengthen these tests first for this pass:
+    - `{worktree / "tests" / "ui.test.ts"}`
+    - {worktree / "tests" / "api.test.ts"}
+    """
+
+    assert runtime.tool_shim_package_scope_text(prompt) == "chummer-presentation"
+    assert runtime.tool_shim_package_current_slice_text(prompt) == (
+        "SR6 house rule export proof before coding compare route supplement."
+    )
+    assert runtime.tool_shim_package_worktree(prompt) == str(worktree)
+    assert runtime.tool_shim_package_allowed_scope_tokens(prompt) == ["src", "tests"]
+    assert runtime.tool_shim_bulleted_section_paths(prompt, "Edit these files first for this pass") == [
+        str(worktree / "src" / "ui.ts"),
+        str(worktree / "src" / "api.ts"),
+    ]
+
+    active_slice_followup_paths = runtime.build_tool_shim_active_slice_followup_paths(
+        is_package_work_prompt=lambda _: True,
+        tool_shim_bulleted_section_paths=runtime.tool_shim_bulleted_section_paths,
+    )
+    assert active_slice_followup_paths(prompt) == [
+        str(worktree / "src" / "ui.ts"),
+        str(worktree / "src" / "api.ts"),
+        str(worktree / "tests" / "ui.test.ts"),
+        str(worktree / "tests" / "api.test.ts"),
+    ]
+
+    package_allowed_scope_paths = runtime.build_tool_shim_package_allowed_scope_paths(
+        tool_shim_package_worktree=runtime.tool_shim_package_worktree,
+        tool_shim_package_allowed_scope_tokens=runtime.tool_shim_package_allowed_scope_tokens,
+    )
+    package_scope_pathspecs = runtime.build_tool_shim_package_scope_pathspecs(
+        tool_shim_package_worktree=runtime.tool_shim_package_worktree,
+        tool_shim_package_allowed_scope_paths=package_allowed_scope_paths,
+    )
+    package_scope_search_terms = runtime.build_tool_shim_package_scope_search_terms(
+        tool_shim_package_current_slice_text=lambda _: "SR6 house rule export proof",
+    )
+    build_package_scope_search_command = runtime.build_tool_shim_build_package_scope_search_command(
+        tool_shim_package_allowed_scope_paths=package_allowed_scope_paths,
+        tool_shim_package_scope_search_terms=package_scope_search_terms,
+    )
+    build_package_scope_repo_diff_command = runtime.build_tool_shim_build_package_scope_repo_diff_command(
+        tool_shim_package_worktree=runtime.tool_shim_package_worktree,
+        tool_shim_package_scope_pathspecs=package_scope_pathspecs,
+    )
+    build_package_scope_repo_hunks_command = runtime.build_tool_shim_build_package_scope_repo_hunks_command(
+        tool_shim_package_worktree=runtime.tool_shim_package_worktree,
+        tool_shim_package_scope_pathspecs=package_scope_pathspecs,
+    )
+
+    assert package_allowed_scope_paths(prompt) == [
+        str((worktree / "src").resolve()),
+        str((worktree / "tests").resolve()),
+    ]
+    assert package_scope_pathspecs(prompt) == ["src", "tests"]
+    assert package_scope_search_terms(prompt) == ["sr6", "rule", "house rule"]
+    assert build_package_scope_repo_diff_command(prompt) == (
+        f"git -C {shlex.quote(str(worktree))} status --short -- src tests"
+        f" ; git -C {shlex.quote(str(worktree))} diff --stat -- src tests"
+    )
+    assert build_package_scope_repo_hunks_command(prompt) == (
+        f"git -C {shlex.quote(str(worktree))} diff --unified=0 -- src tests | sed -n '1,120p'"
+    )
+    assert build_package_scope_search_command(prompt) == (
+        "rg -n -i -F -m 80 -e sr6 -e rule -e 'house rule' -- "
+        f"{shlex.quote(str((worktree / 'src').resolve()))} {shlex.quote(str((worktree / 'tests').resolve()))}"
+        " | sed -n '1,120p'"
+    )
+
+
+def test_package_planner_runtime_helpers_cover_blocked_and_preflight_paths() -> None:
+    from app.api.routes import responses_package_planner_runtime as runtime
+
+    blocked_final_text = runtime.build_tool_shim_package_planner_blocked_final_text(
+        is_package_work_prompt=lambda _: True,
+        tool_shim_exec_command_identity_history=lambda _: ["cmd-a", "cmd-b", "git-diff", "git-hunks", "rg-search"],
+        tool_shim_staged_commands=lambda _: ["cmd-a", "cmd-b"],
+        tool_shim_command_identity_sequence=lambda command: [command],
+        tool_shim_build_package_scope_repo_diff_command=lambda _: "git-diff",
+        tool_shim_command_identity=lambda command: command,
+        tool_shim_build_package_scope_repo_hunks_command=lambda _: "git-hunks",
+        tool_shim_build_package_scope_search_command=lambda _: "rg-search",
+        tool_shim_package_scope_text=lambda _: "pkg-a",
+        tool_shim_package_current_slice_text=lambda _: "slice-a",
+    )
+    final_text = blocked_final_text("prompt", [{"type": "input_text", "text": "prompt"}], failure_message="capacity")
+    assert final_text is not None
+    assert (
+        "What shipped: completed staged repo reads; inspected package-scope git status and diff; "
+        "inspected package-scope diff hunks; searched the allowed package paths for slice-specific matches"
+    ) in final_text
+    assert "What remains: retry pkg-a after planner capacity recovers for slice `slice-a`" in final_text
+    assert final_text.endswith("Exact blocker: capacity")
+
+    blocked_decision = runtime.build_tool_shim_package_planner_blocked_decision(
+        tool_shim_package_planner_blocked_final_text=blocked_final_text,
+        decision_cls=SimpleNamespace,
+        tool_shim_local_upstream_result=lambda text, reason: {"text": text, "reason": reason},
+    )
+    decision = blocked_decision("prompt", [], failure_message="capacity")
+    assert decision is not None
+    assert decision.kind == "final"
+    assert decision.upstream_result["reason"] == "tool_shim_package_planner_blocked"
+
+    assert runtime.tool_shim_provider_row_is_ready({"state": "ready"}) is True
+    assert runtime.tool_shim_provider_row_is_ready({"slots": [{"state": "ready"}]}) is True
+    assert runtime.tool_shim_provider_row_is_ready({"state": "degraded", "slots": [{"state": "blocked"}]}) is False
+
+    provider_row_is_dispatchable = runtime.build_tool_shim_provider_row_is_dispatchable(
+        tool_shim_provider_row_is_ready=runtime.tool_shim_provider_row_is_ready,
+    )
+    assert provider_row_is_dispatchable({"live_dispatchable_slot_count": "2"}) is True
+    assert provider_row_is_dispatchable({"live_ready_slot_count": 0, "state": "ready"}) is False
+    assert provider_row_is_dispatchable({"ready_slot_count": "", "slots": [{"state": "ready"}]}) is True
+
+    preflight_failure_message = runtime.build_tool_shim_package_planner_preflight_failure_message(
+        provider_health_snapshot=lambda lightweight=True: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 0},
+                "gemini_vortex": {"state": "blocked", "detail": "rate limited"},
+                "magixai": {"state": "degraded", "detail": "warming up"},
+            }
+        },
+        tool_shim_provider_row_is_dispatchable=provider_row_is_dispatchable,
+        tool_shim_provider_row_is_ready=runtime.tool_shim_provider_row_is_ready,
+    )
+    assert preflight_failure_message() == (
+        "upstream_unavailable:planner_capacity_preflight:"
+        "onemin_dispatchable=0; gemini_vortex=blocked:rate limited; magixai=degraded:warming up"
+    )
+
+    no_failure_message = runtime.build_tool_shim_package_planner_preflight_failure_message(
+        provider_health_snapshot=lambda lightweight=True: {
+            "providers": {
+                "onemin": {"live_dispatchable_slot_count": 1},
+                "gemini_vortex": {"state": "blocked"},
+                "magixai": {"state": "degraded"},
+            }
+        },
+        tool_shim_provider_row_is_dispatchable=provider_row_is_dispatchable,
+        tool_shim_provider_row_is_ready=runtime.tool_shim_provider_row_is_ready,
+    )
+    assert no_failure_message() is None
+
+
+def test_repo_followup_runtime_helpers_cover_grouping_and_operator_targets(tmp_path: Path) -> None:
+    from app.api.routes import responses_repo_followup_runtime as runtime
+
+    repo_a = tmp_path / "repo-a"
+    repo_b = tmp_path / "repo-b"
+    (repo_a / ".git").mkdir(parents=True)
+    (repo_b / ".git").mkdir(parents=True)
+    file_a = repo_a / "src" / "alpha.py"
+    file_b = repo_b / "tests" / "beta.py"
+    file_a.parent.mkdir(parents=True)
+    file_b.parent.mkdir(parents=True)
+    file_a.write_text("alpha = 1\n", encoding="utf-8")
+    file_b.write_text("beta = 2\n", encoding="utf-8")
+
+    build_repo_diff_command_for_paths = runtime.build_tool_shim_build_repo_diff_command_for_paths(
+        tool_shim_resolve_equivalent_shard_runtime_path=lambda path: path,
+    )
+    build_repo_hunks_command_for_paths = runtime.build_tool_shim_build_repo_hunks_command_for_paths(
+        tool_shim_resolve_equivalent_shard_runtime_path=lambda path: path,
+    )
+    diff_command = build_repo_diff_command_for_paths(
+        [str(file_a), str(file_a), str(file_b), str(tmp_path / "missing.py")]
+    )
+    hunks_command = build_repo_hunks_command_for_paths([str(file_a), str(file_b)])
+
+    assert diff_command is not None
+    assert (
+        f"git -C {shlex.quote(str(repo_a))} status --short -- src/alpha.py"
+        f" ; git -C {shlex.quote(str(repo_a))} diff --stat -- src/alpha.py"
+    ) in diff_command
+    assert (
+        f"git -C {shlex.quote(str(repo_b))} status --short -- tests/beta.py"
+        f" ; git -C {shlex.quote(str(repo_b))} diff --stat -- tests/beta.py"
+    ) in diff_command
+    assert hunks_command == (
+        f"git -C {shlex.quote(str(repo_a))} diff --unified=0 -- src/alpha.py | sed -n '1,200p'"
+        f" ; git -C {shlex.quote(str(repo_b))} diff --unified=0 -- tests/beta.py | sed -n '1,200p'"
+    )
+
+    staged_repo_diff_command = runtime.build_tool_shim_build_staged_repo_diff_command(
+        tool_shim_build_repo_diff_command_for_paths=lambda paths: json.dumps(paths),
+    )
+    staged_repo_hunks_command = runtime.build_tool_shim_build_staged_repo_hunks_command(
+        tool_shim_build_repo_hunks_command_for_paths=lambda paths: json.dumps(paths),
+    )
+    worktree_path = "/var/lib/codex-fleet/worktrees/demo/pkg/src/app.ts"
+    assert json.loads(
+        staged_repo_diff_command([f"cat {file_a}", f"cat {worktree_path}", f"rg beta {file_b}"]) or "[]"
+    ) == [worktree_path]
+    assert json.loads(staged_repo_hunks_command([f"cat {file_a}", f"rg beta {file_b}"]) or "[]") == [
+        str(file_a),
+        str(file_b),
+    ]
+
+    captured_diff_paths: list[list[str]] = []
+    captured_hunks_paths: list[list[str]] = []
+    operator_repo_diff_command = runtime.build_tool_shim_operator_unblock_repo_diff_command(
+        tool_shim_build_repo_diff_command_for_paths=lambda paths: captured_diff_paths.append(list(paths)) or "repo-diff",
+    )
+    operator_repo_hunks_command = runtime.build_tool_shim_operator_unblock_repo_hunks_command(
+        tool_shim_build_repo_hunks_command_for_paths=lambda paths: captured_hunks_paths.append(list(paths)) or "repo-hunks",
+    )
+    expected_operator_paths = [
+        "/docker/fleet/scripts/codex-shims/codexea",
+        "/docker/fleet/scripts/codex-shims/python3",
+        "/docker/EA/ea/app/api/routes/responses.py",
+        "/docker/EA/ea/app/services/onemin_manager.py",
+        "/docker/EA/ea/app/services/responses_upstream.py",
+    ]
+    assert operator_repo_diff_command() == "repo-diff"
+    assert operator_repo_hunks_command() == "repo-hunks"
+    assert captured_diff_paths == [expected_operator_paths]
+    assert captured_hunks_paths == [expected_operator_paths]
+
+
+def test_telemetry_runtime_helpers_cover_operator_and_worker_followups(tmp_path: Path) -> None:
+    from app.api.routes import responses_telemetry_runtime as runtime
+
+    telemetry_followup_commands = runtime.build_tool_shim_telemetry_followup_commands(
+        tool_shim_is_operator_fleet_unblock_context=lambda latest_user_text, history_items: latest_user_text == "operator",
+        tool_shim_looks_like_shell_command=lambda command: command.startswith(("git ", "cat ", "sed ")),
+        tool_shim_operator_unblock_scope_rejection_reason=lambda **_: None,
+        tool_shim_operator_unblock_repo_diff_command=lambda: "git diff operator-targets",
+        tool_shim_rewrite_operator_unblock_command=lambda command: command.strip(),
+        tool_shim_is_safe_worker_followup_command=lambda command: command.startswith("cat "),
+        tool_shim_is_allowed_package_followup_command=lambda latest_user_text, command: command.startswith("sed "),
+        tool_shim_resolve_equivalent_shard_runtime_path=lambda path: path,
+        tool_shim_direct_file_read_command=lambda path_text, prefer_cat=False: f"cat {path_text}"
+        if prefer_cat
+        else f"sed -n '1,200p' {path_text}",
+    )
+
+    assert telemetry_followup_commands(
+        latest_user_text="operator",
+        history_items=[],
+        payload={"first_commands": ["cat /tmp/ignored.json"]},
+    ) == ["git diff operator-targets"]
+
+    worker_followups = telemetry_followup_commands(
+        latest_user_text="worker",
+        history_items=[],
+        payload={"first_commands": [" cat /tmp/one.json ", "cat /tmp/one.json", "sed -n '1,40p' /tmp/two.py"]},
+    )
+    assert worker_followups == ["cat /tmp/one.json", "sed -n '1,40p' /tmp/two.py"]
+
+    source_json = tmp_path / "TASK_LOCAL_TELEMETRY.generated.json"
+    source_py = tmp_path / "notes.py"
+    source_json.write_text("{}", encoding="utf-8")
+    source_py.write_text("print('hi')\n", encoding="utf-8")
+    source_path_followups = telemetry_followup_commands(
+        latest_user_text="worker",
+        history_items=[],
+        payload={"source_paths": [str(source_json), str(source_py), str(tmp_path / "missing.py")]},
+    )
+    assert source_path_followups == [f"cat {source_json}"]
+
+
+def test_operator_scope_runtime_helpers_cover_context_and_scope_rejections() -> None:
+    from app.api.routes import responses_operator_scope_runtime as runtime
+
+    is_operator_fleet_unblock_context = runtime.build_tool_shim_is_operator_fleet_unblock_context(
+        is_operator_fleet_unblock_prompt=lambda prompt: "operator-prepared fleet unblock context" in prompt.lower(),
+        is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
+        tool_shim_exec_command_history=lambda history_items: [str(item.get("cmd") or "") for item in history_items],
+    )
+
+    assert is_operator_fleet_unblock_context("Operator-prepared fleet unblock context:\n- Scope: codexea only", []) is True
+    assert is_operator_fleet_unblock_context("Package scope: ui", []) is False
+    assert is_operator_fleet_unblock_context(
+        "generic prompt",
+        [
+            {"cmd": "sed -n '1,10p' /docker/fleet/scripts/codex-shims/codexea"},
+            {"cmd": "sed -n '1,10p' /docker/EA/ea/app/services/onemin_manager.py"},
+        ],
+    ) is True
+
+    operator_unblock_scope_rejection_reason = runtime.build_tool_shim_operator_unblock_scope_rejection_reason(
+        is_operator_fleet_unblock_context=lambda latest_user_text, history_items: True,
+    )
+    assert (
+        operator_unblock_scope_rejection_reason(
+            latest_user_text="operator",
+            cmd="cat /docker/chummercomplete/chummer-presentation/WORKLIST.md",
+            history_items=[],
+        )
+        is not None
+    )
+    assert (
+        operator_unblock_scope_rejection_reason(
+            latest_user_text="operator",
+            cmd="git -C /docker/EA diff -- ea/app/api/routes/responses.py tests/test_responses_api_contracts.py",
+            history_items=[],
+        )
+        is None
+    )
+    assert (
+        operator_unblock_scope_rejection_reason(
+            latest_user_text="operator",
+            cmd="git -C /docker/EA diff -- TASKS_WORK_LOG.md",
+            history_items=[],
+        )
+        is not None
+    )
+    assert (
+        operator_unblock_scope_rejection_reason(
+            latest_user_text="operator",
+            cmd="cat /docker/fleet/state/chummer_design_supervisor/shard-1/runs/demo/TASK_LOCAL_TELEMETRY.generated.json",
+            history_items=[],
+        )
+        is None
+    )
+    assert (
+        operator_unblock_scope_rejection_reason(
+            latest_user_text="operator",
+            cmd="cat /docker/fleet/state/chummer_design_supervisor/shard-1/backlog.txt",
+            history_items=[],
+        )
+        is not None
+    )
+
+
+def test_local_unblock_runtime_helpers_cover_prompt_mapping_and_final_text() -> None:
+    from app.api.routes import responses_local_unblock_runtime as runtime
+
+    assert runtime.tool_shim_local_unblock_command_for_prompt(
+        "Please execute WL-D014-01 and compute source and destination sha-256 from review_template_mirror_publish_evidence.md"
+    ) == "python3 /docker/fleet/scripts/fleet_local_unblock.py --task review_template_parity"
+    assert runtime.tool_shim_local_unblock_command_for_prompt(
+        "Need to surface campaign memory and consequences on desktop before signoff."
+    ) == "python3 /docker/fleet/scripts/fleet_local_unblock.py --task verify_ui_campaign_memory"
+    assert runtime.tool_shim_local_unblock_command_for_prompt(
+        "Investigate recurring `ui` mirror drift and sync the approved chummer design bundle into `ui`."
+    ) == "python3 /docker/fleet/scripts/fleet_local_unblock.py --task mirror_sync --repo chummer6-ui"
+
+    direct_local_unblock_command = runtime.build_tool_shim_direct_local_unblock_command(
+        tool_shim_local_unblock_command_for_prompt=runtime.tool_shim_local_unblock_command_for_prompt,
+        tool_shim_command_sequence_executed=lambda history_items, command: command in {
+            str(item.get("cmd") or "") for item in history_items
+        },
+    )
+    prompt = "Need to surface campaign memory and consequences on desktop before signoff."
+    expected_command = "python3 /docker/fleet/scripts/fleet_local_unblock.py --task verify_ui_campaign_memory"
+    assert direct_local_unblock_command(prompt, []) == expected_command
+    assert direct_local_unblock_command(prompt, [{"cmd": expected_command}]) is None
+
+    assert runtime.tool_shim_local_unblock_final_text(
+        {
+            "probe_kind": "fleet_local_unblock",
+            "task": "mirror_sync",
+            "ok": True,
+            "message": "synced approved bundle",
+            "details": "trace: /tmp/proof.json",
+        }
+    ) == (
+        "Completed local unblock task `mirror_sync`.\n\nWhat shipped: synced approved bundle\n\nEvidence: trace: /tmp/proof.json"
+    )
+    assert runtime.tool_shim_local_unblock_final_text(
+        {
+            "probe_kind": "fleet_local_unblock",
+            "task": "mirror_sync",
+            "ok": False,
+            "error": "repo_dirty",
+            "details": "manual cleanup required",
+        }
+    ) == "Error: local_unblock_failed:repo_dirty\n\nWhat remains: manual cleanup required"
+
+
+def test_local_fleet_runtime_helpers_cover_output_token_and_command_selection(tmp_path: Path) -> None:
+    from app.api.routes import responses_local_fleet_runtime as runtime
+
+    staged_first_command_max_output_tokens = runtime.build_tool_shim_staged_first_command_max_output_tokens(
+        is_package_work_prompt=lambda prompt: prompt == "package",
+        is_operator_parity_build_prompt=lambda prompt: prompt == "parity",
+        is_operator_ui_parity_audit_prompt=lambda prompt: prompt == "ui_audit",
+        is_operator_gap_fix_prompt=lambda prompt: prompt == "gap_fix",
+        is_operator_gap_audit_prompt=lambda prompt: prompt == "gap_audit",
+    )
+    assert staged_first_command_max_output_tokens("package") == 5000
+    assert staged_first_command_max_output_tokens("parity") == 7000
+    assert staged_first_command_max_output_tokens("ui_audit") == 5000
+    assert staged_first_command_max_output_tokens("gap_fix") == 6000
+    assert staged_first_command_max_output_tokens("gap_audit") == 3000
+    assert staged_first_command_max_output_tokens("other") == 1500
+
+    state_root = Path("/docker/fleet/state/chummer_design_supervisor")
+    supervisor_script = Path("/docker/fleet/scripts/chummer_design_supervisor.py")
+    state_root.mkdir(parents=True, exist_ok=True)
+    supervisor_script.parent.mkdir(parents=True, exist_ok=True)
+    if not supervisor_script.exists():
+        supervisor_script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    direct_local_fleet_command = runtime.build_tool_shim_direct_local_fleet_command(
+        is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
+        is_operator_fleet_unblock_context=lambda latest_user_text, history_items: "operator-prepared" in latest_user_text.lower(),
+        prompt_forbids_local_fleet_telemetry=lambda normalized: "do not query supervisor status" in normalized,
+    )
+
+    eta_command = direct_local_fleet_command("fleet eta", [])
+    assert eta_command is not None
+    assert "eta --state-root /docker/fleet/state/chummer_design_supervisor --json" in eta_command
+    assert "eta_human" in eta_command
+
+    count_command = direct_local_fleet_command("How many shards are running in the fleet status right now?", [])
+    assert count_command is not None
+    assert "status --state-root /docker/fleet/state/chummer_design_supervisor --json" in count_command
+    assert "active_runs_count" in count_command
+
+    assert direct_local_fleet_command("Package scope: ui\nfleet eta", []) is None
+    assert direct_local_fleet_command("Operator-prepared fleet unblock context:\nfleet eta", []) is None
+    assert direct_local_fleet_command("fleet eta and do not query supervisor status", []) is None
+
+
+def test_output_runtime_helpers_cover_unwrap_latest_scalar_and_local_result() -> None:
+    from app.api.routes import responses_output_runtime as runtime
+
+    assert runtime.tool_shim_unwrap_tool_output_envelope("Header\nOutput:\nvalue") == "value"
+    assert runtime.tool_shim_unwrap_tool_output_envelope("prefix\nsucceeded in 0.2s:\nbody") == "body"
+    assert runtime.tool_shim_unwrap_tool_output_envelope("raw") == "raw"
+
+    latest_function_output = runtime.build_tool_shim_latest_function_output(
+        extract_textish=lambda value: str(value or ""),
+        tool_shim_unwrap_tool_output_envelope=runtime.tool_shim_unwrap_tool_output_envelope,
+    )
+    assert latest_function_output(
+        [
+            {"type": "function_call_output", "output": "first"},
+            {"type": "function_call_output", "output": "ignored\nOutput:\nsecond"},
+        ]
+    ) == "second"
+
+    requires_immediate_tool = runtime.build_tool_shim_requires_immediate_tool(
+        looks_like_lightweight_ops_query=lambda prompt: (prompt == "lightweight", None),
+    )
+    assert requires_immediate_tool(latest_user_text="lightweight", available_tools=[{"name": "exec_command"}]) is True
+    assert (
+        requires_immediate_tool(
+            latest_user_text="How many shards are running in the fleet right now?",
+            available_tools=[{"name": "exec_command"}],
+        )
+        is True
+    )
+    assert requires_immediate_tool(latest_user_text="Explain architecture", available_tools=[{"name": "exec_command"}]) is False
+
+    local_upstream_result = runtime.build_tool_shim_local_upstream_result(upstream_result_cls=SimpleNamespace)
+    result = local_upstream_result("ok", reason="local_probe")
+    assert result.provider_key == "local"
+    assert result.upstream_model == "tool_shim_local"
+    assert result.fallback_reason == "local_probe"
+
+    assert runtime.tool_shim_scalar_text(True) == "true"
+    assert runtime.tool_shim_scalar_text({"output": {"value": 7}}) == "7"
+    assert runtime.tool_shim_scalar_text(["only"]) == "only"
+    assert runtime.tool_shim_scalar_text({"nested": {"x": 1}}) == "1"
+
+
+def test_probe_final_text_runtime_helpers_cover_summary_rendering() -> None:
+    from app.api.routes import responses_probe_final_text_runtime as runtime
+
+    gap_audit = runtime.tool_shim_gap_audit_final_text(
+        {
+            "probe_kind": "gap_audit",
+            "findings": [
+                {"severity": "high", "category": "coverage", "summary": "Missing parity proof", "path": "a.md", "detail": "needs rerun"}
+            ],
+            "notes": ["rerun after publish"],
+        }
+    )
+    assert gap_audit is not None
+    assert "Gap audit findings:" in gap_audit
+    assert "1. HIGH coverage: Missing parity proof [a.md] needs rerun" in gap_audit
+    assert "Notes:" in gap_audit
+
+    ui_parity = runtime.tool_shim_ui_parity_audit_final_text(
+        {
+            "probe_kind": "ui_parity_audit",
+            "total_elements": 8,
+            "visual_yes_count": 6,
+            "visual_no_count": 2,
+            "behavioral_yes_count": 5,
+            "behavioral_no_count": 3,
+            "chummer6_only_extra_present_count": 1,
+            "removable_extra_present_count": 0,
+            "coverage_gap_keys": ["desktop_shell"],
+            "report_json_path": "/tmp/report.json",
+            "findings": [{"severity": "medium", "category": "layout", "summary": "Spacing drift"}],
+        }
+    )
+    assert ui_parity is not None
+    assert "UI parity audit result:" in ui_parity
+    assert "- total_elements=8" in ui_parity
+    assert "Top findings:" in ui_parity
+
+    parity_build = runtime.tool_shim_parity_build_final_text(
+        {
+            "probe_kind": "parity_build",
+            "release_version": "2026.05.25",
+            "applied_steps": ["build assets"],
+            "parity_report_path": "/tmp/parity.md",
+            "parity_summary": {
+                "visual_yes_count": 4,
+                "visual_no_count": 1,
+                "behavioral_yes_count": 5,
+                "behavioral_no_count": 0,
+            },
+            "remaining_findings": [{"severity": "low", "category": "copy", "summary": "minor text drift"}],
+        }
+    )
+    assert parity_build is not None
+    assert "Parity build result:" in parity_build
+    assert "- release_version=2026.05.25" in parity_build
+    assert "Remaining findings:" in parity_build
+
+    gap_fix = runtime.tool_shim_gap_fix_final_text(
+        {
+            "probe_kind": "gap_fix",
+            "applied_steps": ["patched prompt"],
+            "step_results": [{"name": "audit", "status": "fail"}],
+            "status_summary": {"workflow_gate": {"status": "pass"}, "flagship_readiness": {"status": "warn"}},
+            "remaining_findings": [{"severity": "medium", "category": "proof", "summary": "missing screenshot"}],
+        }
+    )
+    assert gap_fix is not None
+    assert "Gap fix result:" in gap_fix
+    assert "Incomplete steps:" in gap_fix
+    assert "Current status:" in gap_fix
+
+
+def test_direct_final_runtime_helper_prefers_local_unblock_then_lightweight_scalar() -> None:
+    from app.api.routes import responses_direct_final_runtime as runtime
+
+    direct_final_text = runtime.build_tool_shim_direct_final_text(
+        tool_shim_latest_user_text=lambda history_items: "Need local help",
+        tool_shim_latest_exec_json_output=lambda history_items: {"probe_kind": "fleet_local_unblock", "ok": True, "task": "mirror_sync"},
+        tool_shim_local_unblock_final_text=lambda summary: "local unblock complete" if summary.get("probe_kind") == "fleet_local_unblock" else None,
+        tool_shim_local_unblock_command_for_prompt=lambda latest_user_text: None,
+        tool_shim_latest_exec_json_output_for_command=lambda *args, **kwargs: None,
+        tool_shim_is_operator_parity_build_prompt=lambda latest_user_text: False,
+        tool_shim_parity_build_final_text=lambda summary: None,
+        tool_shim_is_operator_ui_parity_audit_prompt=lambda latest_user_text: False,
+        tool_shim_ui_parity_audit_final_text=lambda summary: None,
+        tool_shim_is_operator_gap_fix_prompt=lambda latest_user_text: False,
+        tool_shim_gap_fix_final_text=lambda summary: None,
+        tool_shim_is_operator_gap_audit_prompt=lambda latest_user_text: False,
+        tool_shim_gap_audit_final_text=lambda summary: None,
+        tool_shim_is_operator_readiness_remedy_prompt=lambda latest_user_text: False,
+        tool_shim_direct_staged_git_commit_push_final_text=lambda latest_user_text, history_items: None,
+        looks_like_lightweight_ops_query=lambda latest_user_text: (False, None),
+        tool_shim_latest_function_output=lambda history_items: "",
+        tool_shim_scalar_text=lambda value: None,
+    )
+    assert direct_final_text([]) == "local unblock complete"
+
+    lightweight_direct_final_text = runtime.build_tool_shim_direct_final_text(
+        tool_shim_latest_user_text=lambda history_items: "How many shards are running right now?",
+        tool_shim_latest_exec_json_output=lambda history_items: None,
+        tool_shim_local_unblock_final_text=lambda summary: None,
+        tool_shim_local_unblock_command_for_prompt=lambda latest_user_text: None,
+        tool_shim_latest_exec_json_output_for_command=lambda *args, **kwargs: None,
+        tool_shim_is_operator_parity_build_prompt=lambda latest_user_text: False,
+        tool_shim_parity_build_final_text=lambda summary: None,
+        tool_shim_is_operator_ui_parity_audit_prompt=lambda latest_user_text: False,
+        tool_shim_ui_parity_audit_final_text=lambda summary: None,
+        tool_shim_is_operator_gap_fix_prompt=lambda latest_user_text: False,
+        tool_shim_gap_fix_final_text=lambda summary: None,
+        tool_shim_is_operator_gap_audit_prompt=lambda latest_user_text: False,
+        tool_shim_gap_audit_final_text=lambda summary: None,
+        tool_shim_is_operator_readiness_remedy_prompt=lambda latest_user_text: False,
+        tool_shim_direct_staged_git_commit_push_final_text=lambda latest_user_text, history_items: None,
+        looks_like_lightweight_ops_query=lambda latest_user_text: (True, None),
+        tool_shim_latest_function_output=lambda history_items: "{\"value\": 333333333333333333333333333333333333333333}",
+        tool_shim_scalar_text=lambda value: str(value.get("value")) if isinstance(value, dict) else None,
+    )
+    assert lightweight_direct_final_text([]) == "333333333333333333333333333333333333333333"
+
+
+def test_staged_prompt_runtime_helpers_cover_command_and_file_staging(tmp_path: Path) -> None:
+    from app.api.routes import responses_staged_prompt_runtime as runtime
+
+    assert runtime.tool_shim_has_tool_history(
+        [{"type": "input_text"}, {"type": "function_call", "name": "exec_command"}]
+    ) is True
+    assert runtime.tool_shim_has_tool_history([{"type": "input_text"}]) is False
+    assert runtime.tool_shim_direct_file_read_command("/tmp/demo.json") == "cat /tmp/demo.json"
+    assert runtime.tool_shim_direct_file_read_command("/tmp/demo.py", max_lines=10) == "sed -n '1,10p' /tmp/demo.py"
+    assert runtime.tool_shim_looks_like_shell_command("rg -n needle file.py") is True
+    assert runtime.tool_shim_looks_like_shell_command("tell me more") is False
+
+    staged_commands = runtime.build_tool_shim_staged_commands(
+        tool_shim_looks_like_shell_command=runtime.tool_shim_looks_like_shell_command,
+        tool_shim_direct_file_read_command=runtime.tool_shim_direct_file_read_command,
+        is_package_work_prompt=lambda text: "package scope:" in text.lower(),
+        build_package_scope_search_command=lambda text: "rg -n -i -F needle -- /repo/src",
+        build_package_scope_repo_diff_command=lambda text: "git -C /repo diff --stat -- src",
+        build_package_scope_repo_hunks_command=lambda text: "git -C /repo diff --unified=0 -- src",
+    )
+
+    exact_prompt = """
+    Run these exact commands first:
+    - sed -n '1,10p' /tmp/demo.py
+    - rg -n needle /tmp/demo.py
+    - After this, explain the issue.
+    """
+    assert staged_commands(exact_prompt) == ["sed -n '1,10p' /tmp/demo.py", "rg -n needle /tmp/demo.py"]
+
+    package_worktree = tmp_path / "pkg"
+    package_worktree.mkdir(parents=True, exist_ok=True)
+    package_prompt = f"""
+    Package scope: ui
+    Isolated worktree: {package_worktree}
+    Read these files directly first:
+    - src/app.ts
+    - tests/app.test.ts
+    """
+    bundled = staged_commands(package_prompt)
+    assert len(bundled) == 1
+    assert "rg -n -i -F needle -- /repo/src" in bundled[0]
+    assert "git -C /repo diff --stat -- src" in bundled[0]
+    assert f"sed -n '1,20p' {package_worktree / 'src' / 'app.ts'}" in bundled[0]
+
+
+def test_command_history_runtime_helpers_cover_identity_and_json_output_extraction() -> None:
+    from app.api.routes import responses_command_history_runtime as runtime
+
+    assert runtime.tool_shim_normalize_equivalent_command_paths(
+        "cat /docker/fleet/state/chummer_design_supervisor/shard-1/run.json"
+    ) == "cat /__fleet_shard_runtime__/chummer_design_supervisor/shard-1/run.json"
+
+    history_items = [
+        {"type": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": "cat /tmp/a ; rg needle /tmp/b"}), "call_id": "call_1"},
+        {"type": "function_call_output", "call_id": "call_1", "output": "prefix\nOutput:\n{\"probe_kind\":\"demo\",\"value\":1}"},
+        {"type": "function_call", "name": "other", "arguments": json.dumps({"cmd": "ignored"}), "call_id": "call_2"},
+    ]
+    assert runtime.tool_shim_exec_command_history(history_items) == ["cat /tmp/a ; rg needle /tmp/b"]
+
+    exec_command_identity_history = runtime.build_tool_shim_exec_command_identity_history(
+        tool_shim_exec_command_history=runtime.tool_shim_exec_command_history,
+        tool_shim_command_identity=lambda command: command.split()[0],
+    )
+    assert exec_command_identity_history(history_items) == ["cat", "cat", "rg"]
+
+    command_identity_sequence = runtime.build_tool_shim_command_identity_sequence(
+        tool_shim_command_identity=lambda command: command.split()[0],
+    )
+    assert command_identity_sequence("cat /tmp/a ; rg needle /tmp/b") == ["cat", "rg"]
+
+    exec_command_expanded_sequence = runtime.build_tool_shim_exec_command_expanded_sequence(
+        tool_shim_exec_command_history=runtime.tool_shim_exec_command_history,
+        tool_shim_command_identity_sequence=command_identity_sequence,
+    )
+    assert exec_command_expanded_sequence(history_items) == ["cat", "rg"]
+
+    command_sequence_executed = runtime.build_tool_shim_command_sequence_executed(
+        tool_shim_command_identity_sequence=command_identity_sequence,
+        tool_shim_exec_command_identity_history=exec_command_identity_history,
+    )
+    assert command_sequence_executed(history_items, "cat /tmp/a ; rg needle /tmp/b") is True
+
+    exec_command_output_history = runtime.build_tool_shim_exec_command_output_history(
+        extract_textish=lambda value: str(value or ""),
+        tool_shim_unwrap_tool_output_envelope=lambda text: text.rsplit("\nOutput:\n", 1)[-1].strip(),
+    )
+    output_history = exec_command_output_history(history_items)
+    assert output_history == [{"call_id": "call_1", "cmd": "cat /tmp/a ; rg needle /tmp/b", "output": "{\"probe_kind\":\"demo\",\"value\":1}"}]
+
+    latest_exec_json_output = runtime.build_tool_shim_latest_exec_json_output(
+        tool_shim_exec_command_output_history=exec_command_output_history,
+        extract_json_object=lambda text: json.loads(text),
+    )
+    assert latest_exec_json_output(history_items) == {"probe_kind": "demo", "value": 1}
+
+    latest_exec_json_output_for_command = runtime.build_tool_shim_latest_exec_json_output_for_command(
+        tool_shim_exec_command_output_history=exec_command_output_history,
+        extract_json_object=lambda text: json.loads(text),
+    )
+    assert latest_exec_json_output_for_command(
+        history_items,
+        command_substring="cat /tmp/a",
+        probe_kind="demo",
+    ) == {"probe_kind": "demo", "value": 1}
+
+
+def test_staged_git_runtime_helpers_cover_workflow_detection_command_and_final_text() -> None:
+    from app.api.routes import responses_staged_git_runtime as runtime
+
+    assert runtime.tool_shim_is_git_command("git status") is True
+    assert runtime.tool_shim_is_git_command("git commit -m test", "commit") is True
+    assert runtime.tool_shim_is_git_command("rg needle", None) is False
+
+    is_staged_git_commit_push_workflow = runtime.build_tool_shim_is_staged_git_commit_push_workflow(
+        tool_shim_is_git_command=runtime.tool_shim_is_git_command,
+    )
+    commands = ["git add .", "git commit -m 'demo'", "git push origin main"]
+    assert is_staged_git_commit_push_workflow(commands) is True
+
+    build_staged_git_commit_push_command = runtime.build_tool_shim_build_staged_git_commit_push_command(
+        tool_shim_is_staged_git_commit_push_workflow=is_staged_git_commit_push_workflow,
+        tool_shim_is_git_command=runtime.tool_shim_is_git_command,
+    )
+    workflow_command = build_staged_git_commit_push_command(commands)
+    assert workflow_command is not None
+    assert "git diff --cached --quiet" in workflow_command
+    assert "git rev-parse HEAD" in workflow_command
+    assert runtime.tool_shim_extract_git_head_hash("noise\n0123456789abcdef0123456789abcdef01234567\n") == "0123456789abcdef0123456789abcdef01234567"
+
+    direct_staged_git_commit_push_final_text = runtime.build_tool_shim_direct_staged_git_commit_push_final_text(
+        tool_shim_staged_commands=lambda latest_user_text: commands,
+        tool_shim_build_staged_git_commit_push_command=lambda staged_commands: workflow_command,
+        tool_shim_exec_command_history=lambda history_items: [workflow_command or ""],
+        tool_shim_latest_function_output=lambda history_items: "0123456789abcdef0123456789abcdef01234567",
+        tool_shim_extract_git_head_hash=runtime.tool_shim_extract_git_head_hash,
+    )
+    assert direct_staged_git_commit_push_final_text("prompt", []) == "Pushed commit 0123456789abcdef0123456789abcdef01234567"
+
+
+def test_prompt_runtime_helpers_cover_prompt_classification() -> None:
+    from app.api.routes import responses_prompt_runtime as runtime
+
+    assert runtime.tool_shim_is_staged_local_orientation_prompt("Run these exact commands first:\n- sed -n '1,10p' file") is True
+    assert runtime.tool_shim_is_operator_fleet_unblock_prompt(
+        "Operator-prepared fleet unblock context:\n- Scope: patch only the codexea shim, EA endpoints, and the 1min manager."
+    ) is True
+    assert runtime.tool_shim_is_package_work_prompt(
+        "Current slice: tighten runtime\nPackage scope: ui\nIsolated worktree: /tmp/pkg"
+    ) is True
+    assert runtime.tool_shim_is_operator_readiness_remedy_prompt(
+        "Operator-prepared readiness remedy context:\n- Scope: patch only the targeted product proof surface implied by the prompt."
+    ) is True
+    assert runtime.tool_shim_is_operator_gap_audit_prompt("Operator-prepared gap audit context:\n- Audit flagship gaps.") is True
+    assert runtime.tool_shim_is_operator_gap_fix_prompt("Operator-prepared gap fix context:\n- Repair flagship gaps.") is True
+    assert runtime.tool_shim_is_package_work_prompt("plain user prompt") is False
+
+
+def test_prompt_compaction_runtime_helpers_cover_limits_and_compaction() -> None:
+    from app.api.routes import responses_prompt_compaction_runtime as runtime
+
+    transcript_limit_for_prompt = runtime.build_tool_shim_transcript_limit_for_prompt(
+        tool_shim_transcript_max_chars=lambda: 4000,
+        is_operator_fleet_unblock_prompt=lambda text: text == "operator",
+        is_operator_readiness_remedy_prompt=lambda text: text == "readiness",
+        is_staged_local_orientation_prompt=lambda text: text == "staged",
+    )
+    assert transcript_limit_for_prompt("operator") == 1800
+    assert transcript_limit_for_prompt("readiness") == 2200
+    assert transcript_limit_for_prompt("staged") == 2600
+    assert transcript_limit_for_prompt("other") == 4000
+
+    compact_operator_prompt_for_planner = runtime.build_tool_shim_compact_operator_prompt_for_planner(
+        is_operator_fleet_unblock_prompt=lambda text: "operator" in text.lower(),
+    )
+    operator_prompt = """
+Operator-prepared fleet unblock context:
+- Scope: patch only the codexea shim.
+
+Prepared repo context:
+$ git -C /docker/fleet diff --stat -- scripts/codex-shims/codexea
+1 file changed, 4 insertions(+)
+$ rg -n "planner" /docker/EA/ea/app/api/routes/responses.py
+
+Live fleet snapshot:
+- onemin unavailable
+"""
+    compacted_operator = compact_operator_prompt_for_planner(operator_prompt)
+    assert "Prepared repo context summary:" in compacted_operator
+    assert "Bootstrap context was already captured from 2 local commands." in compacted_operator
+    assert "Live fleet snapshot:" in compacted_operator
+
+    compact_readiness_prompt_for_planner = runtime.build_tool_shim_compact_readiness_prompt_for_planner(
+        is_operator_readiness_remedy_prompt=lambda text: "readiness" in text.lower(),
+    )
+    readiness_prompt = """
+Operator-prepared readiness remedy context:
+- Scope: patch only the targeted product proof surface implied by the prompt.
+
+Prepared repo context:
+$ git -C /docker/EA diff --stat -- ea/app/api/routes/responses.py
+fail: published trace is missing
+tester_shard_id=shard-2
+
+Objective:
+- materialize proof
+"""
+    compacted_readiness = compact_readiness_prompt_for_planner(readiness_prompt)
+    assert "Prepared repo context summary:" in compacted_readiness
+    assert "fail: published trace is missing" in compacted_readiness
+    assert "Objective:" in compacted_readiness
+
+
+def test_transcript_runtime_helpers_cover_truncation_transcript_and_latest_prompt_selection() -> None:
+    from app.api.routes import responses_transcript_runtime as runtime
+
+    assert runtime.tool_shim_truncate_text("abcdefghij", limit=5) == "abcde"
+    truncated = runtime.tool_shim_truncate_text("a" * 150 + "b" * 150, limit=120)
+    assert "[... omitted for compact audit transport ...]" in truncated
+    assert runtime.tool_shim_tool_parameters_summary(
+        {"type": "object", "properties": {"cmd": {}, "cwd": {}}, "required": ["cmd"]}
+    ) == {"type": "object", "parameter_keys": ["cmd", "cwd"], "required": ["cmd"]}
+
+    history_item_to_transcript = runtime.build_history_item_to_transcript(
+        normalize_message_role=lambda role: str(role or "").strip().lower(),
+        extract_textish=lambda value: str(value or ""),
+        tool_shim_truncate_text=runtime.tool_shim_truncate_text,
+        transcript_part_max_chars=lambda: 40,
+    )
+    assert history_item_to_transcript({"type": "message", "role": "user", "content": "hello"}) == "User:\nhello"
+    assert history_item_to_transcript({"type": "input_text", "text": "prompt"}) == "User:\nprompt"
+    assert "Assistant tool call (call_1)" in history_item_to_transcript(
+        {"type": "function_call", "name": "exec_command", "arguments": "{\"cmd\":\"pwd\"}", "call_id": "call_1"}
+    )
+    assert "Tool output (call_1):" in history_item_to_transcript(
+        {"type": "function_call_output", "call_id": "call_1", "output": "done"}
+    )
+
+    latest_user_text = runtime.build_tool_shim_latest_user_text(
+        normalize_message_role=lambda role: str(role or "").strip().lower(),
+        extract_textish=lambda value: str(value or ""),
+    )
+    assert latest_user_text(
+        [
+            {"type": "message", "role": "user", "content": "older"},
+            {"type": "input_text", "text": "newer"},
+        ]
+    ) == "newer"
+
+    latest_package_work_prompt = runtime.build_tool_shim_latest_package_work_prompt(
+        normalize_message_role=lambda role: str(role or "").strip().lower(),
+        extract_textish=lambda value: str(value or ""),
+        is_package_work_prompt=lambda text: "package scope:" in text.lower(),
+        tool_shim_staged_commands=lambda text: ["sed -n '1,10p' file"] if "Read these files directly first:" in text else [],
+    )
+    assert latest_package_work_prompt(
+        [
+            {"type": "message", "role": "user", "content": "plain"},
+            {"type": "input_text", "text": "Package scope: ui\nAllowed paths: src"},
+        ]
+    ) == "Package scope: ui\nAllowed paths: src"
+
+
+def test_planner_runtime_helpers_cover_history_env_model_and_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import responses_planner_runtime as runtime
+
+    class FakeHttpError(Exception):
+        def __init__(self, *, status_code: int, detail: str) -> None:
+            self.status_code = status_code
+            self.detail = detail
+
+    stored = SimpleNamespace(
+        response={"status": "completed"},
+        history_items=[{"type": "input_text", "text": "previous"}],
+    )
+    parsed_input = SimpleNamespace(input_items=[{"type": "input_text", "text": "current"}])
+    history = runtime.history_items_for_request(
+        previous_response_id="resp_1",
+        parsed_input=parsed_input,
+        principal_id="principal",
+        container=None,
+        load_response_for_runtime=lambda **kwargs: stored,
+        response_failure_message=lambda response: "",
+        http_exception_type=FakeHttpError,
+    )
+    assert history == [{"type": "input_text", "text": "previous"}, {"type": "input_text", "text": "current"}]
+
+    failed_stored = SimpleNamespace(response={"status": "failed"}, history_items=[])
+    with pytest.raises(FakeHttpError) as failed_error:
+        runtime.history_items_for_request(
+            previous_response_id="resp_2",
+            parsed_input=parsed_input,
+            principal_id="principal",
+            container=None,
+            load_response_for_runtime=lambda **kwargs: failed_stored,
+            response_failure_message=lambda response: "boom",
+            http_exception_type=FakeHttpError,
+        )
+    assert failed_error.value.detail == "previous_response_failed:boom"
+
+    monkeypatch.setenv("EA_TOOL_SHIM_TRANSCRIPT_MAX_CHARS", "500")
+    monkeypatch.setenv("EA_TOOL_SHIM_TRANSCRIPT_PART_MAX_CHARS", "10000")
+    assert runtime.tool_shim_transcript_max_chars() == 800
+    assert runtime.tool_shim_transcript_part_max_chars() == 8000
+
+    planner_model = runtime.build_tool_shim_planner_model(
+        fast_public_model="ea-coder-fast",
+        hard_batch_public_model="ea-coder-hard-batch",
+        hard_rescue_public_model="ea-coder-hard-rescue",
+        review_light_public_model="ea-review-light",
+        groundwork_public_model="ea-groundwork-gemini",
+        survival_public_model="ea-coder-survival",
+        onemin_public_model="onemin:gpt-5.4",
+        is_staged_local_orientation_prompt=lambda prompt: "staged" in prompt,
+        is_operator_fleet_unblock_prompt=lambda prompt: "operator" in prompt,
+        is_operator_gap_fix_prompt=lambda prompt: "gap-fix" in prompt,
+        is_operator_gap_audit_prompt=lambda prompt: "gap-audit" in prompt,
+        is_operator_readiness_remedy_prompt=lambda prompt: "readiness" in prompt,
+        is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
+    )
+    monkeypatch.delenv("EA_TOOL_SHIM_PLANNER_MODEL", raising=False)
+    assert planner_model("ea-coder-hard-batch") == "ea-coder-hard-batch"
+    assert planner_model("onemin:gpt-5.4") == "onemin:gpt-4.1-nano"
+    assert planner_model("custom-model", prompt="operator prompt") == "ea-coder-fast"
+
+    assert runtime.tool_shim_planner_max_output_tokens(None) == 256
+    assert runtime.tool_shim_planner_max_output_tokens(80) == 96
+    assert runtime.tool_shim_planner_max_output_tokens(400) == 256
+
+    planner_deadline_monotonic = runtime.build_tool_shim_planner_deadline_monotonic(
+        is_package_work_prompt=lambda prompt: "package scope:" in prompt.lower(),
+        is_staged_local_orientation_prompt=lambda prompt: "staged" in prompt,
+        is_operator_fleet_unblock_prompt=lambda prompt: "operator" in prompt,
+        is_operator_gap_fix_prompt=lambda prompt: "gap-fix" in prompt,
+        is_operator_gap_audit_prompt=lambda prompt: "gap-audit" in prompt,
+        is_operator_readiness_remedy_prompt=lambda prompt: "readiness" in prompt,
+    )
+    deadline = runtime.time.monotonic() + 500
+    assert planner_deadline_monotonic(deadline, prompt="Package scope: ui") <= deadline
+    assert planner_deadline_monotonic(None, prompt="operator") is None
+    monkeypatch.setenv("EA_TOOL_SHIM_PLANNER_DEADLINE_SECONDS_DEFAULT", "90")
+    extended = planner_deadline_monotonic(deadline, prompt="hello there")
+    assert extended is not None
+    assert extended <= deadline
+    assert extended > runtime.time.monotonic() + 60
+
+
+def test_background_runtime_helpers_cover_timeout_replay_and_failure_shapes() -> None:
+    from app.api.routes import responses_background_runtime as runtime
+
+    response_obj = {"created_at": 100, "metadata": {"background_timeout_seconds": "45"}}
+    assert runtime.background_timeout_seconds_for_response(response_obj) == 45.0
+    assert runtime.background_response_deadline_unix(response_obj) == 145.0
+    assert runtime.background_response_has_expired(response_obj, now_unix=146.0) is True
+    assert runtime.background_response_has_expired(response_obj, now_unix=144.0) is False
+
+    replay_payload = runtime.background_replay_payload(
+        prompt="hello",
+        messages=[{"role": "user", "content": "hello"}],
+        supported_tools=[{"name": "exec_command"}],
+        effective_codex_profile="core",
+        chatplayground_audit_callback_enabled=True,
+        chatplayground_audit_callback_only=False,
+        preferred_onemin_labels=("primary", "", "shadow"),
+    )
+    assert replay_payload == {
+        "prompt": "hello",
+        "messages": [{"role": "user", "content": "hello"}],
+        "supported_tools": [{"name": "exec_command"}],
+        "effective_codex_profile": "core",
+        "chatplayground_audit_callback_enabled": True,
+        "chatplayground_audit_callback_only": False,
+        "preferred_onemin_labels": ["primary", "shadow"],
+    }
+
+    stored = SimpleNamespace(
+        response={
+            "id": "resp_1",
+            "created_at": 111,
+            "model": "ea-coder-hard",
+            "metadata": {"background_timeout_seconds": 30},
+            "instructions": "audit",
+        },
+        input_items=[{"type": "input_text", "text": "demo"}],
+    )
+    failed_response = runtime.background_failed_response(
+        stored=stored,
+        failure_message="boom",
+        build_failed_response=lambda **kwargs: kwargs,
+        requested_max_output_tokens_from_response=lambda response: 77,
+        now_unix=lambda: 999,
+        default_public_model="ea-coder-fast",
+    )
+    assert failed_response["response_id"] == "resp_1"
+    assert failed_response["requested_max_output_tokens"] == 77
+    assert failed_response["visible_text"] == "Error: boom"
+    assert runtime.background_timeout_failure_message({"metadata": {"background_timeout_seconds": 31}}) == "background_timeout:31s"
+
+
+def test_background_workers_runtime_helpers_cover_cleanup_claim_register_and_release() -> None:
+    from app.api.routes import responses_background_workers as runtime
+    import threading
+
+    class FakeWorker:
+        def __init__(self, alive: bool) -> None:
+            self._alive = alive
+
+        def is_alive(self) -> bool:
+            return self._alive
+
+    lock = threading.Lock()
+    workers = {"stale": FakeWorker(False), "live": FakeWorker(True)}
+    starting = {"stale", "starting"}
+
+    runtime.cleanup_background_response_workers(
+        background_response_lock=lock,
+        background_response_workers=workers,
+        background_response_starting=starting,
+    )
+    assert "stale" not in workers
+    assert "stale" not in starting
+
+    cleanup = lambda: runtime.cleanup_background_response_workers(
+        background_response_lock=lock,
+        background_response_workers=workers,
+        background_response_starting=starting,
+    )
+    assert runtime.background_response_has_live_worker(
+        "starting",
+        cleanup_background_response_workers=cleanup,
+        background_response_lock=lock,
+        background_response_workers=workers,
+        background_response_starting=starting,
+    ) is True
+    assert runtime.claim_background_response_worker_slot(
+        "new",
+        cleanup_background_response_workers=cleanup,
+        background_response_lock=lock,
+        background_response_workers=workers,
+        background_response_starting=starting,
+    ) is True
+    runtime.register_background_response_worker(
+        "new",
+        FakeWorker(True),
+        background_response_lock=lock,
+        background_response_workers=workers,
+        background_response_starting=starting,
+    )
+    assert "new" in workers
+    runtime.release_background_response_worker_slot(
+        "new",
+        worker=workers["new"],
+        background_response_lock=lock,
+        background_response_workers=workers,
+        background_response_starting=starting,
+    )
+    assert "new" not in workers
+
+
+def test_persistence_runtime_helpers_cover_repository_selection_and_terminal_store_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses_persistence_runtime as runtime
+    import threading
+
+    class HttpException(Exception):
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+    class NotFound(HttpException):
+        pass
+
+    class FakeRepo:
+        def __init__(self) -> None:
+            self.stored: list[dict[str, object]] = []
+
+        def store(self, **kwargs: object) -> None:
+            self.stored.append(dict(kwargs))
+
+        def load(self, **kwargs: object) -> object:
+            return SimpleNamespace(response={"status": "completed", "id": kwargs["response_id"]})
+
+    class FakePostgresRepo:
+        def __init__(self, database_url: str) -> None:
+            self.database_url = database_url
+
+    container = SimpleNamespace(
+        runtime_profile=SimpleNamespace(storage_backend="postgres"),
+        settings=SimpleNamespace(database_url="postgres://db", storage=SimpleNamespace(database_url="postgres://fallback")),
+    )
+    repo_lock = threading.Lock()
+    postgres_repositories: dict[str, object] = {}
+    memory_repo = FakeRepo()
+
+    postgres_repo = runtime.response_record_repository(
+        container=container,
+        response_repository_lock=repo_lock,
+        postgres_response_repositories=postgres_repositories,
+        postgres_response_record_repository_type=FakePostgresRepo,
+        memory_response_repository=memory_repo,
+    )
+    assert isinstance(postgres_repo, FakePostgresRepo)
+    assert runtime.container_database_url(container) == "postgres://db"
+
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    selected_memory_repo = runtime.response_record_repository(
+        container=None,
+        response_repository_lock=repo_lock,
+        postgres_response_repositories=postgres_repositories,
+        postgres_response_record_repository_type=FakePostgresRepo,
+        memory_response_repository=memory_repo,
+    )
+    assert selected_memory_repo is memory_repo
+
+    runtime.store_response(
+        response_id="resp_1",
+        response_obj={"id": "resp_1"},
+        input_items=[{"type": "input_text", "text": "hi"}],
+        history_items=[],
+        principal_id="principal",
+        container=None,
+        background_job=None,
+        response_record_repository=lambda container=None: memory_repo,
+    )
+    assert memory_repo.stored[0]["response_id"] == "resp_1"
+
+    loaded = runtime.load_response(
+        response_id="resp_1",
+        principal_id="principal",
+        container=None,
+        response_record_repository=lambda container=None: memory_repo,
+    )
+    assert loaded.response["id"] == "resp_1"
+
+    transition_lock = threading.Lock()
+    store_calls: list[dict[str, object]] = []
+    fresh_response = runtime.store_background_terminal_response(
+        response_id="resp_2",
+        principal_id="principal",
+        container=None,
+        response_obj={"id": "resp_2", "status": "completed"},
+        input_items=[],
+        history_items=[],
+        background_job=None,
+        background_response_transition_lock=transition_lock,
+        load_response=lambda **kwargs: (_ for _ in ()).throw(NotFound(404)),
+        store_response=lambda **kwargs: store_calls.append(dict(kwargs)),
+        http_exception_type=HttpException,
+        background_response_has_expired=lambda response: False,
+        background_failed_response=lambda **kwargs: {"status": "failed"},
+        background_timeout_failure_message=lambda response: "timeout",
+    )
+    assert fresh_response == {"id": "resp_2", "status": "completed"}
+    assert store_calls[-1]["response_id"] == "resp_2"
+
+    expired_stored = SimpleNamespace(
+        response={"id": "resp_3", "status": "in_progress"},
+        input_items=[{"type": "input_text", "text": "old"}],
+        history_items=[{"type": "input_text", "text": "old"}],
+    )
+    expired_response = runtime.store_background_terminal_response(
+        response_id="resp_3",
+        principal_id="principal",
+        container=None,
+        response_obj={"id": "resp_3", "status": "completed"},
+        input_items=[],
+        history_items=[],
+        background_job=None,
+        background_response_transition_lock=transition_lock,
+        load_response=lambda **kwargs: expired_stored,
+        store_response=lambda **kwargs: store_calls.append(dict(kwargs)),
+        http_exception_type=HttpException,
+        background_response_has_expired=lambda response: True,
+        background_failed_response=lambda **kwargs: {"id": "resp_3", "status": "failed"},
+        background_timeout_failure_message=lambda response: "timeout",
+    )
+    assert expired_response == {"id": "resp_3", "status": "failed"}
+
+
+def test_route_runtime_helpers_cover_header_profile_trace_metadata_and_preferred_labels() -> None:
+    from app.api.routes import responses_route_runtime as runtime
+    from starlette.requests import Request
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/responses",
+            "headers": [
+                (b"x-ea-codex-profile", b"review-light"),
+                (b"x-ea-onemin-account-alias", b"primary"),
+                (b"x-ea-onemin-preferred-accounts", b"shadow; primary"),
+            ],
+        }
+    )
+    request.state.correlation_id = "corr-123"
+    assert runtime.header_codex_profile_from_request(request) == "review_light"
+    assert runtime.payload_with_request_trace_metadata({"metadata": {"existing": "yes"}}, request=request) == {
+        "metadata": {"existing": "yes", "ea_correlation_id": "corr-123"}
+    }
+    assert runtime.preferred_onemin_labels_from_request(request) == ("primary", "shadow")
+
+
+def test_route_runtime_run_response_in_executor_delegates_arguments() -> None:
+    from app.api.routes import responses_route_runtime as runtime
+    import asyncio
+
+    captured: dict[str, object] = {}
+
+    def run_response(payload: dict[str, object], *, context: object, container: object | None, codex_profile: str | None, preferred_onemin_labels: tuple[str, ...]) -> dict[str, object]:
+        captured["payload"] = payload
+        captured["context"] = context
+        captured["container"] = container
+        captured["codex_profile"] = codex_profile
+        captured["preferred_onemin_labels"] = preferred_onemin_labels
+        return {"ok": True}
+
+    run_response_in_executor = runtime.build_run_response_in_executor(
+        responses_route_executor=None,
+        run_response=run_response,
+    )
+    result = asyncio.run(
+        run_response_in_executor(
+            {"input": "hi"},
+            context="ctx",
+            container="container",
+            codex_profile="core",
+            preferred_onemin_labels=("primary",),
+        )
+    )
+    assert result == {"ok": True}
+    assert captured == {
+        "payload": {"input": "hi"},
+        "context": "ctx",
+        "container": "container",
+        "codex_profile": "core",
+        "preferred_onemin_labels": ("primary",),
+    }
+
+
+def test_codex_metadata_runtime_helpers_cover_payload_shapes() -> None:
+    from app.api.routes import responses_codex_metadata as runtime
+
+    context = SimpleNamespace(principal_id="principal")
+    payload = runtime.codex_profiles_response_payload(
+        container="container",
+        context=context,
+        provider_health={"providers": {"onemin": {"state": "ready"}}},
+        include_sensitive=False,
+        safe_provider_health={"providers": {"onemin": {"state": "ready"}}},
+        codex_profiles=lambda **kwargs: [{"id": "core", "provider_hint_order": ("onemin", "magixai")}],
+        attach_provider_slot_state=lambda profiles, **kwargs: [{**profiles[0], "slots_attached": True}],
+        provider_registry_payload=lambda **kwargs: {"registry": True},
+        codex_governance_payload=lambda: {"governance": True},
+        principal_identity_summary=lambda principal_id: {"principal_id": principal_id},
+    )
+    assert payload["principal"] == {"principal_id": "principal"}
+    assert payload["profiles"][0]["provider_hint_order"] == ["onemin", "magixai"]
+    assert payload["provider_registry"] == {"registry": True}
+
+    operator_status = runtime.codex_status_response_payload(
+        window="1h",
+        compact=False,
+        context=context,
+        is_operator_context=lambda ctx: True,
+        provider_health_snapshot=lambda **kwargs: {"providers": {"onemin": {}}},
+        codex_status_report=lambda **kwargs: {"fleet_burn": {"cost": 1}},
+        codex_governance_payload=lambda: {"governance": True},
+    )
+    assert operator_status["fleet_burn"] == {"cost": 1}
+    assert operator_status["governance"] == {"governance": True}
+
+    principal_status = runtime.codex_status_response_payload(
+        window="1h",
+        compact=True,
+        context=context,
+        is_operator_context=lambda ctx: False,
+        provider_health_snapshot=lambda **kwargs: {"providers": {"onemin": {}}},
+        codex_status_report=lambda **kwargs: {"fleet_burn": {"cost": 9}, "status": "ok"},
+        codex_governance_payload=lambda: {"governance": True},
+    )
+    assert principal_status["fleet_burn"] == {}
+    assert principal_status["status"] == "ok"
+
+
+def test_read_and_execution_route_helpers_cover_payload_and_handler_orchestration() -> None:
+    from app.api.routes import responses_read_routes as read_runtime
+    from app.api.routes import responses_execution_routes as exec_runtime
+
+    assert read_runtime.models_response_payload(list_response_models=lambda: [{"id": "ea-coder-fast"}]) == {
+        "object": "list",
+        "data": [{"id": "ea-coder-fast"}],
+    }
+    stored = SimpleNamespace(response={"id": "resp_1", "status": "completed"}, input_items=[{"type": "input_text", "text": "hi"}])
+    assert read_runtime.response_read_payload(
+        response_id="resp_1",
+        principal_id="principal",
+        container="container",
+        stream_response_override=lambda **kwargs: None,
+        load_response_for_runtime=lambda **kwargs: stored,
+    ) == {"id": "resp_1", "status": "completed"}
+    assert read_runtime.response_input_items_payload(response_id="resp_1", stored=stored) == {
+        "object": "list",
+        "response_id": "resp_1",
+        "data": [{"type": "input_text", "text": "hi"}],
+    }
+
+    context = SimpleNamespace(principal_id="principal")
+    assert exec_runtime.provider_health_response_payload(
+        context=context,
+        safe_provider_health={"providers": {"onemin": {"state": "ready"}}},
+        provider_registry={"registry": True},
+        principal_identity_summary=lambda principal_id: {"principal_id": principal_id},
+    ) == {
+        "providers": {"onemin": {"state": "ready"}},
+        "principal": {"principal_id": "principal"},
+        "provider_registry": {"registry": True},
+    }
+
+
+def test_codex_execution_runtime_helper_normalizes_and_forwards_profiled_requests() -> None:
+    from app.api.routes import responses_codex_execution as runtime
+    import asyncio
+
+    captured: dict[str, object] = {}
+
+    async def run_response_in_executor(
+        payload: dict[str, object],
+        *,
+        context: object,
+        container: object,
+        codex_profile: str | None,
+        preferred_onemin_labels: tuple[str, ...],
+    ) -> dict[str, object]:
+        captured["payload"] = payload
+        captured["context"] = context
+        captured["container"] = container
+        captured["codex_profile"] = codex_profile
+        captured["preferred_onemin_labels"] = preferred_onemin_labels
+        return {"status": "ok"}
+
+    run_profiled_codex_response = runtime.build_run_profiled_codex_response(
+        normalize_payload_for_profile=lambda payload, **kwargs: {**payload, "normalized_profile": kwargs["profile"]},
+        run_response_in_executor=run_response_in_executor,
+        preferred_onemin_labels_from_request=lambda request: ("primary", "shadow"),
+    )
+    result = asyncio.run(
+        run_profiled_codex_response(
+            {"input": "hi"},
+            request=object(),
+            context=SimpleNamespace(principal_id="principal"),
+            container="container",
+            profile="core",
+        )
+    )
+    assert result == {"status": "ok"}
+    assert captured == {
+        "payload": {"input": "hi", "normalized_profile": "core"},
+        "context": SimpleNamespace(principal_id="principal"),
+        "container": "container",
+        "codex_profile": "core",
+        "preferred_onemin_labels": ("primary", "shadow"),
+    }
+
+
+def test_background_orchestration_runtime_helpers_cover_spawn_resume_and_load_wrapper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import responses_background_orchestration as runtime
+
+    registered: list[str] = []
+    released: list[str] = []
+    stored_payloads: list[dict[str, object]] = []
+    debug_events: list[dict[str, object]] = []
+
+    class FakeDecision:
+        def __init__(self, upstream_result: object) -> None:
+            self.upstream_result = upstream_result
+
+    class FakeUpstreamResult:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class ImmediateThread:
+        def __init__(self, *, target: object, daemon: bool) -> None:
+            self._target = target
+            self._alive = False
+
+        def start(self) -> None:
+            self._alive = True
+            self._target()
+            self._alive = False
+
+        def is_alive(self) -> bool:
+            return self._alive
+
+    monkeypatch.setattr(runtime.threading, "Thread", ImmediateThread)
+
+    spawn_background_codex_worker = runtime.build_spawn_background_codex_worker(
+        claim_background_response_worker_slot=lambda response_id: True,
+        background_timeout_seconds_for_response=lambda response_obj: 30.0,
+        tool_shim_decision=lambda **kwargs: FakeDecision(FakeUpstreamResult("tool result")),
+        tool_shim_decision_type=FakeDecision,
+        upstream_result_type=FakeUpstreamResult,
+        generate_upstream_text=lambda **kwargs: FakeUpstreamResult("direct result"),
+        build_completed_response_from_upstream=lambda **kwargs: (
+            {"id": kwargs["response_id"], "status": "completed", "model": kwargs["model"]},
+            list(kwargs["base_history_items"]),
+        ),
+        store_background_terminal_response=lambda **kwargs: kwargs["response_obj"],
+        capture_responses_debug=lambda **kwargs: debug_events.append(dict(kwargs)),
+        build_failed_response=lambda **kwargs: {"id": kwargs["response_id"], "status": "failed", "failure_message": kwargs["failure_message"]},
+        response_failure_message=lambda response_obj: str(response_obj.get("failure_message") or ""),
+        release_background_response_worker_slot=lambda response_id, **kwargs: released.append(response_id),
+        register_background_response_worker=lambda response_id, worker: registered.append(response_id),
+    )
+    assert (
+        spawn_background_codex_worker(
+            response_id="resp_1",
+            created_at=100,
+            model="ea-coder-fast",
+            response_metadata={"codex_profile": "core"},
+            instructions=None,
+            input_items=[{"type": "input_text", "text": "hi"}],
+            reasoning=None,
+            max_output_tokens=42,
+            history_items=[{"type": "input_text", "text": "hi"}],
+            prompt="hi",
+            messages=[{"role": "user", "content": "hi"}],
+            supported_tools=[{"name": "exec_command"}],
+            chatplayground_audit_callback=None,
+            chatplayground_audit_callback_only=False,
+            chatplayground_audit_principal_id="principal",
+            preferred_onemin_labels=("primary",),
+            principal_id="principal",
+            container=None,
+            background_job={"prompt": "hi"},
+        )
+        is True
+    )
+    assert registered == ["resp_1"]
+    assert released == ["resp_1"]
+    assert debug_events[0]["name"] == "response"
+
+    stored = SimpleNamespace(
+        response={"id": "resp_2", "status": "in_progress", "created_at": 100, "model": "ea-coder-fast", "metadata": {"background_response": True}},
+        input_items=[{"type": "input_text", "text": "hi"}],
+        history_items=[{"type": "input_text", "text": "hi"}],
+        principal_id="principal",
+        background_job={"prompt": "hi", "messages": [], "supported_tools": [], "preferred_onemin_labels": ["primary"]},
+    )
+    ensure_background_response_progress = runtime.build_ensure_background_response_progress(
+        background_response_transition_lock=__import__("threading").Lock(),
+        background_response_has_expired=lambda response_obj: False,
+        background_failed_response=lambda **kwargs: {"id": "resp_2", "status": "failed"},
+        background_timeout_failure_message=lambda response_obj: "timeout",
+        store_response=lambda **kwargs: stored_payloads.append(dict(kwargs)),
+        background_response_has_live_worker=lambda response_id: False,
+        now_unix=lambda: 500,
+        build_chatplayground_audit_callback=lambda **kwargs: "callback",
+        spawn_background_codex_worker=lambda **kwargs: True,
+        requested_max_output_tokens_from_response=lambda response_obj: 77,
+        default_public_model="ea-coder-fast",
+        stored_response_type=SimpleNamespace,
+    )
+    refreshed = ensure_background_response_progress(stored=stored, principal_id="principal", container=None)
+    assert refreshed.response["metadata"]["background_resume_count"] == 1
+    assert stored_payloads[-1]["response_obj"]["metadata"]["background_last_resumed_at"] == 500
+
+    load_response_for_runtime = runtime.build_load_response_for_runtime(
+        load_response=lambda **kwargs: stored,
+        ensure_background_response_progress=lambda **kwargs: {"wrapped": kwargs["stored"].response["id"]},
+    )
+    assert load_response_for_runtime(response_id="resp_2", principal_id="principal", container=None) == {"wrapped": "resp_2"}
 
 
 def test_operator_provider_health_keeps_sensitive_slot_labels(monkeypatch: pytest.MonkeyPatch) -> None:

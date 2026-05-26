@@ -111,6 +111,118 @@ def test_google_signal_loader_retries_without_q_for_metadata_scope(monkeypatch: 
     ]
 
 
+def test_google_signal_loader_preserves_explicit_query_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import google_oauth as google_service
+
+    requests: list[str] = []
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        requests.append(url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            return _Response({"messages": []})
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    google_service._list_recent_gmail_signals(
+        access_token="token-123",
+        max_results=5,
+        gmail_query="from:(agent.willhaben.at OR no-reply@agent.willhaben.at)",
+    )
+
+    list_query = urllib.parse.parse_qs(urllib.parse.urlparse(requests[0]).query)
+    assert list_query["q"] == ["newer_than:7d from:(agent.willhaben.at OR no-reply@agent.willhaben.at)"]
+
+
+def test_google_signal_loader_retries_without_q_on_generic_forbidden_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import google_oauth as google_service
+
+    requests: list[str] = []
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def _http_error(url: str, *, code: int, payload: dict[str, object]) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            url=url,
+            code=code,
+            msg="Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(json.dumps(payload).encode("utf-8")),
+        )
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        requests.append(url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if "q" in query:
+                raise _http_error(
+                    url,
+                    code=403,
+                    payload={"error": {"code": 403, "message": "Request had insufficient authentication scopes."}},
+                )
+            return _Response({"messages": [{"id": "msg-2", "threadId": "thread-2"}]})
+        if "/gmail/v1/users/me/messages/msg-2?" in url:
+            return _Response(
+                {
+                    "threadId": "thread-2",
+                    "labelIds": ["INBOX"],
+                    "snippet": "Neue Anzeige gefunden",
+                    "payload": {
+                        "headers": [
+                            {"name": "Subject", "value": "\"Mietwohnungen\" hat 1 neue Anzeige für dich gefunden"},
+                            {"name": "From", "value": "willhaben-Suchagent <no-reply@agent.willhaben.at>"},
+                            {"name": "Date", "value": "Sat, 29 Mar 2026 12:00:00 +0000"},
+                            {"name": "Message-ID", "value": "<msg-2@example.com>"},
+                        ]
+                    },
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    rows = google_service._list_recent_gmail_signals(
+        access_token="token-123",
+        max_results=5,
+        account_email="elisabeth.girschele@gmail.com",
+        gmail_query="from:(agent.willhaben.at OR no-reply@agent.willhaben.at)",
+    )
+
+    list_requests = [url for url in requests if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?")]
+    assert len(list_requests) == 2
+    first_query = urllib.parse.parse_qs(urllib.parse.urlparse(list_requests[0]).query)
+    second_query = urllib.parse.parse_qs(urllib.parse.urlparse(list_requests[1]).query)
+    assert first_query["q"] == ["newer_than:7d from:(agent.willhaben.at OR no-reply@agent.willhaben.at)"]
+    assert "q" not in second_query
+    assert rows[0].payload["from_email"] == "no-reply@agent.willhaben.at"
+
+
 def test_google_signal_loader_uses_full_message_text_when_modify_scope_granted(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import google_oauth as google_service
 
@@ -181,6 +293,132 @@ def test_google_signal_loader_uses_full_message_text_when_modify_scope_granted(m
 
     detail_query = urllib.parse.parse_qs(urllib.parse.urlparse(requests[-1]).query)
     assert detail_query["format"] == ["full"]
+
+
+def test_google_signal_loader_falls_back_to_metadata_when_full_message_fetch_is_forbidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    requests: list[str] = []
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def _http_error(url: str, *, code: int, payload: dict[str, object]) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            url=url,
+            code=code,
+            msg="Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(json.dumps(payload).encode("utf-8")),
+        )
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        requests.append(url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            return _Response({"messages": [{"id": "msg-3", "threadId": "thread-3"}]})
+        if "/gmail/v1/users/me/messages/msg-3?" in url:
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            if query.get("format") == ["full"]:
+                raise _http_error(
+                    url,
+                    code=403,
+                    payload={"error": {"code": 403, "message": "Request had insufficient authentication scopes."}},
+                )
+            return _Response(
+                {
+                    "threadId": "thread-3",
+                    "labelIds": ["INBOX"],
+                    "snippet": "Neue Anzeige gefunden",
+                    "payload": {
+                        "headers": [
+                            {"name": "Subject", "value": "\"Mietwohnungen\" hat 1 neue Anzeige für dich gefunden"},
+                            {"name": "From", "value": "willhaben-Suchagent <no-reply@agent.willhaben.at>"},
+                            {"name": "Date", "value": "Sat, 29 Mar 2026 12:00:00 +0000"},
+                        ]
+                    },
+                }
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    rows = google_service._list_recent_gmail_signals(
+        access_token="token-123",
+        max_results=5,
+        include_message_body=True,
+        account_email="elisabeth.girschele@gmail.com",
+    )
+
+    assert len(rows) == 1
+    assert rows[0].payload["from_email"] == "no-reply@agent.willhaben.at"
+    detail_requests = [url for url in requests if "/gmail/v1/users/me/messages/msg-3?" in url]
+    assert len(detail_requests) == 2
+    assert urllib.parse.parse_qs(urllib.parse.urlparse(detail_requests[0]).query)["format"] == ["full"]
+    assert urllib.parse.parse_qs(urllib.parse.urlparse(detail_requests[1]).query)["format"] == ["metadata"]
+
+
+def test_google_signal_loader_skips_forbidden_message_details_instead_of_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def _http_error(url: str, *, code: int, payload: dict[str, object]) -> urllib.error.HTTPError:
+        return urllib.error.HTTPError(
+            url=url,
+            code=code,
+            msg="Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(json.dumps(payload).encode("utf-8")),
+        )
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            return _Response({"messages": [{"id": "msg-4", "threadId": "thread-4"}]})
+        if "/gmail/v1/users/me/messages/msg-4?" in url:
+            raise _http_error(
+                url,
+                code=403,
+                payload={"error": {"code": 403, "message": "Forbidden"}},
+            )
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    rows = google_service._list_recent_gmail_signals(
+        access_token="token-123",
+        max_results=5,
+        include_message_body=False,
+        account_email="elisabeth.girschele@gmail.com",
+    )
+
+    assert rows == []
 
 
 def test_html_to_text_preserves_anchor_urls_for_willhaben_listing_links() -> None:
@@ -599,3 +837,249 @@ def test_google_workspace_signal_sync_reads_all_connected_google_accounts(monkey
         "calendar-event:tibor@girschele.com:evt-1",
         "gmail-thread:office@girschele.com:thread-1",
     ]
+
+
+def test_list_recent_workspace_signals_filters_to_requested_account_and_forwards_gmail_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Binding(SimpleNamespace):
+        pass
+
+    class _Registry:
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "_list_google_binding_records",
+        lambda **_: [
+            _Binding(
+                binding_id="binding-primary",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "tibor@girschele.com",
+                    "refresh_token_ref": "refresh-primary",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                },
+            ),
+            _Binding(
+                binding_id="binding-secondary",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "elisabeth.girschele@gmail.com",
+                    "refresh_token_ref": "refresh-secondary",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                },
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {"access_token": f"token-{kwargs['refresh_token']}", "expires_in": 3600},
+    )
+
+    gmail_calls: list[dict[str, object]] = []
+
+    def _fake_list_recent_gmail_signals(**kwargs):  # type: ignore[no-untyped-def]
+        gmail_calls.append(dict(kwargs))
+        return [
+            google_service.GoogleWorkspaceSignal(
+                signal_type="email_thread",
+                channel="gmail",
+                title="Mail",
+                summary="",
+                text="",
+                source_ref=f"gmail-thread:{kwargs['account_email']}:thread-1",
+                external_id=f"gmail-message:{kwargs['account_email']}:msg-1",
+                counterparty="Counterparty",
+                due_at=None,
+                payload={"account_email": kwargs["account_email"]},
+            )
+        ]
+
+    monkeypatch.setattr(google_service, "_list_recent_gmail_signals", _fake_list_recent_gmail_signals)
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+
+    packet = google_service.list_recent_workspace_signals(
+        container=SimpleNamespace(provider_registry=_Registry()),
+        principal_id="exec-google",
+        email_limit=5,
+        calendar_limit=0,
+        account_email_filter="elisabeth.girschele@gmail.com",
+        gmail_query="from:(agent.willhaben.at OR no-reply@agent.willhaben.at)",
+    )
+
+    assert packet.account_email == "elisabeth.girschele@gmail.com"
+    assert packet.account_emails == ("elisabeth.girschele@gmail.com",)
+    assert [row.source_ref for row in packet.signals] == [
+        "gmail-thread:elisabeth.girschele@gmail.com:thread-1",
+    ]
+    assert len(gmail_calls) == 1
+    assert gmail_calls[0]["account_email"] == "elisabeth.girschele@gmail.com"
+    assert gmail_calls[0]["gmail_query"] == "from:(agent.willhaben.at OR no-reply@agent.willhaben.at)"
+
+
+def test_list_recent_workspace_signals_marks_binding_reauth_required_on_invalid_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    class _Binding(SimpleNamespace):
+        pass
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "_list_google_binding_records",
+        lambda **_: [
+            _Binding(
+                binding_id="binding-invalid-grant",
+                status="enabled",
+                priority=80,
+                scope_json={},
+                probe_details_json={},
+                auth_metadata_json={
+                    "google_email": "tibor.girschele@gmail.com",
+                    "refresh_token_ref": "refresh-token",
+                    "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                    "token_status": "active",
+                    "reauth_required_reason": "",
+                },
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+
+    def _raise_invalid_grant(**kwargs):  # type: ignore[no-untyped-def]
+        raise urllib.error.HTTPError(
+            google_service.GOOGLE_TOKEN_ENDPOINT,
+            400,
+            "Bad Request",
+            None,
+            io.BytesIO(b'{\"error\":\"invalid_grant\",\"error_description\":\"Bad Request\"}'),
+        )
+
+    monkeypatch.setattr(google_service, "_refresh_google_access_token", _raise_invalid_grant)
+
+    registry = _Registry()
+    with pytest.raises(RuntimeError, match="google_oauth_invalid_grant"):
+        google_service.list_recent_workspace_signals(
+            container=SimpleNamespace(provider_registry=registry),
+            principal_id="exec-google",
+            email_limit=5,
+            calendar_limit=0,
+            account_email_filter="tibor.girschele@gmail.com",
+        )
+
+    assert len(registry.upserts) == 1
+    assert registry.upserts[0]["probe_state"] == "degraded"
+    assert registry.upserts[0]["auth_metadata_json"]["token_status"] == "reauth_required"
+    assert registry.upserts[0]["auth_metadata_json"]["reauth_required_reason"] == "google_oauth_invalid_grant"
+
+
+def test_send_google_gmail_message_marks_binding_reauth_required_on_invalid_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    binding = SimpleNamespace(
+        binding_id="binding-send-invalid-grant",
+        principal_id="exec-google",
+        provider_key=google_service.GOOGLE_PROVIDER_KEY,
+        status="enabled",
+        priority=80,
+        probe_state="ready",
+        probe_details_json={},
+        scope_json={},
+        auth_metadata_json={
+            "google_email": "tibor.girschele@gmail.com",
+            "refresh_token_ref": "refresh-token",
+            "granted_scopes": [google_service.GOOGLE_SCOPE_SEND],
+            "token_status": "active",
+            "reauth_required_reason": "",
+        },
+    )
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.upserts: list[dict[str, object]] = []
+
+        def get_persisted_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            return binding
+
+        def upsert_binding_record(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.upserts.append(dict(kwargs))
+            return kwargs
+
+    monkeypatch.setattr(
+        google_service,
+        "load_google_oauth_config",
+        lambda: SimpleNamespace(
+            provider_secret_key="secret",
+            client_id="client-id",
+            client_secret="client-secret",
+        ),
+    )
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: value)
+
+    def _raise_invalid_grant(**kwargs):  # type: ignore[no-untyped-def]
+        raise urllib.error.HTTPError(
+            google_service.GOOGLE_TOKEN_ENDPOINT,
+            400,
+            "Bad Request",
+            None,
+            io.BytesIO(b'{\"error\":\"invalid_grant\",\"error_description\":\"Bad Request\"}'),
+        )
+
+    monkeypatch.setattr(google_service, "_refresh_google_access_token", _raise_invalid_grant)
+
+    registry = _Registry()
+    with pytest.raises(urllib.error.HTTPError):
+        google_service.send_google_gmail_message(
+            container=SimpleNamespace(provider_registry=registry),
+            principal_id="exec-google",
+            recipient_email="tibor.girschele@gmail.com",
+            subject="Subject",
+            body_text="Body",
+            binding_id="binding-send-invalid-grant",
+        )
+
+    assert len(registry.upserts) == 1
+    assert registry.upserts[0]["probe_state"] == "degraded"
+    assert registry.upserts[0]["auth_metadata_json"]["token_status"] == "reauth_required"
+    assert registry.upserts[0]["auth_metadata_json"]["reauth_required_reason"] == "google_oauth_invalid_grant"

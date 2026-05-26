@@ -25,6 +25,9 @@ REGISTRY_RELEASE_CHANNEL_PATH = Path(
 CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOTS = (
     Path("/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs"),
     Path("/docker/fleet/state/chummer_design_supervisor/shard-12/runs"),
+    Path("/var/lib/codex-fleet/chummer_design_supervisor/runs"),
+    Path("/docker/fleet/state/chummer_design_supervisor/runs"),
+    Path("/docker/fleet/state/chummer_design_supervisor/retired-shards"),
 )
 CURRENT_RETRY_PROMPT_PATH_TEMPLATE = "{active_run_prompt_path}"
 CURRENT_RETRY_TASK_LOCAL_TELEMETRY_PATH_TEMPLATE = "{task_local_telemetry_path}"
@@ -163,6 +166,20 @@ def _path_aliases(path: Path) -> set[Path]:
 
 
 def _current_retry_template_values(task_local_telemetry_path: str) -> dict[str, str]:
+    telemetry_path = Path(task_local_telemetry_path)
+    prompt_path = telemetry_path.with_name("prompt.txt")
+    handoff_candidates = [
+        telemetry_path.parents[2] / "ACTIVE_RUN_HANDOFF.generated.md",
+        ROOT / "../fleet/state/chummer_design_supervisor/ACTIVE_RUN_HANDOFF.generated.md",
+    ]
+    worker_safe_active_run_handoff = next(
+        (str(path) for candidate in handoff_candidates for path in _path_aliases(candidate) if path.exists()),
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
+    )
+    active_run_prompt_path = next(
+        (str(path) for path in _path_aliases(prompt_path) if path.exists()),
+        "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/current/prompt.txt",
+    )
     return {
         "task_local_telemetry_path": task_local_telemetry_path,
         "fleet_successor_queue_mirror": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
@@ -170,8 +187,8 @@ def _current_retry_template_values(task_local_telemetry_path: str) -> dict[str, 
         "program_milestones_path": "/docker/chummercomplete/chummer-design/products/chummer/PROGRAM_MILESTONES.yaml",
         "next12_biggest_wins_registry": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
         "product_roadmap_path": "/docker/chummercomplete/chummer-design/products/chummer/ROADMAP.md",
-        "worker_safe_active_run_handoff": "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/ACTIVE_RUN_HANDOFF.generated.md",
-        "active_run_prompt_path": "/var/lib/codex-fleet/chummer_design_supervisor/shard-12/runs/current/prompt.txt",
+        "worker_safe_active_run_handoff": worker_safe_active_run_handoff,
+        "active_run_prompt_path": active_run_prompt_path,
     }
 
 
@@ -192,7 +209,13 @@ def _resolve_current_retry_direct_reads() -> list[str]:
 def _matching_current_retry_task_local_telemetry_paths() -> list[Path]:
     matches: dict[str, Path] = {}
     for root in CURRENT_RETRY_TASK_LOCAL_TELEMETRY_ROOTS:
-        for path in root.glob("*-shard-12/TASK_LOCAL_TELEMETRY.generated.json"):
+        if root.name == "runs":
+            glob_pattern = "*/TASK_LOCAL_TELEMETRY.generated.json"
+        elif root.name == "retired-shards":
+            glob_pattern = "shard-12-*/runs/*/TASK_LOCAL_TELEMETRY.generated.json"
+        else:
+            glob_pattern = "*-shard-12/TASK_LOCAL_TELEMETRY.generated.json"
+        for path in root.glob(glob_pattern):
             matches[path.as_posix()] = path
     return [matches[key] for key in sorted(matches)]
 

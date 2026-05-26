@@ -1,0 +1,34 @@
+version: black-ledger-anchor-bible-v1
+anchors:
+  - id: mara_voss
+    display_name: Mara Voss
+    metatype: elf
+    role: primary anchor
+    visual_mode: photoreal
+    age_range: late 30s
+    appearance:
+      face: sharp cheekbones, natural skin texture, subtle pointed ears, calm alert eyes
+      hair: dark silver bob, controlled but not plastic
+      wardrobe: dark tailored broadcast jacket with subtle cyan lapel line
+      makeup: broadcast-natural, realistic skin, no plastic glamor
+      signature_detail: thin transparent ear-mounted studio monitor
+    voice:
+      delivery: calm, dry, precise, credible
+      pace: medium-slow for headlines, faster for bulletin detail
+      accent: neutral international English
+  - id: brack_kade
+    display_name: Brack Kade
+    metatype: orc
+    role: field / security correspondent
+    visual_mode: photoreal
+    age_range: 40s
+    appearance:
+      face: broad face, realistic small tusks, weathered skin, heavy brow, human-level expressiveness
+      hair: short cropped black hair with gray at temples
+      wardrobe: field jacket with broadcast mic, not military costume
+      makeup: natural, practical field lighting
+      signature_detail: scratched press badge and compact shoulder camera
+    voice:
+      delivery: grounded, laconic, observant
+      pace: steady
+      accent: low urban broadcast tone

@@ -212,10 +212,21 @@ def _derived_screenshot_registry_from_page_registry() -> dict[str, object]:
         row = dict(page_types.get(page_type) or {})
         if not row:
             continue
+        preferred_image_type = str(row.get("preferred_image_type") or "").strip()
+        screenshot_preferred = row.get("screenshot_preferred")
+        if not preferred_image_type:
+            if page_type in {"help_page", "faq_page"}:
+                preferred_image_type = "screenshot"
+            elif page_type in {"root_story", "root_story_github_readme"}:
+                preferred_image_type = "concept_art"
+            else:
+                preferred_image_type = "screenshot"
+        if screenshot_preferred is None:
+            screenshot_preferred = preferred_image_type == "screenshot"
         pages[target] = {
             "page_type": page_type,
-            "preferred_image_type": str(row.get("preferred_image_type") or "").strip(),
-            "screenshot_preferred": bool(row.get("screenshot_preferred")),
+            "preferred_image_type": preferred_image_type,
+            "screenshot_preferred": bool(screenshot_preferred),
             "caption_required": bool(row.get("caption_required")),
             "source": "PUBLIC_GUIDE_PAGE_REGISTRY.yaml",
         }

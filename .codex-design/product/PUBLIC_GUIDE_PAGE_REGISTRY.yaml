@@ -5,13 +5,6 @@ page_types:
   root_story_github_readme:
     audience: public
     max_technical_depth: low
-    max_images: 1
-    top_banner_allowed: false
-    preferred_image_type: concept_art
-    hero_required: true
-    hero_position: below_scan_band
-    screenshot_preferred: false
-    caption_required: true
     section_order:
     - pitch
     - quick_nav
@@ -57,10 +50,6 @@ page_types:
     - blocker truth
     - petition intake
     - principal-to-user mapping
-    - proof scope
-    - flagship wording is reserved
-    - packet-detail artifacts
-    - artifact-factory explainers
     required_cta_families:
     - start_here
     - current_status
@@ -68,12 +57,6 @@ page_types:
   root_story:
     audience: public
     max_technical_depth: low
-    max_images: 1
-    top_banner_allowed: true
-    preferred_image_type: concept_art
-    hero_required: false
-    screenshot_preferred: false
-    caption_required: true
     section_order:
     - hero
     - pitch
@@ -118,10 +101,6 @@ page_types:
     - blocker truth
     - petition intake
     - principal-to-user mapping
-    - campaign-os work
-    - campaign os work
-    - proof scope
-    - flagship wording is reserved
     required_cta_families:
     - start_here
     - current_status
@@ -164,43 +143,9 @@ page_types:
     - blocker truth
     - petition intake
     - generic review context
-  parts_index_page:
-    audience: deeper_public
-    max_technical_depth: medium
-    max_images: 1
-    top_banner_allowed: false
-    preferred_image_type: concept_art
-    hero_required: false
-    screenshot_preferred: false
-    caption_required: false
-    allowed_sources:
-    - products/chummer/PUBLIC_PART_REGISTRY.yaml
-    - approved public-status summaries
-    - products/chummer/PUBLIC_GUIDE_POLICY.md
-    forbidden_sources:
-    - products/chummer/projects/*.md
-    - products/chummer/OWNERSHIP_MATRIX.md
-    - products/chummer/GROUP_BLOCKERS.md
-    required_topics:
-    - choose the right lane
-    - practical user symptoms
-    - visible surface or work zone
-    - deeper reading route
-    forbidden_terms:
-    - repo taxonomy
-    - ownership matrix
-    - trust boundaries
-    - principal-to-user mapping
-    - blocker truth
   horizon_index:
     audience: deeper_public
     max_technical_depth: medium
-    max_images: 1
-    top_banner_allowed: true
-    preferred_image_type: concept_art
-    hero_required: false
-    screenshot_preferred: false
-    caption_required: true
     visual_density_profile: page_index
     must_show_semantic_anchors:
     - branching futures
@@ -235,12 +180,6 @@ page_types:
   help_page:
     audience: public
     max_technical_depth: low
-    max_images: 0
-    top_banner_allowed: false
-    preferred_image_type: screenshot
-    hero_required: false
-    screenshot_preferred: true
-    caption_required: false
     primary_participation_entry_route: /participate
     allowed_sources:
     - products/chummer/PUBLIC_HELP_COPY.md
@@ -257,24 +196,9 @@ page_types:
     forbidden_terms:
     - participant burst lane
     - internal control plane
-    - public feedback board
-    - design canon
-    - projections from Chummer-owned truth
-    - premium participation
-    - booster lane
-    - booster flow
-    required_cta_families:
-    - participate
-    - issue_tracker
   faq_page:
     audience: public
     max_technical_depth: low
-    max_images: 0
-    top_banner_allowed: false
-    preferred_image_type: none
-    hero_required: false
-    screenshot_preferred: false
-    caption_required: false
     allowed_sources:
     - products/chummer/PUBLIC_FAQ_REGISTRY.yaml
     - products/chummer/PUBLIC_HELP_COPY.md
@@ -286,19 +210,9 @@ page_types:
     - privacy
     - preview honesty
     - free-later explanation
-    forbidden_terms:
-    - public feedback board
-    - design canon
-    - projections from Chummer-owned truth
   download_page:
     audience: public
     max_technical_depth: low
-    max_images: 0
-    top_banner_allowed: false
-    preferred_image_type: screenshot
-    hero_required: false
-    screenshot_preferred: true
-    caption_required: false
     preferred_artifact_kinds:
     - installer
     - dmg
@@ -319,25 +233,9 @@ page_types:
     - checksums
     - chummer.run download authority
     - bounded fallback and recovery routes
-    forbidden_terms:
-    - FLAGSHIP_RELEASE_ACCEPTANCE.yaml
-    - packet-detail artifacts
-    - artifact-factory explainers
-    - proof scope
-    - claim boundary
-    - flagship wording is reserved
-    required_cta_families:
-    - download
-    - github_releases
   deep_source_trail:
     audience: deeper_public
     max_technical_depth: high
-    max_images: 0
-    top_banner_allowed: false
-    preferred_image_type: none
-    hero_required: false
-    screenshot_preferred: false
-    caption_required: false
     allowed_sources:
     - products/chummer/projects/*.md
     - products/chummer/OWNERSHIP_MATRIX.md
@@ -348,7 +246,3 @@ page_types:
     - where the design truth lives
     - where the code lives
     - how to move from friendly tour to deeper source
-    forbidden_terms:
-    - secretly in charge
-    - application workspaces
-    - Hub booster flow

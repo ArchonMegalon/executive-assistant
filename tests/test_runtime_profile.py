@@ -24,6 +24,7 @@ from app.services.task_contracts import TaskContractService
 def _clear_env() -> None:
     for key in (
         "EA_RUNTIME_MODE",
+        "EA_STORAGE_FALLBACK_ALLOWED",
         "EA_STORAGE_BACKEND",
         "EA_LEDGER_BACKEND",
         "DATABASE_URL",
@@ -41,6 +42,7 @@ def _clear_env() -> None:
 def _isolated_env() -> None:
     tracked = {
         "EA_RUNTIME_MODE": os.environ.get("EA_RUNTIME_MODE"),
+        "EA_STORAGE_FALLBACK_ALLOWED": os.environ.get("EA_STORAGE_FALLBACK_ALLOWED"),
         "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
@@ -92,6 +94,15 @@ def test_runtime_profile_auto_without_database_prefers_memory() -> None:
     assert profile.auth_mode == "anonymous_dev"
     assert profile.principal_source == "caller_header_or_default"
     assert profile.caller_principal_header_allowed is True
+
+
+def test_runtime_profile_non_prod_can_disable_storage_fallback() -> None:
+    _clear_env()
+    os.environ["EA_STORAGE_FALLBACK_ALLOWED"] = "false"
+    settings = get_settings()
+    profile = resolve_runtime_profile(settings)
+    assert profile.storage_backend == "memory"
+    assert settings.storage_fallback_allowed is False
 
 
 def test_runtime_profile_auto_with_database_prefers_postgres() -> None:

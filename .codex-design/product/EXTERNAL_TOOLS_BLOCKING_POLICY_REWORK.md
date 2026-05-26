@@ -17,7 +17,7 @@ Do not relax these boundaries:
 * no vendor secrets in clients
 * no vendor SDKs in desktop or mobile clients
 * no vendor truth for support cases, install state, campaign truth, publication truth, rules truth, or session truth
-* no live-surveillance or live-coaching exception for `TABLE PULSE`
+* no live-surveillance exception for `TABLE PULSE LIVE` and no live-coaching exception for `TABLE PULSE AFTERMATH`
 * no chat or support widget as the phase-0 support system
 
 ## Replace current Rule 5 with this

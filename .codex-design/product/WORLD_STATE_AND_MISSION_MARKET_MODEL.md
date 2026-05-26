@@ -658,7 +658,11 @@ These should remain receipt-backed, campaign-safe, and approval-aware.
 
 ## Table Pulse and Ghostwire boundary
 
-`TABLE PULSE` and `GHOSTWIRE` may support debrief, replay, and packet quality.
+`TABLE PULSE LIVE`, `TABLE PULSE AFTERMATH`, and `GHOSTWIRE` may support packet quality, debrief, and replay, but they do so on different rails.
+
+`TABLE PULSE LIVE` may support packet quality, governed reactions, and aftermath-ready receipts.
+`TABLE PULSE AFTERMATH` may support debrief, replay, and coaching summaries.
+`GHOSTWIRE` may support replay, recap, and evidence-reference continuity.
 
 They must not directly decide world-state truth.
 

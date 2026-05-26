@@ -46,31 +46,6 @@ the next tick starts from the new reality
 
 The result is a Shadowrun world that feels less like a static backdrop and more like a living machine.
 
-## Table pain
-
-GMs want the city to matter between sessions, but most prep still starts from a blank page and scattered notes instead of a visible, governed world memory.
-
-## Bounded product move
-
-BLACK LEDGER turns campaign-adjacent world pressure into one bounded loop: district state, mission seeds, approvals, world-tick outputs, and player-safe fallout that all point back to first-party receipts instead of improvised lore.
-
----
-
-## Key tool posture
-
-BLACK LEDGER benefits from a split between operator lanes and downstream world-output lanes.
-
-* `Teable` - operator projection and AdminIntent workbench for review queues, world-tick prep, and curation
-* `NextStep` - governed world-tick, closeout, and operator checklist discipline
-* `ApproveThis` - bounded external approval edge where shared-city or guest review matters
-* `Signitic` - passive world-tick, faction, and season projection into first-party destinations
-* `Emailit` - digest, closeout, and notification delivery after Hub decides the message should exist
-* bounded `vidBoard`, `MarkupGo`, `PeekShot`, `Soundmadeseen`, and `Taja` - approved world-output and recap lanes only
-* bounded `MetaSurvey`, `Deftform`, `Lunacal`, `BrowserAct`, and `Documentation.AI` - discovery, intake, scheduling, capture, and support helpers only
-
-Those tools can help operate, publish, and close the loop.
-They do not own world truth, campaign truth, faction state, mission-market truth, or operator authority.
-
 ---
 
 ## The world map
@@ -173,11 +148,11 @@ The GM decides.
 
 ---
 
-## Open Runs and the Shadowcasters Network
+## Open Runs and the Open Runs Board
 
 A GM can turn a mission into an **Open Run**.
 
-That run can appear on the world map or the Shadowcasters Network with a player-safe listing:
+That run can appear on the world map or the Open Runs board with a player-safe listing:
 
 * title
 * pitch
@@ -224,38 +199,53 @@ After the GM accepts players, Chummer can route them to the right place: Discord
 Chummer does not replace your table tools.
 It makes the table flow structured, visible, and remembered.
 
-## Likely owners
+---
 
-* `chummer6-hub`
-* `chummer6-core`
-* `chummer6-ui`
-* `chummer6-mobile`
-* `chummer6-media-factory`
-* `chummer6-hub-registry`
-* `executive-assistant`
+## Faction promo rails
 
-## Foundations
+BLACK LEDGER is not only a map and a board. It also has public-safe faction promo rails that show how each banner sells itself to the city.
 
-* campaign and world truth must stay separate even when one event influences both
-* job packets, opposition, and prep hooks need receipt-backed provenance
-* review and approval posture must exist before shared-city effects widen
-* publication, recap, and world-output lanes must preserve permissions and safe audiences
-* world-memory loops must stay explainable enough that players and operators can understand why the city changed
+Use them when you want the theatrical layer instead of the dry faction file:
 
-## Build path
+* [Ashline Circle promo](https://chummer.run/ledger/factions/ashline-circle/promo)
+* [Neon Docks Union promo](https://chummer.run/ledger/factions/neon-docks-union/promo)
+* [Ghostline Network promo](https://chummer.run/ledger/factions/ghostline-network/promo)
+* [Barrens Free Wardens promo](https://chummer.run/ledger/factions/barrens-free-wardens/promo)
+* [Glass Tower Compact promo](https://chummer.run/ledger/factions/glass-tower-compact/promo)
+* [Rust Market Syndicate promo](https://chummer.run/ledger/factions/rust-market-syndicate/promo)
 
-* intent: eventual product lane
-* current state: horizon
-* next state: bounded research
+Each promo rail is supposed to feel like a recruitment bulletin with receipts, not a soft teaser:
 
-## Owner handoff gate
+* a first-party motion-video file
+* captions
 
-Keep campaign truth and world truth separate; GM or organizer authority must be explicit before shared-city scale features are promoted.
+## Black Ledger Newsroom
 
-## Why still a horizon
+BLACK LEDGER now also has a dedicated newsroom lane.
 
-The value is obvious only if one world-tick loop, one prep loop, and one fallout loop can stay grounded without collapsing into improvised lore or admin-only mystery.
-Until those operator, authority, and provenance seams are boringly trustworthy, BLACK LEDGER remains a horizon instead of live release truth.
+The newsroom is not allowed to behave like a generic motion-card teaser. It must stay downstream of Chummer-owned receipts and, at flagship quality, ship as a real broadcast-style bulletin with:
+
+* a believable host
+* B-roll or geoscape inserts
+* lower thirds and ticker
+* captions
+* public-safety disclosure
+* linked source receipts
+
+The canonical newsroom bar lives in:
+
+* `BLACK_LEDGER_NEWSROOM_CANON.md`
+* `BLACK_LEDGER_ANCHOR_BIBLE.yaml`
+* `BLACK_LEDGER_BROADCAST_STYLE_GUIDE.md`
+* `BLACK_LEDGER_NEWSROOM_EDITORIAL_POLICY.md`
+* `BLACK_LEDGER_NEWSROOM_QUALITY_GATES.yaml`
+
+If those gates are not met, the result is a preview or fallback artifact, not a flagship Black Ledger bulletin.
+* a route-backed JSON brief
+* a storyboard fallback
+* a validation route back into the ledger
+
+That is the line BLACK LEDGER tries to hold everywhere: it is allowed to look dramatic, but it is not allowed to outrun proof.
 
 ---
 
@@ -361,7 +351,7 @@ Intel can become:
 * a district activity note
 * a job seed
 * a news item
-* a faction clue
+* a faction pressure lead
 * a creator prompt
 * a private campaign-only hook
 
@@ -632,14 +622,14 @@ They also make faction managers and players care about more than numbers.
 
 ## Table Pulse and GOD Observer
 
-BLACK LEDGER can integrate with Table Pulse — carefully.
+BLACK LEDGER can integrate with Table Pulse — carefully, and with the rail split kept explicit.
 
-Table Pulse is not live surveillance.
-It is not player scoring.
-It is not moderation truth.
-It is not automatic world truth.
+Table Pulse Live is not live surveillance.
+Table Pulse Aftermath is not player scoring.
+Neither rail is moderation truth.
+Neither rail is automatic world truth.
 
-With consent, Table Pulse or a GOD Observer lane can help after a session:
+With consent, Table Pulse Aftermath or a GOD Observer lane can help after a session:
 
 * summarize what happened
 * identify unresolved objectives
@@ -664,6 +654,10 @@ Suggested resolution notes:
 The GM still approves the result.
 
 The world changes only after an authorized human confirms it.
+
+Table Pulse Live is a separate rail. It handles in-world heat packets, bounded remote reactions,
+and GM adjudication during play or immediate aftermath. Table Pulse Aftermath handles the private
+coaching, recap, and debrief side.
 
 ---
 
@@ -871,7 +865,7 @@ Yes. Runs can connect to scheduling tools like Lunacal, then hand off to Discord
 
 ### Does it record sessions?
 
-Not by default. Any Table Pulse or GOD Observer integration is opt-in, consent-gated, and review-based.
+Not by default. Any Table Pulse Aftermath or GOD Observer integration is opt-in, consent-gated, and review-based.
 
 ### Do run results affect future missions?
 

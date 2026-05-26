@@ -143,12 +143,21 @@ assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/tes
 assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_product_workflows.py"
 
 pulse = json.loads(Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json").read_text(encoding="utf-8"))
-assert pulse["contract_name"] == "ea.weekly_product_pulse"
-assert pulse["release_truth_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
-assert pulse["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
-assert pulse["supporting_signals"]["journey_gate_source"] == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
-assert pulse["supporting_signals"]["flagship_release_receipt_source"] == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
-assert pulse["supporting_signals"]["launch_readiness"]
+assert pulse["contract_name"] in {"ea.weekly_product_pulse", "chummer.weekly_product_pulse"}
+supporting = pulse.get("supporting_signals") or {}
+release_truth_source = pulse.get("release_truth_source") or supporting.get("flagship_release_receipt_source")
+journey_gate_source = pulse.get("journey_gate_source") or supporting.get("journey_gate_source")
+assert release_truth_source in {
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+}
+assert journey_gate_source == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+assert supporting.get("journey_gate_source") == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+assert supporting.get("flagship_release_receipt_source") in {
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+}
+assert supporting.get("launch_readiness")
 assert pulse["governor_decisions"]
 PY
 then

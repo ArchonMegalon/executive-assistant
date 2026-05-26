@@ -90,8 +90,6 @@ Packets are classified along these axes:
 * design contradiction
 * public-promise drift
 
-Severity and escalation must follow `ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml`.
-
 ### Design-impact criteria
 
 Send a packet to the lead designer when any of these are true:
@@ -166,8 +164,6 @@ Hub closes the loop back to the user when appropriate through:
 * known-issue linkage
 * fix-available notices
 * follow-up surveys
-
-Closure wording must follow `KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md`.
 
 ## Closure rule
 

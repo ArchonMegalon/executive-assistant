@@ -793,10 +793,13 @@ def list_recent_workspace_signals(
     principal_id: str,
     email_limit: int = 5,
     calendar_limit: int = 5,
+    account_email_filter: str = "",
+    gmail_query: str = "",
     seen_source_refs: set[str] | None = None,
     seen_external_ids: set[str] | None = None,
 ) -> GoogleWorkspaceSignalSync:
     config = load_google_oauth_config()
+    normalized_account_email_filter = str(account_email_filter or "").strip().lower()
     bindings = [
         row
         for row in _list_google_binding_records(container=container, principal_id=principal_id)
@@ -812,6 +815,9 @@ def list_recent_workspace_signals(
     first_error = ""
     for binding in bindings:
         metadata = dict(binding.auth_metadata_json or {})
+        account_email = str(metadata.get("google_email") or "").strip().lower()
+        if normalized_account_email_filter and account_email != normalized_account_email_filter:
+            continue
         granted_scopes = tuple(
             sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
         )
@@ -821,16 +827,26 @@ def list_recent_workspace_signals(
             first_error = first_error or "google_gmail_refresh_token_missing"
             continue
         refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
-        token_payload = _refresh_google_access_token(
-            refresh_token=refresh_token,
-            client_id=config.client_id,
-            client_secret=config.client_secret,
-        )
+        try:
+            token_payload = _refresh_google_access_token(
+                refresh_token=refresh_token,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+            )
+        except Exception as exc:
+            reason = _google_refresh_error_reason(exc)
+            _mark_google_binding_reauth_required(
+                container=container,
+                binding=binding,
+                principal_id=principal_id,
+                reason=reason,
+            )
+            first_error = first_error or reason
+            continue
         access_token = str(token_payload.get("access_token") or "").strip()
         if not access_token:
             first_error = first_error or "google_oauth_access_token_missing"
             continue
-        account_email = str(metadata.get("google_email") or "").strip().lower()
         if account_email and account_email not in account_emails:
             account_emails.append(account_email)
         granted_scope_union.update(granted_scope_set)
@@ -844,6 +860,7 @@ def list_recent_workspace_signals(
                     max_results=normalized_email_limit,
                     include_message_body=GOOGLE_SCOPE_GMAIL_MODIFY in granted_scope_set,
                     account_email=account_email,
+                    gmail_query=gmail_query,
                     seen_source_refs=seen_source_refs,
                     seen_external_ids=seen_external_ids,
                 )
@@ -875,6 +892,10 @@ def list_recent_workspace_signals(
             scope_json=dict(binding.scope_json or {}),
             auth_metadata_json=updated_metadata,
         )
+    if normalized_account_email_filter and not account_emails:
+        if first_error:
+            raise RuntimeError(first_error)
+        raise RuntimeError("google_oauth_account_not_found")
     if not account_emails and first_error:
         raise RuntimeError(first_error)
     return GoogleWorkspaceSignalSync(
@@ -911,12 +932,17 @@ def _list_recent_gmail_signals(
     max_results: int,
     include_message_body: bool = False,
     account_email: str = "",
+    gmail_query: str = "",
     seen_source_refs: set[str] | None = None,
     seen_external_ids: set[str] | None = None,
 ) -> list[GoogleWorkspaceSignal]:
     if max_results <= 0:
         return []
-    payloads = _gmail_messages_payload_pages(access_token=access_token, max_results=max_results)
+    payloads = _gmail_messages_payload_pages(
+        access_token=access_token,
+        max_results=max_results,
+        gmail_query=gmail_query,
+    )
     rows: list[GoogleWorkspaceSignal] = []
     normalized_account_email = str(account_email or "").strip().lower()
     normalized_seen_source_refs = {str(value or "").strip() for value in (seen_source_refs or set()) if str(value or "").strip()}
@@ -939,11 +965,16 @@ def _list_recent_gmail_signals(
             )
             if predicted_source_ref in normalized_seen_source_refs or predicted_external_id in normalized_seen_external_ids:
                 continue
-            details = _gmail_message_details(
-                access_token=access_token,
-                message_id=message_id,
-                include_message_body=include_message_body,
-            )
+            try:
+                details = _gmail_message_details(
+                    access_token=access_token,
+                    message_id=message_id,
+                    include_message_body=include_message_body,
+                )
+            except urllib.error.HTTPError as exc:
+                if exc.code == 403:
+                    continue
+                raise
             thread_id = str(details.get("threadId") or item.get("threadId") or message_id).strip()
             headers = {
                 str(row.get("name") or "").strip().lower(): str(row.get("value") or "").strip()
@@ -1002,7 +1033,12 @@ def _list_recent_gmail_signals(
     return rows
 
 
-def _gmail_messages_payload_pages(*, access_token: str, max_results: int) -> tuple[dict[str, Any], ...]:
+def _gmail_messages_payload_pages(
+    *,
+    access_token: str,
+    max_results: int,
+    gmail_query: str = "",
+) -> tuple[dict[str, Any], ...]:
     if max_results <= 0:
         return ()
     scan_goal = min(
@@ -1019,15 +1055,28 @@ def _gmail_messages_payload_pages(*, access_token: str, max_results: int) -> tup
             max_results=page_size,
             scan_goal=scan_goal,
             apply_recent_filter=True,
+            gmail_query=gmail_query,
         )
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        if exc.code == 403 and "Metadata scope does not support 'q' parameter" in body:
+        normalized_gmail_query = str(gmail_query or "").strip()
+        if exc.code == 403 and normalized_gmail_query:
             return _gmail_messages_payload_pages_request(
                 access_token=access_token,
                 max_results=page_size,
                 scan_goal=scan_goal,
                 apply_recent_filter=False,
+                gmail_query="",
+            )
+        if exc.code == 403 and "Metadata scope does not support 'q' parameter" in body:
+            if str(gmail_query or "").strip():
+                raise
+            return _gmail_messages_payload_pages_request(
+                access_token=access_token,
+                max_results=page_size,
+                scan_goal=scan_goal,
+                apply_recent_filter=False,
+                gmail_query="",
             )
         raise
 
@@ -1038,6 +1087,7 @@ def _gmail_messages_payload_pages_request(
     max_results: int,
     scan_goal: int,
     apply_recent_filter: bool,
+    gmail_query: str,
 ) -> tuple[dict[str, Any], ...]:
     rows: list[dict[str, Any]] = []
     page_token = ""
@@ -1047,6 +1097,7 @@ def _gmail_messages_payload_pages_request(
             access_token=access_token,
             max_results=max_results,
             apply_recent_filter=apply_recent_filter,
+            gmail_query=gmail_query,
             page_token=page_token,
         )
         rows.append(payload)
@@ -1063,12 +1114,14 @@ def _gmail_messages_payload(
     access_token: str,
     max_results: int,
     apply_recent_filter: bool = True,
+    gmail_query: str = "",
     page_token: str = "",
 ) -> dict[str, Any]:
     return _gmail_messages_payload_request(
         access_token=access_token,
         max_results=max_results,
         apply_recent_filter=apply_recent_filter,
+        gmail_query=gmail_query,
         page_token=page_token,
     )
 
@@ -1078,11 +1131,18 @@ def _gmail_messages_payload_request(
     access_token: str,
     max_results: int,
     apply_recent_filter: bool,
+    gmail_query: str,
     page_token: str = "",
 ) -> dict[str, Any]:
     query_items: list[tuple[str, str]] = [("maxResults", str(max_results)), ("labelIds", "INBOX")]
+    query_terms: list[str] = []
     if apply_recent_filter:
-        query_items.append(("q", "newer_than:7d"))
+        query_terms.append("newer_than:7d")
+    normalized_gmail_query = str(gmail_query or "").strip()
+    if normalized_gmail_query:
+        query_terms.append(normalized_gmail_query)
+    if query_terms:
+        query_items.append(("q", " ".join(query_terms)))
     normalized_page_token = str(page_token or "").strip()
     if normalized_page_token:
         query_items.append(("pageToken", normalized_page_token))
@@ -1118,8 +1178,17 @@ def _gmail_message_details(*, access_token: str, message_id: str, include_messag
         headers={"Authorization": f"Bearer {access_token}"},
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403 and include_message_body:
+            return _gmail_message_details(
+                access_token=access_token,
+                message_id=message_id,
+                include_message_body=False,
+            )
+        raise
 
 
 def _gmail_message_body_text(details: dict[str, Any]) -> str:
@@ -1337,6 +1406,49 @@ def _gmail_send_message(*, access_token: str, raw_message: str, thread_id: str |
     return message_id
 
 
+def _google_refresh_error_reason(exc: Exception) -> str:
+    detail_parts = [str(exc or "").strip()]
+    reader = getattr(exc, "read", None)
+    if callable(reader):
+        try:
+            payload = reader()
+        except Exception:
+            payload = b""
+        decoded = payload.decode("utf-8", "replace").strip() if isinstance(payload, bytes) else str(payload or "").strip()
+        if decoded:
+            detail_parts.append(decoded)
+    combined = " ".join(part for part in detail_parts if part).strip().lower()
+    if "invalid_grant" in combined:
+        return "google_oauth_invalid_grant"
+    if "invalid_client" in combined:
+        return "google_oauth_invalid_client"
+    return "google_oauth_refresh_failed"
+
+
+def _mark_google_binding_reauth_required(
+    *,
+    container: AppContainer,
+    binding: ProviderBindingRecord,
+    principal_id: str,
+    reason: str,
+) -> ProviderBindingRecord:
+    metadata = dict(binding.auth_metadata_json or {})
+    metadata["token_status"] = "reauth_required"
+    metadata["reauth_required_reason"] = str(reason or "google_oauth_refresh_failed").strip() or "google_oauth_refresh_failed"
+    metadata["access_token_expires_at"] = ""
+    return container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="degraded",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=metadata,
+    )
+
+
 def _fetch_google_userinfo(access_token: str) -> dict[str, Any]:
     if not access_token:
         raise RuntimeError("google_oauth_access_token_missing")
@@ -1509,11 +1621,20 @@ def _load_google_send_context(
     if not refresh_token_ref:
         raise RuntimeError("google_gmail_refresh_token_missing")
     refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
-    token_payload = _refresh_google_access_token(
-        refresh_token=refresh_token,
-        client_id=config.client_id,
-        client_secret=config.client_secret,
-    )
+    try:
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+    except Exception as exc:
+        _mark_google_binding_reauth_required(
+            container=container,
+            binding=binding,
+            principal_id=principal_id,
+            reason=_google_refresh_error_reason(exc),
+        )
+        raise
     access_token = str(token_payload.get("access_token") or "").strip()
     if not access_token:
         raise RuntimeError("google_gmail_access_token_missing")

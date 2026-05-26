@@ -17,12 +17,12 @@ MARKDOWN_PATH = DOCS_ROOT / "NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION
 FEEDBACK_PATH = ROOT / "feedback" / "2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md"
 
 PACKAGE_ID = "next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows"
-EXPECTED_FRONTIER_ID = 5399660048
 EXPECTED_FAMILIES = {
     "dense_builder_and_career_workflows",
     "dice_initiative_and_table_utilities",
     "identity_contacts_lifestyles_history",
 }
+QUEUE_STAGING_PATH = Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
 EXPECTED_MARKDOWN_RECEIPTS = {
     "dense_builder_and_career_workflows": {
         "compare artifacts: `oracle:tabs, oracle:workspace_actions, workflow:build_explain_publish`",
@@ -83,6 +83,15 @@ def _yaml(path: Path) -> dict[str, Any]:
     return load_yaml_dict(path)
 
 
+def _expected_frontier_id() -> int:
+    queue = _yaml(QUEUE_STAGING_PATH)
+    for item in queue.get("items") or []:
+        row = dict(item)
+        if str(row.get("package_id") or "") == PACKAGE_ID:
+            return int(row.get("frontier_id") or 0)
+    return 0
+
+
 def _check_forbidden_markers(label: str, text: str, issues: list[str]) -> None:
     lowered = text.lower()
     for forbidden in FORBIDDEN_PROOF_MARKERS:
@@ -100,10 +109,14 @@ def main() -> int:
         return 1
 
     payload = _yaml(PACK_PATH)
+    expected_frontier_id = _expected_frontier_id()
+    if expected_frontier_id <= 0:
+        issues.append("canonical fleet queue row missing for M142 package")
+    elif int(payload.get("frontier_id") or 0) != expected_frontier_id:
+        issues.append("frontier_id drifted from canonical queue row")
+
     if payload.get("package_id") != PACKAGE_ID:
         issues.append("package_id drifted")
-    if int(payload.get("frontier_id") or 0) != EXPECTED_FRONTIER_ID:
-        issues.append("frontier_id drifted from canonical queue row")
     if list(payload.get("allowed_paths") or []) != ["scripts", "feedback", "docs"]:
         issues.append("allowed_paths drifted")
     if list(payload.get("owned_surfaces") or []) != ["compile_family_local_screenshot_and_interaction_packs_fo:ea"]:
@@ -117,7 +130,7 @@ def main() -> int:
         issues.append("design_queue should have exactly one canonical row")
     if design_queue.get("status") != "not_started":
         issues.append("design_queue status drifted")
-    if int(design_queue.get("frontier_id") or 0) != EXPECTED_FRONTIER_ID:
+    if int(design_queue.get("frontier_id") or 0) != expected_frontier_id:
         issues.append("design_queue frontier drifted")
     if not str(design_queue.get("row_fingerprint") or "").strip():
         issues.append("design_queue row_fingerprint missing")
@@ -128,7 +141,7 @@ def main() -> int:
         issues.append("fleet_queue should have exactly one canonical row")
     if fleet_queue.get("status") != "not_started":
         issues.append("fleet_queue status drifted")
-    if int(fleet_queue.get("frontier_id") or 0) != EXPECTED_FRONTIER_ID:
+    if int(fleet_queue.get("frontier_id") or 0) != expected_frontier_id:
         issues.append("fleet_queue frontier drifted")
     if not str(fleet_queue.get("row_fingerprint") or "").strip():
         issues.append("fleet_queue row_fingerprint missing")
@@ -141,7 +154,7 @@ def main() -> int:
         issues.append("local_mirror_queue should have exactly one mirrored row")
     if local_mirror_queue.get("status") != "not_started":
         issues.append("local_mirror_queue status drifted")
-    if int(local_mirror_queue.get("frontier_id") or 0) != EXPECTED_FRONTIER_ID:
+    if int(local_mirror_queue.get("frontier_id") or 0) != expected_frontier_id:
         issues.append("local_mirror_queue frontier drifted")
     if not str(local_mirror_queue.get("row_fingerprint") or "").strip():
         issues.append("local_mirror_queue row_fingerprint missing")

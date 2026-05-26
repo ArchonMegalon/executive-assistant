@@ -35,6 +35,7 @@ from app.services.onemin_manager import OneminManagerService, register_onemin_ma
 from app.services.onboarding import OnboardingService, build_onboarding_service
 from app.services.planner import PlannerService
 from app.services.policy import PolicyDecisionService
+from app.services.preference_profile_service import PreferenceProfileService, build_preference_profile_service
 from app.services.proactive_horizon import ProactiveHorizonService
 from app.services.provider_registry import ProviderRegistryService
 from app.services.skills import SkillCatalogService
@@ -120,66 +121,116 @@ class AppContainer:
     cognitive_load: CognitiveLoadService
     proactive_horizon: ProactiveHorizonService
     onboarding: OnboardingService
+    preference_profiles: PreferenceProfileService
     readiness: ReadinessService
 
 
+def _bootstrap_runtime_component(
+    settings: Settings,
+    reason: str,
+    factory,
+):
+    try:
+        return factory()
+    except Exception as exc:
+        ensure_storage_fallback_allowed(settings, reason, exc)
+        raise
+
+
+def _build_provider_registry(settings: Settings) -> ProviderRegistryService:
+    return _bootstrap_runtime_component(
+        settings,
+        "provider registry bootstrap",
+        lambda: ProviderRegistryService(provider_binding_repo=build_provider_binding_service_repo(settings)),
+    )
+
+
+def _build_artifacts(settings: Settings):
+    return _bootstrap_runtime_component(
+        settings,
+        "artifact repo bootstrap",
+        lambda: build_artifact_repo(settings),
+    )
+
+
+def _build_task_contracts(settings: Settings) -> TaskContractService:
+    return _bootstrap_runtime_component(
+        settings,
+        "task contracts bootstrap",
+        lambda: build_task_contract_service(settings=settings),
+    )
+
+
+def _build_channel_runtime(settings: Settings, policy: PolicyDecisionService) -> ChannelRuntimeService:
+    return _bootstrap_runtime_component(
+        settings,
+        "channel runtime bootstrap",
+        lambda: build_channel_runtime(settings=settings, policy=policy),
+    )
+
+
+def _build_memory_runtime(settings: Settings) -> MemoryRuntimeService:
+    return _bootstrap_runtime_component(
+        settings,
+        "memory runtime bootstrap",
+        lambda: build_memory_runtime(settings=settings),
+    )
+
+
+def _build_evidence_runtime(settings: Settings) -> EvidenceRuntimeService:
+    return _bootstrap_runtime_component(
+        settings,
+        "evidence runtime bootstrap",
+        lambda: build_evidence_runtime(settings=settings),
+    )
+
+
+def _build_tool_runtime(settings: Settings) -> ToolRuntimeService:
+    return _bootstrap_runtime_component(
+        settings,
+        "tool runtime bootstrap",
+        lambda: build_tool_runtime(settings=settings),
+    )
+
+
+def _build_onemin_manager(settings: Settings) -> OneminManagerService:
+    return _bootstrap_runtime_component(
+        settings,
+        "onemin manager bootstrap",
+        lambda: OneminManagerService(repo=build_onemin_manager_service_repo(settings)),
+    )
+
+
+def _build_preference_profiles(settings: Settings) -> PreferenceProfileService:
+    return _bootstrap_runtime_component(
+        settings,
+        "preference profile bootstrap",
+        lambda: build_preference_profile_service(settings),
+    )
+
+
 def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -> AppContainer:
-    try:
-        provider_registry = ProviderRegistryService(provider_binding_repo=build_provider_binding_service_repo(settings))
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "provider registry bootstrap", exc)
-        raise
+    provider_registry = _build_provider_registry(settings)
     brain_router = BrainRouterService(provider_registry=provider_registry)
-    try:
-        artifacts = build_artifact_repo(settings)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "artifact repo bootstrap", exc)
-        raise
-    try:
-        task_contracts = build_task_contract_service(settings=settings)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "task contracts bootstrap", exc)
-        raise
+    artifacts = _build_artifacts(settings)
+    task_contracts = _build_task_contracts(settings)
     planner = PlannerService(task_contracts, provider_registry=provider_registry, brain_router=brain_router)
     skills = SkillCatalogService(task_contracts)
     policy = PolicyDecisionService(
         max_rewrite_chars=settings.policy.max_rewrite_chars,
         approval_required_chars=settings.policy.approval_required_chars,
     )
-    try:
-        channel_runtime = build_channel_runtime(
-            settings=settings,
-            policy=policy,
-        )
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "channel runtime bootstrap", exc)
-        raise
-    try:
-        memory_runtime = build_memory_runtime(settings=settings)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "memory runtime bootstrap", exc)
-        raise
+    channel_runtime = _build_channel_runtime(settings, policy)
+    memory_runtime = _build_memory_runtime(settings)
     cognitive_load = CognitiveLoadService(
         count_recent_for_principal=channel_runtime.count_recent_observations_for_principal,
         memory_runtime=memory_runtime,
     )
     channel_runtime._cognitive_load = cognitive_load  # type: ignore[attr-defined]
     channel_runtime._policy = policy  # type: ignore[attr-defined]
-    try:
-        evidence_runtime = build_evidence_runtime(settings=settings)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "evidence runtime bootstrap", exc)
-        raise
-    try:
-        tool_runtime = build_tool_runtime(settings=settings)
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "tool runtime bootstrap", exc)
-        raise
-    try:
-        onemin_manager = OneminManagerService(repo=build_onemin_manager_service_repo(settings))
-    except Exception as exc:
-        ensure_storage_fallback_allowed(settings, "onemin manager bootstrap", exc)
-        raise
+    evidence_runtime = _build_evidence_runtime(settings)
+    tool_runtime = _build_tool_runtime(settings)
+    onemin_manager = _build_onemin_manager(settings)
     register_onemin_manager(onemin_manager)
     tool_execution = ToolExecutionService(
         tool_runtime=tool_runtime,
@@ -211,6 +262,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         tool_runtime=tool_runtime,
         memory_runtime=memory_runtime,
     )
+    preference_profiles = _build_preference_profiles(settings)
     return AppContainer(
         settings=settings,
         runtime_profile=profile,
@@ -229,6 +281,7 @@ def _build_container_for_settings(settings: Settings, profile: RuntimeProfile) -
         cognitive_load=cognitive_load,
         proactive_horizon=proactive_horizon,
         onboarding=onboarding,
+        preference_profiles=preference_profiles,
         readiness=ReadinessService(settings),
     )
 

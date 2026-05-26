@@ -27,6 +27,183 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.responses import Response
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, is_operator_context
+from app.api.routes.responses_route_registration import (
+    register_codex_metadata_routes,
+    register_model_routes,
+    register_profiled_codex_routes,
+    register_response_item_routes,
+)
+from app.api.routes.responses_background_runtime import (
+    background_failed_response,
+    background_replay_payload,
+    background_response_deadline_unix,
+    background_response_has_expired,
+    background_timeout_failure_message,
+    background_timeout_seconds_for_response,
+)
+from app.api.routes.responses_background_workers import (
+    background_response_has_live_worker,
+    claim_background_response_worker_slot,
+    cleanup_background_response_workers,
+    register_background_response_worker,
+    release_background_response_worker_slot,
+)
+from app.api.routes.responses_background_orchestration import (
+    build_ensure_background_response_progress,
+    build_load_response_for_runtime,
+    build_spawn_background_codex_worker,
+)
+from app.api.routes.responses_persistence_runtime import (
+    container_database_url,
+    load_response,
+    response_record_repository,
+    store_background_terminal_response,
+    store_response,
+)
+from app.api.routes.responses_codex_metadata import (
+    build_get_codex_status_handler,
+    build_list_codex_profiles_handler,
+)
+from app.api.routes.responses_codex_execution import build_run_profiled_codex_response
+from app.api.routes.responses_execution_routes import (
+    build_create_response_handler,
+    build_get_provider_health_handler,
+)
+from app.api.routes.responses_read_routes import (
+    build_get_response_handler,
+    build_get_response_input_items_handler,
+    build_list_models_handler,
+)
+from app.api.routes.responses_route_runtime import (
+    build_run_response_in_executor,
+    header_codex_profile_from_request,
+    payload_with_request_trace_metadata,
+    preferred_onemin_labels_from_request,
+)
+from app.api.routes.responses_tool_runtime import (
+    build_tool_shim_generate_upstream_text_with_timeout,
+    build_tool_shim_supported_tools,
+    generate_upstream_text,
+    response_tools,
+    tool_choice_disables_tools,
+)
+from app.api.routes.responses_output_runtime import (
+    build_tool_shim_latest_function_output,
+    build_tool_shim_local_upstream_result,
+    build_tool_shim_requires_immediate_tool,
+    tool_shim_scalar_text,
+    tool_shim_unwrap_tool_output_envelope,
+)
+from app.api.routes.responses_probe_final_text_runtime import (
+    tool_shim_gap_audit_final_text,
+    tool_shim_gap_fix_final_text,
+    tool_shim_parity_build_final_text,
+    tool_shim_ui_parity_audit_final_text,
+)
+from app.api.routes.responses_direct_final_runtime import build_tool_shim_direct_final_text
+from app.api.routes.responses_local_unblock_runtime import (
+    build_tool_shim_direct_local_unblock_command,
+    tool_shim_local_unblock_command_for_prompt,
+    tool_shim_local_unblock_final_text,
+)
+from app.api.routes.responses_local_fleet_runtime import (
+    build_tool_shim_direct_local_fleet_command,
+    build_tool_shim_staged_first_command_max_output_tokens,
+)
+from app.api.routes.responses_staged_prompt_runtime import (
+    build_tool_shim_staged_commands,
+    tool_shim_direct_file_read_command,
+    tool_shim_has_tool_history,
+    tool_shim_looks_like_shell_command,
+)
+from app.api.routes.responses_command_history_runtime import (
+    build_tool_shim_command_identity_sequence,
+    build_tool_shim_command_sequence_executed,
+    build_tool_shim_exec_command_expanded_sequence,
+    build_tool_shim_exec_command_identity_history,
+    build_tool_shim_exec_command_output_history,
+    build_tool_shim_latest_exec_json_output,
+    build_tool_shim_latest_exec_json_output_for_command,
+    tool_shim_exec_command_history,
+    tool_shim_normalize_equivalent_command_paths,
+    tool_shim_resolve_equivalent_shard_runtime_path,
+)
+from app.api.routes.responses_staged_git_runtime import (
+    build_tool_shim_build_staged_git_commit_push_command,
+    build_tool_shim_direct_staged_git_commit_push_final_text,
+    build_tool_shim_is_staged_git_commit_push_workflow,
+    tool_shim_extract_git_head_hash,
+    tool_shim_is_git_command,
+)
+from app.api.routes.responses_package_scope_runtime import (
+    build_tool_shim_active_slice_followup_paths,
+    build_tool_shim_build_package_scope_repo_diff_command,
+    build_tool_shim_build_package_scope_repo_hunks_command,
+    build_tool_shim_build_package_scope_search_command,
+    build_tool_shim_package_allowed_scope_paths,
+    build_tool_shim_package_scope_search_terms,
+    build_tool_shim_package_scope_pathspecs,
+    tool_shim_bulleted_section_paths,
+    tool_shim_package_allowed_scope_tokens,
+    tool_shim_package_current_slice_text,
+    tool_shim_package_scope_text,
+    tool_shim_package_worktree,
+)
+from app.api.routes.responses_package_planner_runtime import (
+    build_tool_shim_package_planner_blocked_decision,
+    build_tool_shim_package_planner_blocked_final_text,
+    build_tool_shim_package_planner_preflight_failure_message,
+    build_tool_shim_provider_row_is_dispatchable,
+    tool_shim_provider_row_is_ready,
+)
+from app.api.routes.responses_repo_followup_runtime import (
+    build_tool_shim_build_repo_diff_command_for_paths,
+    build_tool_shim_build_repo_hunks_command_for_paths,
+    build_tool_shim_build_staged_repo_diff_command,
+    build_tool_shim_build_staged_repo_hunks_command,
+    build_tool_shim_operator_unblock_repo_diff_command,
+    build_tool_shim_operator_unblock_repo_hunks_command,
+)
+from app.api.routes.responses_telemetry_runtime import (
+    build_tool_shim_direct_nested_telemetry_first_command,
+    build_tool_shim_operator_unblock_provider_health_command,
+    build_tool_shim_recent_nested_telemetry_commands,
+    build_tool_shim_telemetry_followup_commands,
+    tool_shim_direct_compact_provider_health_command,
+    tool_shim_operator_unblock_live_routing_hotspots_command,
+)
+from app.api.routes.responses_planner_runtime import (
+    build_tool_shim_planner_deadline_monotonic,
+    build_tool_shim_planner_model,
+    history_items_for_request,
+    tool_shim_planner_max_output_tokens,
+    tool_shim_transcript_max_chars,
+    tool_shim_transcript_part_max_chars,
+)
+from app.api.routes.responses_prompt_runtime import (
+    tool_shim_is_operator_fleet_unblock_prompt,
+    tool_shim_is_operator_gap_audit_prompt,
+    tool_shim_is_operator_gap_fix_prompt,
+    tool_shim_is_operator_readiness_remedy_prompt,
+    tool_shim_is_package_work_prompt,
+    tool_shim_is_staged_local_orientation_prompt,
+)
+from app.api.routes.responses_prompt_compaction_runtime import (
+    build_tool_shim_compact_operator_prompt_for_planner,
+    build_tool_shim_compact_readiness_prompt_for_planner,
+    build_tool_shim_transcript_limit_for_prompt,
+)
+from app.api.routes.responses_operator_scope_runtime import (
+    build_tool_shim_is_operator_fleet_unblock_context,
+    build_tool_shim_operator_unblock_scope_rejection_reason,
+)
+from app.api.routes.responses_transcript_runtime import (
+    build_history_item_to_transcript,
+    build_tool_shim_latest_package_work_prompt,
+    build_tool_shim_latest_user_text,
+    tool_shim_tool_parameters_summary,
+    tool_shim_truncate_text,
+)
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.services.brain_router import BrainRouterService
@@ -49,6 +226,7 @@ from app.services.brain_catalog import (
 from app.services.responses_upstream import (
     ResponsesUpstreamError,
     UpstreamResult,
+    _resolve_default_response_lane,
     codex_status_report,
     _provider_health_report,
     _provider_order,
@@ -86,7 +264,46 @@ _PROVIDER_HEALTH_REFRESH_FUTURES: dict[bool, asyncio.Future[dict[str, object]] |
 _PROVIDER_HEALTH_CACHE_SCHEMA_VERSION = 1
 _SSE_KEEPALIVE_TEXT = "Trace: waiting on upstream reasoning.\n"
 _SUPPORTED_INPUT_PART_TYPES = {"input_text", "text", "output_text"}
+_STREAMING_ROUTE_RESPONSES = {
+    200: {
+        "description": "Returns JSON when stream=false, SSE when stream=true.",
+        "content": {
+            "text/event-stream": {
+                "schema": {
+                    "type": "string",
+                    "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
+                }
+            }
+        },
+    }
+}
+_CORE_BATCH_ROUTE_RESPONSES = {
+    202: {
+        "description": "Returns an in-progress response object for background core batch execution.",
+    }
+}
+_SURVIVAL_ROUTE_RESPONSES = {
+    202: {
+        "description": "Returns an in-progress response object for background survival execution.",
+    }
+}
+_CODEX_PROFILE_ROUTE_SPECS = (
+    ("/core", "core", "create_codex_core", _STREAMING_ROUTE_RESPONSES),
+    ("/core-batch", "core_batch", "create_codex_core_batch", _CORE_BATCH_ROUTE_RESPONSES),
+    ("/core-rescue", "core_rescue", "create_codex_core_rescue", _STREAMING_ROUTE_RESPONSES),
+    ("/easy", "easy", "create_codex_easy", _STREAMING_ROUTE_RESPONSES),
+    ("/repair", "repair", "create_codex_repair", _STREAMING_ROUTE_RESPONSES),
+    ("/groundwork", "groundwork", "create_codex_groundwork", _STREAMING_ROUTE_RESPONSES),
+    ("/review-light", "review_light", "create_codex_review_light", _STREAMING_ROUTE_RESPONSES),
+    ("/survival", "survival", "create_codex_survival", _SURVIVAL_ROUTE_RESPONSES),
+    ("/audit", "audit", "create_codex_audit", _STREAMING_ROUTE_RESPONSES),
+)
 _ENV_ASSIGNMENT_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_container_database_url = container_database_url
+_background_timeout_seconds_for_response = background_timeout_seconds_for_response
+_background_response_deadline_unix = background_response_deadline_unix
+_background_response_has_expired = background_response_has_expired
+_background_replay_payload = background_replay_payload
 _SHELL_BUILTIN_COMMANDS = frozenset(
     {
         ":",
@@ -127,6 +344,25 @@ _SHELL_BUILTIN_COMMANDS = frozenset(
         "wait",
     }
 )
+
+
+def _background_failed_response(
+    *,
+    stored: _StoredResponse,
+    failure_message: str,
+) -> dict[str, object]:
+    return background_failed_response(
+        stored=stored,
+        failure_message=failure_message,
+        build_failed_response=_build_failed_response,
+        requested_max_output_tokens_from_response=_requested_max_output_tokens_from_response,
+        now_unix=_now_unix,
+        default_public_model=DEFAULT_PUBLIC_MODEL,
+    )
+
+
+def _background_timeout_failure_message(response_obj: dict[str, object]) -> str:
+    return background_timeout_failure_message(response_obj)
 _PROMPT_ROUTE_HARD_PROFILES = frozenset(
     {
         "core",
@@ -1209,6 +1445,110 @@ def _provider_env_slot_names(primary: str, fallback_prefix: str, *, max_slots: i
     return names
 
 
+def _onemin_manifest_slot_names(*, max_slots: int = 128) -> list[str]:
+    inline = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON") or "").strip()
+    payload: object = None
+    if inline:
+        try:
+            payload = json.loads(inline)
+        except Exception:
+            payload = None
+    if payload is None:
+        raw_path = str(os.environ.get("ONEMIN_DIRECT_API_KEYS_JSON_FILE") or "").strip()
+        if raw_path:
+            try:
+                manifest_path = Path(raw_path)
+                candidates = [manifest_path]
+                if not manifest_path.is_absolute():
+                    candidates.append(Path(__file__).resolve().parents[3] / manifest_path)
+                for candidate in candidates:
+                    resolved = candidate.resolve(strict=False)
+                    if resolved.exists():
+                        payload = json.loads(resolved.read_text(encoding="utf-8"))
+                        break
+            except Exception:
+                payload = None
+
+    if isinstance(payload, dict):
+        items = payload.get("slots") or payload.get("keys") or payload.get("accounts") or []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    names: list[str] = []
+    seen: set[str] = set()
+    fallback_numbers: set[int] = set()
+    manifest_by_slot: dict[int, str] = {}
+    trailing: list[str] = []
+
+    for item in items[:max_slots]:
+        if isinstance(item, str):
+            key = str(item or "").strip()
+            slot = ""
+            account_name = ""
+        elif isinstance(item, dict):
+            key = str(
+                item.get("key")
+                or item.get("secret")
+                or item.get("api_key")
+                or item.get("value")
+                or item.get("token")
+                or ""
+            ).strip()
+            slot = str(item.get("slot") or item.get("slot_name") or "").strip()
+            account_name = str(item.get("account_name") or item.get("name") or "").strip()
+        else:
+            continue
+        if not key:
+            continue
+        normalized = account_name.strip()
+        lowered_slot = slot.strip().lower()
+        slot_number: int | None = None
+        if lowered_slot == "primary":
+            normalized = "ONEMIN_AI_API_KEY"
+        else:
+            match = re.match(r"^fallback[_-]?(\d+)$", lowered_slot)
+            if match:
+                try:
+                    slot_number = int(match.group(1))
+                except Exception:
+                    slot_number = None
+            if not normalized and slot_number is not None:
+                normalized = f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
+        if not normalized:
+            trailing.append("")
+            continue
+        if normalized == "ONEMIN_AI_API_KEY":
+            if normalized not in seen:
+                seen.add(normalized)
+                names.append(normalized)
+            continue
+        fallback_match = re.match(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$", normalized)
+        if fallback_match:
+            try:
+                slot_number = int(fallback_match.group(1))
+            except Exception:
+                slot_number = None
+        if slot_number is not None:
+            fallback_numbers.add(slot_number)
+            manifest_by_slot[slot_number] = normalized
+        elif normalized not in seen:
+            trailing.append(normalized)
+
+    for slot_number in sorted(fallback_numbers):
+        candidate = manifest_by_slot.get(slot_number) or f"ONEMIN_AI_API_KEY_FALLBACK_{slot_number}"
+        if candidate not in seen:
+            seen.add(candidate)
+            names.append(candidate)
+    for candidate in trailing:
+        cleaned = str(candidate or "").strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            names.append(cleaned)
+    return names[:max_slots]
+
+
 def _provider_slot_name(index: int) -> str:
     return "primary" if index == 0 else f"fallback_{index}"
 
@@ -1234,6 +1574,9 @@ def _minimal_provider_health_snapshot(
     stale: bool | None = None,
 ) -> dict[str, object]:
     onemin_names = _provider_env_slot_names("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK")
+    for manifest_name in _onemin_manifest_slot_names():
+        if manifest_name not in onemin_names:
+            onemin_names.append(manifest_name)
     if str(os.environ.get("EA_RESPONSES_ONEMIN_API_KEY") or "").strip() and "EA_RESPONSES_ONEMIN_API_KEY" not in onemin_names:
         onemin_names.insert(0, "EA_RESPONSES_ONEMIN_API_KEY")
     chatplayground_names = [
@@ -1294,7 +1637,7 @@ def _minimal_provider_health_snapshot(
             },
         },
         "provider_config": {
-            "default_profile": str(os.environ.get("EA_RESPONSES_DEFAULT_PROFILE") or _DEFAULT_LANE_PROFILE),
+            "default_profile": str(os.environ.get("EA_RESPONSES_DEFAULT_PROFILE") or _resolve_default_response_lane()),
             "provider_order": provider_order,
             "onemin_accounts": list(onemin_names),
             "chatplayground_accounts": list(chatplayground_names),
@@ -1528,6 +1871,31 @@ async def prewarm_provider_health_snapshot_cache(*, lightweight: bool = True, ti
         return
     if isinstance(payload, dict) and payload:
         _remember_provider_health_snapshot(lightweight=lightweight, payload=payload)
+
+
+async def _provider_health_route_registry_payload(
+    *,
+    container: AppContainer,
+    context: RequestContext,
+    lightweight: bool,
+    include_sensitive: bool,
+    safe_provider_health: dict[str, object],
+) -> dict[str, object]:
+    if lightweight and not include_sensitive:
+        return _fallback_provider_registry_payload(
+            safe_provider_health,
+            browseract_binding_available=(
+                bool(_browseract_binding_id(container=container, principal_id=context.principal_id))
+                if context.principal_id
+                else None
+            ),
+        )
+    return await _provider_registry_payload_async(
+        container=container,
+        principal_id=context.principal_id,
+        provider_health=safe_provider_health,
+        include_sensitive=include_sensitive,
+    )
 
 
 def _provider_capacity_summary(provider: dict[str, object]) -> dict[str, object]:
@@ -1985,6 +2353,16 @@ if isinstance(_response_request_required, list):
     _RESPONSES_CREATE_REQUEST_SCHEMA["required"] = [
         str(key) for key in _response_request_required if str(key) in _RESPONSES_PUBLIC_REQUEST_FIELDS
     ]
+_RESPONSES_CREATE_REQUEST_OPENAPI_EXTRA = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
+            }
+        },
+    }
+}
 
 _RESPONSES_DEBUG_CAPTURE_PRUNE_LOCK = threading.Lock()
 _RESPONSES_DEBUG_CAPTURE_LAST_PRUNE = 0.0
@@ -3723,44 +4101,14 @@ def _function_call_item(
     ).model_dump(mode="json")
 
 
-def _container_database_url(container: object | None) -> str:
-    if container is None:
-        return ""
-    settings = getattr(container, "settings", None)
-    if settings is None:
-        return ""
-    direct = str(getattr(settings, "database_url", "") or "").strip()
-    if direct:
-        return direct
-    storage = getattr(settings, "storage", None)
-    if storage is None:
-        return ""
-    return str(getattr(storage, "database_url", "") or "").strip()
-
-
 def _response_record_repository(container: object | None) -> _ResponseRecordRepository:
-    backend = "memory"
-    database_url = ""
-    if container is not None:
-        runtime_profile = getattr(container, "runtime_profile", None)
-        backend = str(getattr(runtime_profile, "storage_backend", "memory") or "memory").strip().lower() or "memory"
-        database_url = _container_database_url(container)
-    else:
-        backend = str(
-            os.environ.get("EA_STORAGE_BACKEND")
-            or os.environ.get("EA_LEDGER_BACKEND")
-            or "memory"
-        ).strip().lower() or "memory"
-        database_url = str(os.environ.get("DATABASE_URL") or "").strip()
-
-    if backend == "postgres" and database_url:
-        with _RESPONSE_REPOSITORY_LOCK:
-            repository = _POSTGRES_RESPONSE_REPOSITORIES.get(database_url)
-            if repository is None:
-                repository = _PostgresResponseRecordRepository(database_url)
-                _POSTGRES_RESPONSE_REPOSITORIES[database_url] = repository
-        return repository
-    return _MEMORY_RESPONSE_REPOSITORY
+    return response_record_repository(
+        container=container,
+        response_repository_lock=_RESPONSE_REPOSITORY_LOCK,
+        postgres_response_repositories=_POSTGRES_RESPONSE_REPOSITORIES,
+        postgres_response_record_repository_type=_PostgresResponseRecordRepository,
+        memory_response_repository=_MEMORY_RESPONSE_REPOSITORY,
+    )
 
 
 def _store_response(
@@ -3773,13 +4121,15 @@ def _store_response(
     container: object | None = None,
     background_job: dict[str, object] | None = None,
 ) -> None:
-    _response_record_repository(container).store(
+    store_response(
         response_id=response_id,
         response_obj=response_obj,
         input_items=input_items,
         history_items=history_items,
         principal_id=principal_id,
+        container=container,
         background_job=background_job,
+        response_record_repository=_response_record_repository,
     )
 
 
@@ -3789,143 +4139,60 @@ def _load_response(
     principal_id: str,
     container: object | None = None,
 ) -> _StoredResponse:
-    return _response_record_repository(container).load(
+    return load_response(
         response_id=response_id,
         principal_id=principal_id,
+        container=container,
+        response_record_repository=_response_record_repository,
     )
 
 
 def _cleanup_background_response_workers() -> None:
-    with _BACKGROUND_RESPONSE_LOCK:
-        stale_ids = [response_id for response_id, worker in _BACKGROUND_RESPONSE_WORKERS.items() if not worker.is_alive()]
-        for response_id in stale_ids:
-            _BACKGROUND_RESPONSE_WORKERS.pop(response_id, None)
-            _BACKGROUND_RESPONSE_STARTING.discard(response_id)
-
-
-def _background_response_has_live_worker(response_id: str) -> bool:
-    _cleanup_background_response_workers()
-    with _BACKGROUND_RESPONSE_LOCK:
-        if response_id in _BACKGROUND_RESPONSE_STARTING:
-            return True
-        worker = _BACKGROUND_RESPONSE_WORKERS.get(response_id)
-        return bool(worker and worker.is_alive())
-
-
-def _claim_background_response_worker_slot(response_id: str) -> bool:
-    _cleanup_background_response_workers()
-    with _BACKGROUND_RESPONSE_LOCK:
-        if response_id in _BACKGROUND_RESPONSE_STARTING:
-            return False
-        worker = _BACKGROUND_RESPONSE_WORKERS.get(response_id)
-        if worker and worker.is_alive():
-            return False
-        _BACKGROUND_RESPONSE_STARTING.add(response_id)
-        return True
-
-
-def _register_background_response_worker(response_id: str, worker: threading.Thread) -> None:
-    with _BACKGROUND_RESPONSE_LOCK:
-        _BACKGROUND_RESPONSE_STARTING.discard(response_id)
-        _BACKGROUND_RESPONSE_WORKERS[response_id] = worker
-
-
-def _release_background_response_worker_slot(response_id: str, *, worker: threading.Thread | None = None) -> None:
-    with _BACKGROUND_RESPONSE_LOCK:
-        _BACKGROUND_RESPONSE_STARTING.discard(response_id)
-        existing = _BACKGROUND_RESPONSE_WORKERS.get(response_id)
-        if existing is None:
-            return
-        if worker is None or existing is worker or not existing.is_alive():
-            _BACKGROUND_RESPONSE_WORKERS.pop(response_id, None)
-
-
-def _background_timeout_seconds_for_response(response_obj: dict[str, object]) -> float:
-    metadata = dict(response_obj.get("metadata") or {}) if isinstance(response_obj.get("metadata"), dict) else {}
-    raw = metadata.get("background_timeout_seconds")
-    try:
-        return max(float(raw), 0.0)
-    except Exception:
-        return 0.0
-
-
-def _background_response_deadline_unix(response_obj: dict[str, object]) -> float:
-    timeout_seconds = _background_timeout_seconds_for_response(response_obj)
-    created_at = int(response_obj.get("created_at") or 0)
-    if timeout_seconds <= 0 or created_at <= 0:
-        return 0.0
-    return float(created_at) + timeout_seconds
-
-
-def _background_response_has_expired(response_obj: dict[str, object], *, now_unix: float | None = None) -> bool:
-    deadline_unix = _background_response_deadline_unix(response_obj)
-    if deadline_unix <= 0:
-        return False
-    current = float(now_unix if now_unix is not None else time.time())
-    return current >= deadline_unix
-
-
-def _background_replay_payload(
-    *,
-    prompt: str,
-    messages: list[dict[str, str]],
-    supported_tools: list[dict[str, object]],
-    effective_codex_profile: str | None,
-    chatplayground_audit_callback_enabled: bool,
-    chatplayground_audit_callback_only: bool,
-    preferred_onemin_labels: tuple[str, ...] = (),
-) -> dict[str, object]:
-    return {
-        "prompt": str(prompt or ""),
-        "messages": [dict(item) for item in messages],
-        "supported_tools": [dict(item) for item in supported_tools],
-        "effective_codex_profile": str(effective_codex_profile or "").strip(),
-        "chatplayground_audit_callback_enabled": bool(chatplayground_audit_callback_enabled),
-        "chatplayground_audit_callback_only": bool(chatplayground_audit_callback_only),
-        "preferred_onemin_labels": [str(item or "").strip() for item in preferred_onemin_labels if str(item or "").strip()],
-    }
-
-
-def _preferred_onemin_labels_from_request(request: Request) -> tuple[str, ...]:
-    labels: list[str] = []
-    for header_name in (
-        "X-EA-Onemin-Account-Alias",
-        "X-EA-Onemin-Account-Env",
-        "X-EA-Onemin-Account",
-        "X-EA-Onemin-Preferred-Accounts",
-    ):
-        raw = str(request.headers.get(header_name) or "").strip()
-        if not raw:
-            continue
-        for part in raw.replace(";", ",").split(","):
-            label = str(part or "").strip()
-            if label and label not in labels:
-                labels.append(label)
-    return tuple(labels)
-
-
-def _background_failed_response(
-    *,
-    stored: _StoredResponse,
-    failure_message: str,
-) -> dict[str, object]:
-    response_obj = dict(stored.response)
-    return _build_failed_response(
-        response_id=str(response_obj.get("id") or ""),
-        created_at=int(response_obj.get("created_at") or _now_unix()),
-        model=str(response_obj.get("model") or DEFAULT_PUBLIC_MODEL),
-        requested_max_output_tokens=_requested_max_output_tokens_from_response(response_obj),
-        metadata=dict(response_obj.get("metadata") or {}) if isinstance(response_obj.get("metadata"), dict) else {},
-        instructions=response_obj.get("instructions") if isinstance(response_obj.get("instructions"), str) else None,
-        input_items=[dict(item) for item in stored.input_items],
-        failure_message=failure_message,
-        visible_text=f"Error: {failure_message}",
+    cleanup_background_response_workers(
+        background_response_lock=_BACKGROUND_RESPONSE_LOCK,
+        background_response_workers=_BACKGROUND_RESPONSE_WORKERS,
+        background_response_starting=_BACKGROUND_RESPONSE_STARTING,
     )
 
 
-def _background_timeout_failure_message(response_obj: dict[str, object]) -> str:
-    timeout_seconds = int(round(_background_timeout_seconds_for_response(response_obj))) or 0
-    return f"background_timeout:{timeout_seconds}s" if timeout_seconds > 0 else "background_timeout"
+def _background_response_has_live_worker(response_id: str) -> bool:
+    return background_response_has_live_worker(
+        response_id,
+        cleanup_background_response_workers=_cleanup_background_response_workers,
+        background_response_lock=_BACKGROUND_RESPONSE_LOCK,
+        background_response_workers=_BACKGROUND_RESPONSE_WORKERS,
+        background_response_starting=_BACKGROUND_RESPONSE_STARTING,
+    )
+
+
+def _claim_background_response_worker_slot(response_id: str) -> bool:
+    return claim_background_response_worker_slot(
+        response_id,
+        cleanup_background_response_workers=_cleanup_background_response_workers,
+        background_response_lock=_BACKGROUND_RESPONSE_LOCK,
+        background_response_workers=_BACKGROUND_RESPONSE_WORKERS,
+        background_response_starting=_BACKGROUND_RESPONSE_STARTING,
+    )
+
+
+def _register_background_response_worker(response_id: str, worker: threading.Thread) -> None:
+    register_background_response_worker(
+        response_id,
+        worker,
+        background_response_lock=_BACKGROUND_RESPONSE_LOCK,
+        background_response_workers=_BACKGROUND_RESPONSE_WORKERS,
+        background_response_starting=_BACKGROUND_RESPONSE_STARTING,
+    )
+
+
+def _release_background_response_worker_slot(response_id: str, *, worker: threading.Thread | None = None) -> None:
+    release_background_response_worker_slot(
+        response_id,
+        worker=worker,
+        background_response_lock=_BACKGROUND_RESPONSE_LOCK,
+        background_response_workers=_BACKGROUND_RESPONSE_WORKERS,
+        background_response_starting=_BACKGROUND_RESPONSE_STARTING,
+    )
 
 
 def _store_background_terminal_response(
@@ -3938,405 +4205,22 @@ def _store_background_terminal_response(
     history_items: list[dict[str, object]],
     background_job: dict[str, object] | None,
 ) -> dict[str, object]:
-    with _BACKGROUND_RESPONSE_TRANSITION_LOCK:
-        try:
-            stored = _load_response(response_id=response_id, principal_id=principal_id, container=container)
-        except HTTPException as exc:
-            if int(getattr(exc, "status_code", 0) or 0) != 404:
-                raise
-            _store_response(
-                response_id=response_id,
-                response_obj=response_obj,
-                input_items=input_items,
-                history_items=history_items,
-                principal_id=principal_id,
-                container=container,
-                background_job=background_job,
-            )
-            return response_obj
-        current_response = dict(stored.response)
-        current_status = str(current_response.get("status") or "").strip().lower()
-        if current_status != "in_progress":
-            return current_response
-        if _background_response_has_expired(current_response):
-            failed_obj = _background_failed_response(
-                stored=stored,
-                failure_message=_background_timeout_failure_message(current_response),
-            )
-            _store_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=stored.input_items,
-                history_items=stored.history_items,
-                principal_id=principal_id,
-                container=container,
-                background_job=background_job,
-            )
-            return failed_obj
-        _store_response(
-            response_id=response_id,
-            response_obj=response_obj,
-            input_items=input_items,
-            history_items=history_items,
-            principal_id=principal_id,
-            container=container,
-            background_job=background_job,
-        )
-        return response_obj
-
-
-def _spawn_background_codex_worker(
-    *,
-    response_id: str,
-    created_at: int,
-    model: str,
-    response_metadata: dict[str, object],
-    instructions: str | None,
-    input_items: list[dict[str, object]],
-    reasoning: Any | None,
-    max_output_tokens: int | None,
-    history_items: list[dict[str, object]],
-    prompt: str,
-    messages: list[dict[str, str]],
-    supported_tools: list[dict[str, object]],
-    chatplayground_audit_callback: Callable[..., Any] | None,
-    chatplayground_audit_callback_only: bool,
-    chatplayground_audit_principal_id: str,
-    preferred_onemin_labels: tuple[str, ...],
-    principal_id: str,
-    container: object | None,
-    background_job: dict[str, object] | None,
-) -> bool:
-    if not _claim_background_response_worker_slot(response_id):
-        return False
-
-    def _worker() -> None:
-        request_deadline_monotonic = time.monotonic() + _background_timeout_seconds_for_response(
-            {"created_at": created_at, "metadata": response_metadata}
-        )
-        try:
-            tool_decision: _ToolShimDecision | None = None
-            if supported_tools:
-                decision = _tool_shim_decision(
-                    model=model,
-                    max_output_tokens=max_output_tokens,
-                    instructions=instructions,
-                    tools=supported_tools,
-                    history_items=history_items,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
-                if not isinstance(decision, _ToolShimDecision) or not isinstance(decision.upstream_result, UpstreamResult):
-                    raise RuntimeError("invalid_upstream_result")
-                tool_decision = decision
-                result = decision.upstream_result
-            else:
-                result = _generate_upstream_text(
-                    prompt=prompt,
-                    messages=messages,
-                    requested_model=model,
-                    max_output_tokens=max_output_tokens,
-                    chatplayground_audit_callback=chatplayground_audit_callback,
-                    chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                    chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                    preferred_onemin_labels=preferred_onemin_labels,
-                    request_deadline_monotonic=request_deadline_monotonic,
-                )
-            completed_obj, history_items_to_store = _build_completed_response_from_upstream(
-                response_id=response_id,
-                created_at=created_at,
-                model=model,
-                requested_max_output_tokens=max_output_tokens,
-                metadata=response_metadata,
-                instructions=instructions,
-                input_items=input_items,
-                reasoning=reasoning,
-                base_history_items=history_items,
-                result=result,
-                tool_decision=tool_decision,
-            )
-            final_obj = _store_background_terminal_response(
-                response_id=response_id,
-                response_obj=completed_obj,
-                input_items=input_items,
-                history_items=history_items_to_store,
-                principal_id=principal_id,
-                container=container,
-                background_job=background_job,
-            )
-            if str(final_obj.get("status") or "").strip().lower() == "completed":
-                _capture_responses_debug(
-                    name="response",
-                    payload={
-                        "principal_id": principal_id,
-                        "codex_profile": str(response_metadata.get("codex_effective_profile") or response_metadata.get("codex_profile") or ""),
-                        "response": final_obj,
-                    },
-                )
-        except Exception as exc:
-            failure_message = str(exc)[:500]
-            failed_obj = _build_failed_response(
-                response_id=response_id,
-                created_at=created_at,
-                model=model,
-                requested_max_output_tokens=max_output_tokens,
-                metadata=response_metadata,
-                instructions=instructions,
-                input_items=input_items,
-                failure_message=failure_message,
-                visible_text=f"Error: {failure_message}",
-            )
-            final_obj = _store_background_terminal_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=input_items,
-                history_items=history_items,
-                principal_id=principal_id,
-                container=container,
-                background_job=background_job,
-            )
-            if str(final_obj.get("status") or "").strip().lower() == "failed":
-                _capture_responses_debug(
-                    name="response_background_failed",
-                    payload={
-                        "principal_id": principal_id,
-                        "codex_profile": str(response_metadata.get("codex_effective_profile") or response_metadata.get("codex_profile") or ""),
-                        "response_id": response_id,
-                        "failure_message": _response_failure_message(final_obj) or failure_message,
-                    },
-                )
-        finally:
-            _release_background_response_worker_slot(response_id)
-
-    worker = threading.Thread(target=_worker, daemon=True)
-    try:
-        _register_background_response_worker(response_id, worker)
-        worker.start()
-    except Exception:
-        _release_background_response_worker_slot(response_id)
-        raise
-    return True
-
-
-def _ensure_background_response_progress(
-    *,
-    stored: _StoredResponse,
-    principal_id: str,
-    container: object | None,
-) -> _StoredResponse:
-    with _BACKGROUND_RESPONSE_TRANSITION_LOCK:
-        response_obj = dict(stored.response)
-        status = str(response_obj.get("status") or "").strip().lower()
-        metadata = dict(response_obj.get("metadata") or {}) if isinstance(response_obj.get("metadata"), dict) else {}
-        if status != "in_progress" or not bool(metadata.get("background_response")):
-            return stored
-        response_id = str(response_obj.get("id") or "")
-        if _background_response_has_expired(response_obj):
-            failed_obj = _background_failed_response(
-                stored=stored,
-                failure_message=_background_timeout_failure_message(response_obj),
-            )
-            _store_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=stored.input_items,
-                history_items=stored.history_items,
-                principal_id=principal_id,
-                container=container,
-                background_job=stored.background_job,
-            )
-            return _StoredResponse(
-                response=failed_obj,
-                input_items=[dict(item) for item in stored.input_items],
-                history_items=[dict(item) for item in stored.history_items],
-                principal_id=stored.principal_id,
-                background_job=dict(stored.background_job) if isinstance(stored.background_job, dict) else None,
-            )
-        if _background_response_has_live_worker(response_id):
-            return stored
-        replay = dict(stored.background_job or {}) if isinstance(stored.background_job, dict) else {}
-        if not replay:
-            failed_obj = _background_failed_response(stored=stored, failure_message="background_response_replay_unavailable")
-            _store_response(
-                response_id=response_id,
-                response_obj=failed_obj,
-                input_items=stored.input_items,
-                history_items=stored.history_items,
-                principal_id=principal_id,
-                container=container,
-                background_job=stored.background_job,
-            )
-            return _StoredResponse(
-                response=failed_obj,
-                input_items=[dict(item) for item in stored.input_items],
-                history_items=[dict(item) for item in stored.history_items],
-                principal_id=stored.principal_id,
-                background_job=dict(stored.background_job) if isinstance(stored.background_job, dict) else None,
-            )
-
-        response_metadata = metadata
-        response_metadata["background_resume_count"] = int(response_metadata.get("background_resume_count") or 0) + 1
-        response_metadata["background_last_resumed_at"] = _now_unix()
-        refreshed_in_progress = {
-            **response_obj,
-            "metadata": response_metadata,
-        }
-        _store_response(
-            response_id=response_id,
-            response_obj=refreshed_in_progress,
-            input_items=stored.input_items,
-            history_items=stored.history_items,
-            principal_id=principal_id,
-            container=container,
-            background_job=replay,
-        )
-        callback_enabled = bool(replay.get("chatplayground_audit_callback_enabled")) or bool(
-            replay.get("chatplayground_audit_callback_only")
-        )
-        replay_callback = (
-            _build_chatplayground_audit_callback(container=container, principal_id=principal_id)
-            if callback_enabled
-            else None
-        )
-        _spawn_background_codex_worker(
-            response_id=response_id,
-            created_at=int(response_obj.get("created_at") or _now_unix()),
-            model=str(response_obj.get("model") or DEFAULT_PUBLIC_MODEL),
-            response_metadata=response_metadata,
-            instructions=response_obj.get("instructions") if isinstance(response_obj.get("instructions"), str) else None,
-            input_items=[dict(item) for item in stored.input_items],
-            reasoning=response_obj.get("reasoning"),
-            max_output_tokens=_requested_max_output_tokens_from_response(response_obj),
-            history_items=[dict(item) for item in stored.history_items],
-            prompt=str(replay.get("prompt") or ""),
-            messages=[dict(item) for item in list(replay.get("messages") or []) if isinstance(item, dict)],
-            supported_tools=[dict(item) for item in list(replay.get("supported_tools") or []) if isinstance(item, dict)],
-            chatplayground_audit_callback=replay_callback,
-            chatplayground_audit_callback_only=bool(replay.get("chatplayground_audit_callback_only")),
-            chatplayground_audit_principal_id=principal_id,
-            preferred_onemin_labels=tuple(
-                str(item or "").strip()
-                for item in list(replay.get("preferred_onemin_labels") or [])
-                if str(item or "").strip()
-            ),
-            principal_id=principal_id,
-            container=container,
-            background_job=replay,
-        )
-        return _StoredResponse(
-            response=refreshed_in_progress,
-            input_items=[dict(item) for item in stored.input_items],
-            history_items=[dict(item) for item in stored.history_items],
-            principal_id=stored.principal_id,
-            background_job=replay,
-        )
-
-
-def _load_response_for_runtime(
-    *,
-    response_id: str,
-    principal_id: str,
-    container: object | None = None,
-) -> _StoredResponse:
-    stored = _load_response(response_id=response_id, principal_id=principal_id, container=container)
-    return _ensure_background_response_progress(stored=stored, principal_id=principal_id, container=container)
-
-
-def _generate_upstream_text(
-    *,
-    prompt: str,
-    messages: list[dict[str, str]] | None = None,
-    requested_model: str,
-    max_output_tokens: int | None = None,
-    chatplayground_audit_callback: Callable[..., Any] | None = None,
-    chatplayground_audit_callback_only: bool = False,
-    chatplayground_audit_principal_id: str = "",
-    preferred_onemin_labels: tuple[str, ...] = (),
-    request_deadline_monotonic: float | None = None,
-) -> UpstreamResult:
-    try:
-        return generate_text(
-            prompt=prompt,
-            messages=messages,
-            requested_model=requested_model,
-            max_output_tokens=max_output_tokens,
-            chatplayground_audit_callback=chatplayground_audit_callback,
-            chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-            chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-            preferred_onemin_labels=preferred_onemin_labels,
-            request_deadline_monotonic=request_deadline_monotonic,
-        )
-    except ResponsesUpstreamError as exc:
-        raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"upstream_unavailable:{exc}") from exc
-
-
-def _tool_shim_generate_upstream_text_with_timeout(
-    *,
-    prompt: str,
-    messages: list[dict[str, str]] | None,
-    requested_model: str,
-    max_output_tokens: int | None,
-    chatplayground_audit_callback: Callable[..., Any] | None = None,
-    chatplayground_audit_callback_only: bool = False,
-    chatplayground_audit_principal_id: str = "",
-    preferred_onemin_labels: tuple[str, ...] = (),
-    request_deadline_monotonic: float | None = None,
-) -> UpstreamResult:
-    if request_deadline_monotonic is None:
-        return _generate_upstream_text(
-            prompt=prompt,
-            messages=messages,
-            requested_model=requested_model,
-            max_output_tokens=max_output_tokens,
-            chatplayground_audit_callback=chatplayground_audit_callback,
-            chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-            chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-            preferred_onemin_labels=preferred_onemin_labels,
-            request_deadline_monotonic=None,
-        )
-    timeout_seconds = max(1.0, request_deadline_monotonic - time.monotonic())
-    result_queue: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
-
-    def _run() -> None:
-        try:
-            result_queue.put(
-                (
-                    "result",
-                    _generate_upstream_text(
-                        prompt=prompt,
-                        messages=messages,
-                        requested_model=requested_model,
-                        max_output_tokens=max_output_tokens,
-                        chatplayground_audit_callback=chatplayground_audit_callback,
-                        chatplayground_audit_callback_only=chatplayground_audit_callback_only,
-                        chatplayground_audit_principal_id=chatplayground_audit_principal_id,
-                        preferred_onemin_labels=preferred_onemin_labels,
-                        request_deadline_monotonic=request_deadline_monotonic,
-                    ),
-                )
-            )
-        except Exception as exc:
-            result_queue.put(("error", exc))
-
-    worker = threading.Thread(target=_run, daemon=True)
-    worker.start()
-    try:
-        status, payload = result_queue.get(timeout=timeout_seconds)
-    except queue.Empty as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"upstream_unavailable:tool_shim_planner_timeout:{max(1, int(timeout_seconds))}s",
-        ) from exc
-    if status == "error":
-        failure = payload if isinstance(payload, Exception) else RuntimeError(str(payload))
-        raise failure
-    if isinstance(payload, UpstreamResult):
-        return payload
-    raise HTTPException(status_code=502, detail="upstream_unavailable:invalid_tool_shim_planner_result")
+    return store_background_terminal_response(
+        response_id=response_id,
+        principal_id=principal_id,
+        container=container,
+        response_obj=response_obj,
+        input_items=input_items,
+        history_items=history_items,
+        background_job=background_job,
+        background_response_transition_lock=_BACKGROUND_RESPONSE_TRANSITION_LOCK,
+        load_response=_load_response,
+        store_response=_store_response,
+        http_exception_type=HTTPException,
+        background_response_has_expired=_background_response_has_expired,
+        background_failed_response=_background_failed_response,
+        background_timeout_failure_message=_background_timeout_failure_message,
+    )
 
 
 @dataclass(frozen=True)
@@ -4348,397 +4232,81 @@ class _ToolShimDecision:
     upstream_result: UpstreamResult | None = None
 
 
-def _response_tools(payload: _ResponsesCreateRequest) -> list[dict[str, object]]:
-    raw_tools = getattr(payload, "tools", None)
-    if not isinstance(raw_tools, list):
-        return []
-    tools: list[dict[str, object]] = []
-    for entry in raw_tools:
-        if isinstance(entry, dict):
-            tools.append(dict(entry))
-    return tools
+_generate_upstream_text = lambda **kwargs: generate_upstream_text(
+    upstream_generate_text=generate_text,
+    responses_upstream_error_type=ResponsesUpstreamError,
+    http_exception_type=HTTPException,
+    **kwargs,
+)
+_tool_shim_generate_upstream_text_with_timeout = build_tool_shim_generate_upstream_text_with_timeout(
+    generate_upstream_text=lambda **kwargs: _generate_upstream_text(**kwargs),
+    upstream_result_type=UpstreamResult,
+    http_exception_type=HTTPException,
+)
+_response_tools = response_tools
+_tool_choice_disables_tools = tool_choice_disables_tools
+_tool_shim_supported_tools = build_tool_shim_supported_tools(
+    looks_like_lightweight_ops_query=_looks_like_lightweight_ops_query,
+)
+_history_items_for_request = lambda **kwargs: history_items_for_request(
+    load_response_for_runtime=lambda **inner: _load_response_for_runtime(**inner),
+    response_failure_message=lambda response_obj: _response_failure_message(response_obj),
+    http_exception_type=HTTPException,
+    **kwargs,
+)
+_tool_shim_transcript_max_chars = tool_shim_transcript_max_chars
+_tool_shim_transcript_part_max_chars = tool_shim_transcript_part_max_chars
+_tool_shim_planner_model = build_tool_shim_planner_model(
+    fast_public_model=str(FAST_PUBLIC_MODEL or ""),
+    hard_batch_public_model=str(HARD_BATCH_PUBLIC_MODEL or ""),
+    hard_rescue_public_model=str(HARD_RESCUE_PUBLIC_MODEL or ""),
+    review_light_public_model=str(REVIEW_LIGHT_PUBLIC_MODEL or ""),
+    groundwork_public_model=str(GROUNDWORK_PUBLIC_MODEL or ""),
+    survival_public_model=str(SURVIVAL_PUBLIC_MODEL or ""),
+    onemin_public_model=str(ONEMIN_PUBLIC_MODEL or ""),
+    is_staged_local_orientation_prompt=lambda prompt: _tool_shim_is_staged_local_orientation_prompt(prompt),
+    is_operator_fleet_unblock_prompt=lambda prompt: _tool_shim_is_operator_fleet_unblock_prompt(prompt),
+    is_operator_gap_fix_prompt=lambda prompt: _tool_shim_is_operator_gap_fix_prompt(prompt),
+    is_operator_gap_audit_prompt=lambda prompt: _tool_shim_is_operator_gap_audit_prompt(prompt),
+    is_operator_readiness_remedy_prompt=lambda prompt: _tool_shim_is_operator_readiness_remedy_prompt(prompt),
+    is_package_work_prompt=lambda prompt: _tool_shim_is_package_work_prompt(prompt),
+)
+_tool_shim_planner_max_output_tokens = tool_shim_planner_max_output_tokens
+_tool_shim_planner_deadline_monotonic = build_tool_shim_planner_deadline_monotonic(
+    is_package_work_prompt=lambda prompt: _tool_shim_is_package_work_prompt(prompt),
+    is_staged_local_orientation_prompt=lambda prompt: _tool_shim_is_staged_local_orientation_prompt(prompt),
+    is_operator_fleet_unblock_prompt=lambda prompt: _tool_shim_is_operator_fleet_unblock_prompt(prompt),
+    is_operator_gap_fix_prompt=lambda prompt: _tool_shim_is_operator_gap_fix_prompt(prompt),
+    is_operator_gap_audit_prompt=lambda prompt: _tool_shim_is_operator_gap_audit_prompt(prompt),
+    is_operator_readiness_remedy_prompt=lambda prompt: _tool_shim_is_operator_readiness_remedy_prompt(prompt),
+)
 
 
-def _tool_choice_disables_tools(payload: _ResponsesCreateRequest) -> bool:
-    raw_tool_choice = getattr(payload, "tool_choice", None)
-    if raw_tool_choice is None:
-        return False
-    if isinstance(raw_tool_choice, str):
-        return raw_tool_choice.strip().lower() == "none"
-    if isinstance(raw_tool_choice, dict):
-        tool_choice_type = str(raw_tool_choice.get("type") or "").strip().lower()
-        return tool_choice_type == "none"
-    return False
+_tool_shim_truncate_text = tool_shim_truncate_text
+_tool_shim_tool_parameters_summary = tool_shim_tool_parameters_summary
+_history_item_to_transcript = build_history_item_to_transcript(
+    normalize_message_role=lambda role: _normalize_message_role(role),
+    extract_textish=lambda value: _extract_textish(value),
+    tool_shim_truncate_text=lambda text, *, limit: _tool_shim_truncate_text(text, limit=limit),
+    transcript_part_max_chars=lambda: _tool_shim_transcript_part_max_chars(),
+)
+_tool_shim_latest_user_text = build_tool_shim_latest_user_text(
+    normalize_message_role=lambda role: _normalize_message_role(role),
+    extract_textish=lambda value: _extract_textish(value),
+)
+_tool_shim_latest_package_work_prompt = build_tool_shim_latest_package_work_prompt(
+    normalize_message_role=lambda role: _normalize_message_role(role),
+    extract_textish=lambda value: _extract_textish(value),
+    is_package_work_prompt=lambda text: _tool_shim_is_package_work_prompt(text),
+    tool_shim_staged_commands=lambda text: _tool_shim_staged_commands(text),
+)
 
 
-def _tool_shim_supported_tools(
-    raw_tools: list[dict[str, object]],
-    *,
-    prompt: str | None = None,
-) -> list[dict[str, object]]:
-    supported: list[dict[str, object]] = []
-    for tool in raw_tools:
-        tool_type = str(tool.get("type") or "").strip().lower()
-        if tool_type != "function":
-            continue
-        name = str(tool.get("name") or "").strip()
-        parameters = tool.get("parameters")
-        if not name or not isinstance(parameters, dict):
-            continue
-        supported.append(
-            {
-                "name": name,
-                "description": str(tool.get("description") or "").strip(),
-                "parameters": parameters,
-            }
-        )
-    lightweight_ops, _ = _looks_like_lightweight_ops_query(prompt or "")
-    if lightweight_ops:
-        preferred_names = (
-            "exec_command",
-            "write_stdin",
-            "read_mcp_resource",
-            "list_mcp_resources",
-        )
-        narrowed = [tool for name in preferred_names for tool in supported if tool["name"] == name]
-        if narrowed:
-            return narrowed
-    return supported
-
-
-def _history_items_for_request(
-    *,
-    previous_response_id: str | None = None,
-    parsed_input: _ParsedResponseInput,
-    principal_id: str,
-    container: object | None = None,
-) -> list[dict[str, object]]:
-    history: list[dict[str, object]] = []
-    if previous_response_id:
-        stored = _load_response_for_runtime(
-            response_id=previous_response_id,
-            principal_id=principal_id,
-            container=container,
-        )
-        previous_status = str(stored.response.get("status") or "").strip().lower()
-        if previous_status == "in_progress":
-            raise HTTPException(status_code=409, detail="previous_response_in_progress")
-        if previous_status == "failed":
-            failure_message = _response_failure_message(dict(stored.response))
-            detail = "previous_response_failed"
-            if failure_message:
-                detail = f"{detail}:{failure_message}"
-            raise HTTPException(status_code=409, detail=detail)
-        history.extend(dict(item) for item in stored.history_items)
-    history.extend(dict(item) for item in parsed_input.input_items)
-    return history
-
-
-def _tool_shim_transcript_max_chars() -> int:
-    raw = str(os.environ.get("EA_TOOL_SHIM_TRANSCRIPT_MAX_CHARS") or "4000").strip() or "4000"
-    try:
-        return max(800, min(32000, int(raw)))
-    except Exception:
-        return 4000
-
-
-def _tool_shim_transcript_part_max_chars() -> int:
-    raw = str(os.environ.get("EA_TOOL_SHIM_TRANSCRIPT_PART_MAX_CHARS") or "1200").strip() or "1200"
-    try:
-        return max(200, min(8000, int(raw)))
-    except Exception:
-        return 1200
-
-
-def _tool_shim_planner_model(model: str, *, prompt: str | None = None) -> str:
-    configured = str(os.environ.get("EA_TOOL_SHIM_PLANNER_MODEL") or "").strip()
-    if configured:
-        return configured
-    normalized_prompt = str(prompt or "").strip()
-    if (
-        _tool_shim_is_staged_local_orientation_prompt(normalized_prompt)
-        or _tool_shim_is_operator_fleet_unblock_prompt(normalized_prompt)
-        or _tool_shim_is_operator_gap_fix_prompt(normalized_prompt)
-        or _tool_shim_is_operator_gap_audit_prompt(normalized_prompt)
-        or _tool_shim_is_operator_readiness_remedy_prompt(normalized_prompt)
-        or _tool_shim_is_package_work_prompt(normalized_prompt)
-    ):
-        fast_planner = str(FAST_PUBLIC_MODEL or "").strip() or "ea-coder-fast"
-        if fast_planner:
-            return fast_planner
-    normalized = str(model or "").strip().lower()
-    if not normalized:
-        return "onemin:gpt-4.1-nano"
-    managed_lane_models = {
-        str(HARD_BATCH_PUBLIC_MODEL or "").strip().lower(): str(HARD_BATCH_PUBLIC_MODEL or "").strip(),
-        str(HARD_RESCUE_PUBLIC_MODEL or "").strip().lower(): str(HARD_RESCUE_PUBLIC_MODEL or "").strip(),
-        str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip().lower(): str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip(),
-        str(GROUNDWORK_PUBLIC_MODEL or "").strip().lower(): str(GROUNDWORK_PUBLIC_MODEL or "").strip(),
-        str(SURVIVAL_PUBLIC_MODEL or "").strip().lower(): str(SURVIVAL_PUBLIC_MODEL or "").strip(),
-        "ea-coder-hard": "ea-coder-hard",
-        "ea-coder-hard-batch": str(HARD_BATCH_PUBLIC_MODEL or "").strip() or "ea-coder-hard-batch",
-        "ea-coder-hard-rescue": str(HARD_RESCUE_PUBLIC_MODEL or "").strip() or "ea-coder-hard-rescue",
-        "ea-audit-jury": "ea-audit-jury",
-        "ea-review-light": str(REVIEW_LIGHT_PUBLIC_MODEL or "").strip() or "ea-review-light",
-        "ea-groundwork-gemini": str(GROUNDWORK_PUBLIC_MODEL or "").strip() or "ea-groundwork-gemini",
-        "ea-coder-survival": str(SURVIVAL_PUBLIC_MODEL or "").strip() or "ea-coder-survival",
-    }
-    managed_match = str(managed_lane_models.get(normalized) or "").strip()
-    if managed_match:
-        return managed_match
-    if normalized == str(ONEMIN_PUBLIC_MODEL or "").strip().lower() or normalized.startswith("onemin:"):
-        return "onemin:gpt-4.1-nano"
-    if normalized.startswith("ea-"):
-        return "onemin:gpt-4.1-nano"
-    return model
-
-
-def _tool_shim_planner_max_output_tokens(max_output_tokens: int | None) -> int:
-    if max_output_tokens is None:
-        return 256
-    try:
-        value = int(max_output_tokens)
-    except Exception:
-        return 256
-    return max(96, min(256, value))
-
-
-def _tool_shim_planner_deadline_monotonic(
-    request_deadline_monotonic: float | None,
-    *,
-    prompt: str | None = None,
-) -> float | None:
-    if request_deadline_monotonic is None:
-        return None
-    normalized_prompt = str(prompt or "").strip()
-    if not normalized_prompt:
-        return request_deadline_monotonic
-    deadline_budget_seconds = 0.0
-    if _tool_shim_is_package_work_prompt(normalized_prompt):
-        deadline_budget_seconds = 75.0
-    elif (
-        _tool_shim_is_staged_local_orientation_prompt(normalized_prompt)
-        or _tool_shim_is_operator_fleet_unblock_prompt(normalized_prompt)
-        or _tool_shim_is_operator_gap_fix_prompt(normalized_prompt)
-        or _tool_shim_is_operator_gap_audit_prompt(normalized_prompt)
-        or _tool_shim_is_operator_readiness_remedy_prompt(normalized_prompt)
-    ):
-        deadline_budget_seconds = 30.0
-    if deadline_budget_seconds <= 0:
-        return request_deadline_monotonic
-    return min(request_deadline_monotonic, time.monotonic() + deadline_budget_seconds)
-
-
-def _tool_shim_truncate_text(text: str, *, limit: int) -> str:
-    value = str(text or "")
-    if limit <= 0 or len(value) <= limit:
-        return value
-    if limit <= 96:
-        return value[:limit]
-    spacer = "\n\n[... omitted for compact audit transport ...]\n\n"
-    remaining = limit - len(spacer)
-    if remaining <= 32:
-        return value[:limit]
-    head = remaining // 2
-    tail = remaining - head
-    return f"{value[:head]}{spacer}{value[-tail:]}".strip()
-
-
-def _tool_shim_tool_parameters_summary(parameters: object) -> dict[str, object]:
-    if not isinstance(parameters, dict):
-        return {}
-    summary: dict[str, object] = {}
-    parameter_type = str(parameters.get("type") or "").strip()
-    if parameter_type:
-        summary["type"] = parameter_type
-    properties = parameters.get("properties")
-    if isinstance(properties, dict):
-        parameter_keys = [str(key or "").strip() for key in properties.keys() if str(key or "").strip()]
-        if parameter_keys:
-            summary["parameter_keys"] = parameter_keys[:24]
-    required = parameters.get("required")
-    if isinstance(required, list):
-        required_keys = [str(key or "").strip() for key in required if str(key or "").strip()]
-        if required_keys:
-            summary["required"] = required_keys[:24]
-    return summary
-
-
-def _history_item_to_transcript(item: dict[str, object], *, include_system: bool = True, compact: bool = False) -> str:
-    item_type = str(item.get("type") or "").strip().lower()
-    if item_type == "message":
-        role = _normalize_message_role(item.get("role"))
-        if role == "system" and not include_system:
-            return ""
-        content = item.get("content")
-        text = ""
-        if isinstance(content, list):
-            text = "\n\n".join(
-                _extract_textish(part.get("text"))
-                for part in content
-                if isinstance(part, dict) and _extract_textish(part.get("text"))
-            ).strip()
-        else:
-            text = _extract_textish(content)
-        if not text:
-            return ""
-        if compact:
-            text = _tool_shim_truncate_text(text, limit=_tool_shim_transcript_part_max_chars())
-        return f"{role.capitalize()}:\n{text}"
-    if item_type == "input_text":
-        text = _extract_textish(item.get("text"))
-        if compact:
-            text = _tool_shim_truncate_text(text, limit=_tool_shim_transcript_part_max_chars())
-        return f"User:\n{text}" if text else ""
-    if item_type == "function_call":
-        name = str(item.get("name") or "").strip()
-        call_id = str(item.get("call_id") or "").strip()
-        arguments = str(item.get("arguments") or "").strip()
-        if not name:
-            return ""
-        if compact:
-            arguments = _tool_shim_truncate_text(arguments, limit=_tool_shim_transcript_part_max_chars())
-        return (
-            f"Assistant tool call ({call_id or 'no-call-id'})\n"
-            f"Tool: {name}\n"
-            f"Arguments: {arguments}"
-        ).strip()
-    if item_type == "function_call_output":
-        call_id = str(item.get("call_id") or "").strip()
-        output_text = _extract_textish(item.get("output"))
-        if compact:
-            output_text = _tool_shim_truncate_text(output_text, limit=_tool_shim_transcript_part_max_chars())
-        return (
-            f"Tool output ({call_id or 'no-call-id'}):\n{output_text}"
-        ).strip()
-    return ""
-
-
-def _tool_shim_latest_user_text(history_items: list[dict[str, object]]) -> str:
-    for item in reversed(history_items):
-        item_type = str(item.get("type") or "").strip().lower()
-        if item_type == "input_text":
-            text = _extract_textish(item.get("text"))
-            if text:
-                return text
-            continue
-        if item_type != "message":
-            continue
-        role = _normalize_message_role(item.get("role"))
-        if role != "user":
-            continue
-        content = item.get("content")
-        if isinstance(content, list):
-            text = "\n\n".join(
-                _extract_textish(part.get("text"))
-                for part in content
-                if isinstance(part, dict) and _extract_textish(part.get("text"))
-            ).strip()
-        else:
-            text = _extract_textish(content)
-        if text:
-            return text
-    return ""
-
-
-def _tool_shim_latest_package_work_prompt(history_items: list[dict[str, object]]) -> str:
-    for item in reversed(history_items):
-        item_type = str(item.get("type") or "").strip().lower()
-        if item_type == "input_text":
-            text = _extract_textish(item.get("text"))
-            if text and (_tool_shim_is_package_work_prompt(text) or _tool_shim_staged_commands(text)):
-                return text
-            continue
-        if item_type != "message":
-            continue
-        role = _normalize_message_role(item.get("role"))
-        if role != "user":
-            continue
-        content = item.get("content")
-        if isinstance(content, list):
-            text = "\n\n".join(
-                _extract_textish(part.get("text"))
-                for part in content
-                if isinstance(part, dict) and _extract_textish(part.get("text"))
-            ).strip()
-        else:
-            text = _extract_textish(content)
-        if text and (_tool_shim_is_package_work_prompt(text) or _tool_shim_staged_commands(text)):
-            return text
-    return ""
-
-
-def _tool_shim_is_staged_local_orientation_prompt(text: str) -> bool:
-    prompt = str(text or "")
-    if not prompt:
-        return False
-    return any(
-        marker in prompt
-        for marker in (
-            "Run these exact commands first:",
-            "Safe first commands if you need orientation",
-            "Read these files directly first:",
-            "Read from disk before coding:",
-        )
-    )
-
-
-def _tool_shim_is_operator_fleet_unblock_prompt(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    return (
-        "operator-prepared fleet unblock context:" in normalized
-        or (
-            "scope: patch only the codexea shim, ea endpoints, and the 1min manager." in normalized
-            and "do not work shard backlog content" in normalized
-        )
-    )
-
-
-def _tool_shim_is_package_work_prompt(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    return any(
-        marker in normalized
-        for marker in (
-            "operator-prepared fleet unblock context:",
-            "active slice override",
-            "system re-entry.",
-            "read from disk before coding:",
-            "then inspect the current repository state before changing anything.",
-            "current slice:",
-            "owner repo for this pass:",
-            "package scope:",
-            "isolated worktree:",
-            "allowed paths:",
-            "denied paths:",
-            "owned surfaces:",
-            "spider routing notes:",
-            "unread feedback files to incorporate in order:",
-        )
-    )
-
-
-def _tool_shim_is_operator_readiness_remedy_prompt(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    return (
-        "operator-prepared readiness remedy context:" in normalized
-        or (
-            "scope: patch only the targeted product proof surface implied by the prompt." in normalized
-            and "stay on product proof generation, verification" in normalized
-        )
-    )
-
-
-def _tool_shim_is_operator_gap_audit_prompt(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    return "operator-prepared gap audit context:" in normalized
+_tool_shim_is_staged_local_orientation_prompt = tool_shim_is_staged_local_orientation_prompt
+_tool_shim_is_operator_fleet_unblock_prompt = tool_shim_is_operator_fleet_unblock_prompt
+_tool_shim_is_package_work_prompt = tool_shim_is_package_work_prompt
+_tool_shim_is_operator_readiness_remedy_prompt = tool_shim_is_operator_readiness_remedy_prompt
+_tool_shim_is_operator_gap_audit_prompt = tool_shim_is_operator_gap_audit_prompt
 
 
 def _tool_shim_is_operator_ui_parity_audit_prompt(text: str) -> bool:
@@ -4755,1255 +4323,197 @@ def _tool_shim_is_operator_parity_build_prompt(text: str) -> bool:
     return "operator-prepared parity build context:" in normalized
 
 
-def _tool_shim_is_operator_gap_fix_prompt(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    return "operator-prepared gap fix context:" in normalized
+_tool_shim_is_operator_gap_fix_prompt = tool_shim_is_operator_gap_fix_prompt
 
 
-def _tool_shim_is_operator_fleet_unblock_context(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-) -> bool:
-    if _tool_shim_is_operator_fleet_unblock_prompt(latest_user_text):
-        return True
-    if _tool_shim_is_package_work_prompt(latest_user_text):
-        return False
-    commands = _tool_shim_exec_command_history(history_items)
-    saw_shim_hotspot = any(
-        "/docker/fleet/scripts/codex-shims/codexea" in command
-        or "/docker/fleet/scripts/codex-shims/python3" in command
-        for command in commands
-    )
-    saw_ea_hotspot = any(
-        "/docker/EA/ea/app/api/routes/responses.py" in command
-        or "/docker/EA/ea/app/services/onemin_manager.py" in command
-        or "/docker/EA/ea/app/services/responses_upstream.py" in command
-        for command in commands
-    )
-    if saw_shim_hotspot and saw_ea_hotspot:
-        return True
-    return False
+_tool_shim_is_operator_fleet_unblock_context = build_tool_shim_is_operator_fleet_unblock_context(
+    is_operator_fleet_unblock_prompt=lambda text: _tool_shim_is_operator_fleet_unblock_prompt(text),
+    is_package_work_prompt=lambda text: _tool_shim_is_package_work_prompt(text),
+    tool_shim_exec_command_history=lambda history_items: _tool_shim_exec_command_history(history_items),
+)
 
 
-def _tool_shim_transcript_limit_for_prompt(text: str) -> int:
-    default_limit = _tool_shim_transcript_max_chars()
-    if _tool_shim_is_operator_fleet_unblock_prompt(text):
-        return max(1200, min(default_limit, 1800))
-    if _tool_shim_is_operator_readiness_remedy_prompt(text):
-        return max(1400, min(default_limit, 2200))
-    if _tool_shim_is_staged_local_orientation_prompt(text):
-        return max(1400, min(default_limit, 2600))
-    return default_limit
+_tool_shim_transcript_limit_for_prompt = build_tool_shim_transcript_limit_for_prompt(
+    tool_shim_transcript_max_chars=lambda: _tool_shim_transcript_max_chars(),
+    is_operator_fleet_unblock_prompt=lambda text: _tool_shim_is_operator_fleet_unblock_prompt(text),
+    is_operator_readiness_remedy_prompt=lambda text: _tool_shim_is_operator_readiness_remedy_prompt(text),
+    is_staged_local_orientation_prompt=lambda text: _tool_shim_is_staged_local_orientation_prompt(text),
+)
+_tool_shim_compact_operator_prompt_for_planner = build_tool_shim_compact_operator_prompt_for_planner(
+    is_operator_fleet_unblock_prompt=lambda text: _tool_shim_is_operator_fleet_unblock_prompt(text),
+)
+_tool_shim_compact_readiness_prompt_for_planner = build_tool_shim_compact_readiness_prompt_for_planner(
+    is_operator_readiness_remedy_prompt=lambda text: _tool_shim_is_operator_readiness_remedy_prompt(text),
+)
 
 
-def _tool_shim_compact_operator_prompt_for_planner(text: str) -> str:
-    prompt = str(text or "")
-    if not _tool_shim_is_operator_fleet_unblock_prompt(prompt):
-        return prompt
-    marker = "\n\nPrepared repo context:\n"
-    marker_index = prompt.find(marker)
-    if marker_index < 0:
-        return prompt
-    before = prompt[:marker_index].rstrip()
-    after = prompt[marker_index + len(marker):]
-    snapshot_marker = "\n\nLive fleet snapshot:\n"
-    snapshot_index = after.find(snapshot_marker)
-    prepared_block = after[:snapshot_index] if snapshot_index >= 0 else after
-    tail = after[snapshot_index:] if snapshot_index >= 0 else ""
-    prepared_lines = [line.strip() for line in prepared_block.splitlines() if line.strip()]
-    command_lines = [line for line in prepared_lines if line.startswith("$ ")]
-    interesting_lines: list[str] = []
-    for line in prepared_lines:
-        if line.startswith("$ git -C "):
-            interesting_lines.append(line)
-        elif "file changed" in line or "insertions(" in line or "deletions(" in line:
-            interesting_lines.append(line)
-        elif line.startswith("$ rg -n "):
-            interesting_lines.append(line)
-        if len(interesting_lines) >= 8:
-            break
-    summary_lines = [
-        "Prepared repo context summary:",
-        f"- Bootstrap context was already captured from {len(command_lines)} local commands.",
-        "- Avoid rerunning broad orientation reads unless a narrower line window is missing.",
-    ]
-    if interesting_lines:
-        summary_lines.extend(interesting_lines)
-    return "\n\n".join(
-        part
-        for part in (
-            before,
-            "\n".join(summary_lines).strip(),
-            tail.strip(),
-        )
-        if str(part or "").strip()
-    ).strip()
-
-
-def _tool_shim_compact_readiness_prompt_for_planner(text: str) -> str:
-    prompt = str(text or "")
-    if not _tool_shim_is_operator_readiness_remedy_prompt(prompt):
-        return prompt
-    marker = "\n\nPrepared repo context:\n"
-    marker_index = prompt.find(marker)
-    if marker_index < 0:
-        return prompt
-    before = prompt[:marker_index].rstrip()
-    after = prompt[marker_index + len(marker):]
-    objective_marker = "\n\nObjective:\n"
-    objective_index = after.find(objective_marker)
-    prepared_block = after[:objective_index] if objective_index >= 0 else after
-    tail = after[objective_index:] if objective_index >= 0 else ""
-    prepared_lines = [line.strip() for line in prepared_block.splitlines() if line.strip()]
-    command_lines = [line for line in prepared_lines if line.startswith("$ ")]
-    interesting_lines: list[str] = []
-    for line in prepared_lines:
-        if (
-            "fail:" in line.lower()
-            or "trace is missing" in line.lower()
-            or "used_internal_apis=false" in line.lower()
-            or "tester_shard_id" in line
-            or line.startswith("$ git -C ")
-            or "file changed" in line
-            or "insertions(" in line
-            or "deletions(" in line
-        ):
-            interesting_lines.append(line)
-        if len(interesting_lines) >= 10:
-            break
-    summary_lines = [
-        "Prepared repo context summary:",
-        f"- Bootstrap context was already captured from {len(command_lines)} local commands.",
-        "- Avoid rerunning the broad readiness bootstrap unless a narrower line window is missing.",
-    ]
-    if interesting_lines:
-        summary_lines.extend(interesting_lines)
-    return "\n\n".join(
-        part
-        for part in (
-            before,
-            "\n".join(summary_lines).strip(),
-            tail.strip(),
-        )
-        if str(part or "").strip()
-    ).strip()
-
-
-def _tool_shim_operator_unblock_scope_rejection_reason(
-    *,
-    latest_user_text: str,
-    cmd: str,
-    history_items: list[dict[str, object]] | None = None,
-) -> str | None:
-    if not _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items or []):
-        return None
-    allowed_exact_paths = {
-        "/docker/fleet/WORKLIST.md",
-        "/docker/fleet/README.md",
-    }
-    allowed_prefixes = (
-        "/docker/fleet/scripts/codex-shims/",
-        "/docker/fleet/tests/",
-        "/docker/EA/ea/app/",
-        "/docker/EA/tests/",
-    )
-    allowed_shard_artifact_suffixes = (
-        "/WORKER_EXEC_TRACE_PROMPT.md",
-        "/worker.stderr.log",
-        "/TASK_LOCAL_TELEMETRY.generated.json",
-        "/TASK_RUNTIME_HANDOFF.generated.json",
-    )
-    shard_state_paths = re.findall(
-        r"((?:/docker/fleet/state|/var/lib/codex-fleet)/chummer_design_supervisor/shard-[^ \t\n'\"`]+)",
-        cmd,
-    )
-    for shard_state_path in shard_state_paths:
-        normalized_path = str(shard_state_path or "").strip()
-        if not normalized_path:
-            continue
-        if any(normalized_path.endswith(suffix) for suffix in allowed_shard_artifact_suffixes):
-            continue
-        return (
-            "This operator fleet-unblock run may inspect only shard-run prompt/log artifacts needed to "
-            "reproduce the live worker path. Do not inspect broader shard state or backlog content under "
-            "`/docker/fleet/state/chummer_design_supervisor/shard-*`."
-        )
-    allowed_git_roots: set[str] = set()
-    for raw_git_command in [part.strip() for part in cmd.split(";") if str(part).strip()]:
-        git_path_command = raw_git_command.split("|", 1)[0].strip()
-        git_root_match = re.search(r"^git\s+-C\s+(/[^ \t]+)", git_path_command)
-        if not git_root_match:
-            continue
-        git_root = str(git_root_match.group(1) or "").strip()
-        if not git_root:
-            continue
-        allowed_git_roots.add(git_root)
-        git_path_args = re.findall(r"(?:^|\s)--\s+(.+)$", git_path_command)
-        rel_paths = []
-        if git_path_args:
-            rel_paths = [
-                token
-                for token in shlex.split(git_path_args[-1])
-                if token and not token.startswith("-")
-            ]
-        if git_root == "/docker/EA":
-            if any(not (path.startswith("ea/app/") or path.startswith("tests/")) for path in rel_paths):
-                return (
-                    "This operator fleet-unblock run is scoped to EA endpoint and 1min-manager code only. "
-                    "Do not inspect or diff top-level EA task docs such as `TASKS_WORK_LOG.md` or `MILESTONE.json`."
-                )
-        if git_root == "/docker/fleet":
-            if any(
-                path not in {"WORKLIST.md", "README.md"}
-                and not path.startswith("scripts/codex-shims/")
-                and not path.startswith("tests/")
-                for path in rel_paths
-            ):
-                return (
-                    "This operator fleet-unblock run is scoped to the codexea shim and Fleet unblock helpers only. "
-                    "Do not inspect or diff repo worklists, published artifacts, or other non-shim Fleet content."
-                )
-    command_paths = [
-        str(match or "").strip()
-        for match in re.findall(r"(/[A-Za-z0-9._/\-]+)", cmd)
-        if str(match or "").strip()
-    ]
-    for path_text in command_paths:
-        if path_text in allowed_git_roots:
-            continue
-        if path_text in allowed_exact_paths or any(path_text.startswith(prefix) for prefix in allowed_prefixes):
-            continue
-        if path_text.startswith("/docker/fleet/state/chummer_design_supervisor/shard-") and any(
-            path_text.endswith(suffix) for suffix in allowed_shard_artifact_suffixes
-        ):
-            continue
-        if path_text.startswith("/var/lib/codex-fleet/chummer_design_supervisor/shard-") and any(
-            path_text.endswith(suffix) for suffix in allowed_shard_artifact_suffixes
-        ):
-            continue
-        if path_text.startswith("/docker/EA/") or path_text.startswith("/docker/fleet/"):
-            return (
-                "This operator fleet-unblock run may read only the codexea shim, Fleet unblock tests, "
-                "EA endpoint/1min-manager code, exact Fleet orientation files, and matching shard-run artifacts."
-            )
-    blocked_roots = (
-        "/docker/chummercomplete/",
-        "/docker/fleet/.codex-studio/",
-        "/docker/fleet/state/chummer_design_supervisor/shard-",
-        "/var/lib/codex-fleet/chummer_design_supervisor/shard-",
-    )
-    for root in blocked_roots:
-        if root in {
-            "/docker/fleet/state/chummer_design_supervisor/shard-",
-            "/var/lib/codex-fleet/chummer_design_supervisor/shard-",
-        } and shard_state_paths:
-            disallowed = [
-                path
-                for path in shard_state_paths
-                if not any(str(path or "").strip().endswith(suffix) for suffix in allowed_shard_artifact_suffixes)
-            ]
-            if not disallowed:
-                continue
-        if root in cmd:
-            return (
-                "This operator fleet-unblock run is scoped to the codexea shim, EA endpoints, "
-                "and the 1min manager. Do not inspect shard content, backlog artifacts, or "
-                f"product repos under `{root}`. Stay within `/docker/fleet/scripts/codex-shims/`, "
-                "`/docker/fleet/tests/`, `/docker/EA/ea/app/`, `/docker/EA/tests/`, or direct "
-                "`ea-api` verification commands."
-            )
-    git_cwd_match = re.search(r"(?:^|\\s)-C\\s+(/[^ \\t]+)", cmd)
-    if git_cwd_match:
-        git_cwd = str(git_cwd_match.group(1) or "").strip()
-        if git_cwd.startswith("/docker/chummercomplete/"):
-            return (
-                "This operator fleet-unblock run must not pivot into `/docker/chummercomplete/*` repos. "
-                "Use `/docker/fleet` or `/docker/EA` targets only for unblock-path diagnosis and verification."
-            )
-    return None
-
-
-def _tool_shim_unwrap_tool_output_envelope(output_text: str) -> str:
-    stripped = str(output_text or "").strip()
-    if not stripped:
-        return ""
-    output_marker = "\nOutput:\n"
-    if output_marker in stripped:
-        return stripped.rsplit(output_marker, 1)[1].strip()
-    succeeded_match = re.search(r"\nsucceeded in [^\n]*:\n(?P<body>.*)\Z", stripped, flags=re.DOTALL)
-    if succeeded_match:
-        return str(succeeded_match.group("body") or "").strip()
-    return stripped
-
-
-def _tool_shim_latest_function_output(history_items: list[dict[str, object]]) -> str:
-    for item in reversed(history_items):
-        item_type = str(item.get("type") or "").strip().lower()
-        if item_type != "function_call_output":
-            continue
-        output_text = _tool_shim_unwrap_tool_output_envelope(_extract_textish(item.get("output")))
-        if output_text:
-            return output_text
-    return ""
-
-
-def _tool_shim_requires_immediate_tool(
-    *,
-    latest_user_text: str,
-    available_tools: list[dict[str, object]],
-) -> bool:
-    if not available_tools:
-        return False
-    prompt = str(latest_user_text or "").strip()
-    if not prompt:
-        return False
-    lightweight_ops, _ = _looks_like_lightweight_ops_query(prompt)
-    if lightweight_ops:
-        return True
-    normalized = " ".join(prompt.lower().split())
-    if len(normalized) > 220:
-        return False
-    if not (
-        "?" in normalized
-        or normalized.startswith(("how many ", "what ", "which ", "is ", "are ", "eta ", "status "))
-    ):
-        return False
-    local_markers = (
-        "right now",
-        "currently",
-        "current ",
-        "in the fleet",
-        "in this repo",
-        "in the repo",
-        "in the workspace",
-        "local ",
-    )
-    return any(marker in normalized for marker in local_markers)
-
-
-def _tool_shim_local_upstream_result(text: str, *, reason: str) -> UpstreamResult:
-    return UpstreamResult(
-        text=text,
-        provider_key="local",
-        model="tool_shim_local",
-        provider_key_slot=None,
-        provider_backend="local",
-        provider_account_name="tool_shim_local",
-        tokens_in=0,
-        tokens_out=0,
-        upstream_model="tool_shim_local",
-        latency_ms=0,
-        fallback_reason=reason,
-    )
-
-
-def _tool_shim_scalar_text(value: object) -> str | None:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (str, int, float)):
-        return str(value)
-    if value is None:
-        return None
-    if isinstance(value, list) and len(value) == 1:
-        return _tool_shim_scalar_text(value[0])
-    if isinstance(value, dict):
-        preferred_keys = ("output", "stdout", "text", "result", "value", "content", "message")
-        for key in preferred_keys:
-            if key in value:
-                scalar = _tool_shim_scalar_text(value.get(key))
-                if scalar is not None:
-                    return scalar
-        if len(value) == 1:
-            only_value = next(iter(value.values()))
-            return _tool_shim_scalar_text(only_value)
-    return None
-
-
-def _tool_shim_gap_audit_final_text(summary: dict[str, object]) -> str | None:
-    if str(summary.get("probe_kind") or "").strip().lower() != "gap_audit":
-        return None
-    findings = summary.get("findings")
-    if not isinstance(findings, list):
-        return None
-    notes = summary.get("notes")
-    note_rows = [str(item).strip() for item in notes if str(item).strip()] if isinstance(notes, list) else []
-    lines: list[str] = []
-    if findings:
-        lines.append("Gap audit findings:")
-        for index, item in enumerate(findings[:6], start=1):
-            if not isinstance(item, dict):
-                continue
-            severity = str(item.get("severity") or "info").strip().upper()
-            category = str(item.get("category") or "gap").strip()
-            summary_text = str(item.get("summary") or "").strip()
-            path = str(item.get("path") or "").strip()
-            detail = str(item.get("detail") or "").strip()
-            segment = f"{index}. {severity} {category}: {summary_text}"
-            if path:
-                segment += f" [{path}]"
-            if detail:
-                segment += f" {detail}"
-            lines.append(segment)
-    if note_rows:
-        lines.append("Notes:")
-        for note in note_rows[:3]:
-            lines.append(f"- {note}")
-    if not lines:
-        return None
-    return "\n".join(lines)
-
-
-def _tool_shim_ui_parity_audit_final_text(summary: dict[str, object]) -> str | None:
-    if str(summary.get("probe_kind") or "").strip().lower() != "ui_parity_audit":
-        return None
-    total_elements = int(summary.get("total_elements") or 0)
-    visual_yes = int(summary.get("visual_yes_count") or 0)
-    visual_no = int(summary.get("visual_no_count") or 0)
-    behavioral_yes = int(summary.get("behavioral_yes_count") or 0)
-    behavioral_no = int(summary.get("behavioral_no_count") or 0)
-    extras_present = int(summary.get("chummer6_only_extra_present_count") or 0)
-    removable_extras = int(summary.get("removable_extra_present_count") or 0)
-    report_json_path = str(summary.get("report_json_path") or "").strip()
-    report_markdown_path = str(summary.get("report_markdown_path") or "").strip()
-    coverage_gap_keys = [str(item).strip() for item in (summary.get("coverage_gap_keys") or []) if str(item).strip()]
-    findings = summary.get("findings") if isinstance(summary.get("findings"), list) else []
-    notes = [str(item).strip() for item in (summary.get("notes") or []) if str(item).strip()]
-    lines = [
-        "UI parity audit result:",
-        f"- total_elements={total_elements}",
-        f"- visual_yes_no={visual_yes}/{visual_no}",
-        f"- behavioral_yes_no={behavioral_yes}/{behavioral_no}",
-        f"- chummer6_only_extras_present={extras_present}",
-        f"- removable_extras_present={removable_extras}",
-    ]
-    if coverage_gap_keys:
-        lines.append(f"- coverage_gap_keys={coverage_gap_keys}")
-    if report_json_path:
-        lines.append(f"- report_json={report_json_path}")
-    if report_markdown_path:
-        lines.append(f"- report_markdown={report_markdown_path}")
-    if findings:
-        lines.append("Top findings:")
-        for index, item in enumerate(findings[:8], start=1):
-            if not isinstance(item, dict):
-                continue
-            severity = str(item.get("severity") or "info").strip().upper()
-            category = str(item.get("category") or "gap").strip()
-            summary_text = str(item.get("summary") or "").strip()
-            detail = str(item.get("detail") or "").strip()
-            segment = f"{index}. {severity} {category}: {summary_text}"
-            if detail:
-                segment += f" {detail}"
-            lines.append(segment)
-    if notes:
-        lines.append("Notes:")
-        for note in notes[:3]:
-            lines.append(f"- {note}")
-    return "\n".join(lines)
-
-
-def _tool_shim_parity_build_final_text(summary: dict[str, object]) -> str | None:
-    if str(summary.get("probe_kind") or "").strip().lower() != "parity_build":
-        return None
-    release_version = str(summary.get("release_version") or "").strip()
-    applied_steps = [str(item).strip() for item in (summary.get("applied_steps") or []) if str(item).strip()]
-    parity_report_path = str(summary.get("parity_report_path") or "").strip()
-    parity_summary = summary.get("parity_summary") if isinstance(summary.get("parity_summary"), dict) else {}
-    remaining_findings = summary.get("remaining_findings") if isinstance(summary.get("remaining_findings"), list) else []
-    lines = ["Parity build result:"]
-    if release_version:
-        lines.append(f"- release_version={release_version}")
-    if applied_steps:
-        lines.append("Applied:")
-        for step in applied_steps[:10]:
-            lines.append(f"- {step}")
-    if parity_summary:
-        lines.append(
-            "- parity_counts="
-            f"visual {int(parity_summary.get('visual_yes_count') or 0)}/{int(parity_summary.get('visual_no_count') or 0)}"
-            f", behavioral {int(parity_summary.get('behavioral_yes_count') or 0)}/{int(parity_summary.get('behavioral_no_count') or 0)}"
-        )
-    if parity_report_path:
-        lines.append(f"- parity_report={parity_report_path}")
-    if remaining_findings:
-        lines.append("Remaining findings:")
-        for index, item in enumerate(remaining_findings[:8], start=1):
-            if not isinstance(item, dict):
-                continue
-            severity = str(item.get("severity") or "info").strip().upper()
-            category = str(item.get("category") or "gap").strip()
-            summary_text = str(item.get("summary") or "").strip()
-            detail = str(item.get("detail") or "").strip()
-            segment = f"{index}. {severity} {category}: {summary_text}"
-            if detail:
-                segment += f" {detail}"
-            lines.append(segment)
-    return "\n".join(lines)
-
-
-def _tool_shim_gap_fix_final_text(summary: dict[str, object]) -> str | None:
-    if str(summary.get("probe_kind") or "").strip().lower() != "gap_fix":
-        return None
-    step_results = summary.get("step_results")
-    applied_steps = [str(item).strip() for item in (summary.get("applied_steps") or []) if str(item).strip()]
-    status_summary = summary.get("status_summary") if isinstance(summary.get("status_summary"), dict) else {}
-    remaining_findings = summary.get("remaining_findings") if isinstance(summary.get("remaining_findings"), list) else []
-    lines: list[str] = ["Gap fix result:"]
-    if applied_steps:
-        lines.append("Applied:")
-        for step in applied_steps[:8]:
-            lines.append(f"- {step}")
-    if isinstance(step_results, list):
-        failing_steps = []
-        for item in step_results:
-            if not isinstance(item, dict):
-                continue
-            status = str(item.get("status") or "").strip().lower()
-            if status in {"fail", "timeout"}:
-                failing_steps.append(
-                    f"{item.get('name')}: {status}"
-                )
-        if failing_steps:
-            lines.append("Incomplete steps:")
-            for row in failing_steps[:5]:
-                lines.append(f"- {row}")
-    current_parts: list[str] = []
-    for key in (
-        "workflow_gate",
-        "visual_gate",
-        "windows_gate",
-        "linux_gate",
-        "macos_gate",
-        "desktop_executable_gate",
-        "flagship_readiness",
-    ):
-        row = status_summary.get(key)
-        if not isinstance(row, dict):
-            continue
-        status = str(row.get("status") or "").strip()
-        if status:
-            current_parts.append(f"{key}={status}")
-    if current_parts:
-        lines.append("Current status:")
-        lines.append("- " + ", ".join(current_parts))
-    if remaining_findings:
-        lines.append("Remaining findings:")
-        for index, item in enumerate(remaining_findings[:5], start=1):
-            if not isinstance(item, dict):
-                continue
-            severity = str(item.get("severity") or "info").strip().upper()
-            category = str(item.get("category") or "gap").strip()
-            summary_text = str(item.get("summary") or "").strip()
-            detail = str(item.get("detail") or "").strip()
-            segment = f"{index}. {severity} {category}: {summary_text}"
-            if detail:
-                segment += f" {detail}"
-            lines.append(segment)
-    return "\n".join(lines)
-
-
-def _tool_shim_direct_final_text(history_items: list[dict[str, object]]) -> str | None:
-    latest_user_text = _tool_shim_latest_user_text(history_items)
-    local_unblock_summary = _tool_shim_latest_exec_json_output(history_items)
-    if isinstance(local_unblock_summary, dict):
-        local_unblock_final = _tool_shim_local_unblock_final_text(local_unblock_summary)
-        if local_unblock_final:
-            return local_unblock_final
-    local_unblock_command = _tool_shim_local_unblock_command_for_prompt(latest_user_text)
-    if local_unblock_command:
-        local_unblock_summary = _tool_shim_latest_exec_json_output_for_command(
-            history_items,
-            command_substring="fleet_local_unblock.py",
-            probe_kind="fleet_local_unblock",
-        )
-        if isinstance(local_unblock_summary, dict):
-            local_unblock_final = _tool_shim_local_unblock_final_text(local_unblock_summary)
-            if local_unblock_final:
-                return local_unblock_final
-    parity_build_summary = _tool_shim_latest_exec_json_output(history_items)
-    if _tool_shim_is_operator_parity_build_prompt(latest_user_text) and isinstance(parity_build_summary, dict):
-        parity_build_final = _tool_shim_parity_build_final_text(parity_build_summary)
-        if parity_build_final:
-            return parity_build_final
-    parity_build_summary = _tool_shim_latest_exec_json_output_for_command(
-        history_items,
-        command_substring="codexea_parity_build_workflow.py",
-        probe_kind="parity_build",
-    )
-    if isinstance(parity_build_summary, dict):
-        parity_build_final = _tool_shim_parity_build_final_text(parity_build_summary)
-        if parity_build_final:
-            return parity_build_final
-    ui_parity_summary = _tool_shim_latest_exec_json_output(history_items)
-    if _tool_shim_is_operator_ui_parity_audit_prompt(latest_user_text) and isinstance(ui_parity_summary, dict):
-        ui_parity_final = _tool_shim_ui_parity_audit_final_text(ui_parity_summary)
-        if ui_parity_final:
-            return ui_parity_final
-    ui_parity_summary = _tool_shim_latest_exec_json_output_for_command(
-        history_items,
-        command_substring="codexea_ui_parity_audit_probe.py",
-        probe_kind="ui_parity_audit",
-    )
-    if isinstance(ui_parity_summary, dict):
-        ui_parity_final = _tool_shim_ui_parity_audit_final_text(ui_parity_summary)
-        if ui_parity_final:
-            return ui_parity_final
-    gap_fix_summary = _tool_shim_latest_exec_json_output(history_items)
-    if _tool_shim_is_operator_gap_fix_prompt(latest_user_text) and isinstance(gap_fix_summary, dict):
-        gap_fix_final = _tool_shim_gap_fix_final_text(gap_fix_summary)
-        if gap_fix_final:
-            return gap_fix_final
-    gap_fix_summary = _tool_shim_latest_exec_json_output_for_command(
-        history_items,
-        command_substring="codexea_gap_fix_workflow.py",
-        probe_kind="gap_fix",
-    )
-    if isinstance(gap_fix_summary, dict):
-        gap_fix_final = _tool_shim_gap_fix_final_text(gap_fix_summary)
-        if gap_fix_final:
-            return gap_fix_final
-    gap_audit_summary = _tool_shim_latest_exec_json_output(history_items)
-    if _tool_shim_is_operator_gap_audit_prompt(latest_user_text) and isinstance(gap_audit_summary, dict):
-        gap_audit_final = _tool_shim_gap_audit_final_text(gap_audit_summary)
-        if gap_audit_final:
-            return gap_audit_final
-    gap_audit_summary = _tool_shim_latest_exec_json_output_for_command(
-        history_items,
-        command_substring="codexea_gap_audit_probe.py",
-        probe_kind="gap_audit",
-    )
-    if isinstance(gap_audit_summary, dict):
-        gap_audit_final = _tool_shim_gap_audit_final_text(gap_audit_summary)
-        if gap_audit_final:
-            return gap_audit_final
-    if _tool_shim_is_operator_readiness_remedy_prompt(latest_user_text):
-        readiness_summary = _tool_shim_latest_exec_json_output(history_items)
-        if isinstance(readiness_summary, dict):
-            published_trace_exists = readiness_summary.get("published_trace_exists")
-            published_audit_status = str(readiness_summary.get("published_audit_status") or "").strip().lower()
-            published_audit_reasons = readiness_summary.get("published_audit_reasons")
-            if (
-                published_trace_exists is True
-                and published_audit_status in {"pass", "passed", "ready"}
-                and not published_audit_reasons
-            ):
-                trace_path = str(readiness_summary.get("published_trace_path") or "").strip()
-                detail_parts = [
-                    "Published readiness proof is already materialized.",
-                    "status=pass",
-                ]
-                if trace_path:
-                    detail_parts.append(f"trace_path={trace_path}")
-                return " ".join(detail_parts)
-            status = str(readiness_summary.get("status") or "").strip().lower()
-            reasons = readiness_summary.get("reasons")
-            if status in {"pass", "passed", "ready"} and not reasons:
-                trace_path = str(readiness_summary.get("trace_path") or "").strip()
-                tester_shard_id = str(readiness_summary.get("tester_shard_id") or "").strip()
-                fix_shard_id = str(readiness_summary.get("fix_shard_id") or "").strip()
-                detail_parts = [
-                    "Published the user-journey tester trace and reran the readiness audit.",
-                    "status=pass",
-                ]
-                if trace_path:
-                    detail_parts.append(f"trace_path={trace_path}")
-                if tester_shard_id:
-                    detail_parts.append(f"tester_shard_id={tester_shard_id}")
-                if fix_shard_id:
-                    detail_parts.append(f"fix_shard_id={fix_shard_id}")
-                return " ".join(detail_parts)
-    staged_git_final_text = _tool_shim_direct_staged_git_commit_push_final_text(
+_tool_shim_operator_unblock_scope_rejection_reason = build_tool_shim_operator_unblock_scope_rejection_reason(
+    is_operator_fleet_unblock_context=lambda latest_user_text, history_items: _tool_shim_is_operator_fleet_unblock_context(
         latest_user_text,
         history_items,
-    )
-    if staged_git_final_text is not None:
-        return staged_git_final_text
-    lightweight_ops, _ = _looks_like_lightweight_ops_query(latest_user_text)
-    if not lightweight_ops:
-        return None
-    output_text = _tool_shim_latest_function_output(history_items)
-    if not output_text:
-        return None
-    stripped = output_text.strip()
-    if not stripped:
-        return None
-    if len(stripped) <= 40 and "\n" not in stripped:
-        return stripped
-    parsed_ok = False
-    try:
-        parsed = json.loads(stripped)
-        parsed_ok = True
-    except Exception:
-        parsed = None
-    if parsed_ok:
-        scalar = _tool_shim_scalar_text(parsed)
-        if scalar is not None:
-            return scalar
-    compact_lines = [line.strip() for line in stripped.splitlines() if line.strip()]
-    if len(compact_lines) == 1 and len(compact_lines[0]) <= 120:
-        return compact_lines[0]
-    return None
+    ),
+)
 
 
-def _tool_shim_staged_first_command_max_output_tokens(latest_user_text: str) -> int:
-    if _tool_shim_is_package_work_prompt(latest_user_text):
-        return 5000
-    if _tool_shim_is_operator_parity_build_prompt(latest_user_text):
-        return 7000
-    if _tool_shim_is_operator_ui_parity_audit_prompt(latest_user_text):
-        return 5000
-    if _tool_shim_is_operator_gap_fix_prompt(latest_user_text):
-        return 6000
-    if _tool_shim_is_operator_gap_audit_prompt(latest_user_text):
-        return 3000
-    return 1500
+_tool_shim_unwrap_tool_output_envelope = tool_shim_unwrap_tool_output_envelope
+_tool_shim_latest_function_output = build_tool_shim_latest_function_output(
+    extract_textish=lambda value: _extract_textish(value),
+    tool_shim_unwrap_tool_output_envelope=lambda output_text: _tool_shim_unwrap_tool_output_envelope(output_text),
+)
+_tool_shim_requires_immediate_tool = build_tool_shim_requires_immediate_tool(
+    looks_like_lightweight_ops_query=lambda prompt: _looks_like_lightweight_ops_query(prompt),
+)
+_tool_shim_local_upstream_result = build_tool_shim_local_upstream_result(
+    upstream_result_cls=UpstreamResult,
+)
+_tool_shim_scalar_text = tool_shim_scalar_text
 
 
-def _tool_shim_direct_local_fleet_command(
-    latest_user_text: str,
-    history_items: list[dict[str, object]] | None = None,
-) -> str | None:
-    normalized = " ".join(str(latest_user_text or "").strip().lower().split())
-    if "fleet" not in normalized:
-        return None
-    if _tool_shim_is_package_work_prompt(latest_user_text):
-        return None
-    if _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items or []):
-        return None
-    if _tool_shim_prompt_forbids_local_fleet_telemetry(normalized):
-        return None
-    state_root = Path("/docker/fleet/state/chummer_design_supervisor")
-    supervisor_script = Path("/docker/fleet/scripts/chummer_design_supervisor.py")
-    if not supervisor_script.exists() or not state_root.exists():
-        return None
-    eta_cmd = (
-        "python3 /docker/fleet/scripts/chummer_design_supervisor.py "
-        "eta --state-root /docker/fleet/state/chummer_design_supervisor --json"
-    )
-    status_cmd = (
-        "python3 /docker/fleet/scripts/chummer_design_supervisor.py "
-        "status --state-root /docker/fleet/state/chummer_design_supervisor --json"
-    )
-    def _json_field(cmd: str, expr: str) -> str:
-        return (
-            f"{cmd} | "
-            "python3 -c "
-            + shlex.quote(
-                "import json,sys; payload=json.load(sys.stdin); " + expr
-            )
-        )
-    if "how many" in normalized and "milestone" in normalized and "not started" in normalized:
-        return _json_field(eta_cmd, "print((payload or {}).get('remaining_not_started_milestones', ''))")
-    if "how many" in normalized and "milestone" in normalized and "in progress" in normalized:
-        return _json_field(eta_cmd, "print((payload or {}).get('remaining_in_progress_milestones', ''))")
-    if "how many" in normalized and "milestone" in normalized and "open" in normalized:
-        return _json_field(eta_cmd, "print((payload or {}).get('remaining_open_milestones', ''))")
-    if "how many" in normalized and "shard" in normalized and any(token in normalized for token in ("running", "active")):
-        return _json_field(status_cmd, "print((payload or {}).get('active_runs_count', ''))")
-    if normalized.startswith("eta") or "eta of the fleet" in normalized or "fleet eta" in normalized:
-        return _json_field(
-            eta_cmd,
-            "print((payload or {}).get('summary') or (payload or {}).get('eta_human') or json.dumps(payload,separators=(',',':')))"
-        )
-    if (
-        any(
-            normalized.startswith(prefix)
-            for prefix in ("fleet ", "status ", "show ", "list ", "what ", "how many ", "are ")
-        )
-        and any(token in normalized for token in ("status", "running", "milestone", "shard"))
-    ):
-        return (
-            f"{status_cmd} | "
-            "python3 -c "
-            + shlex.quote(
-                "import json,sys; payload=json.load(sys.stdin) or {}; eta=payload.get('eta') or {}; "
-                "out={'active_runs_count':payload.get('active_runs_count'),"
-                "'remaining_open_milestones':eta.get('remaining_open_milestones'),"
-                "'remaining_not_started_milestones':eta.get('remaining_not_started_milestones'),"
-                "'remaining_in_progress_milestones':eta.get('remaining_in_progress_milestones'),"
-                "'eta_human':eta.get('eta_human'),'summary':eta.get('summary')}; "
-                "print(json.dumps(out,separators=(',',':')))"
-            )
-        )
-    return None
+_tool_shim_gap_audit_final_text = tool_shim_gap_audit_final_text
+_tool_shim_ui_parity_audit_final_text = tool_shim_ui_parity_audit_final_text
+_tool_shim_parity_build_final_text = tool_shim_parity_build_final_text
+_tool_shim_gap_fix_final_text = tool_shim_gap_fix_final_text
 
 
-def _tool_shim_has_tool_history(history_items: list[dict[str, object]]) -> bool:
-    for item in history_items:
-        if not isinstance(item, dict):
-            continue
-        item_type = str(item.get("type") or "").strip().lower()
-        if item_type in {"function_call", "function_call_output"}:
-            return True
-    return False
+_tool_shim_direct_final_text = build_tool_shim_direct_final_text(
+    tool_shim_latest_user_text=lambda history_items: _tool_shim_latest_user_text(history_items),
+    tool_shim_latest_exec_json_output=lambda history_items: _tool_shim_latest_exec_json_output(history_items),
+    tool_shim_local_unblock_final_text=lambda summary: _tool_shim_local_unblock_final_text(summary),
+    tool_shim_local_unblock_command_for_prompt=lambda latest_user_text: _tool_shim_local_unblock_command_for_prompt(
+        latest_user_text
+    ),
+    tool_shim_latest_exec_json_output_for_command=lambda history_items, **kwargs: _tool_shim_latest_exec_json_output_for_command(
+        history_items,
+        **kwargs,
+    ),
+    tool_shim_is_operator_parity_build_prompt=lambda latest_user_text: _tool_shim_is_operator_parity_build_prompt(
+        latest_user_text
+    ),
+    tool_shim_parity_build_final_text=lambda summary: _tool_shim_parity_build_final_text(summary),
+    tool_shim_is_operator_ui_parity_audit_prompt=lambda latest_user_text: _tool_shim_is_operator_ui_parity_audit_prompt(
+        latest_user_text
+    ),
+    tool_shim_ui_parity_audit_final_text=lambda summary: _tool_shim_ui_parity_audit_final_text(summary),
+    tool_shim_is_operator_gap_fix_prompt=lambda latest_user_text: _tool_shim_is_operator_gap_fix_prompt(
+        latest_user_text
+    ),
+    tool_shim_gap_fix_final_text=lambda summary: _tool_shim_gap_fix_final_text(summary),
+    tool_shim_is_operator_gap_audit_prompt=lambda latest_user_text: _tool_shim_is_operator_gap_audit_prompt(
+        latest_user_text
+    ),
+    tool_shim_gap_audit_final_text=lambda summary: _tool_shim_gap_audit_final_text(summary),
+    tool_shim_is_operator_readiness_remedy_prompt=lambda latest_user_text: _tool_shim_is_operator_readiness_remedy_prompt(
+        latest_user_text
+    ),
+    tool_shim_direct_staged_git_commit_push_final_text=lambda latest_user_text, history_items: _tool_shim_direct_staged_git_commit_push_final_text(
+        latest_user_text,
+        history_items,
+    ),
+    looks_like_lightweight_ops_query=lambda latest_user_text: _looks_like_lightweight_ops_query(latest_user_text),
+    tool_shim_latest_function_output=lambda history_items: _tool_shim_latest_function_output(history_items),
+    tool_shim_scalar_text=lambda value: _tool_shim_scalar_text(value),
+)
 
 
-def _tool_shim_staged_commands(latest_user_text: str) -> list[str]:
-    text = str(latest_user_text or "")
-    if not text:
-        return []
-    command_markers = (
-        "Run these exact commands first:",
-        "Safe first commands if you need orientation, copy them exactly instead of inventing telemetry queries:",
-    )
-    for marker in command_markers:
-        marker_index = text.find(marker)
-        if marker_index < 0:
-            continue
-        commands: list[str] = []
-        trailing_lines = text[marker_index + len(marker):].splitlines()
-        for raw_line in trailing_lines:
-            line = str(raw_line or "").strip()
-            if not line:
-                continue
-            if line.startswith("- "):
-                candidate = line[2:].strip()
-            elif line.startswith("$ "):
-                candidate = line[2:].strip()
-            elif re.match(r"^\d+\.\s+", line):
-                candidate = re.sub(r"^\d+\.\s+", "", line, count=1).strip()
-            else:
-                break
-            if not candidate:
-                continue
-            if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
-                candidate = candidate[1:-1].strip()
-            if not _tool_shim_looks_like_shell_command(candidate):
-                break
-            commands.append(candidate)
-        if commands:
-            return commands
-
-    file_markers = (
-        "Read these files directly first:",
-        "Read from disk before coding:",
-    )
-    file_marker_index = -1
-    file_marker = ""
-    for candidate_marker in file_markers:
-        file_marker_index = text.find(candidate_marker)
-        if file_marker_index >= 0:
-            file_marker = candidate_marker
-            break
-    if file_marker_index < 0 or not file_marker:
-        return []
-    shell_commands: list[str] = []
-    paths: list[str] = []
-    package_worktree = ""
-    max_paths = 6
-    package_worktree_match = re.search(
-        r"^[ \t]*Isolated worktree:\s+([^\s].*)$",
-        text,
-        flags=re.MULTILINE,
-    )
-    if package_worktree_match:
-        raw_worktree = str(package_worktree_match.group(1) or "").strip()
-        if raw_worktree.startswith("/"):
-            package_worktree = raw_worktree
-            max_paths = 3
-    trailing_lines = text[file_marker_index + len(file_marker):].splitlines()
-    for raw_line in trailing_lines:
-        line = str(raw_line or "").strip()
-        if not line:
-            continue
-        candidate = ""
-        if line.startswith("$ "):
-            candidate = line[2:].strip()
-        elif line.startswith("- "):
-            candidate = line[2:].strip()
-        elif line.startswith("/"):
-            candidate = line
-        else:
-            break
-        if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
-            candidate = candidate[1:-1].strip()
-        bare_absolute_path = candidate.startswith("/") and not re.search(r"\s", candidate)
-        if _tool_shim_looks_like_shell_command(candidate) and not bare_absolute_path:
-            if candidate not in shell_commands:
-                shell_commands.append(candidate)
-            continue
-        path_token = candidate.split()[0] if candidate else ""
-        path_token = path_token.rstrip(",:;")
-        if not path_token:
-            break
-        if not path_token.startswith("/"):
-            if not package_worktree:
-                break
-            if path_token.startswith(("http://", "https://")):
-                break
-            relative_candidate = path_token[2:] if path_token.startswith("./") else path_token
-            if not relative_candidate:
-                break
-            path_token = str((Path(package_worktree) / relative_candidate).resolve())
-        if "..." in path_token:
-            continue
-        if path_token in paths:
-            continue
-        paths.append(path_token)
-        if len(paths) >= max_paths:
-            break
-    if shell_commands:
-        return shell_commands
-    if not paths:
-        return []
-    commands = []
-    package_preview_lines = 20 if package_worktree else 220
-    for index, path_text in enumerate(paths):
-        prefer_cat = path_text.lower().endswith(".json")
-        if not package_worktree and index == 0:
-            prefer_cat = True
-        commands.append(
-            _tool_shim_direct_file_read_command(
-                path_text,
-                prefer_cat=prefer_cat,
-                max_lines=package_preview_lines,
-            )
-        )
-    if package_worktree and _tool_shim_is_package_work_prompt(text):
-        bundled_parts = [
-            str(command or "").strip()
-            for command in (
-                _tool_shim_build_package_scope_search_command(text),
-                _tool_shim_build_package_scope_repo_diff_command(text),
-                _tool_shim_build_package_scope_repo_hunks_command(text),
-            )
-            if str(command or "").strip()
-        ]
-        bundled_parts.extend(
-            command.strip()
-            for command in commands
-            if str(command or "").strip()
-        )
-        if bundled_parts:
-            return [" ; ".join(bundled_parts)]
-        return []
-    return commands
+_tool_shim_staged_first_command_max_output_tokens = build_tool_shim_staged_first_command_max_output_tokens(
+    is_package_work_prompt=lambda latest_user_text: _tool_shim_is_package_work_prompt(latest_user_text),
+    is_operator_parity_build_prompt=lambda latest_user_text: _tool_shim_is_operator_parity_build_prompt(
+        latest_user_text
+    ),
+    is_operator_ui_parity_audit_prompt=lambda latest_user_text: _tool_shim_is_operator_ui_parity_audit_prompt(
+        latest_user_text
+    ),
+    is_operator_gap_fix_prompt=lambda latest_user_text: _tool_shim_is_operator_gap_fix_prompt(latest_user_text),
+    is_operator_gap_audit_prompt=lambda latest_user_text: _tool_shim_is_operator_gap_audit_prompt(latest_user_text),
+)
+_tool_shim_direct_local_fleet_command = build_tool_shim_direct_local_fleet_command(
+    is_package_work_prompt=lambda latest_user_text: _tool_shim_is_package_work_prompt(latest_user_text),
+    is_operator_fleet_unblock_context=lambda latest_user_text, history_items: _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    ),
+    prompt_forbids_local_fleet_telemetry=lambda normalized_text: _tool_shim_prompt_forbids_local_fleet_telemetry(
+        normalized_text
+    ),
+)
 
 
-def _tool_shim_is_git_command(command: str, verb: str | None = None) -> bool:
-    normalized = " ".join(str(command or "").strip().lower().split())
-    if not normalized.startswith("git "):
-        return False
-    if verb is None:
-        return True
-    return normalized.startswith(f"git {verb} ") or normalized == f"git {verb}"
+_tool_shim_has_tool_history = tool_shim_has_tool_history
+_tool_shim_staged_commands = build_tool_shim_staged_commands(
+    tool_shim_looks_like_shell_command=lambda candidate: _tool_shim_looks_like_shell_command(candidate),
+    tool_shim_direct_file_read_command=lambda path_text, **kwargs: _tool_shim_direct_file_read_command(
+        path_text,
+        **kwargs,
+    ),
+    is_package_work_prompt=lambda text: _tool_shim_is_package_work_prompt(text),
+    build_package_scope_search_command=lambda text: _tool_shim_build_package_scope_search_command(text),
+    build_package_scope_repo_diff_command=lambda text: _tool_shim_build_package_scope_repo_diff_command(text),
+    build_package_scope_repo_hunks_command=lambda text: _tool_shim_build_package_scope_repo_hunks_command(text),
+)
 
 
-def _tool_shim_is_staged_git_commit_push_workflow(commands: list[str]) -> bool:
-    if not commands:
-        return False
-    if not all(_tool_shim_is_git_command(command) for command in commands):
-        return False
-    has_add = any(_tool_shim_is_git_command(command, "add") for command in commands)
-    has_commit = any(_tool_shim_is_git_command(command, "commit") for command in commands)
-    has_push = any(_tool_shim_is_git_command(command, "push") for command in commands)
-    return has_add and has_commit and has_push
+_tool_shim_is_git_command = tool_shim_is_git_command
+_tool_shim_is_staged_git_commit_push_workflow = build_tool_shim_is_staged_git_commit_push_workflow(
+    tool_shim_is_git_command=lambda command, verb=None: _tool_shim_is_git_command(command, verb),
+)
+_tool_shim_build_staged_git_commit_push_command = build_tool_shim_build_staged_git_commit_push_command(
+    tool_shim_is_staged_git_commit_push_workflow=lambda commands: _tool_shim_is_staged_git_commit_push_workflow(
+        commands
+    ),
+    tool_shim_is_git_command=lambda command, verb=None: _tool_shim_is_git_command(command, verb),
+)
+_tool_shim_extract_git_head_hash = tool_shim_extract_git_head_hash
+_tool_shim_direct_staged_git_commit_push_final_text = build_tool_shim_direct_staged_git_commit_push_final_text(
+    tool_shim_staged_commands=lambda latest_user_text: _tool_shim_staged_commands(latest_user_text),
+    tool_shim_build_staged_git_commit_push_command=lambda commands: _tool_shim_build_staged_git_commit_push_command(
+        commands
+    ),
+    tool_shim_exec_command_history=lambda history_items: _tool_shim_exec_command_history(history_items),
+    tool_shim_latest_function_output=lambda history_items: _tool_shim_latest_function_output(history_items),
+    tool_shim_extract_git_head_hash=lambda output_text: _tool_shim_extract_git_head_hash(output_text),
+)
 
 
-def _tool_shim_build_staged_git_commit_push_command(commands: list[str]) -> str | None:
-    if not _tool_shim_is_staged_git_commit_push_workflow(commands):
-        return None
-    pre_commands: list[str] = []
-    add_command = ""
-    commit_command = ""
-    push_command = ""
-    post_commands: list[str] = []
-    seen_commit = False
-    seen_push = False
-    for command in commands:
-        if _tool_shim_is_git_command(command, "add") and not add_command:
-            add_command = command
-            continue
-        if _tool_shim_is_git_command(command, "commit") and not commit_command:
-            commit_command = command
-            seen_commit = True
-            continue
-        if _tool_shim_is_git_command(command, "push") and not push_command:
-            push_command = command
-            seen_push = True
-            continue
-        if seen_push:
-            post_commands.append(command)
-        elif seen_commit:
-            post_commands.append(command)
-        else:
-            pre_commands.append(command)
-    if not add_command or not commit_command or not push_command:
-        return None
-    script_parts = ["set -euo pipefail"]
-    script_parts.extend(pre_commands)
-    script_parts.append(add_command)
-    script_parts.append(
-        f"if git diff --cached --quiet; then echo '[codexea] nothing new to commit'; else {commit_command}; fi"
-    )
-    script_parts.append(push_command)
-    script_parts.extend(post_commands)
-    script_parts.append("git rev-parse HEAD")
-    return f"bash -lc {shlex.quote('; '.join(script_parts))}"
+_tool_shim_direct_file_read_command = tool_shim_direct_file_read_command
 
 
-def _tool_shim_extract_git_head_hash(output_text: str) -> str:
-    lines = [line.strip() for line in str(output_text or "").splitlines() if line.strip()]
-    for line in reversed(lines):
-        if re.fullmatch(r"[0-9a-f]{40}", line):
-            return line
-    return ""
+_tool_shim_resolve_equivalent_shard_runtime_path = tool_shim_resolve_equivalent_shard_runtime_path
+_tool_shim_normalize_equivalent_command_paths = tool_shim_normalize_equivalent_command_paths
 
 
-def _tool_shim_direct_staged_git_commit_push_final_text(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-) -> str | None:
-    commands = _tool_shim_staged_commands(latest_user_text)
-    git_workflow_command = _tool_shim_build_staged_git_commit_push_command(commands)
-    if not git_workflow_command:
-        return None
-    executed_commands = set(_tool_shim_exec_command_history(history_items))
-    if git_workflow_command not in executed_commands:
-        return None
-    head_hash = _tool_shim_extract_git_head_hash(_tool_shim_latest_function_output(history_items))
-    if not head_hash:
-        return None
-    return f"Pushed commit {head_hash}"
+_tool_shim_looks_like_shell_command = tool_shim_looks_like_shell_command
 
 
-def _tool_shim_direct_file_read_command(
-    path_text: str,
-    *,
-    prefer_cat: bool = False,
-    max_lines: int = 220,
-) -> str:
-    quoted_path = shlex.quote(path_text)
-    if prefer_cat or path_text.lower().endswith(".json"):
-        return f"cat {quoted_path}"
-    try:
-        line_limit = max(1, int(max_lines))
-    except Exception:
-        line_limit = 220
-    return f"sed -n '1,{line_limit}p' {quoted_path}"
-
-
-def _tool_shim_resolve_equivalent_shard_runtime_path(path_text: str) -> str:
-    normalized = str(path_text or "").strip()
-    if not normalized:
-        return normalized
-    candidates = [normalized]
-    replacements = (
-        (
-            "/docker/fleet/state/chummer_design_supervisor/",
-            "/var/lib/codex-fleet/chummer_design_supervisor/",
-        ),
-        (
-            "/var/lib/codex-fleet/chummer_design_supervisor/",
-            "/docker/fleet/state/chummer_design_supervisor/",
-        ),
-    )
-    for source_prefix, target_prefix in replacements:
-        if normalized.startswith(source_prefix):
-            candidates.append(normalized.replace(source_prefix, target_prefix, 1))
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return normalized
-
-
-def _tool_shim_normalize_equivalent_command_paths(command: str) -> str:
-    normalized = str(command or "")
-    replacements = (
-        (
-            "/docker/fleet/state/chummer_design_supervisor/",
-            "/__fleet_shard_runtime__/chummer_design_supervisor/",
-        ),
-        (
-            "/var/lib/codex-fleet/chummer_design_supervisor/",
-            "/__fleet_shard_runtime__/chummer_design_supervisor/",
-        ),
-    )
-    for source_prefix, target_prefix in replacements:
-        normalized = normalized.replace(source_prefix, target_prefix)
-    return normalized
-
-
-def _tool_shim_looks_like_shell_command(candidate: str) -> bool:
-    stripped = str(candidate or "").strip()
-    if not stripped:
-        return False
-    command_word = stripped.split(None, 1)[0]
-    normalized = command_word.strip().lower()
-    if not normalized:
-        return False
-    if normalized.startswith(("/", "./", "../")):
-        return True
-    return normalized in {
-        "sed",
-        "rg",
-        "cat",
-        "python",
-        "python3",
-        "bash",
-        "sh",
-        "jq",
-        "find",
-        "ls",
-        "git",
-        "docker",
-        "pytest",
-        "grep",
-        "head",
-        "tail",
-        "wc",
-        "perl",
-    }
-
-
-def _tool_shim_exec_command_history(history_items: list[dict[str, object]]) -> list[str]:
-    executed_commands: list[str] = []
-    for item in history_items:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("type") or "").strip().lower() != "function_call":
-            continue
-        if str(item.get("name") or "").strip() != "exec_command":
-            continue
-        arguments = item.get("arguments")
-        parsed_arguments = arguments
-        if isinstance(arguments, str):
-            try:
-                parsed_arguments = json.loads(arguments)
-            except Exception:
-                parsed_arguments = None
-        if not isinstance(parsed_arguments, dict):
-            continue
-        command = str(parsed_arguments.get("cmd") or "").strip()
-        if command:
-            executed_commands.append(command)
-    return executed_commands
-
-
-def _tool_shim_exec_command_identity_history(history_items: list[dict[str, object]]) -> list[str]:
-    identities: list[str] = []
-    for command in _tool_shim_exec_command_history(history_items):
-        raw_command = str(command or "").strip()
-        if not raw_command:
-            continue
-        parts = [raw_command]
-        if " ; " in raw_command:
-            parts.extend(part.strip() for part in raw_command.split(" ; ") if part.strip())
-        for part in parts:
-            identity = _tool_shim_command_identity(part)
-            if identity:
-                identities.append(identity)
-    return identities
-
-
-def _tool_shim_command_identity_sequence(command: str) -> list[str]:
-    raw_command = str(command or "").strip()
-    if not raw_command:
-        return []
-    parts = [raw_command]
-    if " ; " in raw_command:
-        split_parts = [part.strip() for part in raw_command.split(" ; ") if part.strip()]
-        if len(split_parts) > 1:
-            parts = split_parts
-    identities: list[str] = []
-    for part in parts:
-        identity = _tool_shim_command_identity(part)
-        if identity:
-            identities.append(identity)
-    return identities
-
-
-def _tool_shim_exec_command_expanded_sequence(history_items: list[dict[str, object]]) -> list[str]:
-    sequence: list[str] = []
-    for command in _tool_shim_exec_command_history(history_items):
-        sequence.extend(_tool_shim_command_identity_sequence(command))
-    return sequence
-
-
-def _tool_shim_command_sequence_executed(
-    history_items: list[dict[str, object]],
-    command: str,
-) -> bool:
-    expected_identities = _tool_shim_command_identity_sequence(command)
-    if not expected_identities:
-        return False
-    executed_identities = set(_tool_shim_exec_command_identity_history(history_items))
-    return all(identity in executed_identities for identity in expected_identities)
-
-
-def _tool_shim_exec_command_output_history(history_items: list[dict[str, object]]) -> list[dict[str, str]]:
-    call_commands: dict[str, str] = {}
-    output_history: list[dict[str, str]] = []
-    for item in history_items:
-        if not isinstance(item, dict):
-            continue
-        item_type = str(item.get("type") or "").strip().lower()
-        if item_type == "function_call":
-            if str(item.get("name") or "").strip() != "exec_command":
-                continue
-            call_id = str(item.get("call_id") or "").strip()
-            if not call_id:
-                continue
-            arguments = item.get("arguments")
-            parsed_arguments = arguments
-            if isinstance(arguments, str):
-                try:
-                    parsed_arguments = json.loads(arguments)
-                except Exception:
-                    parsed_arguments = None
-            if not isinstance(parsed_arguments, dict):
-                continue
-            command = str(parsed_arguments.get("cmd") or "").strip()
-            if command:
-                call_commands[call_id] = command
-            continue
-        if item_type != "function_call_output":
-            continue
-        call_id = str(item.get("call_id") or "").strip()
-        output_text = _tool_shim_unwrap_tool_output_envelope(_extract_textish(item.get("output")))
-        if not output_text:
-            continue
-        output_history.append(
-            {
-                "call_id": call_id,
-                "cmd": str(call_commands.get(call_id) or "").strip(),
-                "output": output_text,
-            }
-        )
-    return output_history
-
-
-def _tool_shim_latest_exec_json_output(history_items: list[dict[str, object]]) -> dict[str, object] | None:
-    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
-        payload = _extract_json_object(str(record.get("output") or "").strip())
-        if isinstance(payload, dict):
-            return payload
-    return None
-
-
-def _tool_shim_latest_exec_json_output_for_command(
-    history_items: list[dict[str, object]],
-    *,
-    command_substring: str,
-    probe_kind: str | None = None,
-) -> dict[str, object] | None:
-    needle = str(command_substring or "").strip()
-    expected_probe = str(probe_kind or "").strip().lower()
-    if not needle:
-        return None
-    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
-        cmd = str(record.get("cmd") or "").strip()
-        if needle not in cmd:
-            continue
-        payload = _extract_json_object(str(record.get("output") or "").strip())
-        if not isinstance(payload, dict):
-            continue
-        if expected_probe and str(payload.get("probe_kind") or "").strip().lower() != expected_probe:
-            continue
-        return payload
-    return None
+_tool_shim_exec_command_history = tool_shim_exec_command_history
+_tool_shim_exec_command_identity_history = build_tool_shim_exec_command_identity_history(
+    tool_shim_exec_command_history=lambda history_items: _tool_shim_exec_command_history(history_items),
+    tool_shim_command_identity=lambda command: _tool_shim_command_identity(command),
+)
+_tool_shim_command_identity_sequence = build_tool_shim_command_identity_sequence(
+    tool_shim_command_identity=lambda command: _tool_shim_command_identity(command),
+)
+_tool_shim_exec_command_expanded_sequence = build_tool_shim_exec_command_expanded_sequence(
+    tool_shim_exec_command_history=lambda history_items: _tool_shim_exec_command_history(history_items),
+    tool_shim_command_identity_sequence=lambda command: _tool_shim_command_identity_sequence(command),
+)
+_tool_shim_command_sequence_executed = build_tool_shim_command_sequence_executed(
+    tool_shim_command_identity_sequence=lambda command: _tool_shim_command_identity_sequence(command),
+    tool_shim_exec_command_identity_history=lambda history_items: _tool_shim_exec_command_identity_history(
+        history_items
+    ),
+)
+_tool_shim_exec_command_output_history = build_tool_shim_exec_command_output_history(
+    extract_textish=lambda value: _extract_textish(value),
+    tool_shim_unwrap_tool_output_envelope=lambda output_text: _tool_shim_unwrap_tool_output_envelope(output_text),
+)
+_tool_shim_latest_exec_json_output = build_tool_shim_latest_exec_json_output(
+    tool_shim_exec_command_output_history=lambda history_items: _tool_shim_exec_command_output_history(history_items),
+    extract_json_object=lambda text: _extract_json_object(text),
+)
+_tool_shim_latest_exec_json_output_for_command = build_tool_shim_latest_exec_json_output_for_command(
+    tool_shim_exec_command_output_history=lambda history_items: _tool_shim_exec_command_output_history(history_items),
+    extract_json_object=lambda text: _extract_json_object(text),
+)
 
 
 def _tool_shim_build_readiness_materialize_command(summary: dict[str, object]) -> str | None:
@@ -6223,421 +4733,108 @@ def _tool_shim_direct_post_readiness_materialize_command(
     return command
 
 
-def _tool_shim_package_scope_text(latest_user_text: str) -> str:
-    match = re.search(
-        r"^[ \t]*Package scope:\s+([^\n]+)$",
-        str(latest_user_text or ""),
-        flags=re.MULTILINE,
-    )
-    if not match:
-        return ""
-    return str(match.group(1) or "").strip()
+_tool_shim_package_scope_text = tool_shim_package_scope_text
+_tool_shim_bulleted_section_paths = tool_shim_bulleted_section_paths
+_tool_shim_active_slice_followup_paths = build_tool_shim_active_slice_followup_paths(
+    is_package_work_prompt=lambda prompt: _tool_shim_is_package_work_prompt(prompt),
+    tool_shim_bulleted_section_paths=lambda latest_user_text, heading: _tool_shim_bulleted_section_paths(
+        latest_user_text,
+        heading,
+    ),
+)
+_tool_shim_package_current_slice_text = tool_shim_package_current_slice_text
+_tool_shim_package_worktree = tool_shim_package_worktree
+_tool_shim_package_allowed_scope_tokens = tool_shim_package_allowed_scope_tokens
+_tool_shim_package_allowed_scope_paths = build_tool_shim_package_allowed_scope_paths(
+    tool_shim_package_worktree=lambda latest_user_text: _tool_shim_package_worktree(latest_user_text),
+    tool_shim_package_allowed_scope_tokens=lambda latest_user_text: _tool_shim_package_allowed_scope_tokens(
+        latest_user_text
+    ),
+)
+_tool_shim_package_scope_pathspecs = build_tool_shim_package_scope_pathspecs(
+    tool_shim_package_worktree=lambda latest_user_text: _tool_shim_package_worktree(latest_user_text),
+    tool_shim_package_allowed_scope_paths=lambda latest_user_text: _tool_shim_package_allowed_scope_paths(
+        latest_user_text
+    ),
+)
+_tool_shim_build_package_scope_repo_diff_command = build_tool_shim_build_package_scope_repo_diff_command(
+    tool_shim_package_worktree=lambda latest_user_text: _tool_shim_package_worktree(latest_user_text),
+    tool_shim_package_scope_pathspecs=lambda latest_user_text: _tool_shim_package_scope_pathspecs(latest_user_text),
+)
+_tool_shim_build_package_scope_repo_hunks_command = build_tool_shim_build_package_scope_repo_hunks_command(
+    tool_shim_package_worktree=lambda latest_user_text: _tool_shim_package_worktree(latest_user_text),
+    tool_shim_package_scope_pathspecs=lambda latest_user_text: _tool_shim_package_scope_pathspecs(latest_user_text),
+)
+_tool_shim_package_scope_search_terms = build_tool_shim_package_scope_search_terms(
+    tool_shim_package_current_slice_text=lambda latest_user_text: _tool_shim_package_current_slice_text(
+        latest_user_text
+    ),
+)
+_tool_shim_build_package_scope_search_command = build_tool_shim_build_package_scope_search_command(
+    tool_shim_package_allowed_scope_paths=lambda latest_user_text: _tool_shim_package_allowed_scope_paths(
+        latest_user_text
+    ),
+    tool_shim_package_scope_search_terms=lambda latest_user_text: _tool_shim_package_scope_search_terms(
+        latest_user_text
+    ),
+)
 
 
-def _tool_shim_bulleted_section_paths(latest_user_text: str, heading: str) -> list[str]:
-    prompt = str(latest_user_text or "")
-    if not prompt or not heading:
-        return []
-    marker = f"{heading}:"
-    marker_index = prompt.find(marker)
-    if marker_index < 0:
-        return []
-    trailing_lines = prompt[marker_index + len(marker):].splitlines()
-    paths: list[str] = []
-    seen_paths: set[str] = set()
-    for raw_line in trailing_lines:
-        line = str(raw_line or "").strip()
-        if not line:
-            if paths:
-                break
-            continue
-        if not line.startswith("- "):
-            if paths:
-                break
-            continue
-        candidate = line[2:].strip()
-        if candidate.startswith("`") and candidate.endswith("`") and len(candidate) >= 2:
-            candidate = candidate[1:-1].strip()
-        if not candidate.startswith("/"):
-            if paths:
-                break
-            continue
-        normalized_candidate = candidate.rstrip(",:;")
-        if normalized_candidate in seen_paths:
-            continue
-        paths.append(normalized_candidate)
-        seen_paths.add(normalized_candidate)
-    return paths
-
-
-def _tool_shim_active_slice_followup_paths(latest_user_text: str) -> list[str]:
-    prompt = str(latest_user_text or "")
-    if not _tool_shim_is_package_work_prompt(prompt):
-        return []
-    result: list[str] = []
-    seen_paths: set[str] = set()
-    for heading, limit in (
-        ("Edit these files first for this pass", 3),
-        ("Map or strengthen these tests first for this pass", 2),
-    ):
-        for path_text in _tool_shim_bulleted_section_paths(prompt, heading)[:limit]:
-            if path_text in seen_paths:
-                continue
-            result.append(path_text)
-            seen_paths.add(path_text)
-    return result
-
-
-def _tool_shim_package_current_slice_text(latest_user_text: str) -> str:
-    prompt = str(latest_user_text or "")
-    if not prompt:
-        return ""
-    match = re.search(
-        r"^[ \t]*Current slice:\s*(.*?)^\s*Package scope:\s+",
-        prompt,
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if not match:
-        return ""
-    return " ".join(str(match.group(1) or "").split())
-
-
-def _tool_shim_package_worktree(latest_user_text: str) -> str:
-    match = re.search(
-        r"^[ \t]*Isolated worktree:\s+([^\s].*)$",
-        str(latest_user_text or ""),
-        flags=re.MULTILINE,
-    )
-    if not match:
-        return ""
-    worktree = str(match.group(1) or "").strip()
-    return worktree if worktree.startswith("/") else ""
-
-
-def _tool_shim_package_allowed_scope_tokens(latest_user_text: str) -> list[str]:
-    match = re.search(
-        r"^[ \t]*Allowed paths:\s+([^\n]+)$",
-        str(latest_user_text or ""),
-        flags=re.MULTILINE,
-    )
-    if not match:
-        return []
-    tokens: list[str] = []
-    seen_tokens: set[str] = set()
-    for raw_token in str(match.group(1) or "").split(","):
-        token = str(raw_token or "").strip().strip("/")
-        if (
-            not token
-            or token in seen_tokens
-            or "*" in token
-            or "?" in token
-            or token.startswith(".")
-        ):
-            continue
-        tokens.append(token)
-        seen_tokens.add(token)
-    return tokens
-
-
-def _tool_shim_package_allowed_scope_paths(latest_user_text: str) -> list[str]:
-    worktree = _tool_shim_package_worktree(latest_user_text)
-    if not worktree:
-        return []
-    worktree_path = Path(worktree)
-    scope_paths: list[str] = []
-    seen_paths: set[str] = set()
-    for token in _tool_shim_package_allowed_scope_tokens(latest_user_text):
-        candidate = str((worktree_path / token).resolve())
-        if candidate in seen_paths:
-            continue
-        scope_paths.append(candidate)
-        seen_paths.add(candidate)
-    if scope_paths:
-        return scope_paths
-    return [str(worktree_path)]
-
-
-def _tool_shim_package_scope_pathspecs(latest_user_text: str) -> list[str]:
-    worktree = _tool_shim_package_worktree(latest_user_text)
-    if not worktree:
-        return []
-    worktree_path = Path(worktree)
-    pathspecs: list[str] = []
-    seen_specs: set[str] = set()
-    for absolute_path in _tool_shim_package_allowed_scope_paths(latest_user_text):
-        try:
-            rel_path = str(Path(absolute_path).relative_to(worktree_path))
-        except Exception:
-            continue
-        if rel_path.startswith("./"):
-            rel_path = rel_path[2:]
-        rel_path = rel_path.strip()
-        if not rel_path or rel_path in seen_specs:
-            continue
-        pathspecs.append(rel_path)
-        seen_specs.add(rel_path)
-    return pathspecs
-
-
-def _tool_shim_build_package_scope_repo_diff_command(latest_user_text: str) -> str | None:
-    worktree = _tool_shim_package_worktree(latest_user_text)
-    pathspecs = _tool_shim_package_scope_pathspecs(latest_user_text)
-    if not worktree or not pathspecs:
-        return None
-    quoted_worktree = shlex.quote(worktree)
-    quoted_paths = " ".join(shlex.quote(pathspec) for pathspec in pathspecs)
-    return (
-        f"git -C {quoted_worktree} status --short -- {quoted_paths}"
-        f" ; git -C {quoted_worktree} diff --stat -- {quoted_paths}"
-    )
-
-
-def _tool_shim_build_package_scope_repo_hunks_command(latest_user_text: str) -> str | None:
-    worktree = _tool_shim_package_worktree(latest_user_text)
-    pathspecs = _tool_shim_package_scope_pathspecs(latest_user_text)
-    if not worktree or not pathspecs:
-        return None
-    quoted_worktree = shlex.quote(worktree)
-    quoted_paths = " ".join(shlex.quote(pathspec) for pathspec in pathspecs)
-    return f"git -C {quoted_worktree} diff --unified=0 -- {quoted_paths} | sed -n '1,120p'"
-
-
-def _tool_shim_package_scope_search_terms(latest_user_text: str) -> list[str]:
-    current_slice = _tool_shim_package_current_slice_text(latest_user_text)
-    if not current_slice:
-        return []
-    stop_words = {
-        "and",
-        "artifact",
-        "before",
-        "coding",
-        "compare",
-        "compile",
-        "current",
-        "export",
-        "for",
-        "from",
-        "house",
-        "print",
-        "proof",
-        "proofs",
-        "route",
-        "routes",
-        "specific",
-        "supplement",
-        "the",
-        "then",
-        "workflow",
-        "workflows",
-    }
-    terms: list[str] = []
-    seen_terms: set[str] = set()
-    normalized_slice = current_slice.lower().replace("-", " ")
-    for token in re.findall(r"[a-z0-9]{3,}", normalized_slice):
-        if token in stop_words or token in seen_terms:
-            continue
-        terms.append(token)
-        seen_terms.add(token)
-        if len(terms) >= 8:
-            break
-    if "sr6" in normalized_slice and "sr6" not in seen_terms:
-        terms.append("sr6")
-        seen_terms.add("sr6")
-    if "house rule" in normalized_slice and "house rule" not in seen_terms:
-        terms.append("house rule")
-    return terms
-
-
-def _tool_shim_build_package_scope_search_command(latest_user_text: str) -> str | None:
-    scope_paths = _tool_shim_package_allowed_scope_paths(latest_user_text)
-    search_terms = _tool_shim_package_scope_search_terms(latest_user_text)
-    if not scope_paths or not search_terms:
-        return None
-    pattern_args = " ".join(
-        f"-e {shlex.quote(term)}"
-        for term in search_terms
-        if str(term or "").strip()
-    )
-    if not pattern_args:
-        return None
-    quoted_paths = " ".join(shlex.quote(path_text) for path_text in scope_paths)
-    return f"rg -n -i -F -m 80 {pattern_args} -- {quoted_paths} | sed -n '1,120p'"
-
-
-def _tool_shim_package_planner_blocked_final_text(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-    *,
-    failure_message: str,
-) -> str | None:
-    if not _tool_shim_is_package_work_prompt(latest_user_text):
-        return None
-    progress_markers: list[str] = []
-    executed_commands = set(_tool_shim_exec_command_identity_history(history_items))
-    staged_commands = _tool_shim_staged_commands(latest_user_text)
-    if staged_commands:
-        expected_commands: list[str] = []
-        for command in staged_commands:
-            expected_commands.extend(_tool_shim_command_identity_sequence(command))
-        if expected_commands and all(command in executed_commands for command in expected_commands):
-            progress_markers.append("completed staged repo reads")
-    package_scope_diff_command = _tool_shim_build_package_scope_repo_diff_command(latest_user_text)
-    if package_scope_diff_command and _tool_shim_command_identity(package_scope_diff_command) in executed_commands:
-        progress_markers.append("inspected package-scope git status and diff")
-    package_scope_hunks_command = _tool_shim_build_package_scope_repo_hunks_command(latest_user_text)
-    if package_scope_hunks_command and _tool_shim_command_identity(package_scope_hunks_command) in executed_commands:
-        progress_markers.append("inspected package-scope diff hunks")
-    package_scope_search_command = _tool_shim_build_package_scope_search_command(latest_user_text)
-    if package_scope_search_command and _tool_shim_command_identity(package_scope_search_command) in executed_commands:
-        progress_markers.append("searched the allowed package paths for slice-specific matches")
-    shipped = "; ".join(progress_markers) if progress_markers else "completed local package orientation"
-    package_scope = _tool_shim_package_scope_text(latest_user_text)
-    current_slice = _tool_shim_package_current_slice_text(latest_user_text)
-    remains = f"retry {package_scope or 'this package'} after planner capacity recovers"
-    if current_slice:
-        remains += f" for slice `{current_slice}`"
-    return (
-        f"Error: {failure_message}\n\n"
-        f"What shipped: {shipped}\n\n"
-        f"What remains: {remains}\n\n"
-        f"Exact blocker: {failure_message}"
-    )
-
-
-def _tool_shim_package_planner_blocked_decision(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-    *,
-    failure_message: str,
-) -> _ToolShimDecision | None:
-    final_text = _tool_shim_package_planner_blocked_final_text(
+_tool_shim_package_planner_blocked_final_text = build_tool_shim_package_planner_blocked_final_text(
+    is_package_work_prompt=lambda latest_user_text: _tool_shim_is_package_work_prompt(latest_user_text),
+    tool_shim_exec_command_identity_history=lambda history_items: _tool_shim_exec_command_identity_history(
+        history_items
+    ),
+    tool_shim_staged_commands=lambda latest_user_text: _tool_shim_staged_commands(latest_user_text),
+    tool_shim_command_identity_sequence=lambda command: _tool_shim_command_identity_sequence(command),
+    tool_shim_build_package_scope_repo_diff_command=lambda latest_user_text: _tool_shim_build_package_scope_repo_diff_command(
+        latest_user_text
+    ),
+    tool_shim_command_identity=lambda command: _tool_shim_command_identity(command),
+    tool_shim_build_package_scope_repo_hunks_command=lambda latest_user_text: _tool_shim_build_package_scope_repo_hunks_command(
+        latest_user_text
+    ),
+    tool_shim_build_package_scope_search_command=lambda latest_user_text: _tool_shim_build_package_scope_search_command(
+        latest_user_text
+    ),
+    tool_shim_package_scope_text=lambda latest_user_text: _tool_shim_package_scope_text(latest_user_text),
+    tool_shim_package_current_slice_text=lambda latest_user_text: _tool_shim_package_current_slice_text(
+        latest_user_text
+    ),
+)
+_tool_shim_package_planner_blocked_decision = build_tool_shim_package_planner_blocked_decision(
+    tool_shim_package_planner_blocked_final_text=lambda latest_user_text, history_items, **kwargs: _tool_shim_package_planner_blocked_final_text(
         latest_user_text,
         history_items,
-        failure_message=failure_message,
-    )
-    if not final_text:
-        return None
-    return _ToolShimDecision(
-        kind="final",
-        text=final_text,
-        upstream_result=_tool_shim_local_upstream_result(
-            final_text,
-            reason="tool_shim_package_planner_blocked",
-        ),
-    )
+        **kwargs,
+    ),
+    decision_cls=_ToolShimDecision,
+    tool_shim_local_upstream_result=lambda text, **kwargs: _tool_shim_local_upstream_result(text, **kwargs),
+)
 
 
-def _tool_shim_local_unblock_command_for_prompt(latest_user_text: str) -> str | None:
-    normalized = " ".join(str(latest_user_text or "").strip().lower().split())
-    if not normalized:
-        return None
-    command = "python3 /docker/fleet/scripts/fleet_local_unblock.py"
-    if "execute wl-d014-01" in normalized or (
-        "review_template_mirror_publish_evidence.md" in normalized
-        and "compute source and destination sha-256" in normalized
-    ):
-        return f"{command} --task review_template_parity"
-    if "surface campaign memory and consequences on desktop" in normalized:
-        return f"{command} --task verify_ui_campaign_memory"
-    if "finish milestone coverage modeling for ui so eta and completion truth are no longer partial" in normalized:
-        return f"{command} --task verify_ui_milestone_coverage"
-    if "finish milestone coverage modeling for media-factory so eta and completion truth are no longer partial" in normalized:
-        return f"{command} --task verify_media_factory_coverage"
-    mirror_repo_markers = (
-        ("chummer6-mobile", ("recurring `mobile` mirror drift", "sync the approved chummer design bundle into `mobile`")),
-        ("chummer6-ui-kit", ("recurring `ui-kit` mirror drift", "sync the approved chummer design bundle into `ui-kit`")),
-        ("chummer6-hub-registry", ("recurring `hub-registry` mirror drift", "sync the approved chummer design bundle into `hub-registry`")),
-        ("chummer6-media-factory", ("recurring `media-factory` mirror drift", "sync the approved chummer design bundle into `media-factory`")),
-        ("chummer6-ui", ("recurring `ui` mirror drift", "sync the approved chummer design bundle into `ui`")),
-    )
-    for repo_id, markers in mirror_repo_markers:
-        if any(marker in normalized for marker in markers):
-            return f"{command} --task mirror_sync --repo {repo_id}"
-    return None
+_tool_shim_local_unblock_command_for_prompt = tool_shim_local_unblock_command_for_prompt
+_tool_shim_direct_local_unblock_command = build_tool_shim_direct_local_unblock_command(
+    tool_shim_local_unblock_command_for_prompt=lambda latest_user_text: _tool_shim_local_unblock_command_for_prompt(
+        latest_user_text
+    ),
+    tool_shim_command_sequence_executed=lambda history_items, command: _tool_shim_command_sequence_executed(
+        history_items,
+        command,
+    ),
+)
+_tool_shim_local_unblock_final_text = tool_shim_local_unblock_final_text
 
 
-def _tool_shim_direct_local_unblock_command(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-) -> str | None:
-    command = _tool_shim_local_unblock_command_for_prompt(latest_user_text)
-    if not command:
-        return None
-    if _tool_shim_command_sequence_executed(history_items, command):
-        return None
-    return command
-
-
-def _tool_shim_local_unblock_final_text(summary: dict[str, object]) -> str | None:
-    if str(summary.get("probe_kind") or "").strip().lower() != "fleet_local_unblock":
-        return None
-    task = str(summary.get("task") or "").strip() or "local_unblock"
-    ok = bool(summary.get("ok"))
-    message = str(summary.get("message") or "").strip()
-    details = str(summary.get("details") or "").strip()
-    if ok:
-        shipped = message or f"completed {task}"
-        if details:
-            return f"Completed local unblock task `{task}`.\n\nWhat shipped: {shipped}\n\nEvidence: {details}"
-        return f"Completed local unblock task `{task}`.\n\nWhat shipped: {shipped}"
-    error = str(summary.get("error") or "").strip()
-    if not error:
-        exit_code = str(summary.get("exit_code") or "").strip()
-        error = f"{task}:exit_{exit_code}" if exit_code else task
-    result = f"Error: local_unblock_failed:{error}"
-    if details:
-        result += f"\n\nWhat remains: {details}"
-    return result
-
-
-def _tool_shim_provider_row_is_ready(provider: dict[str, object]) -> bool:
-    state = str(provider.get("state") or "").strip().lower()
-    if state == "ready":
-        return True
-    slots = [dict(item) for item in (provider.get("slots") or []) if isinstance(item, dict)]
-    return any(str(slot.get("state") or "").strip().lower() == "ready" for slot in slots)
-
-
-def _tool_shim_provider_row_is_dispatchable(provider: dict[str, object]) -> bool:
-    if not isinstance(provider, dict) or not provider:
-        return False
-    for field_name in ("live_dispatchable_slot_count", "live_ready_slot_count", "ready_slot_count"):
-        value = provider.get(field_name)
-        if value in (None, ""):
-            continue
-        try:
-            return int(value) > 0
-        except Exception:
-            continue
-    return _tool_shim_provider_row_is_ready(provider)
-
-
-def _tool_shim_package_planner_preflight_failure_message() -> str | None:
-    snapshot = _provider_health_snapshot(lightweight=True)
-    providers = dict((snapshot.get("providers") or {})) if isinstance(snapshot, dict) else {}
-    if not providers:
-        return None
-    onemin = dict(providers.get("onemin") or {})
-    gemini = dict(providers.get("gemini_vortex") or {})
-    magix = dict(providers.get("magixai") or {})
-    onemin_ready = _tool_shim_provider_row_is_dispatchable(onemin)
-    gemini_ready = _tool_shim_provider_row_is_ready(gemini)
-    magix_ready = _tool_shim_provider_row_is_ready(magix)
-    if onemin_ready or gemini_ready or magix_ready:
-        return None
-    reasons: list[str] = []
-    onemin_dispatchable = onemin.get("live_dispatchable_slot_count")
-    if onemin_dispatchable in (None, ""):
-        reasons.append("onemin_dispatchable=0")
-    else:
-        reasons.append(f"onemin_dispatchable={onemin_dispatchable}")
-    gemini_state = str(gemini.get("state") or "").strip().lower() or "unknown"
-    gemini_detail = " ".join(str(gemini.get("detail") or "").split()).strip()
-    reasons.append(f"gemini_vortex={gemini_state}{':' + gemini_detail if gemini_detail else ''}")
-    magix_state = str(magix.get("state") or "").strip().lower() or "unknown"
-    magix_detail = " ".join(str(magix.get("detail") or "").split()).strip()
-    reasons.append(f"magixai={magix_state}{':' + magix_detail if magix_detail else ''}")
-    return "upstream_unavailable:planner_capacity_preflight:" + "; ".join(reasons[:3])
+_tool_shim_provider_row_is_ready = tool_shim_provider_row_is_ready
+_tool_shim_provider_row_is_dispatchable = build_tool_shim_provider_row_is_dispatchable(
+    tool_shim_provider_row_is_ready=lambda provider: _tool_shim_provider_row_is_ready(provider),
+)
+_tool_shim_package_planner_preflight_failure_message = build_tool_shim_package_planner_preflight_failure_message(
+    provider_health_snapshot=lambda **kwargs: _provider_health_snapshot(**kwargs),
+    tool_shim_provider_row_is_dispatchable=lambda provider: _tool_shim_provider_row_is_dispatchable(provider),
+    tool_shim_provider_row_is_ready=lambda provider: _tool_shim_provider_row_is_ready(provider),
+)
 
 
 def _tool_shim_collect_staged_commands(text: str) -> list[str]:
@@ -6662,162 +4859,36 @@ def _tool_shim_collect_staged_commands(text: str) -> list[str]:
     return staged_commands
 
 
-def _tool_shim_build_repo_diff_command_for_paths(raw_paths: list[str]) -> str | None:
-    if not raw_paths:
-        return None
-
-    def _repo_root_for_path(path: Path) -> Path | None:
-        current = path.parent if path.is_file() else path
-        for candidate in (current, *current.parents):
-            git_marker = candidate / ".git"
-            if git_marker.exists():
-                return candidate
-        return None
-
-    path_groups: dict[str, list[str]] = {}
-    seen_paths: set[str] = set()
-    for raw_path in raw_paths:
-        normalized_path = _tool_shim_resolve_equivalent_shard_runtime_path(str(raw_path or "").strip())
-        if not normalized_path or normalized_path in seen_paths:
-            continue
-        path = Path(normalized_path)
-        if not path.exists() or not path.is_file():
-            continue
-        repo_root_path = _repo_root_for_path(path)
-        if repo_root_path is None:
-            continue
-        repo_root = str(repo_root_path)
-        if not repo_root:
-            continue
-        try:
-            rel_path = str(path.relative_to(repo_root_path))
-        except Exception:
-            continue
-        path_groups.setdefault(repo_root, []).append(rel_path)
-        seen_paths.add(normalized_path)
-    parts: list[str] = []
-    for repo_root, rel_paths in path_groups.items():
-        deduped_rel_paths = list(dict.fromkeys(rel_paths))
-        if not deduped_rel_paths:
-            continue
-        quoted_root = shlex.quote(repo_root)
-        quoted_paths = " ".join(shlex.quote(item) for item in deduped_rel_paths)
-        parts.append(f"git -C {quoted_root} status --short -- {quoted_paths}")
-        parts.append(f"git -C {quoted_root} diff --stat -- {quoted_paths}")
-    if not parts:
-        return None
-    return " ; ".join(parts)
-
-
-def _tool_shim_build_staged_repo_diff_command(commands: list[str]) -> str | None:
-    if not commands:
-        return None
-    extracted_paths: list[str] = []
-    seen_paths: set[str] = set()
-    for command in commands:
-        for match in re.findall(r"(/[A-Za-z0-9._/\-]+)", str(command or "")):
-            raw_path = str(match or "").strip()
-            if not raw_path or raw_path in seen_paths:
-                continue
-            extracted_paths.append(raw_path)
-            seen_paths.add(raw_path)
-    worktree_paths = [
+_tool_shim_build_repo_diff_command_for_paths = build_tool_shim_build_repo_diff_command_for_paths(
+    tool_shim_resolve_equivalent_shard_runtime_path=lambda path_text: _tool_shim_resolve_equivalent_shard_runtime_path(
         path_text
-        for path_text in extracted_paths
-        if "/var/lib/codex-fleet/worktrees/" in path_text or "/docker/fleet/worktrees/" in path_text
-    ]
-    if worktree_paths:
-        extracted_paths = worktree_paths
-    return _tool_shim_build_repo_diff_command_for_paths(extracted_paths)
-
-
-def _tool_shim_build_staged_repo_hunks_command(commands: list[str]) -> str | None:
-    if not commands:
-        return None
-    extracted_paths: list[str] = []
-    seen_paths: set[str] = set()
-    for command in commands:
-        for match in re.findall(r"(/[A-Za-z0-9._/\-]+)", str(command or "")):
-            raw_path = str(match or "").strip()
-            if not raw_path or raw_path in seen_paths:
-                continue
-            extracted_paths.append(raw_path)
-            seen_paths.add(raw_path)
-    worktree_paths = [
+    ),
+)
+_tool_shim_build_staged_repo_diff_command = build_tool_shim_build_staged_repo_diff_command(
+    tool_shim_build_repo_diff_command_for_paths=lambda raw_paths: _tool_shim_build_repo_diff_command_for_paths(
+        raw_paths
+    ),
+)
+_tool_shim_build_repo_hunks_command_for_paths = build_tool_shim_build_repo_hunks_command_for_paths(
+    tool_shim_resolve_equivalent_shard_runtime_path=lambda path_text: _tool_shim_resolve_equivalent_shard_runtime_path(
         path_text
-        for path_text in extracted_paths
-        if "/var/lib/codex-fleet/worktrees/" in path_text or "/docker/fleet/worktrees/" in path_text
-    ]
-    if worktree_paths:
-        extracted_paths = worktree_paths
-    return _tool_shim_build_repo_hunks_command_for_paths(extracted_paths)
-
-
-def _tool_shim_build_repo_hunks_command_for_paths(raw_paths: list[str]) -> str | None:
-    if not raw_paths:
-        return None
-
-    def _repo_root_for_path(path: Path) -> Path | None:
-        current = path.parent if path.is_file() else path
-        for candidate in (current, *current.parents):
-            git_marker = candidate / ".git"
-            if git_marker.exists():
-                return candidate
-        return None
-
-    path_groups: dict[str, list[str]] = {}
-    seen_paths: set[str] = set()
-    for raw_path in raw_paths:
-        normalized_path = _tool_shim_resolve_equivalent_shard_runtime_path(str(raw_path or "").strip())
-        if not normalized_path or normalized_path in seen_paths:
-            continue
-        path = Path(normalized_path)
-        if not path.exists() or not path.is_file():
-            continue
-        repo_root_path = _repo_root_for_path(path)
-        if repo_root_path is None:
-            continue
-        try:
-            rel_path = str(path.relative_to(repo_root_path))
-        except Exception:
-            continue
-        path_groups.setdefault(str(repo_root_path), []).append(rel_path)
-        seen_paths.add(normalized_path)
-    parts: list[str] = []
-    for repo_root, rel_paths in path_groups.items():
-        deduped_rel_paths = list(dict.fromkeys(rel_paths))
-        if not deduped_rel_paths:
-            continue
-        quoted_root = shlex.quote(repo_root)
-        quoted_paths = " ".join(shlex.quote(item) for item in deduped_rel_paths)
-        parts.append(f"git -C {quoted_root} diff --unified=0 -- {quoted_paths} | sed -n '1,200p'")
-    if not parts:
-        return None
-    return " ; ".join(parts)
-
-
-def _tool_shim_operator_unblock_repo_diff_command() -> str | None:
-    return _tool_shim_build_repo_diff_command_for_paths(
-        [
-            "/docker/fleet/scripts/codex-shims/codexea",
-            "/docker/fleet/scripts/codex-shims/python3",
-            "/docker/EA/ea/app/api/routes/responses.py",
-            "/docker/EA/ea/app/services/onemin_manager.py",
-            "/docker/EA/ea/app/services/responses_upstream.py",
-        ]
-    )
-
-
-def _tool_shim_operator_unblock_repo_hunks_command() -> str | None:
-    return _tool_shim_build_repo_hunks_command_for_paths(
-        [
-            "/docker/fleet/scripts/codex-shims/codexea",
-            "/docker/fleet/scripts/codex-shims/python3",
-            "/docker/EA/ea/app/api/routes/responses.py",
-            "/docker/EA/ea/app/services/onemin_manager.py",
-            "/docker/EA/ea/app/services/responses_upstream.py",
-        ]
-    )
+    ),
+)
+_tool_shim_build_staged_repo_hunks_command = build_tool_shim_build_staged_repo_hunks_command(
+    tool_shim_build_repo_hunks_command_for_paths=lambda raw_paths: _tool_shim_build_repo_hunks_command_for_paths(
+        raw_paths
+    ),
+)
+_tool_shim_operator_unblock_repo_diff_command = build_tool_shim_operator_unblock_repo_diff_command(
+    tool_shim_build_repo_diff_command_for_paths=lambda raw_paths: _tool_shim_build_repo_diff_command_for_paths(
+        raw_paths
+    ),
+)
+_tool_shim_operator_unblock_repo_hunks_command = build_tool_shim_operator_unblock_repo_hunks_command(
+    tool_shim_build_repo_hunks_command_for_paths=lambda raw_paths: _tool_shim_build_repo_hunks_command_for_paths(
+        raw_paths
+    ),
+)
 
 
 def _tool_shim_operator_unblock_verify_command() -> str:
@@ -6841,234 +4912,57 @@ def _tool_shim_operator_unblock_verify_command() -> str:
     )
 
 
-def _tool_shim_direct_compact_provider_health_command(path_text: str) -> str:
-    script = "\n".join(
-        [
-            "from pathlib import Path",
-            "import json",
-            "import sys",
-            "",
-            "def _to_float(value):",
-            "    try:",
-            "        return float(value)",
-            "    except Exception:",
-            "        return None",
-            "",
-            "payload = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace'))",
-            "root = (payload.get('payload') or payload) if isinstance(payload, dict) else {}",
-            "providers = (root.get('providers') or {}) if isinstance(root, dict) else {}",
-            "onemin = (providers.get('onemin') or {}) if isinstance(providers, dict) else {}",
-            "slots = [slot for slot in (onemin.get('slots') or []) if isinstance(slot, dict)]",
-            "counts = {}",
-            "for slot in slots:",
-            "    state = str(slot.get('state') or 'unknown').strip() or 'unknown'",
-            "    counts[state] = counts.get(state, 0) + 1",
-            "blocked = []",
-            "for slot in slots:",
-            "    state = str(slot.get('state') or 'unknown').strip() or 'unknown'",
-            "    if state not in {'quarantine', 'degraded', 'unavailable'}:",
-            "        continue",
-            "    blocked.append({",
-            "        'account_name': str(slot.get('account_name') or ''),",
-            "        'slot_env_name': str(slot.get('slot_env_name') or ''),",
-            "        'state': state,",
-            "        'remaining_credits': slot.get('remaining_credits'),",
-            "        'required_credits': slot.get('required_credits'),",
-            "        'last_probe_result': str(slot.get('last_probe_result') or ''),",
-            "        'last_probe_detail': str(slot.get('last_probe_detail') or ''),",
-            "    })",
-            "blocked = blocked[:8]",
-            "billing_live_mismatch_slots = []",
-            "for slot in slots:",
-            "    billing = slot.get('billing_remaining_credits')",
-            "    live = slot.get('remaining_credits')",
-            "    required = slot.get('required_credits')",
-            "    if billing is None or live is None or required is None:",
-            "        continue",
-            "    billing_value = _to_float(billing)",
-            "    live_value = _to_float(live)",
-            "    required_value = _to_float(required)",
-            "    if billing_value is None or live_value is None or required_value is None:",
-            "        continue",
-            "    if billing_value < 10000 or required_value <= live_value:",
-            "        continue",
-            "    billing_live_mismatch_slots.append({",
-            "        'account_name': str(slot.get('account_name') or ''),",
-            "        'slot_env_name': str(slot.get('slot_env_name') or ''),",
-            "        'state': str(slot.get('state') or ''),",
-            "        'billing_remaining_credits': billing,",
-            "        'remaining_credits': live,",
-            "        'required_credits': required,",
-            "        'estimated_credit_basis': str(slot.get('estimated_credit_basis') or ''),",
-            "        'last_probe_result': str(slot.get('last_probe_result') or ''),",
-            "        'last_billing_snapshot_at': str(slot.get('last_billing_snapshot_at') or ''),",
-            "        'last_success_at': slot.get('last_success_at'),",
-            "        'upstream_reset_unknown': bool(slot.get('upstream_reset_unknown')),",
-            "    })",
-            "billing_live_mismatch_slots = sorted(",
-            "    billing_live_mismatch_slots,",
-            "    key=lambda item: (-(_to_float(item.get('billing_remaining_credits')) or 0.0), str(item.get('slot_env_name') or '')),",
-            ")[:8]",
-            "out = {",
-            "    'fetched_at': root.get('fetched_at') or payload.get('cached_at') or '',",
-            "    'source_url': payload.get('source_url') or '',",
-            "    'configured_slots': onemin.get('configured_slots'),",
-            "    'ready_slots': counts.get('ready', 0),",
-            "    'degraded_slots': counts.get('degraded', 0),",
-            "    'quarantine_slots': counts.get('quarantine', 0),",
-            "    'unavailable_slots': counts.get('unavailable', 0),",
-            "    'unknown_slots': counts.get('unknown', 0),",
-            "    'balance_basis_summary': onemin.get('balance_basis_summary'),",
-            "    'last_actual_balance_at': onemin.get('last_actual_balance_at'),",
-            "    'max_credits_total': onemin.get('max_credits_total'),",
-            "    'remaining_percent_of_max': onemin.get('remaining_percent_of_max'),",
-            "    'estimated_remaining_credits_total': onemin.get('estimated_remaining_credits_total'),",
-            "    'reason': str(onemin.get('reason') or ''),",
-            "    'blocked_slots': blocked,",
-            "    'billing_live_mismatch_slots': billing_live_mismatch_slots,",
-            "}",
-            "print(json.dumps(out, ensure_ascii=True, separators=(',', ':')))",
-        ]
-    )
-    return f"python3 -c {shlex.quote(script)} {shlex.quote(path_text)}"
-
-
-def _tool_shim_operator_unblock_provider_health_command() -> str:
-    return _tool_shim_direct_compact_provider_health_command(
-        "/docker/fleet/state/chummer_design_supervisor/ea_provider_health_cache.json"
-    )
-
-
-def _tool_shim_operator_unblock_live_routing_hotspots_command() -> str:
-    return (
-        "sed -n '293,355p;680,780p' /docker/EA/ea/app/services/onemin_manager.py"
-        " ; "
-        "sed -n '2004,2048p;2816,2898p;2935,2978p;5541,5658p' /docker/EA/ea/app/services/responses_upstream.py"
-    )
-
-
-def _tool_shim_telemetry_followup_commands(
-    *,
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-    payload: dict[str, object],
-) -> list[str]:
-    commands: list[str] = []
-    operator_unblock_context = _tool_shim_is_operator_fleet_unblock_context(
+_tool_shim_direct_compact_provider_health_command = tool_shim_direct_compact_provider_health_command
+_tool_shim_operator_unblock_provider_health_command = build_tool_shim_operator_unblock_provider_health_command(
+    tool_shim_direct_compact_provider_health_command=lambda path_text: _tool_shim_direct_compact_provider_health_command(
+        path_text
+    ),
+)
+_tool_shim_operator_unblock_live_routing_hotspots_command = tool_shim_operator_unblock_live_routing_hotspots_command
+_tool_shim_telemetry_followup_commands = build_tool_shim_telemetry_followup_commands(
+    tool_shim_is_operator_fleet_unblock_context=lambda latest_user_text, history_items: _tool_shim_is_operator_fleet_unblock_context(
         latest_user_text,
         history_items,
-    )
-    allowed_operator_followup_paths = {
-        "/docker/fleet/WORKLIST.md",
-        "/docker/fleet/README.md",
-    }
-
-    def _append_command(candidate: str) -> None:
-        normalized = str(candidate or "").strip()
-        if not normalized or normalized in commands:
-            return
-        if not _tool_shim_looks_like_shell_command(normalized):
-            return
-        if (
-            _tool_shim_operator_unblock_scope_rejection_reason(
-                latest_user_text=latest_user_text,
-                cmd=normalized,
-                history_items=history_items,
-            )
-            is not None
-        ):
-            return
-        commands.append(normalized)
-
-    operator_repo_diff_command = None
-    if operator_unblock_context:
-        operator_repo_diff_command = _tool_shim_operator_unblock_repo_diff_command()
-    if operator_repo_diff_command:
-        _append_command(operator_repo_diff_command)
-        return commands
-
-    raw_first_commands = payload.get("first_commands")
-    if isinstance(raw_first_commands, list):
-        for raw_command in raw_first_commands:
-            rewritten_command = _tool_shim_rewrite_operator_unblock_command(str(raw_command or "").strip())
-            if not _tool_shim_is_safe_worker_followup_command(
-                rewritten_command
-            ) and not _tool_shim_is_allowed_package_followup_command(
-                latest_user_text,
-                rewritten_command,
-            ):
-                continue
-            if rewritten_command not in commands:
-                commands.append(rewritten_command)
-    if commands:
-        return commands
-
-    raw_source_paths = payload.get("source_paths")
-    if isinstance(raw_source_paths, list):
-        for raw_path in raw_source_paths:
-            path_text = _tool_shim_resolve_equivalent_shard_runtime_path(str(raw_path or "").strip())
-            if not path_text.startswith("/") or "..." in path_text:
-                continue
-            if operator_unblock_context and path_text not in allowed_operator_followup_paths:
-                continue
-            if not os.path.exists(path_text) or not os.path.isfile(path_text):
-                continue
-            candidate_command = _tool_shim_direct_file_read_command(
-                path_text,
-                prefer_cat=path_text.lower().endswith(".json"),
-            )
-            if operator_unblock_context:
-                _append_command(candidate_command)
-                continue
-            if _tool_shim_is_safe_worker_followup_command(candidate_command) and candidate_command not in commands:
-                commands.append(candidate_command)
-
-    return commands
-
-
-def _tool_shim_recent_nested_telemetry_commands(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-) -> list[str]:
-    if not (
-        _tool_shim_is_operator_fleet_unblock_context(latest_user_text, history_items)
-        or _tool_shim_history_has_fleet_shard_runtime_context(history_items)
-    ):
-        return []
-    for record in reversed(_tool_shim_exec_command_output_history(history_items)):
-        command = str(record.get("cmd") or "").strip()
-        output_text = str(record.get("output") or "").strip()
-        if (
-            "TASK_LOCAL_TELEMETRY.generated.json" not in command
-            and "\"first_commands\"" not in output_text
-            and "\"source_paths\"" not in output_text
-        ):
-            continue
-        payload = _extract_json_object(output_text)
-        if not isinstance(payload, dict):
-            continue
-        commands = _tool_shim_telemetry_followup_commands(
-            latest_user_text=latest_user_text,
-            history_items=history_items,
-            payload=payload,
-        )
-        if commands:
-            return commands
-    return []
-
-
-def _tool_shim_direct_nested_telemetry_first_command(
-    latest_user_text: str,
-    history_items: list[dict[str, object]],
-) -> str | None:
-    commands = _tool_shim_recent_nested_telemetry_commands(latest_user_text, history_items)
-    if not commands:
-        return None
-    executed_commands = {_tool_shim_command_identity(command) for command in _tool_shim_exec_command_history(history_items)}
-    for command in commands:
-        if _tool_shim_command_identity(command) not in executed_commands:
-            return command
-    return None
+    ),
+    tool_shim_looks_like_shell_command=lambda candidate: _tool_shim_looks_like_shell_command(candidate),
+    tool_shim_operator_unblock_scope_rejection_reason=lambda **kwargs: _tool_shim_operator_unblock_scope_rejection_reason(
+        **kwargs
+    ),
+    tool_shim_operator_unblock_repo_diff_command=lambda: _tool_shim_operator_unblock_repo_diff_command(),
+    tool_shim_rewrite_operator_unblock_command=lambda command: _tool_shim_rewrite_operator_unblock_command(command),
+    tool_shim_is_safe_worker_followup_command=lambda command: _tool_shim_is_safe_worker_followup_command(command),
+    tool_shim_is_allowed_package_followup_command=lambda latest_user_text, command: _tool_shim_is_allowed_package_followup_command(
+        latest_user_text,
+        command,
+    ),
+    tool_shim_resolve_equivalent_shard_runtime_path=lambda path_text: _tool_shim_resolve_equivalent_shard_runtime_path(
+        path_text
+    ),
+    tool_shim_direct_file_read_command=lambda path_text, **kwargs: _tool_shim_direct_file_read_command(
+        path_text,
+        **kwargs,
+    ),
+)
+_tool_shim_recent_nested_telemetry_commands = build_tool_shim_recent_nested_telemetry_commands(
+    tool_shim_is_operator_fleet_unblock_context=lambda latest_user_text, history_items: _tool_shim_is_operator_fleet_unblock_context(
+        latest_user_text,
+        history_items,
+    ),
+    tool_shim_history_has_fleet_shard_runtime_context=lambda history_items: _tool_shim_history_has_fleet_shard_runtime_context(
+        history_items
+    ),
+    tool_shim_exec_command_output_history=lambda history_items: _tool_shim_exec_command_output_history(history_items),
+    extract_json_object=lambda output_text: _extract_json_object(output_text),
+    tool_shim_telemetry_followup_commands=lambda **kwargs: _tool_shim_telemetry_followup_commands(**kwargs),
+)
+_tool_shim_direct_nested_telemetry_first_command = build_tool_shim_direct_nested_telemetry_first_command(
+    tool_shim_recent_nested_telemetry_commands=lambda latest_user_text, history_items: _tool_shim_recent_nested_telemetry_commands(
+        latest_user_text,
+        history_items,
+    ),
+    tool_shim_command_identity=lambda command: _tool_shim_command_identity(command),
+    tool_shim_exec_command_history=lambda history_items: _tool_shim_exec_command_history(history_items),
+)
 
 
 def _tool_shim_direct_operator_unblock_post_repo_diff_command(
@@ -8788,6 +6682,41 @@ def _build_completed_response_from_upstream(
         ),
         history_items_to_store,
     )
+
+
+_spawn_background_codex_worker = build_spawn_background_codex_worker(
+    claim_background_response_worker_slot=_claim_background_response_worker_slot,
+    background_timeout_seconds_for_response=_background_timeout_seconds_for_response,
+    tool_shim_decision=lambda **kwargs: _tool_shim_decision(**kwargs),
+    tool_shim_decision_type=_ToolShimDecision,
+    upstream_result_type=UpstreamResult,
+    generate_upstream_text=lambda **kwargs: _generate_upstream_text(**kwargs),
+    build_completed_response_from_upstream=lambda **kwargs: _build_completed_response_from_upstream(**kwargs),
+    store_background_terminal_response=lambda **kwargs: _store_background_terminal_response(**kwargs),
+    capture_responses_debug=lambda **kwargs: _capture_responses_debug(**kwargs),
+    build_failed_response=lambda **kwargs: _build_failed_response(**kwargs),
+    response_failure_message=lambda response_obj: _response_failure_message(response_obj),
+    release_background_response_worker_slot=lambda response_id: _release_background_response_worker_slot(response_id),
+    register_background_response_worker=lambda response_id, worker: _register_background_response_worker(response_id, worker),
+)
+_ensure_background_response_progress = build_ensure_background_response_progress(
+    background_response_transition_lock=_BACKGROUND_RESPONSE_TRANSITION_LOCK,
+    background_response_has_expired=lambda response_obj: _background_response_has_expired(response_obj),
+    background_failed_response=lambda **kwargs: _background_failed_response(**kwargs),
+    background_timeout_failure_message=lambda response_obj: _background_timeout_failure_message(response_obj),
+    store_response=lambda **kwargs: _store_response(**kwargs),
+    background_response_has_live_worker=lambda response_id: _background_response_has_live_worker(response_id),
+    now_unix=lambda: _now_unix(),
+    build_chatplayground_audit_callback=lambda **kwargs: _build_chatplayground_audit_callback(**kwargs),
+    spawn_background_codex_worker=lambda **kwargs: _spawn_background_codex_worker(**kwargs),
+    requested_max_output_tokens_from_response=lambda response_obj: _requested_max_output_tokens_from_response(response_obj),
+    default_public_model=DEFAULT_PUBLIC_MODEL,
+    stored_response_type=_StoredResponse,
+)
+_load_response_for_runtime = build_load_response_for_runtime(
+    load_response=lambda **kwargs: _load_response(**kwargs),
+    ensure_background_response_progress=lambda **kwargs: _ensure_background_response_progress(**kwargs),
+)
 
 
 def _run_background_codex_response(
@@ -10625,658 +8554,97 @@ def _run_response(
     )
 
 
-async def _run_response_in_executor(
-    request_payload: dict[str, object],
-    *,
-    context: RequestContext,
-    container: object | None = None,
-    codex_profile: str | None = None,
-    preferred_onemin_labels: tuple[str, ...] = (),
-) -> Response:
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _RESPONSES_ROUTE_EXECUTOR,
-        partial(
-            _run_response,
-            request_payload,
-            context=context,
-            container=container,
-            codex_profile=codex_profile,
-            preferred_onemin_labels=preferred_onemin_labels,
-        ),
-    )
-
-
-@models_router.get("", response_model=_ModelListObject)
-def list_models(request: Request) -> Response:
-    return JSONResponse(
-        {
-            "object": "list",
-            "data": list_response_models(),
-        }
-    )
-
-
-@responses_item_router.get("/_provider_health", response_model=None)
-async def get_provider_health(
-    *,
-    container: AppContainer = Depends(get_container),
-    context: RequestContext = Depends(get_request_context),
-    lightweight: bool = Query(default=False),
-    wait_on_stale: bool = Query(default=False),
-) -> Response:
-    include_sensitive = is_operator_context(context)
-    provider_health = await _provider_health_snapshot_async(lightweight=lightweight, wait_on_stale=wait_on_stale)
-    safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
-    if lightweight and not include_sensitive:
-        provider_registry = _fallback_provider_registry_payload(
-            safe_provider_health,
-            browseract_binding_available=(
-                bool(_browseract_binding_id(container=container, principal_id=context.principal_id))
-                if context.principal_id
-                else None
-            ),
-        )
-    else:
-        provider_registry = await _provider_registry_payload_async(
-            container=container,
-            principal_id=context.principal_id,
-            provider_health=safe_provider_health,
-            include_sensitive=include_sensitive,
-        )
-    return JSONResponse(
-        {
-            **safe_provider_health,
-            "principal": principal_identity_summary(context.principal_id),
-            "provider_registry": provider_registry,
-        }
-    )
-
-
-@responses_item_router.get("/{response_id}", response_model=_ResponseObject)
-def get_response(
-    response_id: str,
-    *,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    override = _stream_response_override(
-        response_id=response_id,
-        principal_id=context.principal_id,
-    )
-    if override is not None:
-        return JSONResponse(override)
-    stored = _load_response_for_runtime(
-        response_id=response_id,
-        principal_id=context.principal_id,
-        container=container,
-    )
-    return JSONResponse(stored.response)
-
-
-@responses_item_router.get("/{response_id}/input_items", response_model=_ResponseInputItemsListObject)
-def get_response_input_items(
-    response_id: str,
-    *,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    stored = _load_response(
-        response_id=response_id,
-        principal_id=context.principal_id,
-        container=container,
-    )
-    return JSONResponse(
-        {
-            "object": "list",
-            "response_id": response_id,
-            "data": [dict(item) for item in stored.input_items],
-        }
-    )
-
-
-@responses_item_router.post(
-    "",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+list_codex_profiles = build_list_codex_profiles_handler(
+    get_container=get_container,
+    get_request_context=get_request_context,
+    is_operator_context=is_operator_context,
+    provider_health_snapshot=_provider_health_snapshot,
+    redacted_provider_health=_redacted_provider_health,
+    codex_profiles=_codex_profiles,
+    attach_provider_slot_state=_attach_provider_slot_state,
+    provider_registry_payload=_provider_registry_payload,
+    codex_governance_payload=_codex_governance_payload,
+    principal_identity_summary=principal_identity_summary,
 )
-async def create_response(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    header_profile = str(request.headers.get("X-EA-Codex-Profile") or request.headers.get("X-CodexEA-Profile") or "").strip().lower()
-    preferred_onemin_labels = _preferred_onemin_labels_from_request(request)
-    normalized_payload = dict(payload or {})
-    trace_metadata = dict(normalized_payload.get("metadata") or {}) if isinstance(normalized_payload.get("metadata"), dict) else {}
-    correlation_id = str(getattr(request.state, "correlation_id", "") or "").strip()
-    if correlation_id:
-        trace_metadata["ea_correlation_id"] = correlation_id
-    if trace_metadata:
-        normalized_payload["metadata"] = trace_metadata
-    if header_profile == "jury":
-        header_profile = "audit"
-    if header_profile == "review-light":
-        header_profile = "review_light"
-    if header_profile not in {"core", "core_batch", "core_rescue", "easy", "repair", "groundwork", "review_light", "survival", "audit"}:
-        header_profile = ""
-    return await _run_response_in_executor(
-        normalized_payload,
-        context=context,
-        container=container,
-        codex_profile=header_profile or None,
-        preferred_onemin_labels=preferred_onemin_labels,
-    )
-
-
-@codex_router.post(
-    "/core",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+get_codex_status = build_get_codex_status_handler(
+    get_request_context=get_request_context,
+    is_operator_context=is_operator_context,
+    provider_health_snapshot=_provider_health_snapshot,
+    codex_status_report=codex_status_report,
+    codex_governance_payload=_codex_governance_payload,
 )
-async def create_codex_core(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="core",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="core",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/core-batch",
-    response_model=_ResponseObject,
-    responses={
-        202: {
-            "description": "Returns an in-progress response object for background core batch execution.",
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+list_models = build_list_models_handler(
+    list_response_models=list_response_models,
 )
-async def create_codex_core_batch(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="core_batch",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="core_batch",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/core-rescue",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+get_provider_health = build_get_provider_health_handler(
+    get_container=get_container,
+    get_request_context=get_request_context,
+    is_operator_context=is_operator_context,
+    provider_health_snapshot_async=_provider_health_snapshot_async,
+    redacted_provider_health=_redacted_provider_health,
+    provider_health_route_registry_payload=_provider_health_route_registry_payload,
+    principal_identity_summary=principal_identity_summary,
 )
-async def create_codex_core_rescue(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="core_rescue",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="core_rescue",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/easy",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+get_response = build_get_response_handler(
+    get_request_context=get_request_context,
+    get_container=get_container,
+    stream_response_override=_stream_response_override,
+    load_response_for_runtime=_load_response_for_runtime,
 )
-async def create_codex_easy(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="easy",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="easy",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/repair",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+get_response_input_items = build_get_response_input_items_handler(
+    get_request_context=get_request_context,
+    get_container=get_container,
+    load_response=_load_response,
 )
-async def create_codex_repair(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="repair",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="repair",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/groundwork",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+_run_response_in_executor = build_run_response_in_executor(
+    responses_route_executor=_RESPONSES_ROUTE_EXECUTOR,
+    run_response=_run_response,
 )
-async def create_codex_groundwork(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="groundwork",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="groundwork",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/review-light",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+create_response = build_create_response_handler(
+    get_request_context=get_request_context,
+    get_container=get_container,
+    preferred_onemin_labels_from_request=preferred_onemin_labels_from_request,
+    payload_with_request_trace_metadata=payload_with_request_trace_metadata,
+    header_codex_profile_from_request=header_codex_profile_from_request,
+    run_response_in_executor=_run_response_in_executor,
 )
-async def create_codex_review_light(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="review_light",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="review_light",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.post(
-    "/survival",
-    response_model=_ResponseObject,
-    responses={
-        202: {
-            "description": "Returns an in-progress response object for background survival execution.",
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+_run_profiled_codex_response = build_run_profiled_codex_response(
+    normalize_payload_for_profile=_normalize_payload_for_profile,
+    run_response_in_executor=_run_response_in_executor,
+    preferred_onemin_labels_from_request=preferred_onemin_labels_from_request,
 )
-async def create_codex_survival(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: object = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="survival",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="survival",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
 
-
-@codex_router.post(
-    "/audit",
-    response_model=_ResponseObject,
-    responses={
-        200: {
-            "description": "Returns JSON when stream=false, SSE when stream=true.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "example": "event: response.created\\ndata: {\"type\":\"response.created\"}\\n\\ndata: [DONE]\\n\\n",
-                    }
-                }
-            },
-        }
-    },
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": _RESPONSES_CREATE_REQUEST_SCHEMA,
-                }
-            },
-        }
-    },
+register_model_routes(
+    models_router=models_router,
+    list_models=list_models,
+    model_list_response_model=_ModelListObject,
 )
-async def create_codex_audit(
-    payload: dict[str, object],
-    *,
-    request: Request,
-    context: RequestContext = Depends(get_request_context),
-    container: AppContainer = Depends(get_container),
-) -> Response:
-    normalized = _normalize_payload_for_profile(
-        payload,
-        profile="audit",
-        container=container,
-        principal_id=context.principal_id,
-    )
-    return await _run_response_in_executor(
-        normalized,
-        context=context,
-        container=container,
-        codex_profile="audit",
-        preferred_onemin_labels=_preferred_onemin_labels_from_request(request),
-    )
-
-
-@codex_router.get("/profiles")
-def list_codex_profiles(
-    container: AppContainer = Depends(get_container),
-    context: RequestContext = Depends(get_request_context),
-) -> Response:
-    include_sensitive = is_operator_context(context)
-    provider_health = _provider_health_snapshot(lightweight=(not include_sensitive))
-    safe_provider_health = _redacted_provider_health(provider_health, include_sensitive=include_sensitive)
-    profiles = [
-        {**profile, "provider_hint_order": list(profile["provider_hint_order"])}
-        for profile in _codex_profiles(
-            container=container,
-            principal_id=context.principal_id,
-            provider_health=provider_health,
-        )
-    ]
-    return JSONResponse(
-        {
-            "principal": principal_identity_summary(context.principal_id),
-            "governance": _codex_governance_payload(),
-            "profiles": _attach_provider_slot_state(
-                profiles,
-                provider_health=safe_provider_health,
-                include_sensitive=include_sensitive,
-            ),
-            "provider_health": safe_provider_health,
-            "provider_registry": _provider_registry_payload(
-                container=container,
-                principal_id=context.principal_id,
-                provider_health=safe_provider_health,
-                include_sensitive=include_sensitive,
-            ),
-        }
-    )
-
-
-@codex_router.get("/status")
-def get_codex_status(
-    window: str = "1h",
-    refresh: bool = False,
-    compact: bool = False,
-    context: RequestContext = Depends(get_request_context),
-) -> Response:
-    _ = refresh
-    profile_health = _provider_health_snapshot(lightweight=(not is_operator_context(context)))
-    if is_operator_context(context):
-        report = codex_status_report(window=window, provider_health=profile_health, compact=compact)
-    else:
-        report = dict(
-            codex_status_report(
-                window=window,
-                principal_id=context.principal_id,
-                provider_health=profile_health,
-                compact=compact,
-            )
-        )
-        report["fleet_burn"] = {}
-    report["governance"] = _codex_governance_payload()
-    return JSONResponse(report)
+register_response_item_routes(
+    responses_item_router=responses_item_router,
+    get_provider_health=get_provider_health,
+    get_response=get_response,
+    get_response_input_items=get_response_input_items,
+    create_response=create_response,
+    response_object_model=_ResponseObject,
+    response_input_items_list_model=_ResponseInputItemsListObject,
+    streaming_route_responses=_STREAMING_ROUTE_RESPONSES,
+    request_openapi_extra=_RESPONSES_CREATE_REQUEST_OPENAPI_EXTRA,
+)
+register_profiled_codex_routes(
+    codex_router=codex_router,
+    route_specs=_CODEX_PROFILE_ROUTE_SPECS,
+    run_profiled_codex_response=_run_profiled_codex_response,
+    get_request_context=get_request_context,
+    get_container=get_container,
+    response_object_model=_ResponseObject,
+    request_openapi_extra=_RESPONSES_CREATE_REQUEST_OPENAPI_EXTRA,
+    module_globals=globals(),
+)
+register_codex_metadata_routes(
+    codex_router=codex_router,
+    list_codex_profiles=list_codex_profiles,
+    get_codex_status=get_codex_status,
+)
 
 
 router.include_router(models_router)

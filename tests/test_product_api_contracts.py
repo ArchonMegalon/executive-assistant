@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -547,11 +548,93 @@ def test_signal_ingest_willhaben_search_agent_mail_skips_commitment_staging_but_
     assert handoff["summary"].startswith("Review apartment alert:")
 
 
+def test_signal_ingest_immmo_property_alert_mail_uses_property_review_lane() -> None:
+    principal_id = "exec-product-signal-ooda-immmo-agent"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Alert Office")
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "summary": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "text": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "counterparty": "IMMMO",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-immmo-alert-1",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-immmo-alert-1",
+            "payload": {
+                "from_email": "mailrobot@immmo.at",
+                "from_name": "IMMMO",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+    body = signal.json()
+    assert body["staged_count"] == 0
+    assert body["draft_count"] == 0
+    assert body["ooda_loop"]["reviewed"] is True
+    recommendations = body["ooda_loop"]["ltd_review"]["recommended_actions"]
+    assert any(item["service_name"] == "Crezlo Tours" and item["action_key"] == "create_property_tour" for item in recommendations)
+    automated_actions = body["ooda_loop"]["act"]["automated_actions"]
+    review_action = next(item for item in automated_actions if item["action_key"] == "review_property_alert")
+    assert review_action["task_type"] == "property_alert_review"
+    assert review_action["human_task_id"].startswith("human_task:")
+
+
+def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch) -> None:
+    principal_id = "exec-product-signal-telegram-property-review"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Alert Telegram Office")
+
+    observed_telegram: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("777",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text: observed_telegram.update(
+            {"principal_id": principal_id, "text": text}
+        ) or _TelegramReceipt(),
+    )
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "summary": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "text": "https://www.immoscout24.at/expose/telegram-test-property-1",
+            "counterparty": "IMMMO",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-telegram-property-alert-1",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-telegram-property-alert-1",
+            "payload": {
+                "from_email": "mailrobot@immmo.at",
+                "from_name": "IMMMO",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+    assert observed_telegram["principal_id"] == principal_id
+    assert "New property alert analyzed." in str(observed_telegram["text"])
+    assert "Listing: https://www.immoscout24.at/expose/telegram-test-property-1" in str(observed_telegram["text"])
+
+
 def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_tibor(monkeypatch) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "tibor.girschele@gmail.com")
     monkeypatch.setenv(
         "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
@@ -674,6 +757,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -687,6 +771,12 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
             "area_label": "74 m²",
             "rooms_label": "3 rooms",
             "total_rent_eur": 1890.0,
+            "decision_summary": {
+                "good_fit_reasons": ["A floor plan is available."],
+                "bad_fit_reasons": ["Gas heating may raise running-cost risk."],
+                "unknowns": ["Check noise and privacy in person."],
+                "recommendation": "shortlist",
+            },
         },
         "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
         "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
@@ -717,6 +807,24 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
         )
 
     monkeypatch.setattr(product_service, "send_property_tour_email", _fake_send_property_tour_email)
+    monkeypatch.setattr(
+        product_service,
+        "resolve_primary_telegram_binding",
+        lambda tool_runtime, *, principal_id: SimpleNamespace(
+            external_account_ref="1354554303",
+            auth_metadata_json={"default_chat_ref": "1354554303"},
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text: SimpleNamespace(
+            chat_id="1354554303",
+            bot_key="default",
+            bot_handle="tibor_concierge_bot",
+            message_ids=("tg-1",),
+        ),
+    )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.task_key in {
@@ -724,7 +832,8 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
             "ltd_runtime__crezlo_tours__create_property_tour",
         }
         assert request.input_json["binding_id"] == "browseract-binding-1"
-        assert request.input_json["force_ui_worker"] is True
+        assert request.input_json["force_ui_worker"] is False
+        assert request.input_json["proxy_result"] is True
         assert request.input_json["property_url"] == packet["property_url"]
         return Artifact(
             artifact_id="artifact-property-tour-1",
@@ -761,8 +870,12 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     assert body["execution_session_id"] == "session-property-tour-1"
     assert body["delivery_email"] == "tibor.girschele@gmail.com"
     assert body["delivery_status"] == "sent"
+    assert body["telegram_delivery_status"] == "sent"
+    assert body["telegram_chat_ref"] == "1354554303"
+    assert body["telegram_message_ids"] == ["tg-1"]
     assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
     assert observed_email["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
+    assert observed_email["decision_summary_json"]["recommendation"] == "shortlist"
 
     events = client.get(
         "/app/api/events",
@@ -770,11 +883,685 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     )
     assert events.status_code == 200
     assert any(item["payload"]["delivery_email"] == "tibor.girschele@gmail.com" for item in events.json()["items"])
+    tg_events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_telegram_sent"},
+    )
+    assert tg_events.status_code == 200
+    assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in tg_events.json()["items"])
+
+
+def test_property_tour_delivery_message_includes_decision_reasoning() -> None:
+    subject, body = product_service._property_tour_delivery_message(
+        property_title="Bright Brigittenau apartment",
+        property_url="https://www.willhaben.at/test-listing",
+        tour_url="https://myexternalbrain.com/tours/test-listing",
+        variant_key="layout_first",
+        listing_id="listing-123",
+        area_label="74 m²",
+        rooms_label="3 rooms",
+        price_label="EUR 1890",
+        decision_summary_json={
+            "good_fit_reasons": ["A floor plan is available."],
+            "bad_fit_reasons": ["Gas heating may raise running-cost risk."],
+            "unknowns": ["Check noise and privacy in person."],
+            "recommendation": "shortlist",
+            "location_fit_score": 5,
+            "livability_snapshot": {
+                "nearest_transit_m": 280,
+                "nearest_supermarket_m": 190,
+                "nearest_pharmacy_m": 320,
+                "nearest_bicycle_parking_m": 110,
+                "nearest_cycleway_m": 260,
+                "nearest_running_m": 780,
+            },
+        },
+    )
+
+    assert "Apartment tour ready: Bright Brigittenau apartment" in subject
+    assert "Recommendation: shortlist" in body
+    assert "Neighborhood fit score: 5" in body
+    assert "Neighborhood snapshot:" in body
+    assert "Transit: about 280 m" in body
+    assert "Bicycle parking: about 110 m" in body
+    assert "Why it could fit:" in body
+    assert "Why it may not fit:" in body
+    assert "What still needs checking:" in body
+
+
+def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
+    principal_id = "pref-product-api"
+    client = build_product_client(principal_id=principal_id)
+
+    created = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+            "high_stakes_domains_enabled": True,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["display_name"] == "Tibor"
+    assert created.json()["learning_enabled"] is True
+
+    node = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "constraint",
+            "key": "require_floorplan",
+            "value_json": True,
+            "confidence": 1.0,
+        },
+    )
+    assert node.status_code == 200
+    assert node.json()["key"] == "require_floorplan"
+
+    evidence = client.post(
+        "/app/api/people/self/preference-profile/evidence",
+        json={
+            "domain": "willhaben",
+            "event_type": "listing_shortlisted",
+            "object_type": "listing",
+            "object_id": "listing-1",
+            "interpreted_signal_json": {
+                "preference_hints": [
+                    {
+                        "domain": "willhaben",
+                        "category": "soft_preference",
+                        "key": "preferred_districts",
+                        "value_json": ["Waehring"],
+                        "strength": "medium",
+                        "merge_mode": "append_unique",
+                    }
+                ]
+            },
+        },
+    )
+    assert evidence.status_code == 200
+    assert evidence.json()["applied_nodes"][0]["key"] == "preferred_districts"
+
+    assessment = client.post(
+        "/app/api/people/self/preference-profile/assessments",
+        json={
+            "domain": "willhaben",
+            "object_type": "listing",
+            "object_id": "listing-1",
+            "object_payload": {
+                "postal_name": "Waehring",
+                "total_rent_eur": 2200.0,
+                "rooms": 4.0,
+                "area_sqm": 106.0,
+                "heating": "Gasheizung",
+                "floorplan_count": 1,
+                "tour_media_mode": "panorama_360",
+            },
+        },
+    )
+    assert assessment.status_code == 200
+    assert assessment.json()["domain"] == "willhaben"
+    assert assessment.json()["recommendation"] in {"mention", "shortlist"}
+
+    bundle = client.get("/app/api/people/self/preference-profile")
+    assert bundle.status_code == 200
+    body = bundle.json()
+    assert body["profile"]["display_name"] == "Tibor"
+    assert any(item["key"] == "preferred_districts" for item in body["preference_nodes"])
+    assert body["recent_decision_assessments"][0]["domain"] == "willhaben"
+
+    partial = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Updated Tibor",
+        },
+    )
+    assert partial.status_code == 200
+    assert partial.json()["display_name"] == "Updated Tibor"
+    assert partial.json()["learning_enabled"] is True
+    assert partial.json()["high_stakes_domains_enabled"] is True
+
+
+def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile_exists(monkeypatch) -> None:
+    from app.domain.models import Artifact
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "aversion",
+            "key": "avoid_heating_types",
+            "value_json": ["Gasheizung"],
+            "confidence": 1.0,
+        },
+    )
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/apartment-a-123",
+        "listing_id": "listing-123",
+        "listing_uuid": "listing-uuid-123",
+        "title": "Bright Waehring apartment",
+        "property_facts_json": {
+            "postal_name": "Waehring",
+            "area_label": "74 m²",
+            "area_sqm": 74.0,
+            "rooms_label": "3 rooms",
+            "rooms": 3.0,
+            "total_rent_eur": 1890.0,
+            "heating": "Gasheizung",
+            "floorplan_count": 1,
+            "decision_summary": {
+                "good_fit_reasons": ["A floor plan is available."],
+                "bad_fit_reasons": [],
+                "unknowns": ["Check noise in person."],
+                "recommendation": "shortlist",
+            },
+        },
+        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {"include_floorplans": True},
+                "tour_settings_json": {"showSceneNumbers": True},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    observed_email: dict[str, object] = {}
+
+    def _fake_send_property_tour_email(**kwargs) -> RegistrationEmailReceipt:
+        observed_email.update(kwargs)
+        return RegistrationEmailReceipt(provider="emailit", message_id="property-tour-message-2", accepted_at="2026-05-02T00:00:00+00:00")
+
+    monkeypatch.setattr(product_service, "send_property_tour_email", _fake_send_property_tour_email)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        return Artifact(
+            artifact_id="artifact-property-tour-2",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-2",
+            principal_id=principal_id,
+            structured_output_json={
+                "hosted_url": "https://myexternalbrain.com/tours/waehring-apartment-a",
+                "public_url": "https://myexternalbrain.com/tours/waehring-apartment-a",
+                "crezlo_public_url": "https://vendor.example.com/tours/waehring-apartment-a",
+                "editor_url": "https://vendor.example.com/editor/waehring-apartment-a",
+                "tour_id": "tour-456",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-1",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "sent"
+    assert body["personal_fit_assessment"]["assessment_id"]
+    assert body["personal_fit_assessment"]["domain"] == "willhaben"
+    assert any("Gasheizung" in entry for entry in body["personal_fit_assessment"]["mismatch_reasons_json"])
+    assert observed_email["decision_summary_json"]["domain"] == "willhaben"
+
+
+def test_preference_profile_teable_projection_endpoints_return_live_rows() -> None:
+    principal_id = "pref-teable-api"
+    client = build_product_client(principal_id=principal_id)
+
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": ["Waehring"],
+            "confidence": 0.8,
+        },
+    )
+
+    projection = client.get("/app/api/people/self/preference-profile/teable-projection")
+    assert projection.status_code == 200
+    projection_body = projection.json()
+    assert "preference_review_queue" in projection_body
+    assert projection_body["preference_review_queue"][0]["display_name"] == "Tibor"
+    assert projection_body["preference_review_queue"][0]["key"] == "preferred_districts"
+
+    summary = client.get("/app/api/people/self/preference-profile/teable-projection-summary")
+    assert summary.status_code == 200
+    table = next(item for item in summary.json()["tables"] if item["table_name"] == "preference_review_queue")
+    assert table["record_count"] >= 1
+
+
+def test_preference_profile_teable_sync_preview_fails_closed_without_executable_lane() -> None:
+    principal_id = "pref-teable-sync-preview"
+    client = build_product_client(principal_id=principal_id)
+
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": ["Waehring"],
+            "confidence": 0.8,
+        },
+    )
+
+    preview = client.get("/app/api/people/self/preference-profile/teable-sync-preview")
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["status"] == "blocked"
+    assert preview_body["blocked_reason"] == "teable_table_sync_config_missing"
+    assert preview_body["provider"]["provider_key"] == "teable"
+    assert preview_body["provider"]["table_sync_configured"] is False
+    assert preview_body["route"]["capability_key"] == "table_sync"
+    assert preview_body["projected_record_count"] >= 1
+
+    requested = client.post("/app/api/people/self/preference-profile/teable-sync")
+    assert requested.status_code == 200
+    requested_body = requested.json()
+    assert requested_body["sync_attempted"] is False
+    assert requested_body["sync_result"] == "blocked"
+    assert requested_body["blocked_reason"] == "teable_table_sync_config_missing"
+
+
+def test_preference_profile_teable_sync_can_use_executable_lane_when_available(monkeypatch) -> None:
+    from app.domain.models import ToolInvocationResult
+
+    principal_id = "pref-teable-sync-exec"
+    client = build_product_client(principal_id=principal_id)
+    container = client.app.state.container
+
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": ["Waehring"],
+            "confidence": 0.8,
+        },
+    )
+
+    monkeypatch.setattr(
+        container.provider_registry,
+        "candidate_routes_by_capability_with_context",
+        lambda **_: (
+            SimpleNamespace(
+                provider_key="teable",
+                capability_key="table_sync",
+                tool_name="provider.teable.table_sync",
+                executable=True,
+            ),
+        ),
+    )
+    monkeypatch.setenv(
+        "TEABLE_TABLE_SYNC_CONFIG_JSON",
+        json.dumps(
+            {
+                "preference_review_queue": {
+                    "table_id": "tbl_preference_review_queue",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                }
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        container.provider_registry,
+        "binding_state",
+        lambda provider_key, principal_id=None: SimpleNamespace(
+            provider_key=provider_key,
+            display_name="Teable",
+            state="ready",
+            enabled=True,
+            executable=True,
+            binding_id=f"{principal_id}:teable",
+            secret_configured=True,
+            updated_at="2026-05-25T00:00:00Z",
+        ),
+    )
+    monkeypatch.setattr(product_service.ProductService, "_teable_sync_runtime_available", lambda self, *, base_url: (True, ""))
+
+    def _execute(invocation):
+        assert invocation.tool_name == "provider.teable.table_sync"
+        assert invocation.action_kind == "table.sync"
+        assert invocation.payload_json["projection_scope"] == "preference_profile"
+        assert invocation.payload_json["person_id"] == "self"
+        assert "preference_review_queue" in invocation.payload_json["tables_json"]
+        return ToolInvocationResult(
+            tool_name=invocation.tool_name,
+            action_kind=invocation.action_kind,
+            target_ref="teable-sync:pref-teable-sync-exec:self",
+            output_json={"synced_tables": ["preference_review_queue"]},
+            receipt_json={"status": "pass", "rows_upserted": 1},
+        )
+
+    monkeypatch.setattr(container.tool_execution, "execute_invocation", _execute)
+
+    requested = client.post("/app/api/people/self/preference-profile/teable-sync")
+    assert requested.status_code == 200
+    requested_body = requested.json()
+    assert requested_body["status"] == "ready"
+    assert requested_body["sync_attempted"] is True
+    assert requested_body["sync_result"] == "sent"
+    assert requested_body["tool_execution"]["target_ref"] == "teable-sync:pref-teable-sync-exec:self"
+    assert requested_body["tool_execution"]["receipt_json"]["rows_upserted"] == 1
+
+
+def test_preference_profile_teable_sync_preview_blocks_when_runtime_is_unreachable(monkeypatch) -> None:
+    principal_id = "pref-teable-sync-runtime-down"
+    client = build_product_client(principal_id=principal_id)
+    container = client.app.state.container
+
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": ["Waehring"],
+            "confidence": 0.8,
+        },
+    )
+
+    monkeypatch.setattr(
+        container.provider_registry,
+        "candidate_routes_by_capability_with_context",
+        lambda **_: (
+            SimpleNamespace(
+                provider_key="teable",
+                capability_key="table_sync",
+                tool_name="provider.teable.table_sync",
+                executable=True,
+            ),
+        ),
+    )
+    monkeypatch.setenv(
+        "TEABLE_TABLE_SYNC_CONFIG_JSON",
+        json.dumps(
+            {
+                "preference_review_queue": {
+                    "table_id": "tbl_preference_review_queue",
+                    "key_field": "projection_id",
+                    "field_key_type": "name",
+                }
+            }
+        ),
+    )
+    monkeypatch.setenv("TEABLE_API_KEY", "test-teable-key")
+    monkeypatch.setenv("TEABLE_BASE_URL", "http://host.docker.internal:18787")
+    monkeypatch.setattr(
+        container.provider_registry,
+        "binding_state",
+        lambda provider_key, principal_id=None: SimpleNamespace(
+            provider_key=provider_key,
+            display_name="Teable",
+            state="ready",
+            enabled=True,
+            executable=True,
+            binding_id=f"{principal_id}:teable",
+            secret_configured=True,
+            updated_at="2026-05-25T00:00:00Z",
+        ),
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_teable_sync_runtime_available",
+        lambda self, *, base_url: (False, "teable_runtime_unreachable"),
+    )
+
+    preview = client.get("/app/api/people/self/preference-profile/teable-sync-preview")
+    assert preview.status_code == 200
+    preview_body = preview.json()
+    assert preview_body["status"] == "blocked"
+    assert preview_body["blocked_reason"] == "teable_runtime_unreachable"
+    assert preview_body["provider"]["table_sync_configured"] is True
+    assert preview_body["provider"]["runtime_reachable"] is False
+    assert preview_body["provider"]["base_url"] == "http://host.docker.internal:18787"
+
+
+def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floorplan_scene_in_360_mode(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/panorama-apartment-123",
+        "listing_id": "listing-panorama-123",
+        "listing_uuid": "listing-uuid-panorama-123",
+        "title": "Panorama apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-panorama/photo-1.jpg"],
+        "panorama_media_urls_json": ["https://cdn.example.com/apartment-panorama/room-360.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-panorama/floorplan-1.jpg"],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {"include_floorplans": True},
+                "tour_settings_json": {"showSceneNumbers": True},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.input_json["media_urls_json"] == ["https://cdn.example.com/apartment-panorama/room-360.jpg"]
+        assert request.input_json["floorplan_urls_json"] == []
+        assert request.input_json["scene_strategy"] == "photo_only"
+        assert request.input_json["scene_selection_json"]["include_floorplans"] is False
+        assert request.input_json["property_facts_json"]["tour_media_mode"] == "panorama_360"
+        assert request.input_json["runtime_inputs_json"]["tour_media_mode"] == "panorama_360"
+        return Artifact(
+            artifact_id="artifact-property-tour-panorama-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-panorama-1",
+            principal_id=principal_id,
+            structured_output_json={"public_url": "https://vendor.example.com/tours/panorama-apartment"},
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-panorama-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_media_mode"] == "panorama_360"
+
+
+def test_willhaben_property_tour_route_accepts_external_live_360_source_when_panorama_images_are_absent(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/external-360-apartment-123",
+        "listing_id": "listing-external-360-123",
+        "listing_uuid": "listing-uuid-external-360-123",
+        "title": "External 360 apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment/photo-1.jpg"],
+        "panorama_media_urls_json": [],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment/floorplan-1.jpg"],
+        "source_virtual_tour_url": "https://360.example.test/view/portal/id/external-360-apartment",
+        "panorama_source": "feelestate_kalandra",
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the live 360 source.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {"include_floorplans": True},
+                "tour_settings_json": {"showSceneNumbers": True},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.input_json["media_urls_json"] == ["https://cdn.example.com/apartment/photo-1.jpg"]
+        assert request.input_json["floorplan_urls_json"] == ["https://cdn.example.com/apartment/floorplan-1.jpg"]
+        assert request.input_json["source_virtual_tour_url"] == "https://360.example.test/view/portal/id/external-360-apartment"
+        assert request.input_json["panorama_source"] == "feelestate_kalandra"
+        assert request.input_json["property_facts_json"]["tour_media_mode"] == "panorama_360"
+        assert request.input_json["runtime_inputs_json"]["tour_media_mode"] == "panorama_360"
+        return Artifact(
+            artifact_id="artifact-property-tour-external-360-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-external-360-1",
+            principal_id=principal_id,
+            structured_output_json={"public_url": "https://vendor.example.com/tours/external-360-apartment"},
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-external-360-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_media_mode"] == "panorama_360"
+
+
+def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "listing-flat-123",
+            "listing_uuid": "listing-uuid-flat-123",
+            "title": "Flat-photo apartment",
+            "property_facts_json": {},
+            "media_urls_json": ["https://cdn.example.com/apartment-flat/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [
+                {
+                    "variant_key": "layout_first",
+                    "scene_strategy": "layout_first",
+                    "theme_name": "clean_light",
+                    "tour_style": "guided_layout_walkthrough",
+                    "audience": "tenant_screening",
+                    "creative_brief": "Lead with the floor plan.",
+                    "call_to_action": "Open the tour.",
+                    "scene_selection_json": {},
+                    "tour_settings_json": {},
+                }
+            ],
+        },
+    )
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/flat-photo-apartment-123",
+            "binding_id": "browseract-binding-flat-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "listing_360_media_missing"
+    assert body["tour_media_mode"] == "flat_images"
 
 
 def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_base_contract_missing(monkeypatch) -> None:
     from app.domain.models import Artifact
 
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -806,7 +1593,8 @@ def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.task_key == "ltd_runtime__crezlo_tours__create_property_tour"
-        assert request.input_json["force_ui_worker"] is True
+        assert request.input_json["force_ui_worker"] is False
+        assert request.input_json["proxy_result"] is True
         return Artifact(
             artifact_id="artifact-property-tour-projected-1",
             kind="property_tour_packet",
@@ -900,6 +1688,59 @@ def test_property_tour_url_resolver_prefers_branded_link_even_when_legacy_fields
     assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
 
 
+def test_existing_hosted_property_tour_url_requires_real_bundle_assets(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    slug = "broken-bundle-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "scenes": [
+                    {"asset_relpath": "scene-01.jpg"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert product_service._existing_hosted_property_tour_url({"slug": slug}) == ""
+
+    (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
+    assert product_service._existing_hosted_property_tour_url({"slug": slug}) == (
+        "https://myexternalbrain.com/tours/broken-bundle-tour"
+    )
+
+
+def test_existing_hosted_property_tour_url_deep_links_live_360_when_manifest_has_source_tour(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    slug = "live-360-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "source_virtual_tour_url": "https://360.example.test/view/portal/id/live-360-tour",
+                "scenes": [
+                    {"asset_relpath": "scene-01.jpg"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert product_service._existing_hosted_property_tour_url({"slug": slug}) == (
+        "https://myexternalbrain.com/tours/live-360-tour#live-360"
+    )
+
+
 def test_willhaben_property_packet_script_path_supports_container_layout(monkeypatch, tmp_path: Path) -> None:
     container_root = tmp_path / "app"
     service_path = container_root / "app" / "product" / "service.py"
@@ -917,6 +1758,7 @@ def test_willhaben_property_packet_script_path_supports_container_layout(monkeyp
 
 def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missing(monkeypatch) -> None:
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -970,6 +1812,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
 
     monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -1070,6 +1913,7 @@ def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> N
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -1727,6 +2571,200 @@ def test_pocket_api_sync_suppresses_personal_medical_recordings(monkeypatch) -> 
     assert event["payload"]["staging_suppression_reason"] == "non_actionable_context"
 
 
+def test_pocket_api_sync_records_preference_profile_evidence_from_housing_conversations(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-preference-profile"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    created = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    assert created.status_code == 200
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "housing-1",
+                    "title": "Willhaben shortlist review",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:30:00Z",
+                    "updated_at": "2026-05-01T08:31:00Z",
+                    "recording_at": "2026-05-01T08:30:00Z",
+                }
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Willhaben shortlist review",
+                "state": "completed",
+                "duration": 145.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:30:00Z",
+                "created_at": "2026-05-01T08:30:00Z",
+                "updated_at": "2026-05-01T08:31:00Z",
+                "tags": ["housing", "willhaben", "family"],
+                "transcript": {
+                    "text": (
+                        "Compare the Willhaben apartment options side by side. "
+                        "We need a proper floor plan and ideally a 360 panorama for remote review. "
+                        "A balcony would help, a lift would be better for daily family use, and please avoid Gasheizung. "
+                        "Send me the written summary after the shortlist review."
+                    ),
+                    "segments": [{"start": 0.0, "end": 6.0, "text": "Compare the Willhaben apartment options."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-housing": {
+                        "id": "summary-housing",
+                        "v2": {
+                            "summary": {
+                                "markdown": (
+                                    "Compare shortlisted Willhaben apartments, require a floor plan and 360 tour, "
+                                    "prefer balcony and lift, avoid Gasheizung, and send a written summary."
+                                )
+                            }
+                        },
+                    }
+                },
+            },
+        },
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    synced_body = synced.json()
+    assert synced_body["preference_evidence_total"] == 1
+    assert synced_body["preference_evidence_applied_total"] >= 4
+
+    bundle = client.get("/app/api/people/self/preference-profile")
+    assert bundle.status_code == 200
+    body = bundle.json()
+    nodes_by_key = {item["key"]: item for item in body["preference_nodes"]}
+    assert nodes_by_key["requires_floorplan_for_remote_review"]["domain"] == "willhaben"
+    assert nodes_by_key["prefer_360_for_remote_review"]["value_json"] is True
+    assert nodes_by_key["prefer_balcony"]["value_json"] is True
+    assert nodes_by_key["prefer_lift"]["value_json"] is True
+    assert "Gasheizung" in (nodes_by_key["avoid_heating_types"]["value_json"] or [])
+    assert nodes_by_key["prefers_written_follow_up"]["domain"] == "general"
+    assert nodes_by_key["needs_side_by_side_comparison"]["domain"] == "general"
+    assert body["recent_evidence_events"][0]["domain"] == "conversation"
+
+
+def test_pocket_api_sync_can_use_onemin_audio_fallback_for_profile_evidence(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-preference-profile-onemin"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    created = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    assert created.status_code == 200
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {
+                    "id": "housing-onemin-1",
+                    "title": "Willhaben shortlist review",
+                    "state": "completed",
+                    "created_at": "2026-05-01T08:30:00Z",
+                    "updated_at": "2026-05-01T08:31:00Z",
+                    "recording_at": "2026-05-01T08:30:00Z",
+                }
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Willhaben shortlist review",
+                "state": "completed",
+                "duration": 90.0,
+                "language": "en",
+                "recording_at": "2026-05-01T08:30:00Z",
+                "created_at": "2026-05-01T08:30:00Z",
+                "updated_at": "2026-05-01T08:31:00Z",
+                "tags": ["housing", "willhaben"],
+                "transcript": {
+                    "text": "Okay yes.",
+                    "segments": [],
+                    "metadata": {"source": "partial"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_audio_transcribe_webhook_url", lambda: "")
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("onemin-live-key",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_retranscribe_with_onemin",
+        lambda **kwargs: {
+            "transcript_text": "Need a proper floor plan, 360 tour, lift, and avoid Gasheizung.",
+            "transcript_segment_count": 1,
+            "transcript_metadata": {"source": "ea_audio_fallback", "transcriber": "1min.ai/whisper-1"},
+        },
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    synced_body = synced.json()
+    assert synced_body["preference_evidence_total"] == 1
+    assert synced_body["preference_evidence_applied_total"] >= 3
+
+    events = client.get("/app/api/events", params={"channel": "pocket"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["source_id"] == "pocket-recording:housing-onemin-1")
+    assert event["payload"]["transcript_quality_status"] in {"good", "usable"}
+    assert event["payload"]["retranscription_status"] == "applied"
+
+    bundle = client.get("/app/api/people/self/preference-profile")
+    assert bundle.status_code == 200
+    nodes_by_key = {item["key"]: item for item in bundle.json()["preference_nodes"]}
+    assert nodes_by_key["requires_floorplan_for_remote_review"]["value_json"] is True
+    assert nodes_by_key["prefer_360_for_remote_review"]["value_json"] is True
+    assert nodes_by_key["prefer_lift"]["value_json"] is True
+
+
 def test_pocket_api_backfill_rejects_existing_candidates_when_recording_is_now_non_actionable(monkeypatch) -> None:
     principal_id = "exec-product-pocket-cleanup"
     client = build_product_client(principal_id=principal_id)
@@ -2186,6 +3224,290 @@ def test_pocket_recording_detail_returns_transcript_summary_and_audio(monkeypatc
     assert body["summary_id"] == "summary-9"
     assert body["audio_download_url"] == "https://audio.example/rec-9.mp3"
     assert body["audio_expires_at"] == "2026-05-01T08:00:00Z"
+    assert body["transcript_quality_status"] in {"good", "usable"}
+    assert body["retranscription_attempted"] is False
+
+
+def test_pocket_recording_detail_uses_audio_fallback_transcription_when_transcript_is_weak(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-detail-fallback"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Weak pocket detail",
+                "state": "completed",
+                "duration": 20.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["detail"],
+                "transcript": {
+                    "text": "Okay yes.",
+                    "segments": [],
+                    "metadata": {"source": "partial"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_audio_transcribe_webhook_url", lambda: "https://transcriber.example/pocket")
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_retranscribe_from_audio_url",
+        lambda **kwargs: {
+            "transcript_text": "Compare the shortlist and send the written summary.",
+            "transcript_segment_count": 1,
+            "transcript_metadata": {"source": "ea_audio_fallback", "transcriber": "test"},
+        },
+    )
+
+    detail = client.get("/app/api/signals/pocket/recordings/rec-weak")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["transcript_text"] == "Compare the shortlist and send the written summary."
+    assert body["retranscription_attempted"] is True
+    assert body["retranscription_status"] == "applied"
+    assert body["transcript_quality_status"] in {"good", "usable"}
+    assert body["audio_download_url"] == "https://audio.example/rec-weak.mp3"
+
+
+def test_pocket_recording_detail_can_force_audio_fallback_even_when_transcript_is_usable(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-detail-force-fallback"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket detail item",
+                "state": "completed",
+                "duration": 35.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["detail"],
+                "transcript": {
+                    "text": "Transcript body with enough detail to be usable.",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "Transcript body with enough detail to be usable."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-9": {
+                        "summarizationId": "summary-9",
+                        "v2": {"summary": {"markdown": "Summary body"}},
+                    }
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_audio_transcribe_webhook_url", lambda: "https://transcriber.example/pocket")
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_retranscribe_from_audio_url",
+        lambda **kwargs: {
+            "transcript_text": "Refined transcript from audio fallback.",
+            "transcript_segment_count": 1,
+            "transcript_metadata": {"source": "ea_audio_fallback", "transcriber": "test"},
+        },
+    )
+
+    detail = client.get("/app/api/signals/pocket/recordings/rec-force", params={"prefer_audio_fallback": "true"})
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["retranscription_attempted"] is True
+    assert body["retranscription_status"] == "applied"
+    assert body["transcript_text"] == "Refined transcript from audio fallback."
+
+
+def test_pocket_recording_detail_uses_onemin_audio_fallback_when_webhook_is_unset(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-detail-onemin-fallback"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Weak pocket detail",
+                "state": "completed",
+                "duration": 22.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["detail"],
+                "transcript": {
+                    "text": "Okay yes.",
+                    "segments": [],
+                    "metadata": {"source": "partial"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_audio_transcribe_webhook_url", lambda: "")
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("onemin-live-key",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_retranscribe_with_onemin",
+        lambda **kwargs: {
+            "transcript_text": "Take the apartment with the lift and compare it to the shortlist.",
+            "transcript_segment_count": 2,
+            "transcript_metadata": {"source": "ea_audio_fallback", "transcriber": "1min.ai/whisper-1"},
+        },
+    )
+
+    detail = client.get("/app/api/signals/pocket/recordings/rec-onemin")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["retranscription_attempted"] is True
+    assert body["retranscription_status"] == "applied"
+    assert body["transcript_text"] == "Take the apartment with the lift and compare it to the shortlist."
+    assert body["transcript_metadata"]["transcriber"] == "1min.ai/whisper-1"
+
+
+def test_pocket_recording_retranscribe_route_forces_fallback_and_records_event(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-retranscribe-route"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    created = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    assert created.status_code == 200
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Weak pocket detail",
+                "state": "completed",
+                "duration": 22.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["detail"],
+                "transcript": {
+                    "text": "Short note.",
+                    "segments": [],
+                    "metadata": {"source": "partial"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_audio_transcribe_webhook_url", lambda: "")
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("onemin-live-key",))
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_retranscribe_with_onemin",
+        lambda **kwargs: {
+            "transcript_text": (
+                "Compare the flats side by side. "
+                "We need a proper floor plan and ideally a 360 panorama for remote review. "
+                "A lift would be better for daily family use, and send the written summary."
+            ),
+            "transcript_segment_count": 1,
+            "transcript_metadata": {"source": "ea_audio_fallback", "transcriber": "1min.ai/whisper-1"},
+        },
+    )
+
+    detail = client.post("/app/api/signals/pocket/recordings/rec-retranscribe/retranscribe")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["retranscription_attempted"] is True
+    assert body["retranscription_status"] == "applied"
+    assert "proper floor plan" in body["transcript_text"]
+    assert body["preference_evidence_recorded"] is True
+    assert body["preference_evidence_applied_total"] >= 0
+
+    events = client.get("/app/api/events", params={"channel": "product"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["event_type"] == "pocket_recording_retranscribed")
+    assert event["source_id"] == "pocket-recording:rec-retranscribe"
+    assert event["payload"]["status"] == "applied"
+    assert event["payload"]["transcriber"] == "1min.ai/whisper-1"
+    assert event["payload"]["prefer_audio_fallback"] is True
+
+    bundle = client.get("/app/api/people/self/preference-profile")
+    assert bundle.status_code == 200
+    nodes_by_key = {item["key"]: item for item in bundle.json()["preference_nodes"]}
+    assert nodes_by_key["requires_floorplan_for_remote_review"]["value_json"] is True
+    assert nodes_by_key["prefer_360_for_remote_review"]["value_json"] is True
+    assert nodes_by_key["prefer_lift"]["value_json"] is True
+    assert nodes_by_key["prefers_written_follow_up"]["value_json"] is True
+    assert nodes_by_key["needs_side_by_side_comparison"]["value_json"] is True
 
 
 def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> None:
@@ -2909,6 +4231,367 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
         item for item in candidates_after_repeat.json() if "board packet" in str(item.get("title") or "").lower()
     ]
     assert len(board_packet_matches) == 1
+
+
+def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_to_tibor(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "tibor.girschele@gmail.com")
+    monkeypatch.setenv(
+        "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
+        '{"elisabeth.girschele@gmail.com":"tibor.girschele@gmail.com"}',
+    )
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Willhaben Google Sync Office")
+
+    observed_sync_kwargs: dict[str, object] = {}
+
+    def _fake_list_recent_workspace_signals(**kwargs):  # type: ignore[no-untyped-def]
+        observed_sync_kwargs.update(kwargs)
+        return google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title='"Mietwohnungen 2,20, 09" hat 1 neue Anzeige für dich gefunden',
+                    summary='"Mietwohnungen 2,20, 09" hat 1 neue Anzeige für dich gefunden',
+                    text="Neue Anzeige gefunden. https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-777",
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:google-sync-willhaben-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:google-sync-willhaben-1",
+                    counterparty="willhaben-Suchagent",
+                    due_at=None,
+                    payload={
+                        "from_email": "no-reply@agent.willhaben.at",
+                        "from_name": "willhaben-Suchagent",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "body_text_excerpt": (
+                            "Neue Anzeige gefunden. "
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-777"
+                        ),
+                        "binding_id": "browseract-binding-google-sync",
+                        "labels": ["CATEGORY_UPDATES", "INBOX"],
+                    },
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(google_oauth_service, "list_recent_workspace_signals", _fake_list_recent_workspace_signals)
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "listing-google-sync-777",
+            "title": "Google sync apartment",
+            "property_facts_json": {},
+            "media_urls_json": ["https://cdn.example.com/apartment-google-sync/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [
+                {
+                    "variant_key": "layout_first",
+                    "scene_strategy": "layout_first",
+                    "theme_name": "clean_light",
+                    "tour_style": "guided_layout_walkthrough",
+                    "audience": "tenant_screening",
+                    "creative_brief": "Lead with the floor plan.",
+                    "call_to_action": "Open the tour.",
+                    "scene_selection_json": {},
+                    "tour_settings_json": {},
+                }
+            ],
+        },
+    )
+
+    observed_email: dict[str, object] = {}
+
+    def _fake_send_google_gmail_message(**kwargs):  # type: ignore[no-untyped-def]
+        observed_email.update(kwargs)
+        return google_oauth_service.GoogleGmailSendResult(
+            binding=SimpleNamespace(binding_id="google-binding-elisabeth"),
+            sender_email="elisabeth.girschele@gmail.com",
+            recipient_email=str(kwargs["recipient_email"]),
+            subject=str(kwargs["subject"]),
+            rfc822_message_id="<property-tour-google-sync@ea.local>",
+            gmail_message_id="gmail-property-tour-google-sync",
+            sent_at="2026-05-02T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(google_oauth_service, "send_google_gmail_message", _fake_send_google_gmail_message)
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_google_accounts",
+        lambda **_: [
+            SimpleNamespace(
+                binding=SimpleNamespace(binding_id="google-binding-elisabeth"),
+                google_email="elisabeth.girschele@gmail.com",
+            )
+        ],
+    )
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.input_json["binding_id"] == "browseract-binding-google-sync"
+        return Artifact(
+            artifact_id="artifact-property-tour-google-sync",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-google-sync",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/google-sync-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/google-sync-apartment",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    synced = client.post(
+        "/app/api/signals/google/willhaben-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["account_email"] == "elisabeth.girschele@gmail.com"
+    assert body["account_emails"] == ["elisabeth.girschele@gmail.com"]
+    assert body["total"] == 1
+    assert body["synced_total"] == 1
+    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["binding_id"] == "google-binding-elisabeth"
+    assert "google-sync-apartment-777" in observed_email["body_text"]
+    assert observed_sync_kwargs["account_email_filter"] == "elisabeth.girschele@gmail.com"
+    assert observed_sync_kwargs["gmail_query"] == (
+        "from:("
+        "agent.willhaben.at OR "
+        "no-reply@agent.willhaben.at OR "
+        "immmo.at OR "
+        "mailrobot@immmo.at OR "
+        "immoscout24.at OR "
+        "immoscout24.com OR "
+        "immobilienscout24.at OR "
+        "immobilienscout24.de OR "
+        "no-reply@immoscout24.at OR "
+        "no-reply@immobilienscout24.de"
+        ")"
+    )
+
+
+def test_google_property_sync_uses_configured_property_alert_query(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROPERTY_ALERT_GMAIL_QUERY", "from:(immmo.at OR immoscout.example)")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    observed_sync_kwargs: dict[str, object] = {}
+
+    def _fake_list_recent_workspace_signals(**kwargs):
+        observed_sync_kwargs.update(kwargs)
+        return google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(),
+            signals=(),
+        )
+
+    monkeypatch.setattr(google_oauth_service, "list_recent_workspace_signals", _fake_list_recent_workspace_signals)
+
+    response = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert response.status_code == 200
+    assert observed_sync_kwargs["gmail_query"] == "from:(immmo.at OR immoscout.example)"
+    assert observed_sync_kwargs["calendar_limit"] == 0
+
+
+def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_binding(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/live-apartment-fallback-1",
+        "listing_id": "listing-fallback-1",
+        "listing_uuid": "listing-uuid-fallback-1",
+        "title": "Fallback Gmail apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-fallback/photo-1.jpg"],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        return Artifact(
+            artifact_id="artifact-property-tour-fallback-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-fallback-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/fallback-gmail-apartment",
+                "crezlo_public_url": "https://vendor.example.com/tours/fallback-gmail-apartment",
+                "editor_url": "https://vendor.example.com/editor/fallback-gmail-apartment",
+                "tour_id": "tour-fallback-1",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    def _fake_list_google_accounts(**kwargs):  # type: ignore[no-untyped-def]
+        principal = str(kwargs.get("principal_id") or "")
+        if principal == principal_id:
+            return [
+                SimpleNamespace(
+                    binding=SimpleNamespace(binding_id="google-binding-stale"),
+                    google_email="tibor.girschele@gmail.com",
+                )
+            ]
+        if principal == "local-user":
+            return [
+                SimpleNamespace(
+                    binding=SimpleNamespace(binding_id="google-binding-fallback"),
+                    google_email="tibor.girschele@gmail.com",
+                )
+            ]
+        return []
+
+    monkeypatch.setattr(google_oauth_service, "list_google_accounts", _fake_list_google_accounts)
+
+    attempts: list[tuple[str, str]] = []
+
+    def _fake_send_google_gmail_message(**kwargs):  # type: ignore[no-untyped-def]
+        binding_id = str(kwargs.get("binding_id") or "")
+        attempts.append((str(kwargs.get("principal_id") or ""), binding_id))
+        if binding_id == "google-binding-stale":
+            raise RuntimeError("google_oauth_refresh_failed invalid_grant")
+        return google_oauth_service.GoogleGmailSendResult(
+            binding=SimpleNamespace(binding_id=binding_id),
+            sender_email="tibor.girschele@gmail.com",
+            recipient_email=str(kwargs["recipient_email"]),
+            subject=str(kwargs["subject"]),
+            rfc822_message_id="<property-tour-fallback@ea.local>",
+            gmail_message_id="gmail-property-tour-fallback",
+            sent_at="2026-05-25T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(google_oauth_service, "send_google_gmail_message", _fake_send_google_gmail_message)
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-fallback-1",
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "sent"
+    assert body["delivery_status"] == "sent"
+    assert attempts == [
+        (principal_id, "google-binding-stale"),
+        ("local-user", "google-binding-fallback"),
+    ]
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_email_sent"},
+    )
+    assert events.status_code == 200
+    assert any(item["payload"]["google_binding_id"] == "google-binding-fallback" for item in events.json()["items"])
+
+
+def test_willhaben_property_tour_route_backfills_hosted_url_from_structured_output(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/live-apartment-hosted-fallback-1",
+        "listing_id": "listing-hosted-fallback-1",
+        "listing_uuid": "listing-uuid-hosted-fallback-1",
+        "title": "Hosted fallback apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-hosted/photo-1.jpg"],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    def _fake_hosted_url(structured_output):  # type: ignore[no-untyped-def]
+        payload = dict(structured_output or {})
+        payload["hosted_url"] = "https://myexternalbrain.com/tours/hosted-fallback-apartment"
+        payload["public_url"] = "https://myexternalbrain.com/tours/hosted-fallback-apartment"
+        payload["crezlo_public_url"] = "https://ea-property-tours-20260320.crezlotours.com/tours/hosted-fallback-apartment"
+        return payload
+
+    monkeypatch.setattr("app.product.service._ensure_hosted_property_tour_url", _fake_hosted_url)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        return Artifact(
+            artifact_id="artifact-property-tour-hosted-fallback-1",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-hosted-fallback-1",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://ea-property-tours-20260320.crezlotours.com/tours/hosted-fallback-apartment",
+                "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/hosted-fallback-apartment",
+                "tour_id": "tour-hosted-fallback-1",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-hosted-fallback-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_url"] == "https://myexternalbrain.com/tours/hosted-fallback-apartment"
+    assert body["vendor_tour_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/hosted-fallback-apartment"
 
 
 def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise(monkeypatch) -> None:

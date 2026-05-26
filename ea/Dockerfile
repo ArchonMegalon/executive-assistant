@@ -25,6 +25,7 @@ COPY scripts/crezlo_property_tour_worker.py /app/scripts/crezlo_property_tour_wo
 COPY scripts/ea_responses_proxy.py /app/scripts/ea_responses_proxy.py
 COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
 COPY scripts/publish_browseract_ui_results.py /app/scripts/publish_browseract_ui_results.py
+COPY scripts/teable_host_proxy.py /app/scripts/teable_host_proxy.py
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chown -R ea:ea /app && chmod +x /usr/local/bin/docker-entrypoint.sh

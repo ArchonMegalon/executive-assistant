@@ -21,6 +21,7 @@ from app.services.tool_execution_gemini_vortex_module import GeminiVortexToolExe
 from app.services.tool_execution_magixai_module import MagixaiToolExecutionModule
 from app.services.tool_execution_onemin_module import OneminToolExecutionModule
 from app.services.tool_execution_comfyui_module import ComfyUIToolExecutionModule
+from app.services.tool_execution_teable_module import TeableToolExecutionModule
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -59,6 +60,9 @@ class ToolExecutionService:
         self._comfyui_module = ComfyUIToolExecutionModule(
             tool_runtime=tool_runtime,
         )
+        self._teable_module = TeableToolExecutionModule(
+            tool_runtime=tool_runtime,
+        )
         self._artifact_module = ArtifactToolExecutionModule(
             tool_runtime=tool_runtime,
             artifacts=artifacts,
@@ -84,6 +88,7 @@ class ToolExecutionService:
             ("onemin", "reasoned_patch_review"): self._register_builtin_onemin_reasoned_patch_review,
             ("onemin", "image_generate"): self._register_builtin_onemin_image_generate,
             ("onemin", "media_transform"): self._register_builtin_onemin_media_transform,
+            ("teable", "table_sync"): self._register_builtin_teable_table_sync,
         }
         for ui_service in browseract_ui_service_definitions():
             self._builtin_capability_registrars[("browseract", ui_service.capability_key)] = (
@@ -220,6 +225,9 @@ class ToolExecutionService:
 
     def _register_builtin_onemin_media_transform(self) -> None:
         self._onemin_module.register_media_transform(self.register_handler)
+
+    def _register_builtin_teable_table_sync(self) -> None:
+        self._teable_module.register_table_sync(self.register_handler)
 
     def _register_builtin_brain_router_structured_generate(self) -> None:
         self._register_builtin_brain_router_tool(

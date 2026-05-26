@@ -16,13 +16,13 @@ sources:
   participation_workflow: products/chummer/PARTICIPATION_AND_BOOSTER_WORKFLOW.md
   public_media_policy: products/chummer/PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md
   public_guide_image_curation: products/chummer/PUBLIC_GUIDE_IMAGE_CURATION.yaml
-  public_signal_bridge: products/chummer/PUBLIC_SIGNAL_FEEDBACK_ROADMAP_BRIDGE.md
+  productlift_bridge: products/chummer/PRODUCTLIFT_FEEDBACK_ROADMAP_BRIDGE.md
   katteb_public_guide_lane: products/chummer/KATTEB_PUBLIC_GUIDE_OPTIMIZATION_LANE.md
-  katteb_vendor_name: Katteb
   public_site_visibility_policy: products/chummer/PUBLIC_SITE_VISIBILITY_AND_SEARCH_OPTIMIZATION.md
   public_signal_pipeline: products/chummer/PUBLIC_SIGNAL_TO_CANON_PIPELINE.md
   public_feedback_registry: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
   public_feedback_taxonomy: products/chummer/PUBLIC_FEEDBACK_TAXONOMY.yaml
+  public_guide_new_section_verdict: products/chummer/PUBLIC_GUIDE_NEW_SECTION_VERDICT.yaml
 rules:
 - Downstream generators must not define or retain a private hardcoded horizon catalog.
 - Downstream generators must source horizon existence, ordering, and enable/disable state from HORIZON_REGISTRY.yaml.
@@ -33,10 +33,12 @@ rules:
 - Downstream generators must source non-horizon page classes from PUBLIC_GUIDE_PAGE_REGISTRY.yaml.
 - Public part pages must source their human-facing explanation from PUBLIC_PART_REGISTRY.yaml rather than raw implementation-scope bullets.
 - FAQ/help pages must source required participation/privacy/free-later language from PUBLIC_FAQ_REGISTRY.yaml and PUBLIC_HELP_COPY.md.
+- New large feature or redesign sections must either route through an explicit public-guide verdict in PUBLIC_GUIDE_NEW_SECTION_VERDICT.yaml or stay out of generated output with a machine-readable omission receipt.
+- Downstream generators must emit a proof artifact showing whether Table Pulse, BeHuman GM sessions, Answerly support, Signal Deck, Runner Passport, and Living World engagement are represented, omitted intentionally, or blocked by canon posture.
 - Deep-source pages may link to repo scopes and implementation detail, but first-contact pages must not.
 - Downstream media lanes must treat PUBLIC_GUIDE_IMAGE_CURATION.yaml manual editorial-cover source overrides as the strongest local canon unless an explicit reopen path is requested.
-- Hosted `/feedback`, `/roadmap`, and `/changelog` projections are public direction surfaces only; they must keep first-party fallback paths and may not become support, release, or roadmap truth.
-- Guide optimization lanes may audit or draft public guide and article improvements only from approved source packets; accepted suggestions must return to Chummer-owned source before generated guide output changes.
+- ProductLift-backed `/feedback`, `/roadmap`, and `/changelog` pages are public projections only; they must keep first-party fallback paths and may not become support, release, or roadmap truth.
+- Katteb may audit or draft public guide and article improvements only from approved source packets; accepted suggestions must return to Chummer-owned source before generated guide output changes.
 - ClickRank may audit public guide and site visibility, metadata, schema, internal links, and AI-search readiness, but accepted recommendations must return to Chummer-owned source before generated guide or public site output changes.
 pages:
   root_story:
@@ -88,7 +90,7 @@ pages:
   feedback_page:
     source: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
     include:
-      key: public_feedback
+      key: productlift_public_feedback
     required_topics:
     - public ideas
     - votes and comments
@@ -97,7 +99,7 @@ pages:
   roadmap_projection:
     source: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
     include:
-      key: public_roadmap
+      key: productlift_public_roadmap
     required_topics:
     - public direction
     - projection-only posture
@@ -105,7 +107,7 @@ pages:
   changelog_projection:
     source: products/chummer/PUBLIC_FEEDBACK_AND_CONTENT_REGISTRY.yaml
     include:
-      key: public_changelog
+      key: productlift_changelog
     required_topics:
     - shipped updates
     - voter closeout

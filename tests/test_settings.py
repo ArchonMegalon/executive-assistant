@@ -22,6 +22,7 @@ def _clear_env() -> None:
         "EA_LOG_LEVEL",
         "EA_TENANT_ID",
         "EA_RUNTIME_MODE",
+        "EA_STORAGE_FALLBACK_ALLOWED",
         "EA_STORAGE_BACKEND",
         "EA_LEDGER_BACKEND",
         "DATABASE_URL",
@@ -89,6 +90,32 @@ def test_runtime_mode_prod_disables_storage_fallback() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "super-secret"
+    s = get_settings()
+    assert s.runtime.mode == "prod"
+    assert s.storage_fallback_allowed is False
+
+
+def test_non_prod_storage_fallback_can_be_disabled_explicitly() -> None:
+    _clear_env()
+    os.environ["EA_STORAGE_FALLBACK_ALLOWED"] = "0"
+    s = get_settings()
+    assert s.runtime.mode == "dev"
+    assert s.storage_fallback_allowed is False
+
+
+def test_non_prod_storage_fallback_can_be_enabled_explicitly() -> None:
+    _clear_env()
+    os.environ["EA_STORAGE_FALLBACK_ALLOWED"] = "1"
+    s = get_settings()
+    assert s.runtime.mode == "dev"
+    assert s.storage_fallback_allowed is True
+
+
+def test_prod_ignores_storage_fallback_override() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "super-secret"
+    os.environ["EA_STORAGE_FALLBACK_ALLOWED"] = "1"
     s = get_settings()
     assert s.runtime.mode == "prod"
     assert s.storage_fallback_allowed is False

@@ -6,6 +6,7 @@ import mimetypes
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -2953,13 +2954,34 @@ class BrowserActToolAdapter:
             result=workflow_output,
             requested_inputs=requested_inputs,
         )
-        if not ui_worker_output:
-            return []
-        enriched_structured = dict(structured)
-        enriched_workflow_output = dict(workflow_output)
-        enriched_workflow_output.update(ui_worker_output)
-        enriched_structured["workflow_output_json"] = enriched_workflow_output
-        return cls._crezlo_public_asset_rows({"structured_output_json": enriched_structured})
+        if ui_worker_output:
+            enriched_structured = dict(structured)
+            enriched_workflow_output = dict(workflow_output)
+            enriched_workflow_output.update(ui_worker_output)
+            enriched_structured["workflow_output_json"] = enriched_workflow_output
+            return cls._crezlo_public_asset_rows({"structured_output_json": enriched_structured})
+        selected_assets = cls._crezlo_select_asset_urls(
+            media_urls=cls._crezlo_normalize_url_list(requested_inputs.get("media_urls_json")),
+            floorplan_urls=cls._crezlo_normalize_url_list(requested_inputs.get("floorplan_urls_json")),
+            scene_strategy=str(requested_inputs.get("scene_strategy") or "compact").strip().lower() or "compact",
+            scene_selection_json=cls._crezlo_json_dict(requested_inputs.get("scene_selection_json")),
+        )
+        property_url = str(requested_inputs.get("property_url") or "").strip()
+        for ordinal, (role, asset_url) in enumerate(selected_assets, start=1):
+            image_url = cls._crezlo_maybe_url(asset_url)
+            if not image_url:
+                continue
+            rows.append(
+                {
+                    "ordinal": ordinal,
+                    "name": f"scene-{ordinal}",
+                    "image_url": image_url,
+                    "role": str(role or "photo").strip() or "photo",
+                    "source_url": image_url,
+                    "property_url": property_url,
+                    "mime_type": cls._crezlo_asset_mime_type(asset_url=image_url, role=str(role or "photo").strip() or "photo"),
+                }
+            )
         return rows
 
     @classmethod
@@ -3069,91 +3091,114 @@ class BrowserActToolAdapter:
         output_dir = cls._crezlo_public_tour_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         target_dir = output_dir / slug
-        target_dir.mkdir(parents=True, exist_ok=True)
+        staging_dir = output_dir / f".{slug}.tmp-{uuid.uuid4().hex}"
+        staging_dir.mkdir(parents=True, exist_ok=True)
         published_rows: list[dict[str, object]] = []
-        for ordinal, row in enumerate(rows, start=1):
-            image_url = str(row.get("image_url") or "").strip()
-            if not image_url:
-                continue
-            data, content_type = cls._crezlo_download_public_asset(image_url)
-            suffix = cls._crezlo_asset_suffix(
-                url=image_url,
-                content_type=content_type or str(row.get("mime_type") or ""),
-            )
-            filename = f"scene-{ordinal:02d}{suffix}"
-            (target_dir / filename).write_bytes(data)
-            published_rows.append(
-                {
-                    **row,
-                    "ordinal": ordinal,
-                    "asset_relpath": filename,
-                    "mime_type": content_type.split(";", 1)[0].strip()
-                    or str(row.get("mime_type") or "").strip(),
-                }
-            )
-        if not published_rows:
-            return ""
-        hosted_url = f"{cls._crezlo_public_tour_base_url()}/{slug}"
-        title = str(
-            normalized.get("tour_title")
-            or detail.get("title")
-            or requested_inputs.get("tour_title")
-            or "Property Tour"
-        ).strip() or "Property Tour"
-        display_title = str(
-            requested_inputs.get("display_title")
-            or detail.get("display_title")
-            or property_facts.get("listing_title")
-            or title
-        ).strip() or title
-        variant_key = str(
-            requested_inputs.get("variant_key")
-            or requested_inputs.get("scene_strategy")
-            or workflow_output.get("variant_key")
-            or ""
-        ).strip()
-        payload = {
-            "slug": slug,
-            "hosted_url": hosted_url,
-            "listing_url": str(
-                requested_inputs.get("property_url")
-                or published_rows[0].get("property_url")
+        try:
+            for ordinal, row in enumerate(rows, start=1):
+                image_url = str(row.get("image_url") or "").strip()
+                if not image_url:
+                    continue
+                data, content_type = cls._crezlo_download_public_asset(image_url)
+                suffix = cls._crezlo_asset_suffix(
+                    url=image_url,
+                    content_type=content_type or str(row.get("mime_type") or ""),
+                )
+                filename = f"scene-{ordinal:02d}{suffix}"
+                (staging_dir / filename).write_bytes(data)
+                published_rows.append(
+                    {
+                        **row,
+                        "ordinal": ordinal,
+                        "asset_relpath": filename,
+                        "mime_type": content_type.split(";", 1)[0].strip()
+                        or str(row.get("mime_type") or "").strip(),
+                    }
+                )
+            if not published_rows:
+                return ""
+            source_virtual_tour_url = str(requested_inputs.get("source_virtual_tour_url") or "").strip()
+            hosted_url = f"{cls._crezlo_public_tour_base_url()}/{slug}"
+            if source_virtual_tour_url:
+                hosted_url = f"{hosted_url}#live-360"
+            title = str(
+                normalized.get("tour_title")
+                or detail.get("title")
+                or requested_inputs.get("tour_title")
+                or "Property Tour"
+            ).strip() or "Property Tour"
+            display_title = str(
+                requested_inputs.get("display_title")
+                or detail.get("display_title")
+                or property_facts.get("listing_title")
+                or title
+            ).strip() or title
+            variant_key = str(
+                requested_inputs.get("variant_key")
+                or requested_inputs.get("scene_strategy")
+                or workflow_output.get("variant_key")
                 or ""
-            ).strip(),
-            "title": property_facts.get("listing_title") or title,
-            "display_title": display_title,
-            "tour_title": title,
-            "tour_id": normalized.get("tour_id"),
-            "variant_key": variant_key,
-            "variant_label": variant_key.replace("_", " "),
-            "scene_strategy": str(requested_inputs.get("scene_strategy") or variant_key).strip(),
-            "scene_count": len(published_rows),
-            "facts": {
-                "rooms": property_facts.get("rooms"),
-                "area_sqm": property_facts.get("area_sqm"),
-                "total_rent_eur": property_facts.get("total_rent_eur") or property_facts.get("price_total_rent"),
-                "availability": property_facts.get("availability") or property_facts.get("availability_text"),
-                "address_lines": property_facts.get("address_lines")
-                or [value for value in (property_facts.get("address"), property_facts.get("district")) if value],
-                "teaser_attributes": property_facts.get("teaser_attributes")
-                or [value for value in (property_facts.get("area_sqm"), property_facts.get("rooms")) if value],
-            },
-            "brief": {
-                "theme_name": str(requested_inputs.get("theme_name") or "").strip(),
-                "tour_style": str(requested_inputs.get("tour_style") or "").strip(),
-                "audience": str(requested_inputs.get("audience") or "").strip(),
-                "creative_brief": str(requested_inputs.get("creative_brief") or "").strip(),
-                "call_to_action": str(requested_inputs.get("call_to_action") or "").strip(),
-            },
-            "editor_url": str(normalized.get("editor_url") or "").strip(),
-            "crezlo_public_url": str(normalized.get("public_url") or "").strip(),
-            "scenes": published_rows,
-        }
-        (target_dir / "tour.json").write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        return hosted_url
+            ).strip()
+            payload = {
+                "slug": slug,
+                "hosted_url": hosted_url,
+                "listing_url": str(
+                    requested_inputs.get("property_url")
+                    or published_rows[0].get("property_url")
+                    or ""
+                ).strip(),
+                "title": property_facts.get("listing_title") or title,
+                "display_title": display_title,
+                "tour_title": title,
+                "tour_id": normalized.get("tour_id"),
+                "variant_key": variant_key,
+                "variant_label": variant_key.replace("_", " "),
+                "scene_strategy": str(requested_inputs.get("scene_strategy") or variant_key).strip(),
+                "scene_count": len(published_rows),
+                "facts": {
+                    "rooms": property_facts.get("rooms"),
+                    "area_sqm": property_facts.get("area_sqm"),
+                    "total_rent_eur": property_facts.get("total_rent_eur") or property_facts.get("price_total_rent"),
+                    "availability": property_facts.get("availability") or property_facts.get("availability_text"),
+                    "address_lines": property_facts.get("address_lines")
+                    or [value for value in (property_facts.get("address"), property_facts.get("district")) if value],
+                    "teaser_attributes": property_facts.get("teaser_attributes")
+                    or [value for value in (property_facts.get("area_sqm"), property_facts.get("rooms")) if value],
+                },
+                "brief": {
+                    "theme_name": str(requested_inputs.get("theme_name") or "").strip(),
+                    "tour_style": str(requested_inputs.get("tour_style") or "").strip(),
+                    "audience": str(requested_inputs.get("audience") or "").strip(),
+                    "creative_brief": str(requested_inputs.get("creative_brief") or "").strip(),
+                    "call_to_action": str(requested_inputs.get("call_to_action") or "").strip(),
+                },
+                "editor_url": str(normalized.get("editor_url") or "").strip(),
+                "crezlo_public_url": str(normalized.get("public_url") or "").strip(),
+                "source_virtual_tour_url": source_virtual_tour_url,
+                "panorama_source": str(requested_inputs.get("panorama_source") or "").strip(),
+                "brand_name": str(
+                    requested_inputs.get("brand_name")
+                    or os.getenv("EA_PUBLIC_TOUR_BRAND_NAME")
+                    or "Pioche Lecombe"
+                ).strip(),
+                "scenes": published_rows,
+            }
+            (staging_dir / "tour.json").write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            backup_dir = output_dir / f".{slug}.bak-{uuid.uuid4().hex}"
+            replaced_existing = False
+            if target_dir.exists():
+                target_dir.replace(backup_dir)
+                replaced_existing = True
+            staging_dir.replace(target_dir)
+            if replaced_existing and backup_dir.exists():
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            return hosted_url
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
 
     @classmethod
     def _ui_service_login_email(
@@ -3956,11 +4001,12 @@ class BrowserActToolAdapter:
             if value is not None and (not isinstance(value, str) or bool(value.strip())):
                 inputs[field] = cls._browseract_safe_input_value(value)
         if media_urls:
-            inputs["media_urls_json"] = cls._browseract_safe_input_value(media_urls)
+            inputs["media_urls_json"] = media_urls
             inputs["media_urls_text"] = "\n".join(media_urls)
         if floorplan_urls:
-            inputs["floorplan_urls_json"] = cls._browseract_safe_input_value(floorplan_urls)
+            inputs["floorplan_urls_json"] = floorplan_urls
             inputs["floorplan_urls_text"] = "\n".join(floorplan_urls)
+        inputs["proxy_result"] = bool(payload.get("proxy_result", True))
         if property_facts_json:
             inputs["property_facts_json"] = cls._browseract_safe_input_value(property_facts_json)
             summary_lines: list[str] = []
@@ -4031,6 +4077,18 @@ class BrowserActToolAdapter:
                 markers=("public_url", "public_link", "published_url", "live_url"),
             )
         )
+        hosted_url = cls._crezlo_maybe_url(
+            cls._crezlo_find_matching_scalar(
+                normalized_payload or source_payload,
+                markers=("hosted_url",),
+            )
+        )
+        crezlo_public_url = cls._crezlo_maybe_url(
+            cls._crezlo_find_matching_scalar(
+                normalized_payload or source_payload,
+                markers=("crezlo_public_url", "vendor_tour_url"),
+            )
+        )
         editor_url = cls._crezlo_maybe_url(
             cls._crezlo_find_matching_scalar(
                 normalized_payload or source_payload,
@@ -4088,6 +4146,8 @@ class BrowserActToolAdapter:
             "slug": slug,
             "share_url": share_url,
             "public_url": public_url,
+            "hosted_url": hosted_url,
+            "crezlo_public_url": crezlo_public_url,
             "editor_url": editor_url,
             "workspace_id": workspace_id,
             "workspace_domain": workspace_domain,
@@ -4110,6 +4170,8 @@ class BrowserActToolAdapter:
                 f"Slug: {slug}" if slug else "",
                 f"Share URL: {share_url}" if share_url else "",
                 f"Public URL: {public_url}" if public_url else "",
+                f"Hosted URL: {hosted_url}" if hosted_url else "",
+                f"Crezlo URL: {crezlo_public_url}" if crezlo_public_url else "",
                 f"Editor URL: {editor_url}" if editor_url else "",
                 f"Requested URL: {requested_url}" if requested_url else "",
                 f"Task ID: {task_id}" if task_id else "",
@@ -4123,6 +4185,8 @@ class BrowserActToolAdapter:
             "slug": slug or None,
             "share_url": share_url or None,
             "public_url": public_url or None,
+            "hosted_url": hosted_url or None,
+            "crezlo_public_url": crezlo_public_url or None,
             "editor_url": editor_url or None,
             "workspace_id": workspace_id or None,
             "workspace_domain": workspace_domain or None,

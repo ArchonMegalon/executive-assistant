@@ -42,16 +42,6 @@ It activates when:
 
 Until then, this wave should shape follow-on work without preempting the current flagship closeout. Spare Fleet shards may already execute successor-wave slices, but they must not steal shards that are still assigned to the current closeout frontier.
 
-## Staged queue semantics
-
-`NEXT_90_DAY_QUEUE_STAGING.generated.yaml` is a pre-authored successor queue, not a passive parking-lot backlog.
-
-1. Matching repo controllers may ingest `not_started` and `in_progress` rows immediately and materialize them as `ready` work packages.
-2. `not_started` means dispatchable when spare shard capacity exists; it does not mean a human must manually promote the row before Fleet can see it.
-3. Every successor wave in this registry is now staged and queue-materialized. W22P is the lead current successor frontier, and the staged successor queue now drives current frontier selection while W23-W27 remain queue-materialized behind it until the parity-proof tranche is closed.
-4. Full flagship readiness still blocks publish claims, but automatic runtime dispatch no longer falls back to the legacy flagship closeout package queue first. Already-running flagship closeout shards still must not be preempted automatically.
-5. A staged slice that is not actually dispatchable should not sit as ambiguous `not_started` forever. Review non-terminal staged slices at least weekly and either keep `not_started` with a fresh owner decision, move the slice to `blocked` with the dependency named, move it to `in_progress`, or close it as `done` or `skipped`.
-
 ## Ordering rule
 
 1. Before broader successor breadth, drive the Chummer5A human-parity matrix to zero `no` rows and clear desktop executable proof drift.
@@ -235,7 +225,7 @@ Exit: source anchors, rulebook binding, house-rule demand, amend-package promoti
 
 ## Wave 21 - implement media, run-network, and table-social horizon tranche
 
-### 133. Media and social horizon implementation tranche: JACKPOINT, RUNBOOK PRESS, GHOSTWIRE, RUNSITE, TABLE PULSE, and Community Hub
+### 133. Media and social horizon implementation tranche: JACKPOINT, RUNBOOK PRESS, GHOSTWIRE, RUNSITE, TABLE PULSE LIVE, TABLE PULSE AFTERMATH, and Community Hub
 Owners: `chummer6-hub`, `chummer6-hub-registry`, `chummer6-media-factory`, `chummer6-ui`, `chummer6-mobile`, `executive-assistant`, `fleet`, `chummer6-design`
 Exit: media/social horizons become bounded implementation lanes with first-party manifests, consent, provenance, publication, revocation, inspectable artifacts, and unsupported-claim guards.
 

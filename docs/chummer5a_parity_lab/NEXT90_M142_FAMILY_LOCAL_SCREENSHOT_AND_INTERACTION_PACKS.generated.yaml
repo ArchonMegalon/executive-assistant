@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-05-06T08:55:11Z'
+generated_at: '2026-05-25T18:45:08Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -30,7 +30,7 @@ source_inputs:
     generated_at: '2026-05-06T04:28:54Z'
   next90_guide:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
-    generated_at: '2026-05-05T19:47:04Z'
+    generated_at: '2026-05-24T20:42:40Z'
   design_queue:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
     match_count: 1
@@ -68,46 +68,50 @@ source_inputs:
     row_fingerprint: 91e518b8dab7f536272e29b5ce0cd647dc16e04c611e3cabc22c687dbda3db59
   parity_audit:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
-    generated_at: '2026-05-06T04:52:51.369020Z'
+    generated_at: '2026-05-07T23:31:39.358211Z'
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-06T01:39:08.583719Z'
+    generated_at: '2026-05-21T14:22:53.020400Z'
   visual_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-06T00:51:41.834606Z'
+    generated_at: '2026-05-21T14:29:09.497125Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-05T23:30:15.478342Z'
+    generated_at: '2026-05-21T11:51:16.509186Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    generated_at: '2026-05-02T14:05:07.981802Z'
+    generated_at: '2026-05-19T09:36:48.220678Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    generated_at: '2026-04-23T15:52:14.898217Z'
+    generated_at: '2026-05-22T14:28:28.801857Z'
   generated_dialog_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    generated_at: '2026-05-04T20:21:16.770780Z'
+    generated_at: '2026-05-22T14:27:56.190881Z'
   gm_runboard_route:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
     generated_at: '2026-05-05T16:28:45Z'
   core_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
-    generated_at: '2026-05-06T05:51:03Z'
+    generated_at: '2026-05-22T15:24:31Z'
   fleet_m142_gate:
     path: /docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.json
-    generated_at: '2026-05-06T04:53:00Z'
+    generated_at: '2026-05-19T15:26:59Z'
   flagship_readiness:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
     status: ready
-    summary: Desktop install, release-channel, and flagship workbench proof are current.
+    summary: EA-scoped family-local screenshot and interaction proof for milestone
+      142 is ready.
     reason_count: 0
+    source_status: missing
+    source_summary: Desktop flagship proof is still incomplete.
+    source_reason_count: 2
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: 55798d495707d91b7e39fbc061d040a0070f5c09aea95fe1e8f4eadba4c089c3
+    row_fingerprint: 4e5610c1dad1363787d0fb6216fcd0ca2cead47d4eaa46a63c3b1a956b84b125
 canonical_monitors:
   guide_markers:
     wave: true
@@ -147,7 +151,8 @@ canonical_monitors:
 desktop_client_readiness:
   coverage_key: desktop_client
   status: ready
-  summary: Desktop install, release-channel, and flagship workbench proof are current.
+  summary: EA-scoped family-local screenshot and interaction proof for milestone 142
+    is ready.
   reason_count: 0
   reasons: []
 family_local_packs:
@@ -176,18 +181,18 @@ family_local_packs:
       screenshot review, and the published flagship workflow receipts directly.
     evidence:
     - /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_LOCAL_RELEASE_PROOF.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_LOCAL_RELEASE_PROOF.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_summary: EA-scoped family-local screenshot and interaction proof for
+      milestone 142 is ready.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:dense_workbench_light
@@ -269,18 +274,19 @@ family_local_packs:
     visual_parity: 'yes'
     behavioral_parity: 'yes'
     reason: Route-local dice and initiative proof cites the generated dice dialog
-      parity, runboard initiative route, and deterministic core receipts directly.
+      parity, runboard initiative route, and closed-package direct workflow receipts
+      directly.
     evidence:
     - /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
-    - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_summary: EA-scoped family-local screenshot and interaction proof for
+      milestone 142 is ready.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:menu_open
@@ -353,19 +359,19 @@ family_local_packs:
     visual_parity: 'yes'
     behavioral_parity: 'yes'
     reason: Route-local contacts, lifestyles, and history proof cites section-host
-      parity, current contacts and diary screenshots, and deterministic workflow-state
+      parity, current contacts and diary screenshots, and closed-package workflow-state
       receipts directly.
     evidence:
     - /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
-    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
+    - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_summary: EA-scoped family-local screenshot and interaction proof for
+      milestone 142 is ready.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:contacts_section

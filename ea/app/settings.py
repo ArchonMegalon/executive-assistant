@@ -20,6 +20,17 @@ def _env_truthy(raw: str | None) -> bool:
     return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_optional_bool(raw: str | None) -> bool | None:
+    normalized = str(raw or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
 @dataclass(frozen=True)
 class CoreSettings:
     app_name: str
@@ -34,6 +45,7 @@ class CoreSettings:
 @dataclass(frozen=True)
 class RuntimeSettings:
     mode: str
+    storage_fallback_allowed_override: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +172,10 @@ class Settings:
         return self.runtime.mode
 
     @property
+    def storage_fallback_allowed_override(self) -> bool | None:
+        return self.runtime.storage_fallback_allowed_override
+
+    @property
     def storage_backend(self) -> str:
         return self.storage.backend
 
@@ -173,7 +189,12 @@ class Settings:
 
     @property
     def storage_fallback_allowed(self) -> bool:
-        return not is_prod_mode(self.runtime.mode)
+        if is_prod_mode(self.runtime.mode):
+            return False
+        override = self.runtime.storage_fallback_allowed_override
+        if override is None:
+            return True
+        return override
 
     @property
     def public_side_surfaces_enabled(self) -> bool:
@@ -330,6 +351,7 @@ def get_settings() -> Settings:
     log_level = (os.environ.get("EA_LOG_LEVEL") or "INFO").strip().upper() or "INFO"
     tenant_id = (os.environ.get("EA_TENANT_ID") or "default").strip() or "default"
     runtime_mode = _runtime_mode(os.environ.get("EA_RUNTIME_MODE") or "dev")
+    storage_fallback_allowed_override = _env_optional_bool(os.environ.get("EA_STORAGE_FALLBACK_ALLOWED"))
 
     legacy_backend = (os.environ.get("EA_LEDGER_BACKEND") or "").strip().lower()
     configured_storage_backend = (os.environ.get("EA_STORAGE_BACKEND") or "").strip().lower()
@@ -390,7 +412,10 @@ def get_settings() -> Settings:
             log_level=log_level,
             tenant_id=tenant_id,
         ),
-        runtime=RuntimeSettings(mode=runtime_mode),
+        runtime=RuntimeSettings(
+            mode=runtime_mode,
+            storage_fallback_allowed_override=storage_fallback_allowed_override,
+        ),
         storage=StorageSettings(
             backend=storage_backend,
             database_url=database_url,

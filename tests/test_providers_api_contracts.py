@@ -10,6 +10,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -546,6 +547,971 @@ def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.Monk
     assert callback_body["connector_binding_id"]
     assert "https://www.googleapis.com/auth/gmail.metadata" in callback_body["granted_scopes"]
     assert "https://www.googleapis.com/auth/calendar.readonly" in callback_body["granted_scopes"]
+
+
+def test_telegram_ingest_rejects_missing_secret_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    client = _client(principal_id="exec-telegram-ingest", operator=True)
+    created = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "telegram_identity",
+            "external_account_ref": "42",
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 42},
+                    "text": "hello",
+                    "message_id": 7,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "telegram_secret_invalid"
+
+
+def test_telegram_ingest_accepts_telegram_secret_header_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    client = _client(principal_id="exec-telegram-ingest-ok", operator=True)
+    created = client.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "telegram_identity",
+            "external_account_ref": "42",
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 42},
+                    "text": "hello",
+                    "message_id": 7,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["channel"] == "telegram"
+    assert body["event_type"] == "telegram.message"
+
+
+def test_telegram_ingest_auto_binds_unknown_chat_without_operator_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-autobind")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    client = _client(principal_id="", operator=False)
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 99},
+                    "text": "/start",
+                    "message_id": 11,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["principal_id"] == "exec-telegram-autobind"
+    app = client.app
+    bindings = app.state.container.tool_runtime.list_connector_bindings("exec-telegram-autobind", limit=20)
+    assert any(
+        binding.connector_name == "telegram_identity"
+        and binding.external_account_ref == "99"
+        and dict(binding.auth_metadata_json or {}).get("auto_bound") is True
+        for binding in bindings
+    )
+
+
+def test_telegram_ingest_sends_start_reply_for_keyed_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps(
+            {
+                "girschele": {
+                    "token": "telegram-token-2",
+                    "handle": "Girschele_Bot",
+                    "secret": "tg-secret-2",
+                    "default_principal_id": "exec-telegram-girschele",
+                    "auto_bind_unknown_chat": True,
+                }
+            }
+        ),
+    )
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 1}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append({"url": request.full_url, "payload": payload, "timeout": timeout})
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest/girschele",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret-2"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 1234},
+                    "text": "/start",
+                    "message_id": 11,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["principal_id"] == "exec-telegram-girschele"
+    assert body["reply_sent"] is True
+    assert "connected to Executive Assistant" in body["reply_text"]
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token-2/sendMessage"
+    assert sent[0]["payload"]["chat_id"] == "1234"
+    assert "Girschele_Bot" in sent[0]["payload"]["text"]
+
+
+def test_telegram_ingest_sends_math_reply_for_plain_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-math")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-math")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 2}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append({"url": request.full_url, "payload": payload, "timeout": timeout})
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 5678},
+                    "text": "2+2=?",
+                    "message_id": 12,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is True
+    assert body["reply_text"] == "2+2 = 4"
+    assert sent and sent[0]["payload"]["text"] == "2+2 = 4"
+
+
+def test_telegram_ingest_accepts_raw_telegram_webhook_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-raw")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-raw")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 3}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 2,
+            "message": {
+                "chat": {"id": 9090},
+                "text": "really?",
+                "message_id": 13,
+                "date": 123,
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["principal_id"] == "exec-telegram-raw"
+    assert body["reply_sent"] is True
+    assert "captured your message" in body["reply_text"]
+
+
+def test_telegram_ingest_really_followup_uses_recent_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-really")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-really")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 4}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 10,
+            "message": {
+                "chat": {"id": 9191},
+                "text": "2+2=?",
+                "message_id": 14,
+                "date": 123,
+            },
+        },
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 11,
+            "message": {
+                "chat": {"id": 9191},
+                "text": "really?",
+                "message_id": 15,
+                "date": 124,
+            },
+        },
+    )
+    assert second.status_code == 200
+    assert second.json()["reply_text"] == "Yes. 2+2 = 4"
+
+
+def test_telegram_ingest_answers_short_time_question(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-time")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-time")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 8}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 60,
+            "message": {
+                "chat": {"id": 9494},
+                "text": "time?",
+                "message_id": 18,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reply_sent"] is True
+    assert resp.json()["reply_text"].startswith("It is ")
+    assert resp.json()["reply_text"].endswith(" in Vienna.")
+
+
+def test_telegram_ingest_answers_weather_tomorrow_question(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-weather")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-weather")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __init__(self, payload: dict[str, object]):
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        url = getattr(request, "full_url", "")
+        if "open-meteo.com" in url:
+            return _FakeResponse(
+                {
+                    "daily": {
+                        "time": ["2026-05-26", "2026-05-27"],
+                        "weather_code": [2, 61],
+                        "temperature_2m_max": [22, 19],
+                        "temperature_2m_min": [12, 11],
+                        "precipitation_probability_max": [10, 70],
+                    }
+                }
+            )
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse({"ok": True, "result": {"message_id": 81}})
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 61,
+            "message": {
+                "chat": {"id": 9495},
+                "text": "What's the weather tomorrow?",
+                "message_id": 20,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reply_sent"] is True
+    assert "Tomorrow in Vienna looks" in resp.json()["reply_text"]
+    assert "19" in resp.json()["reply_text"]
+    assert sent and "Tomorrow in Vienna looks" in sent[0]["text"]
+
+
+def test_telegram_ingest_repeats_previous_useful_reply_for_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-again")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-again")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __init__(self, payload: dict[str, object]):
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        url = getattr(request, "full_url", "")
+        if "open-meteo.com" in url:
+            return _FakeResponse(
+                {
+                    "daily": {
+                        "time": ["2026-05-26", "2026-05-27"],
+                        "weather_code": [2, 61],
+                        "temperature_2m_max": [22, 19],
+                        "temperature_2m_min": [12, 11],
+                        "precipitation_probability_max": [10, 70],
+                    }
+                }
+            )
+        return _FakeResponse({"ok": True, "result": {"message_id": 82}})
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 62,
+            "message": {
+                "chat": {"id": 9496},
+                "text": "What's the weather tomorrow?",
+                "message_id": 21,
+                "date": 123,
+            },
+        },
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 63,
+            "message": {
+                "chat": {"id": 9496},
+                "text": "Again",
+                "message_id": 22,
+                "date": 124,
+            },
+        },
+    )
+    assert second.status_code == 200
+    assert second.json()["reply_text"] == first.json()["reply_text"]
+
+
+def test_telegram_ingest_answers_capability_question_directly(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-real-ea")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-real-ea")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 70,
+            "message": {
+                "chat": {"id": 9595},
+                "text": "Can u answer everything now?",
+                "message_id": 19,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reply_sent"] is True
+    assert "grounded EA state" in resp.json()["reply_text"]
+    assert sent and "grounded EA state" in sent[0]["text"]
+
+
+def test_telegram_ingest_answers_next_appointment_from_calendar_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-calendar")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-calendar")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 10}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id="exec-telegram-calendar",
+        channel="calendar",
+        event_type="office_signal_calendar_note",
+        payload={
+            "title": "Design Review",
+            "summary": "Design Review",
+            "start_at": "2099-01-01T15:00:00+01:00",
+            "location": "Studio",
+            "attendees": ["Alex Example"],
+        },
+        source_id="calendar-event:test-1",
+        external_id="calendar-event:test-1",
+        dedupe_key="calendar-event:test-1",
+    )
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 71,
+            "message": {
+                "chat": {"id": 9696},
+                "text": "Can u answer everything now? what is my next appointment?",
+                "message_id": 20,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is True
+    assert "Your next appointment is Design Review" in body["reply_text"]
+    assert "Location: Studio." in body["reply_text"]
+    assert "Alex Example" in body["reply_text"]
+
+
+def test_telegram_ingest_answers_focus_on_tomorrow_from_calendar_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-focus")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-focus")
+    from app.api.routes import channels as channels_route
+    tomorrow_vienna = (datetime.now(ZoneInfo("Europe/Vienna")) + timedelta(days=1)).replace(
+        hour=9,
+        minute=30,
+        second=0,
+        microsecond=0,
+    )
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 11}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id="exec-telegram-focus",
+        channel="calendar",
+        event_type="office_signal_calendar_note",
+        payload={
+            "title": "Strategy Review",
+            "summary": "Strategy Review",
+            "start_at": tomorrow_vienna.isoformat(),
+            "location": "HQ",
+        },
+        source_id="calendar-event:test-2",
+        external_id="calendar-event:test-2",
+        dedupe_key="calendar-event:test-2",
+    )
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 73,
+            "message": {
+                "chat": {"id": 9799},
+                "text": "What should I focus on tomorrow?",
+                "message_id": 31,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is True
+    assert "Tomorrow, focus first on Strategy Review at 09:30." in body["reply_text"]
+    assert "Location: HQ." in body["reply_text"]
+
+
+def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    class _FakeProductService:
+        def list_office_events(self, *, principal_id: str, limit: int = 20, **kwargs):
+            return [
+                {"channel": "gmail", "summary": "google workspace signal sync completed"},
+                {"channel": "product", "summary": "workspace signal sync completed"},
+            ]
+
+        def list_queue(self, *, principal_id: str, limit: int = 3, **kwargs):
+            return [
+                SimpleNamespace(title="Review apartment alert for Währing", summary="operator · pending"),
+                SimpleNamespace(title="Send revised board packet", summary=""),
+            ]
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(channels_route, "_telegram_upcoming_calendar_events", lambda *args, **kwargs: [])
+    client = _client(principal_id="exec-telegram-focus-noise", operator=False)
+    reply = channels_route._telegram_local_assistant_reply_text(
+        client.app.state.container,
+        principal_id="exec-telegram-focus-noise",
+        text="What should I focus on tomorrow?",
+    )
+    assert "sync completed" not in reply.lower()
+    assert "Top priority looks like Review apartment alert for Währing." in reply
+    assert "After that: Send revised board packet." in reply
+
+
+def test_telegram_async_worker_sends_real_ea_followup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 21}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "Here is the real EA answer.")
+    client = _client(principal_id="exec-telegram-fallback", operator=False)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-fallback",
+        bot_config={"token": "telegram-token-fallback"},
+        chat_id="9797",
+        text="Tell me something useful",
+        current_message_id="21",
+    )
+    assert sent and sent[0]["text"] == "Here is the real EA answer."
+
+
+def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-async")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-async")
+    from app.api.routes import channels as channels_route
+
+    seen: list[dict[str, object]] = []
+
+    def _fake_schedule_async_assistant_reply(**kwargs):
+        seen.append(kwargs)
+
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", _fake_schedule_async_assistant_reply)
+    client = _client(principal_id="", operator=False)
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 72,
+            "message": {
+                "chat": {"id": 9798},
+                "text": "Tell me something useful",
+                "message_id": 30,
+                "date": 123,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is False
+    assert body["reply_text"] == ""
+    assert seen and seen[0]["chat_id"] == "9798"
+
+
+def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    seen: dict[str, object] = {}
+
+    class _Result:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    def _fake_generate_upstream_text(**kwargs):
+        seen.update(kwargs)
+        return _Result("EA says hello.")
+
+    monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _fake_generate_upstream_text)
+    reply = channels_route._telegram_real_ea_reply_text(
+        container=_client(principal_id="exec-telegram-upstream", operator=False).app.state.container,
+        principal_id="exec-telegram-upstream",
+        text="test",
+        current_message_id="31",
+        preferred_onemin_labels=("fallback_1",),
+    )
+    assert reply == "EA says hello."
+    assert seen["chatplayground_audit_callback"] is None
+    assert seen["chatplayground_audit_callback_only"] is False
+    assert seen["chatplayground_audit_principal_id"] == "exec-telegram-upstream"
+    assert seen["preferred_onemin_labels"] == ("fallback_1",)
+
+
+def test_telegram_async_worker_uses_local_assistant_fallback_when_real_ea_reply_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-fallback")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 21}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    client = _client(principal_id="", operator=False)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-fallback",
+        bot_config={"token": "telegram-token-fallback"},
+        chat_id="9797",
+        text="test",
+        current_message_id="21",
+    )
+    assert sent and sent[0]["text"] == "I am here."
+
+
+def test_telegram_local_assistant_can_answer_capability_question() -> None:
+    from app.api.routes import channels as channels_route
+
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-capabilities", operator=False).app.state.container,
+        principal_id="exec-telegram-capabilities",
+        text="What can you do?",
+    )
+    assert "schedule" in reply.lower()
+    assert "property" in reply.lower()
+
+
+def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-timeout")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-timeout")
+    monkeypatch.setenv("EA_TELEGRAM_RESPONSES_TIMEOUT_SECONDS", "1")
+    from app.api.routes import channels as channels_route
+    import time
+
+    def _slow_run_response(*args, **kwargs):
+        time.sleep(2.0)
+        raise RuntimeError("should_have_timed_out_first")
+
+    monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _slow_run_response)
+    started = time.monotonic()
+    reply = channels_route._telegram_real_ea_reply_text(
+        container=_client(principal_id="exec-telegram-timeout", operator=False).app.state.container,
+        principal_id="exec-telegram-timeout",
+        text="Tell me something slow",
+        current_message_id="22",
+    )
+    elapsed = time.monotonic() - started
+    assert reply == ""
+    assert elapsed < 1.8
+
+
+def test_telegram_ingest_duplicate_update_does_not_send_duplicate_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-dup")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-dup")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 5}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    payload = {
+        "update_id": 50,
+        "message": {
+            "chat": {"id": 9292},
+            "text": "2+2=?",
+            "message_id": 16,
+            "date": 123,
+        },
+    }
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json=payload,
+    )
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json=payload,
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["reply_sent"] is True
+    assert second.json()["reply_sent"] is False
+    assert len(sent) == 1
+
+
+def test_telegram_ingest_duplicate_update_retries_reply_after_transient_send_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-retry")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-retry")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    call_count = {"value": 0}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 6}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise RuntimeError("transient_telegram_send_failure")
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    payload = {
+        "update_id": 51,
+        "message": {
+            "chat": {"id": 9393},
+            "text": "2+2=?",
+            "message_id": 17,
+            "date": 123,
+        },
+    }
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json=payload,
+    )
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json=payload,
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["reply_sent"] is False
+    assert second.json()["reply_sent"] is True
+    assert len(sent) == 1
 
 
 def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3357,6 +4323,116 @@ def test_public_results_no_longer_shadow_tour_routes(
     missing_tour_payload = client.get("/tours/movie-demo.json")
     assert missing_tour_payload.status_code == 404
     assert missing_tour_payload.json()["error"]["code"] == "tour_not_found"
+
+
+def test_public_tour_routes_embed_live_360_source_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-live-360"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Pioche Lecombe Live 360",
+                "display_title": "Pioche Lecombe Live 360",
+                "listing_url": "https://www.willhaben.at/listing/live-360",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "source_virtual_tour_url": "https://360.example.test/view/portal/id/live-360",
+                "panorama_source": "feelestate_kalandra",
+                "brand_name": "Pioche Lecombe",
+                "scene_count": 1,
+                "facts": {
+                    "rooms": 3,
+                    "area_sqm": 81,
+                    "total_rent_eur": 1490,
+                    "availability": "sofort",
+                    "address_lines": ["Währing, Wien"],
+                    "teaser_attributes": ["360 Tour"],
+                },
+                "brief": {
+                    "theme_name": "White-label 360",
+                    "tour_style": "panorama first",
+                    "audience": "buyers",
+                    "creative_brief": "Lead with the real panorama viewer.",
+                    "call_to_action": "Book a viewing.",
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "image_url": "https://example.test/original.jpg",
+                        "source_url": "https://example.test/original.jpg",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-live-360")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert "Pioche Lecombe" in page.text
+    assert 'src="https://360.example.test/view/portal/id/live-360"' in page.text
+    assert 'href="#live-360"' in page.text
+    assert "Open Live 360" in page.text
+    assert "Live Panorama Viewer" in page.text
+    assert "Hosted on myexternalbrain.com" in page.text
+    assert "Open Source 360" not in page.text
+    assert ">Source<" not in page.text
+
+
+def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-unsafe-live-360"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Unsafe Live 360",
+                "display_title": "Unsafe Live 360",
+                "source_virtual_tour_url": "javascript:alert(1)",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "image_url": "https://example.test/original.jpg",
+                        "source_url": "https://example.test/original.jpg",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-unsafe-live-360")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert "Live Panorama Viewer" not in page.text
+    assert 'href="#viewer"' in page.text
+    assert "javascript:alert(1)" not in page.text
+    assert "Open Live 360" not in page.text
+    assert 'href="#live-360"' not in page.text
+    assert 'src="https://360.example.test/view/portal/id/live-360"' not in page.text
 
 
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

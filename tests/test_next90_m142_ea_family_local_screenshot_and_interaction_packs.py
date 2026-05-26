@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
+import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,11 +122,13 @@ def test_materializer_rebuilds_current_generated_packet() -> None:
 
 def test_packet_identity_and_scope() -> None:
     payload = _yaml(PACK_PATH)
+    queue = _yaml(QUEUE_STAGING_PATH)
+    queue_row = next(item for item in queue.get("items") or [] if dict(item).get("package_id") == payload.get("package_id"))
     assert payload.get("contract_name") == "ea.next90_m142_family_local_screenshot_and_interaction_packs"
     assert payload.get("package_id") == "next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows"
     assert int(payload.get("milestone_id") or 0) == 142
     assert payload.get("work_task_id") == "142.4"
-    assert int(payload.get("frontier_id") or 0) == 5399660048
+    assert int(payload.get("frontier_id") or 0) == int(dict(queue_row).get("frontier_id") or 0)
     assert list(payload.get("owned_surfaces") or []) == ["compile_family_local_screenshot_and_interaction_packs_fo:ea"]
     assert list(payload.get("allowed_paths") or []) == ["scripts", "feedback", "docs"]
     assert MARKDOWN_PATH.is_file()
@@ -257,8 +260,9 @@ def test_generated_packet_pins_queue_uniqueness_and_current_feedback_boundary() 
 
 def test_generated_markdown_keeps_family_local_receipt_detail_visible() -> None:
     markdown = MARKDOWN_PATH.read_text(encoding="utf-8")
+    payload = _yaml(PACK_PATH)
 
-    assert "canonical queue frontier: `5399660048`" in markdown
+    assert f"canonical queue frontier: `{payload.get('frontier_id')}`" in markdown
     assert "## Family summary" in markdown
     assert "## Queue guardrails" in markdown
     assert "approved `.codex-design` local mirror" in markdown
@@ -289,3 +293,31 @@ def test_generated_markdown_keeps_family_local_receipt_detail_visible() -> None:
 def test_verifier_script_accepts_the_current_packet() -> None:
     verifier = _module(VERIFY_PATH, "ea_next90_m142_verifier")
     assert verifier.main() == 0
+
+
+def load_tests(loader: unittest.TestLoader, tests: unittest.TestSuite, pattern: str | None) -> unittest.TestSuite:
+    suite = unittest.TestSuite()
+    for name, func in sorted(globals().items()):
+        if name.startswith("test_") and callable(func):
+            suite.addTest(unittest.FunctionTestCase(func))
+    return suite
+
+
+def _run_direct() -> int:
+    failed = 0
+    ran = 0
+    for name, func in sorted(globals().items()):
+        if not name.startswith("test_") or not callable(func):
+            continue
+        ran += 1
+        try:
+            func()
+        except Exception as exc:
+            failed += 1
+            print(f"FAIL {name}: {exc}")
+    print(f"ran={ran} failed={failed}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_direct())

@@ -668,6 +668,10 @@ class ChannelDigestDeliveryOut(BaseModel):
     email_delivery_error: str = ""
     email_message_id: str = ""
     email_provider: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
 
 
 class DraftApproveIn(BaseModel):
@@ -746,6 +750,151 @@ class PersonCorrectionIn(BaseModel):
     remove_risk: str = ""
 
 
+class PreferenceProfileUpsertIn(BaseModel):
+    display_name: str | None = None
+    profile_scope: str | None = None
+    consent_mode: str | None = None
+    learning_enabled: bool | None = None
+    high_stakes_domains_enabled: bool | None = None
+
+
+class PreferenceNodeUpsertIn(BaseModel):
+    domain: str = Field(min_length=1)
+    category: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    value_json: object
+    strength: str = "medium"
+    confidence: float = 0.5
+    source_mode: str = "explicit"
+    status: str = "active"
+    decay_policy: str = "reinforce_only"
+
+
+class PreferenceEvidenceEventIn(BaseModel):
+    domain: str = Field(min_length=1)
+    event_type: str = Field(min_length=1)
+    object_type: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    source_ref: str = ""
+    raw_signal_json: dict[str, object] = Field(default_factory=dict)
+    interpreted_signal_json: dict[str, object] = Field(default_factory=dict)
+    signal_strength: float = 0.5
+    reversible: bool = True
+
+
+class PreferenceCorrectionApplyIn(BaseModel):
+    domain: str = Field(min_length=1)
+    category: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    value_json: object
+    strength: str = "high"
+    reason: str = ""
+
+
+class PreferenceDecisionAssessmentIn(BaseModel):
+    domain: str = Field(min_length=1)
+    object_type: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    object_payload: dict[str, object] = Field(default_factory=dict)
+
+
+class PreferenceProfileSummaryOut(BaseModel):
+    person_id: str
+    principal_id: str
+    display_name: str
+    profile_scope: str
+    consent_mode: str
+    learning_enabled: bool
+    high_stakes_domains_enabled: bool
+    created_at: str
+    updated_at: str
+
+
+class PreferenceNodeOut(BaseModel):
+    node_id: str
+    principal_id: str
+    person_id: str
+    domain: str
+    category: str
+    key: str
+    value_json: object
+    strength: str
+    confidence: float
+    source_mode: str
+    status: str
+    decay_policy: str
+    last_confirmed_at: str = ""
+    last_observed_at: str = ""
+    created_at: str
+    updated_at: str
+
+
+class PreferenceEvidenceEventOut(BaseModel):
+    event_id: str
+    principal_id: str
+    person_id: str
+    domain: str
+    event_type: str
+    object_type: str
+    object_id: str
+    source_ref: str = ""
+    raw_signal_json: dict[str, object] = Field(default_factory=dict)
+    interpreted_signal_json: dict[str, object] = Field(default_factory=dict)
+    signal_strength: float
+    reversible: bool
+    recorded_at: str
+
+
+class PreferenceDecisionAssessmentOut(BaseModel):
+    assessment_id: str = ""
+    principal_id: str = ""
+    person_id: str = ""
+    domain: str
+    object_type: str
+    object_id: str
+    fit_score: float
+    confidence: float
+    predicted_reaction: str
+    recommendation: str
+    match_reasons_json: list[str] = Field(default_factory=list)
+    mismatch_reasons_json: list[str] = Field(default_factory=list)
+    unknowns_json: list[str] = Field(default_factory=list)
+    blocking_constraints_json: list[str] = Field(default_factory=list)
+    assessment_json: dict[str, object] = Field(default_factory=dict)
+    generated_at: str = ""
+
+
+class PreferenceCorrectionOut(BaseModel):
+    correction_id: str
+    principal_id: str
+    person_id: str
+    target_type: str
+    target_id: str
+    old_value_json: object
+    new_value_json: object
+    reason: str = ""
+    corrected_by: str = ""
+    corrected_at: str
+
+
+class PreferenceEvidenceApplyOut(BaseModel):
+    event: PreferenceEvidenceEventOut
+    applied_nodes: list[PreferenceNodeOut] = Field(default_factory=list)
+
+
+class PreferenceCorrectionApplyOut(BaseModel):
+    node: PreferenceNodeOut
+    correction: PreferenceCorrectionOut
+
+
+class PreferenceProfileBundleOut(BaseModel):
+    profile: PreferenceProfileSummaryOut
+    preference_nodes: list[PreferenceNodeOut] = Field(default_factory=list)
+    recent_evidence_events: list[PreferenceEvidenceEventOut] = Field(default_factory=list)
+    recent_decision_assessments: list[PreferenceDecisionAssessmentOut] = Field(default_factory=list)
+    recent_corrections: list[PreferenceCorrectionOut] = Field(default_factory=list)
+
+
 class RuleSimulateIn(BaseModel):
     proposed_value: str = Field(min_length=1)
 
@@ -804,10 +953,16 @@ class WillhabenPropertyTourOut(BaseModel):
     editor_url: str = ""
     delivery_email: str = ""
     delivery_status: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
     blocked_reason: str = ""
     human_task_id: str = ""
     source_ref: str = ""
     external_id: str = ""
+    tour_media_mode: str = ""
+    personal_fit_assessment: dict[str, object] = Field(default_factory=dict)
 
 
 class SignalIngestEndpointCreateIn(BaseModel):
@@ -855,6 +1010,8 @@ class PocketSignalSyncOut(BaseModel):
     failed_total: int = 0
     recording_total: int = 0
     staging_suppressed_total: int = 0
+    preference_evidence_total: int = 0
+    preference_evidence_applied_total: int = 0
     cursor_used: bool = True
     cursor_persisted: bool = True
     cursor_updated_at: str = ""
@@ -894,6 +1051,13 @@ class PocketRecordingDetailOut(BaseModel):
     audio_download_url: str = ""
     audio_expires_at: str = ""
     audio_expires_in: int | None = None
+    transcript_quality_status: str = ""
+    transcript_quality_score: float = 0.0
+    transcript_quality_reasons: list[str] = Field(default_factory=list)
+    retranscription_attempted: bool = False
+    retranscription_status: str = ""
+    preference_evidence_recorded: bool = False
+    preference_evidence_applied_total: int = 0
 
 
 class GoogleSignalSyncOut(BaseModel):

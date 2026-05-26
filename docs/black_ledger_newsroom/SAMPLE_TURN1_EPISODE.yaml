@@ -1,0 +1,52 @@
+version: black-ledger-newsroom-sample-turn1-v1
+episode:
+  episode_id: black-ledger-turn1-bulletin-sample
+  episode_type: turn_newsreel
+  title: "Turn 1: The City Moved First"
+  duration_target_seconds: 60
+  anchor_id: mara_voss
+  publish_scope: public
+  truth_layer: receipt_backed_with_public_safe_reconstruction
+  source_receipt_ids:
+    - BLACK_LEDGER_TURN1_TICK_RECEIPT
+    - FACTION_SCORE_DELTA_RECEIPT
+    - NEWSROOM_PUBLIC_SAFETY_RECEIPT
+  segments:
+    - segment_id: open
+      order: 1
+      headline: The city moved first.
+      anchor_script:
+        - Good evening. The Black Ledger moved again.
+        - Turn 1 closed with a visible pressure shift, one faction losing quiet ground, and a signal trail that did not stay buried.
+      lower_third: MARA VOSS | BLACK LEDGER NEWSROOM
+      ticker:
+        - TURN 1 CLOSED
+        - PUBLIC-SAFE RECEIPTS ACTIVE
+        - PRIVATE TABLE DETAILS REDACTED
+      broll_cues:
+        - geoscape_turn1
+        - rain_city
+    - segment_id: matrix_breach
+      order: 2
+      headline: Matrix pressure rises near a research site.
+      anchor_script:
+        - The loudest signal came from a research-site breach.
+        - The public record shows Matrix pressure rising, but the private table details stay sealed.
+      lower_third: MATRIX PRESSURE | PUBLIC-SAFE RECONSTRUCTION
+      ticker:
+        - MATRIX HEAT +
+        - GHOSTLINE TRACE CONFIDENCE RISING
+      broll_cues:
+        - facility_exterior
+        - matrix_trace_room
+    - segment_id: close
+      order: 3
+      headline: The record stays public-safe.
+      anchor_script:
+        - That is the public record.
+        - The private fallout stays with the tables that earned it.
+      lower_third: BLACK LEDGER | THE CITY REPORTS BACK
+      ticker:
+        - NEXT BULLETIN AFTER VERIFIED RECEIPTS
+      broll_cues:
+        - newsroom_globe_close

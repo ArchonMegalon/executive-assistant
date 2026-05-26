@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-05-14
+Updated: 2026-05-25
 
 ## Workspace Integration Tier Guide
 
@@ -15,16 +15,16 @@ Updated: 2026-05-14
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-08T20:24:41.839154+00:00` for `ONEMIN_AI_API_KEY` confirmed `45279` remaining credits without a projected next top-up in the latest refresh. |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-25T19:49:10.593134+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Legacy prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for internal guide pipelines; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
-| `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. |
-| `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 1` | Local `.env` API key plus verified `chummer.run` sender-domain wiring in EA | Transactional Emailit delivery is wired locally, `chummer.run` is verified as a sending domain, and the CodexEA internal-affairs daily summary now sends from `ia@chummer.run`. |
+| `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. Candidate newsroom sound-design lane only after rights, cue provenance, and adapter proof exist. |
+| `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 1` | Local `.env` API key plus verified `chummer.run` sender-domain wiring in EA | Transactional Emailit delivery is wired locally, `chummer.run` is verified as a sending domain, and the CodexEA internal-affairs daily summary now sends from `ia@chummer.run`. It is also the approved Black Ledger Newsroom delivery lane after episode proof exists. |
 | `AI Magicx` | `Rune Plan` | `1 account` | `Owned` |  | `Tier 1` | `ea/app/services/responses_upstream.py` fallback lane and `ea/app/api/routes/responses.py` `/v1/codex` selectors | Routed as a gated secondary lane for short/overflow paths and audit support where 1min capacity is constrained. |
 | `FastestVPN PRO` | `15 Devices` | `1 subscription/account` | `Owned` |  | `Tier 3` | None | Infrastructure/privacy utility, not currently wired into this repo. |
 | `OneAir` | `Elite` | `1 account` | `Owned` |  | `Tier 3` | None | Travel utility only; no local runtime integration yet. |
 | `Headway` | `Premium` | `1 account` | `Owned` |  | `Tier 3` | None | Knowledge/content utility only; no local runtime integration yet. |
-| `VidBoard.ai` | `Tier 5` | `1 account` | `Owned` |  | `Tier 4` | BrowserAct-stored credentials for account access; no active runtime lane yet | Newly tracked LTD; account access exists, but no structured verification run or workspace integration is pinned yet. |
+| `VidBoard.ai` | `Tier 5` | `1 account` | `Owned` |  | `Tier 4` | BrowserAct-stored credentials for account access; no active runtime lane yet | Candidate photoreal newsroom host/video lane, but still blocked until commercial-use, watermark, duration, and quality verification are captured in newsroom provider proof. |
 | `Deftform` | `No tier recorded` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked account with shared local credentials; plan/tier and structured verification are still pending. |
 | `hedy.ai` | `LTD account` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Credentials are stored locally for later browser-driven account access or structured verification; no active runtime lane is wired yet. |
 | `Internxt Cloud Storage` | `100TB` | `1 account` | `Owned` |  | `Tier 3` | None | Storage service not currently wired into the workspace. |
@@ -34,37 +34,38 @@ Updated: 2026-05-14
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `ApiX-Drive` | `Plus exclusive / License Tier 3` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
+| `Answerly.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus Chummer-bound support-only integration canon, off switches, RuleSafe packet boundary, and Fleet proof receipts | Allowed as a bounded support assistant and optional RuleSafe humanizer only. It remains forbidden as rules truth, sourcebook backend, or private campaign processor until explicit license receipts say otherwise. |
 | `ApproveThis` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for approval-queue reading plus skill-catalog references in external-send flows | Ready for BrowserAct-backed queue reading and approval-lane observation without treating ApproveThis as the internal policy engine. |
-| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | All codes redeemed and activated; local integration is still staged, not a verified end-to-end production lane. |
-| `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. |
+| `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | All codes redeemed and activated; local integration is still staged, not a verified end-to-end production lane. Candidate newsroom map/B-roll lane only. |
+| `BrowserAct` | `Tier 3` | `1 product` | `Activated` |  | `Tier 1` | `browseract.extract_account_facts`, `browseract.extract_account_inventory`, `browseract_extract_then_artifact`, local BrowserAct key slots, and connector-bound account-fact discovery | Plan/Tier and activation status are sourced from BrowserAct-backed inventory extraction; run date remains pending external receipt for audit trail. BrowserAct is the verified newsroom provider-proof and route-QA lane, not editorial truth. |
 | `ClickRank.ai` | `Tier 5` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus live site IDs for `chummer.run` and `myexternalbrain.com` | Tier 5 account, both public domains, and served ClickRank ownership snippets are now live for crawl and AI-search auditing without making ClickRank source of truth. |
 | `Crezlo Tours` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 1` | BrowserAct-backed property-tour pipeline, public publishing path, and email delivery scripts | Property ingestion, tour generation, publishing, and delivery are wired in this repo. |
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for AI-ready Chummer6/Fleet/EA docs, cited assistant answers, `llms.txt`, semantic MDX, and private operator-doc publishing. Promote to `Tier 2` after site allocation, sync wiring, and docs freshness verification are real. |
 | `FacePop` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 5 is confirmed manually; shared local credentials are stored for later structured verification and browser-driven access. |
-| `FineTuning.ai` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for sonic cue packs, Newsreel music beds, recap underscoring, and bounded media-factory render support. Promote to `Tier 2` after a provider adapter, cue-receipt stub, and first media-factory smoke run are verified. |
+| `FineTuning.ai` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for sonic cue packs, Newsreel music beds, recap underscoring, and bounded media-factory render support. Candidate newsroom cue-bed lane only until adapter, rights, and smoke proof exist. |
 | `First Book ai` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane is verified in this repo yet | Activation is confirmed; browser-driven account access exists, but a production runtime lane is not yet pinned here. |
 | `GetNextStep.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 5 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `ICanpreneur` | `Tier 3` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 3 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
 | `katteb.com` | `10x code-based` | `10 codes` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked code-based holding; account credentials are present locally and code activation verification is still pending. |
 | `Lunacal` | `Tier 4 (highest AppSumo tier)` | `1 account` | `Activated` |  | `Tier 4` | BrowserAct-stored credentials plus local `.env` username/password; no active runtime lane yet | Highest AppSumo tier is confirmed at `app.lunacal.ai`; BrowserAct and the local env both hold the account credentials for later structured verification. |
-| `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; ready for adapter-first media use when needed. |
+| `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom poster frames, proof cards, and contact sheets after adapter proof lands. |
 | `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection has staged extraction support, not a verified end-to-end lane. |
-| `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. |
-| `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. |
+| `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. Candidate newsroom host/motion lane only until verified. |
+| `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. Candidate newsroom presenter lane only until verified. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
 | `ProductLift.dev` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dry-run Chummer signal-mirror adapters and receipts | Use on `chummer.run` as the public signal mirror for feedback, voting, roadmap, changelog, package follow, and Karma Forge signal projection, while Chummer remains the source of truth. |
-| `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for preview/thumbnail adapter work when wired. |
+| `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom thumbnail, poster, and contact-sheet adapter work when wired. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
 | `Syllabbles` | `Max tier` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dispatch-draft adapter, template, and dry-run tests | Use as a Black Ledger Dispatch draft workbench only. Drafts stay non-authoritative until Chummer gates and publishes them. |
 | `blipai.app` | `Max tier` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials/token plus operator-capture packet transform and tests | Use for operator voice capture, prompt capture, and audit-note capture. Never publish directly from this lane. |
-| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local API key plus projection adapter and dry-run sync receipt | Use only as a curated operator projection surface for product signals, dispatches, tick-news delivery, package pressure, and adapter readiness. |
-| `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
+| `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local API key plus projection adapter and dry-run sync receipt | Use only as a curated operator projection surface for product signals, dispatches, tick-news delivery, package pressure, adapter readiness, and newsroom production tracking. |
+| `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Candidate newsroom narration cleanup / voice polish lane, but no active local runtime integration is verified in this repo yet. |
 | `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
 
-- `41` total LTD products tracked
+- `42` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -74,7 +75,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-08T20:24:41.839154+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-08T20:24:41.839154+00:00` for `ONEMIN_AI_API_KEY` confirmed `45279` remaining credits without a projected next top-up in the latest refresh. |
+| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-25T19:49:10.593134+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-25T19:49:10.593134+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
@@ -91,6 +92,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `hedy.ai` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-02T00:00:00Z | Username/password are stored locally; plan/tier and activation details still need structured verification. |
 | `Internxt Cloud Storage` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `ApiX-Drive` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Answerly.io` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-19T00:00:00Z | Tier 5 credentials are locally seeded and the Chummer workspace now carries support-only integration boundaries plus fallback/off-switch proof. Live provider verification is still pending before any non-fallback runtime use. |
 | `ApproveThis` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `AvoMap` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `BrowserAct` | ops@example.com | `complete` | `browseract_live` | 2026-03-07T00:00:00Z | Plan/Tier: Tier 3; Status: activated |

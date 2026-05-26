@@ -227,12 +227,44 @@ def reset_pocket_recording_sync_cursor(
 @router.get("/signals/pocket/recordings/{recording_id}", response_model=PocketRecordingDetailOut)
 def get_pocket_recording_detail(
     recording_id: str,
+    prefer_audio_fallback: bool = Query(default=False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PocketRecordingDetailOut:
     service = build_product_service(container)
     try:
-        payload = service.get_pocket_recording_detail(recording_id=recording_id)
+        payload = service.get_pocket_recording_detail(
+            recording_id=recording_id,
+            prefer_audio_fallback=prefer_audio_fallback,
+            principal_id=context.principal_id,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "office_api").strip(),
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "pocket_recording_not_found":
+            status_code = 404
+        elif detail.startswith("pocket_api_http_429:"):
+            status_code = 429
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketRecordingDetailOut(**payload)
+
+
+@router.post("/signals/pocket/recordings/{recording_id}/retranscribe", response_model=PocketRecordingDetailOut)
+def retranscribe_pocket_recording(
+    recording_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketRecordingDetailOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.retranscribe_pocket_recording(
+            principal_id=context.principal_id,
+            actor=actor,
+            recording_id=recording_id,
+        )
     except RuntimeError as exc:
         detail = str(exc)
         if detail == "pocket_recording_not_found":
@@ -260,6 +292,28 @@ def sync_google_workspace_signals(
             actor=actor,
             email_limit=email_limit,
             calendar_limit=calendar_limit,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return GoogleSignalSyncOut(**payload)
+
+
+@router.post("/signals/google/willhaben-sync", response_model=GoogleSignalSyncOut)
+@router.post("/signals/google/property-sync", response_model=GoogleSignalSyncOut)
+def sync_google_willhaben_signals(
+    email_limit: int = Query(default=10, ge=0, le=50),
+    account_email: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleSignalSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "google_sync").strip()
+    try:
+        payload = service.sync_google_willhaben_signals(
+            principal_id=context.principal_id,
+            actor=actor,
+            account_email=account_email,
+            email_limit=email_limit,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

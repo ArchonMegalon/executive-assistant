@@ -35,7 +35,7 @@ video_families:
     audience: public
     duration_seconds_target: 60
     duration_seconds_max: 120
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: branded_presenter
     sibling_artifacts:
       - release_notes_page
@@ -51,7 +51,7 @@ video_families:
     audience: signed_in_user
     duration_seconds_target: 45
     duration_seconds_max: 90
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: neutral_presenter
     sibling_artifacts:
       - support_case_update
@@ -71,7 +71,7 @@ video_families:
       - blocker_followthrough
     duration_seconds_target: 45
     duration_seconds_max: 120
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: faceless
     locale_fallback_chain:
       - requested_locale
@@ -117,65 +117,6 @@ video_families:
       - approved_explain_packet
       - receipt_anchor_sheet
       - localized_text_fallback
-  - id: rule_environment_grounded_companion_video
-    audience: signed_in_user
-    audience_variants:
-      - build_review
-      - campaign_drift_followthrough
-      - import_or_restore_followthrough
-      - diagnostics_or_support_followthrough
-    duration_seconds_target: 45
-    duration_seconds_max: 120
-    preferred_lane: explainer_video
-    avatar_posture: faceless
-    locale_fallback_chain:
-      - requested_locale
-      - packet_default_locale
-      - en-US
-    launch_surfaces:
-      - rules_navigator
-      - build_lab_environment_panel
-      - campaign_workspace
-      - import_receipt_panel
-      - restore_conflict_panel
-      - support_rule_environment_review
-    sibling_artifacts:
-      - activation_receipt_sheet
-      - rule_environment_diff_packet
-      - localized_text_fallback
-      - preview_card
-    required_receipt_fields:
-      - packet_revision_id
-      - active_rule_environment_digest
-      - compared_rule_environment_digest
-      - activation_or_diff_receipt_ref
-      - anchor_scope_ids
-      - approval_scope
-    approval_level: rule_environment_grounded_publication
-    claim_truth_order:
-      - inspectable_rule_environment_packet
-      - rule_environment_identity
-      - source_anchor_scope
-      - localized_text_fallback
-      - rendered_companion
-    approval_scope_axes:
-      - artifact_family
-      - packet_revision
-      - locale
-      - audience_posture
-    source_modes:
-      - approved_rule_environment_diff_packet
-      - approved_activation_receipt_summary
-      - approved_support_or_restore_environment_summary
-    forbidden_modes:
-      - legality_without_receipt_anchor
-      - rule_environment_revision_mismatch
-      - approval_overriding_engine_truth
-      - presenter_as_only_recovery_path
-    fallback_when_unverified:
-      - rule_environment_diff_packet
-      - activation_receipt_sheet
-      - localized_text_fallback
   - id: campaign_primer_video
     audience: player_or_gm
     audience_variants:
@@ -185,7 +126,7 @@ video_families:
     spoiler_class: primer_safe
     duration_seconds_target: 90
     duration_seconds_max: 180
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: neutral_presenter
     locale_fallback_chain:
       - requested_locale
@@ -212,7 +153,7 @@ video_families:
     spoiler_class: player_safe_by_default
     duration_seconds_target: 60
     duration_seconds_max: 120
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: neutral_presenter
     locale_fallback_chain:
       - requested_locale
@@ -240,7 +181,7 @@ video_families:
       - gm_route_review
     duration_seconds_target: 45
     duration_seconds_max: 90
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: faceless
     locale_fallback_chain:
       - requested_locale
@@ -281,7 +222,7 @@ video_families:
     audience: public_or_creator_followers
     duration_seconds_target: 45
     duration_seconds_max: 90
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: branded_presenter
     sibling_artifacts:
       - preview_card
@@ -294,7 +235,7 @@ video_families:
     audience: campaign_members
     duration_seconds_target: 60
     duration_seconds_max: 120
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: faceless
     sibling_artifacts:
       - player_safe_recap_packet
@@ -312,7 +253,7 @@ video_families:
     audience: gm_only
     duration_seconds_target: 90
     duration_seconds_max: 180
-    preferred_lane: explainer_video
+    preferred_lane: vidBoard
     avatar_posture: faceless
     sibling_artifacts:
       - gm_debrief_packet
@@ -321,9 +262,9 @@ video_families:
       - approved_gm_debrief_script
       - approved_coaching_packet
 render_companions:
-  preview_lane: preview_gallery
-  document_lane: briefing_packet
-  narration_lane: audio_briefing
+  preview_lane: PeekShot
+  document_lane: MarkupGo
+  narration_lane: Soundmadeseen
   motion_support_lane: Mootion
   route_support_lane: AvoMap
   explorable_support_lane: Crezlo_Tours

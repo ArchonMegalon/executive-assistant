@@ -651,6 +651,7 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_br
         "step_artifact_save",
     )
     assert plan.steps[1].tool_name == "browseract.crezlo_property_tour"
+    assert plan.steps[1].input_keys == ("binding_id", "tour_title", "property_url")
     assert plan.steps[1].output_keys == (
         "tour_title",
         "tour_status",
@@ -659,6 +660,8 @@ def test_planner_can_compile_generic_tool_then_artifact_workflow_template_for_br
         "share_url",
         "editor_url",
         "public_url",
+        "hosted_url",
+        "crezlo_public_url",
         "workspace_id",
         "workspace_domain",
         "creation_mode",

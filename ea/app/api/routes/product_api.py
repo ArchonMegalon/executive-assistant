@@ -29,6 +29,17 @@ from app.api.routes.product_api_contracts import (
     OperatorCenterLaneOut,
     OperatorCenterOut,
     PersonCorrectionIn,
+    PreferenceCorrectionApplyIn,
+    PreferenceCorrectionApplyOut,
+    PreferenceDecisionAssessmentIn,
+    PreferenceDecisionAssessmentOut,
+    PreferenceEvidenceApplyOut,
+    PreferenceEvidenceEventIn,
+    PreferenceNodeOut,
+    PreferenceNodeUpsertIn,
+    PreferenceProfileBundleOut,
+    PreferenceProfileSummaryOut,
+    PreferenceProfileUpsertIn,
     PersonDetailOut,
     PersonProfileOut,
     QueueResolveIn,
@@ -630,6 +641,184 @@ def get_person_history(
     if found is None:
         raise HTTPException(status_code=404, detail="person_not_found")
     return [history_out(item) for item in service.get_person_history(principal_id=context.principal_id, person_id=person_id, limit=limit)]
+
+
+@router.get("/people/{person_id}/preference-profile", response_model=PreferenceProfileBundleOut)
+def get_preference_profile(
+    person_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceProfileBundleOut:
+    service = build_product_service(container)
+    return PreferenceProfileBundleOut(**service.get_preference_profile(principal_id=context.principal_id, person_id=person_id))
+
+
+@router.post("/people/{person_id}/preference-profile", response_model=PreferenceProfileSummaryOut)
+def upsert_preference_profile(
+    person_id: str,
+    body: PreferenceProfileUpsertIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceProfileSummaryOut:
+    service = build_product_service(container)
+    return PreferenceProfileSummaryOut(
+        **service.upsert_preference_profile(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            display_name=body.display_name,
+            profile_scope=body.profile_scope,
+            consent_mode=body.consent_mode,
+            learning_enabled=body.learning_enabled,
+            high_stakes_domains_enabled=body.high_stakes_domains_enabled,
+        )
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/nodes", response_model=PreferenceNodeOut)
+def upsert_preference_node(
+    person_id: str,
+    body: PreferenceNodeUpsertIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceNodeOut:
+    service = build_product_service(container)
+    return PreferenceNodeOut(
+        **service.upsert_preference_node(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            domain=body.domain,
+            category=body.category,
+            key=body.key,
+            value_json=body.value_json,
+            strength=body.strength,
+            confidence=body.confidence,
+            source_mode=body.source_mode,
+            status=body.status,
+            decay_policy=body.decay_policy,
+        )
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/corrections", response_model=PreferenceCorrectionApplyOut)
+def apply_preference_correction(
+    person_id: str,
+    body: PreferenceCorrectionApplyIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceCorrectionApplyOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    return PreferenceCorrectionApplyOut(
+        **service.apply_preference_correction(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            domain=body.domain,
+            category=body.category,
+            key=body.key,
+            value_json=body.value_json,
+            strength=body.strength,
+            reason=body.reason,
+            corrected_by=actor,
+        )
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/evidence", response_model=PreferenceEvidenceApplyOut)
+def record_preference_evidence(
+    person_id: str,
+    body: PreferenceEvidenceEventIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceEvidenceApplyOut:
+    service = build_product_service(container)
+    return PreferenceEvidenceApplyOut(
+        **service.record_preference_evidence(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            domain=body.domain,
+            event_type=body.event_type,
+            object_type=body.object_type,
+            object_id=body.object_id,
+            source_ref=body.source_ref,
+            raw_signal_json=dict(body.raw_signal_json or {}),
+            interpreted_signal_json=dict(body.interpreted_signal_json or {}),
+            signal_strength=body.signal_strength,
+            reversible=body.reversible,
+        )
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/assessments", response_model=PreferenceDecisionAssessmentOut)
+def assess_preference_candidate(
+    person_id: str,
+    body: PreferenceDecisionAssessmentIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceDecisionAssessmentOut:
+    service = build_product_service(container)
+    result = service.assess_preference_candidate(
+        principal_id=context.principal_id,
+        person_id=person_id,
+        domain=body.domain,
+        object_type=body.object_type,
+        object_id=body.object_id,
+        object_payload=dict(body.object_payload or {}),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="preference_profile_not_found")
+    return PreferenceDecisionAssessmentOut(**result)
+
+
+@router.get("/people/{person_id}/preference-profile/teable-projection", response_model=dict[str, list[dict[str, object]]])
+def get_preference_teable_projection(
+    person_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, list[dict[str, object]]]:
+    service = build_product_service(container)
+    return service.preference_teable_projection_records(
+        principal_id=context.principal_id,
+        person_id=person_id,
+    )
+
+
+@router.get("/people/{person_id}/preference-profile/teable-projection-summary", response_model=dict[str, object])
+def get_preference_teable_projection_summary(
+    person_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    return service.preference_teable_projection_summary(
+        principal_id=context.principal_id,
+        person_id=person_id,
+    )
+
+
+@router.get("/people/{person_id}/preference-profile/teable-sync-preview", response_model=dict[str, object])
+def get_preference_teable_sync_preview(
+    person_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    return service.preference_teable_sync_preview(
+        principal_id=context.principal_id,
+        person_id=person_id,
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/teable-sync", response_model=dict[str, object])
+def request_preference_teable_sync(
+    person_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_product_service(container)
+    return service.request_preference_teable_sync(
+        principal_id=context.principal_id,
+        person_id=person_id,
+    )
 
 
 @router.get("/handoffs", response_model=list[HandoffNoteOut])
