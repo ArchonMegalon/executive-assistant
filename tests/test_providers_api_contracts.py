@@ -1209,14 +1209,19 @@ def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.M
     class _FakeProductService:
         def list_office_events(self, *, principal_id: str, limit: int = 20, **kwargs):
             return [
+                {"channel": "gmail", "summary": "Signal from Amazon.de"},
                 {"channel": "gmail", "summary": "google workspace signal sync completed"},
                 {"channel": "product", "summary": "workspace signal sync completed"},
+                {"channel": "gmail", "summary": "Please review the revised board packet before send."},
             ]
 
         def list_queue(self, *, principal_id: str, limit: int = 3, **kwargs):
             return [
-                SimpleNamespace(title="Review apartment alert for Währing", summary="operator · pending"),
-                SimpleNamespace(title="Send revised board packet", summary=""),
+                SimpleNamespace(
+                    title="Approve reply to Arc'teryx",
+                    summary="Reply to Arc'teryx | Re: Arc'teryx Rücksendung gestartet | email thread",
+                ),
+                SimpleNamespace(title='Review apartment alert: "Mietwohnungen 2,20, 09" hat 2 neue Anzeigen für dich gefunden', summary=""),
             ]
 
     monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
@@ -1228,8 +1233,11 @@ def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.M
         text="What should I focus on tomorrow?",
     )
     assert "sync completed" not in reply.lower()
-    assert "Top priority looks like Review apartment alert for Währing." in reply
-    assert "After that: Send revised board packet." in reply
+    assert "signal from amazon" not in reply.lower()
+    assert "Top priority looks like Approve reply to Arc'teryx." in reply
+    assert "Reply to Arc'teryx |" not in reply
+    assert "Arc'teryx Rücksendung gestartet | email thread" in reply
+    assert "Apartment alert: Mietwohnungen 2,20, 09 (2 new listings)" in reply
 
 
 def test_telegram_async_worker_sends_real_ea_followup(monkeypatch: pytest.MonkeyPatch) -> None:

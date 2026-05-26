@@ -539,6 +539,7 @@ def _telegram_local_assistant_reply_text(
         if not summary:
             return True
         low_signal_markers = (
+            "signal from ",
             "signal sync completed",
             "workspace signal sync completed",
             "google workspace signal sync completed",
@@ -547,6 +548,26 @@ def _telegram_local_assistant_reply_text(
             "office signal ingested",
         )
         return any(marker in summary for marker in low_signal_markers)
+    def _is_actionable_focus_summary(value: object) -> bool:
+        summary = str(value or "").strip().lower()
+        if not summary or _is_low_signal_summary(summary):
+            return False
+        actionable_markers = (
+            "approve",
+            "review",
+            "reply",
+            "follow up",
+            "follow-up",
+            "send",
+            "book",
+            "call",
+            "prepare",
+            "shortlist",
+            "property",
+            "apartment",
+            "tour",
+        )
+        return any(marker in summary for marker in actionable_markers)
     def _compact_focus_text(value: object, *, limit: int = 120) -> str:
         text_value = " ".join(str(value or "").strip().split())
         if not text_value:
@@ -555,6 +576,22 @@ def _telegram_local_assistant_reply_text(
             suffix = text_value.split(":", 1)[1].strip()
             suffix = suffix.strip("\"")
             text_value = f"Apartment alert: {suffix}" if suffix else "Apartment alert"
+        if text_value.lower().startswith("apartment alert:"):
+            prefix, _, suffix = text_value.partition(":")
+            cleaned_suffix = suffix.strip().replace('"', "").replace("“", "").replace("”", "")
+            listing_match = re.match(r"^(?P<label>.+?) hat (?P<count>\d+) neue Anzeige(?:n)? für dich gefunden\.?$", cleaned_suffix, re.IGNORECASE)
+            if listing_match:
+                label = " ".join(str(listing_match.group("label") or "").split()).strip(" ,;:")
+                count = int(str(listing_match.group("count") or "0") or "0")
+                noun = "listing" if count == 1 else "listings"
+                cleaned_suffix = f"{label} ({count} new {noun})"
+            text_value = f"{prefix}: {cleaned_suffix}".strip()
+        if text_value.lower().startswith("reply to ") and " | " in text_value:
+            _, _, remainder = text_value.partition(" | ")
+            if remainder.strip():
+                text_value = remainder.strip()
+        if text_value.lower().startswith("re:"):
+            text_value = text_value[3:].strip()
         lowered = text_value.lower()
         noisy_markers = (
             "stage 1 commitment candidate.",
@@ -616,7 +653,7 @@ def _telegram_local_assistant_reply_text(
             for row in events
             if str(row.get("channel") or "").strip() in {"gmail", "product", "pocket"}
             and str(row.get("summary") or "").strip()
-            and not _is_low_signal_summary(row.get("summary"))
+            and _is_actionable_focus_summary(row.get("summary"))
         ][:2]
         queue_items = []
         try:
