@@ -1,0 +1,39 @@
+version: black-ledger-command-map-v1
+layers:
+  - id: base
+    type: svg_tactical
+    purpose: district geometry and command-table backdrop
+  - id: region_influence
+    type: polygon
+    purpose: dominant faction pressure and contested regions
+  - id: events
+    type: point
+    purpose: debt, magic, logistics, intel, and conflict hotspots
+  - id: arcs
+    type: line
+    purpose: pressure movement between districts
+  - id: replay
+    type: stateful
+    purpose: turn 0 -> turn 1 and deterministic preview playback
+modes:
+  - influence
+  - conflict
+  - intel
+  - economy
+  - magic
+  - matrix
+  - recent-changes
+fallbacks:
+  reduced_motion: disable pulse and arc animation loops
+  no_webgl: retain SVG/list fallback as the primary map surface
+public_safety:
+  allowed:
+    - seeded_preview
+    - opt_in_aggregate
+    - published_dispatch_links
+  blocked:
+    - private_campaign
+    - support_case
+    - account_email
+    - provider_names
+    - sourcebook_text
