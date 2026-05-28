@@ -964,6 +964,10 @@ class WillhabenPropertyTourOut(BaseModel):
     telegram_delivery_error: str = ""
     telegram_message_ids: list[str] = Field(default_factory=list)
     telegram_chat_ref: str = ""
+    telegram_video_delivery_status: str = ""
+    telegram_video_delivery_error: str = ""
+    telegram_video_message_ids: list[str] = Field(default_factory=list)
+    telegram_video_url: str = ""
     blocked_reason: str = ""
     human_task_id: str = ""
     source_ref: str = ""
@@ -1004,6 +1008,25 @@ class PocketSignalImportOut(BaseModel):
     deduplicated_total: int = 0
     suppressed_total: int = 0
     parsed_entry_total: int = 0
+
+
+class NoneverbiaSignalImportIn(BaseModel):
+    path: str = Field(min_length=1)
+    counterparty: str = "Noneverbia"
+
+
+class NoneverbiaSignalImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    parsed_entry_total: int = 0
+    preference_evidence_total: int = 0
+    preference_evidence_applied_total: int = 0
 
 
 class PocketSignalSyncOut(BaseModel):

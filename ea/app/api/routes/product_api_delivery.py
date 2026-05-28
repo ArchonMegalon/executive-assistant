@@ -17,6 +17,8 @@ from app.api.routes.product_api_contracts import (
     GooglePhotosSignalSyncOut,
     GoogleSignalSyncOut,
     GoogleSignalSyncStatusOut,
+    NoneverbiaSignalImportIn,
+    NoneverbiaSignalImportOut,
     OfficeEventOut,
     OfficeEventResponse,
     OfficeSignalIn,
@@ -168,6 +170,28 @@ def import_pocket_saved_links_from_local_path(
         status_code = 404 if detail == "pocket_import_path_not_found" else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return PocketSignalImportOut(**payload)
+
+
+@router.post("/signals/noneverbia/import-local", response_model=NoneverbiaSignalImportOut)
+def import_noneverbia_meetings_from_local_path(
+    body: NoneverbiaSignalImportIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> NoneverbiaSignalImportOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.import_noneverbia_meetings_from_local_path(
+            principal_id=context.principal_id,
+            path=body.path,
+            counterparty=body.counterparty,
+            actor=actor,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "noneverbia_import_path_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return NoneverbiaSignalImportOut(**payload)
 
 
 @router.post("/signals/pocket/sync", response_model=PocketSignalSyncOut)

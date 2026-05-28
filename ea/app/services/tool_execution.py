@@ -22,6 +22,7 @@ from app.services.tool_execution_magixai_module import MagixaiToolExecutionModul
 from app.services.tool_execution_onemin_module import OneminToolExecutionModule
 from app.services.tool_execution_comfyui_module import ComfyUIToolExecutionModule
 from app.services.tool_execution_teable_module import TeableToolExecutionModule
+from app.services.telegram_delivery import resolve_primary_telegram_binding, send_telegram_video_for_principal
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -141,7 +142,98 @@ class ToolExecutionService:
                 payload_json=dict(request.payload_json or {}),
                 context_json=context_json,
             )
-        return handler(request, definition)
+        result = handler(request, definition)
+        return self._maybe_send_generated_video_to_telegram(request=request, result=result)
+
+    @staticmethod
+    def _looks_like_successful_video_output(output_json: dict[str, object]) -> bool:
+        normalized_mime = str(output_json.get("mime_type") or "").strip().lower()
+        if normalized_mime.startswith("video/"):
+            return True
+        structured = dict(output_json.get("structured_output_json") or {})
+        for value in (
+            output_json.get("asset_url"),
+            output_json.get("download_url"),
+            structured.get("asset_url"),
+            structured.get("download_url"),
+        ):
+            normalized = str(value or "").strip().lower().split("?", 1)[0]
+            if normalized.endswith((".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")):
+                return True
+        return False
+
+    def _maybe_send_generated_video_to_telegram(
+        self,
+        *,
+        request: ToolInvocationRequest,
+        result: ToolInvocationResult,
+    ) -> ToolInvocationResult:
+        output_json = dict(result.output_json or {})
+        if not self._looks_like_successful_video_output(output_json):
+            return result
+        principal_id = (
+            str((request.context_json or {}).get("principal_id") or "").strip()
+            or str((request.payload_json or {}).get("principal_id") or "").strip()
+        )
+        if not principal_id:
+            return result
+        if resolve_primary_telegram_binding(self._tool_runtime, principal_id=principal_id) is None:
+            return result
+        render_status = str(output_json.get("render_status") or dict(output_json.get("structured_output_json") or {}).get("render_status") or "").strip().lower()
+        if render_status and render_status not in {"completed", "rendered", "ready", "success", "succeeded"}:
+            return result
+        from app.services.telegram_delivery import _extract_video_ref
+
+        video_ref = _extract_video_ref(output_json=output_json)
+        if not video_ref:
+            return result
+        caption = "\n".join(
+            part
+            for part in (
+                str(output_json.get("result_title") or "").strip(),
+                str(output_json.get("public_url") or dict(output_json.get("structured_output_json") or {}).get("public_url") or "").strip(),
+            )
+            if part
+        )
+        delivery_json = dict(output_json.get("telegram_delivery_json") or {})
+        try:
+            receipt = send_telegram_video_for_principal(
+                self._tool_runtime,
+                principal_id=principal_id,
+                video_ref=video_ref,
+                caption=caption,
+            )
+            delivery_json.update(
+                {
+                    "status": "sent",
+                    "chat_id": receipt.chat_id,
+                    "message_ids": list(receipt.message_ids),
+                    "video_ref": video_ref,
+                }
+            )
+        except Exception as exc:
+            delivery_json.update(
+                {
+                    "status": "failed",
+                    "error": str(exc or "").strip() or "telegram_video_delivery_failed",
+                    "video_ref": video_ref,
+                }
+            )
+        output_json["telegram_delivery_json"] = delivery_json
+        receipt_json = dict(result.receipt_json or {})
+        receipt_json["telegram_delivery_json"] = dict(delivery_json)
+        return ToolInvocationResult(
+            tool_name=result.tool_name,
+            action_kind=result.action_kind,
+            target_ref=result.target_ref,
+            output_json=output_json,
+            receipt_json=receipt_json,
+            artifacts=result.artifacts,
+            model_name=result.model_name,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            cost_usd=result.cost_usd,
+        )
 
     def _ensure_builtin_tool_registered(self, tool_name: str, *, principal_id: str | None = None) -> None:
         key = str(tool_name or "").strip()

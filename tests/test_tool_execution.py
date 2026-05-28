@@ -76,6 +76,161 @@ def test_tool_execution_service_executes_builtin_artifact_repository_handler() -
     assert saved.principal_id == "exec-1"
 
 
+def test_tool_execution_service_sends_rendered_video_to_telegram_when_audio_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-send",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    tool_runtime.upsert_tool(
+        tool_name="test.video.render",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 99}}).encode("utf-8")
+
+    sent: list[dict[str, object]] = []
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "movie.render") or "movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Brigittenau Shortlist Teaser",
+                "render_status": "rendered",
+                "asset_url": "https://cdn.example/mootion/brigittenau-shortlist.mp4",
+                "public_url": "https://viewer.example/mootion/brigittenau-shortlist",
+                "mime_type": "video/mp4",
+                "structured_output_json": {
+                    "render_status": "rendered",
+                    "asset_url": "https://cdn.example/mootion/brigittenau-shortlist.mp4",
+                    "public_url": "https://viewer.example/mootion/brigittenau-shortlist",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("test.video.render", _fake_handler)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-send-1",
+            step_id="step-video-send-1",
+            tool_name="test.video.render",
+            action_kind="movie.render",
+            payload_json={"script_text": "Create a teaser."},
+            context_json={"principal_id": "exec-video-send"},
+        )
+    )
+
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendVideo"
+    assert sent[0]["payload"]["video"] == "https://cdn.example/mootion/brigittenau-shortlist.mp4"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["message_ids"] == ["99"]
+
+
+def test_tool_execution_service_blocks_rendered_video_telegram_send_without_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-silent",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token"}}),
+    )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: False)
+    tool_runtime.upsert_tool(
+        tool_name="test.video.render",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "movie.render") or "movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Silent Teaser",
+                "render_status": "rendered",
+                "asset_url": "https://cdn.example/mootion/silent-shortlist.mp4",
+                "mime_type": "video/mp4",
+                "structured_output_json": {
+                    "render_status": "rendered",
+                    "asset_url": "https://cdn.example/mootion/silent-shortlist.mp4",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("test.video.render", _fake_handler)
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-send-2",
+            step_id="step-video-send-2",
+            tool_name="test.video.render",
+            action_kind="movie.render",
+            payload_json={"script_text": "Create a teaser."},
+            context_json={"principal_id": "exec-video-silent"},
+        )
+    )
+
+    assert result.output_json["telegram_delivery_json"]["status"] == "failed"
+    assert result.output_json["telegram_delivery_json"]["error"] == "telegram_video_audio_missing"
+
+
 def test_tool_execution_service_rejects_non_executable_provider_tool_route() -> None:
     provider_registry = ProviderRegistryService()
     provider_registry._bindings = tuple(provider_registry.list_bindings()) + (

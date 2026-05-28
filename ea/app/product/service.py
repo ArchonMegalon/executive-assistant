@@ -67,7 +67,7 @@ from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
-from app.services.telegram_delivery import resolve_primary_telegram_binding, send_telegram_message_for_principal
+from app.services.telegram_delivery import resolve_primary_telegram_binding, send_telegram_message_for_principal, send_telegram_video_for_principal
 from app.services.registration_email import (
     delivery_sender_emails,
     email_delivery_enabled,
@@ -250,6 +250,10 @@ _POCKET_PREFERENCE_SIGNAL_MARKERS = (
     "send me the notes",
     "written summary",
     "email the summary",
+    "prefers concise",
+    "prefer concise",
+    "prefers direct follow-up",
+    "prefer direct follow-up",
 )
 _EMAIL_APPROVAL_MARKERS = (
     "approval",
@@ -2132,6 +2136,29 @@ def _pocket_preference_hints(
                 "confidence": 0.74,
             }
         )
+    if "prefer" in normalized or "prefers" in normalized:
+        if any(marker in normalized for marker in ("concise", "brief", "short summary", "compact")):
+            hints.append(
+                {
+                    "domain": "general",
+                    "category": "workflow_preference",
+                    "key": "prefers_concise_updates",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.72,
+                }
+            )
+        if any(marker in normalized for marker in ("direct follow-up", "direct followups", "direct follow ups", "follow-up", "follow ups", "followups")):
+            hints.append(
+                {
+                    "domain": "general",
+                    "category": "workflow_preference",
+                    "key": "prefers_direct_followups",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.72,
+                }
+            )
     if any(marker in normalized for marker in ("floor plan", "grundriss")):
         hints.append(
             {
@@ -2429,6 +2456,44 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if source_virtual_tour_url:
         return f"{hosted_url}#live-360"
     return hosted_url
+
+
+def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return {}
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return {}
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return {}
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    video_relpath = str(payload.get("video_relpath") or payload.get("video_fallback_relpath") or "").strip()
+    if not video_relpath:
+        return {}
+    local_video_path = (bundle_dir / video_relpath).resolve()
+    if bundle_dir.resolve() not in local_video_path.parents:
+        return {}
+    if not local_video_path.exists() or not local_video_path.is_file():
+        return {}
+    public_video_url = urllib.parse.urljoin(f"{normalized_url.rstrip('/')}/", f"../files/{slug}/{video_relpath}")
+    return {
+        "slug": slug,
+        "video_url": public_video_url,
+        "audio_probe_ref": str(local_video_path),
+    }
 
 
 def _willhaben_property_packet_script_path() -> Path:
@@ -7679,6 +7744,10 @@ class ProductService:
         telegram_delivery_error = ""
         telegram_message_ids: list[str] = []
         telegram_chat_ref = ""
+        telegram_video_delivery_status = "not_requested"
+        telegram_video_delivery_error = ""
+        telegram_video_message_ids: list[str] = []
+        telegram_video_url = ""
         telegram_binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
         if telegram_binding is not None:
             telegram_delivery_status = "ready"
@@ -7799,6 +7868,24 @@ class ProductService:
                 except Exception as exc:
                     telegram_delivery_status = "failed"
                     telegram_delivery_error = str(exc)
+                video_delivery = _hosted_property_tour_video_delivery(tour_url)
+                if video_delivery:
+                    telegram_video_url = str(video_delivery.get("video_url") or "").strip()
+                    telegram_video_delivery_status = "ready"
+                    try:
+                        telegram_video_receipt = send_telegram_video_for_principal(
+                            self._container.tool_runtime,
+                            principal_id=principal_id,
+                            video_ref=telegram_video_url,
+                            audio_probe_ref=str(video_delivery.get("audio_probe_ref") or "").strip(),
+                            caption=f"{title}\n{tour_url}",
+                        )
+                        telegram_video_delivery_status = "sent"
+                        telegram_video_message_ids = list(telegram_video_receipt.message_ids)
+                        telegram_chat_ref = str(telegram_video_receipt.chat_id or "").strip() or telegram_chat_ref
+                    except Exception as exc:
+                        telegram_video_delivery_status = "failed"
+                        telegram_video_delivery_error = str(exc)
             elif telegram_delivery_status == "ready":
                 telegram_delivery_status = "not_configured"
             payload.update(
@@ -7809,6 +7896,10 @@ class ProductService:
                     "telegram_delivery_error": telegram_delivery_error,
                     "telegram_message_ids": list(telegram_message_ids),
                     "telegram_chat_ref": telegram_chat_ref,
+                    "telegram_video_delivery_status": telegram_video_delivery_status,
+                    "telegram_video_delivery_error": telegram_video_delivery_error,
+                    "telegram_video_message_ids": list(telegram_video_message_ids),
+                    "telegram_video_url": telegram_video_url,
                 }
             )
             self._record_product_event(
@@ -7833,9 +7924,25 @@ class ProductService:
                         **payload,
                         "telegram_chat_ref": telegram_chat_ref,
                         "telegram_message_ids": list(telegram_message_ids),
+                        "telegram_video_delivery_status": telegram_video_delivery_status,
+                        "telegram_video_message_ids": list(telegram_video_message_ids),
+                        "telegram_video_url": telegram_video_url,
                     },
                     source_id=resolved_source_ref,
                     dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-telegram-sent",
+                )
+            if telegram_video_delivery_status == "sent":
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="willhaben_property_tour_telegram_video_sent",
+                    payload={
+                        **payload,
+                        "telegram_chat_ref": telegram_chat_ref,
+                        "telegram_video_message_ids": list(telegram_video_message_ids),
+                        "telegram_video_url": telegram_video_url,
+                    },
+                    source_id=resolved_source_ref,
+                    dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-telegram-video-sent",
                 )
             return payload
         except Exception as exc:
@@ -9310,6 +9417,248 @@ class ProductService:
             "deduplicated_total": deduplicated_total,
             "suppressed_total": 0,
             "parsed_entry_total": len(records),
+        }
+
+    def import_noneverbia_meetings_from_local_path(
+        self,
+        *,
+        principal_id: str,
+        path: str,
+        counterparty: str = "Noneverbia",
+        actor: str = "",
+    ) -> dict[str, object]:
+        candidate_path = Path(str(path or "").strip()).expanduser()
+        if not candidate_path.is_absolute():
+            candidate_path = (_repo_root() / candidate_path).resolve()
+        if not candidate_path.exists():
+            raise RuntimeError("noneverbia_import_path_not_found")
+
+        json_paths: list[Path] = []
+        if candidate_path.is_file() and candidate_path.suffix.lower() == ".json":
+            json_paths.append(candidate_path)
+        elif candidate_path.is_dir():
+            json_paths.extend(sorted(path for path in candidate_path.rglob("*.json") if path.is_file()))
+        else:
+            raise RuntimeError("noneverbia_import_format_unsupported")
+        if not json_paths:
+            raise RuntimeError("noneverbia_import_entries_not_found")
+
+        def _candidate_entries(payload: object) -> list[dict[str, object]]:
+            if isinstance(payload, list):
+                return [dict(item) for item in payload if isinstance(item, dict)]
+            if not isinstance(payload, dict):
+                return []
+            for key in ("meetings", "items", "records", "data", "results"):
+                value = payload.get(key)
+                if isinstance(value, list) and any(isinstance(item, dict) for item in value):
+                    return [dict(item) for item in value if isinstance(item, dict)]
+            return [dict(payload)]
+
+        def _text_from(value: object) -> str:
+            if isinstance(value, str):
+                return value.strip()
+            if isinstance(value, dict):
+                for key in ("markdown", "text", "summary", "content", "body", "value"):
+                    text = _text_from(value.get(key))
+                    if text:
+                        return text
+                return ""
+            if isinstance(value, list):
+                parts = [_text_from(item) for item in value]
+                return " ".join(part for part in parts if part).strip()
+            return str(value or "").strip() if value is not None else ""
+
+        def _participants_from(entry: dict[str, object]) -> list[str]:
+            raw = entry.get("participants") or entry.get("attendees") or entry.get("speakers") or []
+            if isinstance(raw, list):
+                values: list[str] = []
+                for item in raw:
+                    if isinstance(item, dict):
+                        text = _first_non_empty_text(item.get("name"), item.get("display_name"), item.get("email"), item.get("title"))
+                    else:
+                        text = str(item or "").strip()
+                    if text and text not in values:
+                        values.append(text)
+                return values
+            return []
+
+        def _tags_from(entry: dict[str, object]) -> list[str]:
+            raw = entry.get("tags") or entry.get("labels") or []
+            if isinstance(raw, list):
+                return [str(item).strip() for item in raw if str(item or "").strip()]
+            if isinstance(raw, str):
+                return [part.strip() for part in raw.split(",") if part.strip()]
+            return []
+
+        records: list[dict[str, object]] = []
+        source_formats: list[str] = []
+        for json_path in json_paths:
+            try:
+                payload = json.loads(json_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if "json" not in source_formats:
+                source_formats.append("json")
+            for entry in _candidate_entries(payload):
+                meeting_id = _first_non_empty_text(
+                    entry.get("id"),
+                    entry.get("meeting_id"),
+                    entry.get("uuid"),
+                    entry.get("slug"),
+                ) or json_path.stem
+                title = _first_non_empty_text(
+                    entry.get("title"),
+                    entry.get("meeting_title"),
+                    entry.get("name"),
+                    entry.get("subject"),
+                    meeting_id,
+                )
+                summary_markdown = _first_non_empty_text(
+                    _text_from(entry.get("summary_markdown")),
+                    _text_from(entry.get("summary")),
+                    _text_from(entry.get("analysis")),
+                    _text_from(entry.get("notes")),
+                )
+                transcript_text = _first_non_empty_text(
+                    _text_from(entry.get("transcript_text")),
+                    _text_from(entry.get("transcript")),
+                    _text_from(entry.get("conversation")),
+                )
+                action_items = _text_from(entry.get("action_items"))
+                participants = _participants_from(entry)
+                tags = _tags_from(entry)
+                meeting_at = _first_non_empty_text(
+                    entry.get("meeting_at"),
+                    entry.get("started_at"),
+                    entry.get("date"),
+                    entry.get("created_at"),
+                )
+                source_ref = f"noneverbia-meeting:{meeting_id}"
+                combined_summary = " | ".join(
+                    part
+                    for part in (
+                        summary_markdown,
+                        f"Participants: {', '.join(participants)}" if participants else "",
+                        f"Action items: {action_items}" if action_items else "",
+                    )
+                    if part
+                ).strip()
+                records.append(
+                    {
+                        "meeting_id": meeting_id,
+                        "title": title,
+                        "summary_markdown": summary_markdown,
+                        "transcript_text": transcript_text,
+                        "action_items": action_items,
+                        "participants": participants,
+                        "tags": tags,
+                        "meeting_at": meeting_at,
+                        "source_ref": source_ref,
+                        "external_id": meeting_id,
+                        "summary": combined_summary or summary_markdown or transcript_text[:400],
+                        "payload": {
+                            "import_source_path": str(json_path),
+                            "import_channel": "noneverbia_export",
+                            "summary_markdown": summary_markdown,
+                            "transcript_excerpt": compact_text(transcript_text, fallback="", limit=4000),
+                            "action_items": action_items,
+                            "participants": participants,
+                            "tags": tags,
+                            "meeting_at": meeting_at,
+                        },
+                    }
+                )
+        if not records:
+            raise RuntimeError("noneverbia_import_entries_not_found")
+
+        items: list[dict[str, object]] = []
+        preference_evidence_total = 0
+        preference_evidence_applied_total = 0
+        for record in records:
+            text_parts = [
+                str(record.get("title") or "").strip(),
+                str(record.get("summary_markdown") or "").strip(),
+                str(record.get("action_items") or "").strip(),
+                str(record.get("transcript_text") or "").strip(),
+            ]
+            item = self.ingest_office_signal(
+                principal_id=principal_id,
+                signal_type="meeting_analysis",
+                channel="noneverbia",
+                title=str(record.get("title") or "").strip(),
+                summary=str(record.get("summary") or "").strip(),
+                text=" ".join(part for part in text_parts if part).strip(),
+                source_ref=str(record.get("source_ref") or "").strip(),
+                external_id=str(record.get("external_id") or "").strip(),
+                counterparty=str(counterparty or "").strip() or "Noneverbia",
+                due_at=str(record.get("meeting_at") or "").strip() or None,
+                payload=dict(record.get("payload") or {}),
+                actor=str(actor or "").strip() or "noneverbia_import",
+            )
+            items.append(item)
+
+            tags = [str(value).strip() for value in list(record.get("tags") or []) if str(value).strip()]
+            title = str(record.get("title") or "").strip()
+            summary_markdown = str(record.get("summary_markdown") or "").strip()
+            transcript_text = str(record.get("transcript_text") or "").strip()
+            if _pocket_preference_signal_usable(
+                title=title,
+                summary_markdown=summary_markdown,
+                transcript_text=transcript_text,
+                tags=tags,
+            ):
+                preference_hints = _pocket_preference_hints(
+                    title=title,
+                    summary_markdown=summary_markdown,
+                    transcript_text=transcript_text,
+                    tags=tags,
+                )
+                if preference_hints:
+                    evidence = self.record_preference_evidence(
+                        principal_id=principal_id,
+                        person_id="self",
+                        domain="conversation",
+                        event_type="noneverbia_meeting_reviewed",
+                        object_type="meeting_analysis",
+                        object_id=str(record.get("meeting_id") or "").strip(),
+                        source_ref=str(record.get("source_ref") or "").strip(),
+                        raw_signal_json={
+                            "title": title,
+                            "tags": tags,
+                            "summary_markdown": summary_markdown,
+                            "transcript_text": compact_text(transcript_text, fallback="", limit=4000),
+                            "participants": list(record.get("participants") or []),
+                            "action_items": str(record.get("action_items") or "").strip(),
+                        },
+                        interpreted_signal_json={
+                            "source": "noneverbia",
+                            "preference_hints": preference_hints,
+                        },
+                        signal_strength=_pocket_preference_signal_strength(
+                            title=title,
+                            summary_markdown=summary_markdown,
+                            transcript_text=transcript_text,
+                        ),
+                        reversible=True,
+                    )
+                    if evidence:
+                        preference_evidence_total += 1
+                        preference_evidence_applied_total += len(list(evidence.get("applied_changes") or []))
+
+        deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
+        synced_total = len(items) - deduplicated_total
+        return {
+            "generated_at": _now_iso(),
+            "source_path": str(candidate_path),
+            "source_formats": source_formats,
+            "items": items,
+            "total": len(items),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
+            "suppressed_total": sum(1 for item in items if str(item.get("status") or "").strip().lower() == "suppressed"),
+            "parsed_entry_total": len(records),
+            "preference_evidence_total": preference_evidence_total,
+            "preference_evidence_applied_total": preference_evidence_applied_total,
         }
 
     def _latest_product_event(self, *, principal_id: str, event_type: str):  # type: ignore[no-untyped-def]

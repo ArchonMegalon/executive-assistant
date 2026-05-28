@@ -1669,12 +1669,13 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
     assert not any(item["task_type"] == "property_alert_review" for item in handoffs.json())
 
 
-def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatch) -> None:
+def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -1742,6 +1743,16 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
             message_ids=("tg-1",),
         ),
     )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_video_for_principal",
+        lambda tool_runtime, *, principal_id, video_ref, audio_probe_ref="", caption="": SimpleNamespace(
+            chat_id="1354554303",
+            bot_key="default",
+            bot_handle="tibor_concierge_bot",
+            message_ids=("tg-video-1",),
+        ),
+    )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.task_key in {
@@ -1768,6 +1779,14 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    bundle_dir = tmp_path / "brigittenau-apartment-a"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
+    (bundle_dir / "tour.json").write_text(
+        '{"slug":"brigittenau-apartment-a","video_relpath":"tour.mp4","scenes":[{"asset_relpath":"scene-01.jpg"}]}',
+        encoding="utf-8",
+    )
+    (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
 
     created = client.post(
         "/app/api/signals/willhaben/property-tour",
@@ -1790,6 +1809,9 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     assert body["telegram_delivery_status"] == "sent"
     assert body["telegram_chat_ref"] == "1354554303"
     assert body["telegram_message_ids"] == ["tg-1"]
+    assert body["telegram_video_delivery_status"] == "sent"
+    assert body["telegram_video_message_ids"] == ["tg-video-1"]
+    assert body["telegram_video_url"] == "https://myexternalbrain.com/tours/files/brigittenau-apartment-a/tour.mp4"
     assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
     assert observed_email["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
     assert observed_email["decision_summary_json"]["recommendation"] == "shortlist"
@@ -1806,6 +1828,12 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     )
     assert tg_events.status_code == 200
     assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in tg_events.json()["items"])
+    tg_video_events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_telegram_video_sent"},
+    )
+    assert tg_video_events.status_code == 200
+    assert any(item["payload"]["telegram_video_url"].endswith("/tour.mp4") for item in tg_video_events.json()["items"])
 
 
 def test_property_tour_delivery_message_includes_decision_reasoning() -> None:
@@ -3207,6 +3235,56 @@ def test_pocket_saved_link_import_from_local_json_archive(tmp_path) -> None:
     assert repeated_body["total"] == 2
     assert repeated_body["synced_total"] == 0
     assert repeated_body["deduplicated_total"] == 2
+
+
+def test_noneverbia_meeting_import_from_local_json_archive(tmp_path) -> None:
+    principal_id = "exec-product-noneverbia-import"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    export_path = tmp_path / "noneverbia_meetings.json"
+    export_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "meeting-1",
+                    "title": "Pocket meeting",
+                    "summary": {"markdown": "Prefers concise weekly planning and direct follow-ups."},
+                    "transcript": {"text": "I prefer concise weekly planning and direct follow-ups."},
+                    "participants": [{"name": "Sofia"}],
+                    "action_items": ["Send the revised board packet"],
+                    "tags": ["meeting", "sofia"],
+                    "meeting_at": "2026-05-01T08:00:00Z",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    imported = client.post("/app/api/signals/noneverbia/import-local", json={"path": str(export_path)})
+    assert imported.status_code == 200
+    body = imported.json()
+    assert body["source_path"] == str(export_path)
+    assert body["source_formats"] == ["json"]
+    assert body["parsed_entry_total"] == 1
+    assert body["total"] == 1
+    assert body["synced_total"] == 1
+    assert body["deduplicated_total"] == 0
+    assert body["preference_evidence_total"] == 1
+    assert body["preference_evidence_applied_total"] >= 0
+    assert body["items"][0]["channel"] == "noneverbia"
+    assert body["items"][0]["event_type"] == "office_signal_meeting_analysis"
+    assert body["items"][0]["source_id"] == "noneverbia-meeting:meeting-1"
+
+    events = client.get("/app/api/events", params={"channel": "noneverbia"})
+    assert events.status_code == 200
+    imported_event = next(item for item in events.json()["items"] if item["source_id"] == "noneverbia-meeting:meeting-1")
+    assert imported_event["payload"]["summary_markdown"] == "Prefers concise weekly planning and direct follow-ups."
+    assert imported_event["payload"]["action_items"] == "Send the revised board packet"
+
+    preferences = client.get("/app/api/people/self/preference-profile")
+    assert preferences.status_code == 200
+    assert preferences.json()["profile"]["person_id"] == "self"
+    assert preferences.json()["preference_nodes"]
 
 
 def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:

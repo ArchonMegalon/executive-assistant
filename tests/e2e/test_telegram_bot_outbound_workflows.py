@@ -22,8 +22,9 @@ import app.product.service as product_service
 from app.product.service import ProductService
 
 
-def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Tour Office")
@@ -74,6 +75,16 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
             message_ids=("tg-1",),
         ),
     )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_video_for_principal",
+        lambda tool_runtime, *, principal_id, video_ref, audio_probe_ref="", caption="": SimpleNamespace(
+            chat_id="1354554303",
+            bot_key="default",
+            bot_handle="tibor_concierge_bot",
+            message_ids=("tg-video-1",),
+        ),
+    )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         return Artifact(
@@ -92,6 +103,14 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    bundle_dir = tmp_path / "brigittenau-apartment-a"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
+    (bundle_dir / "tour.json").write_text(
+        '{"slug":"brigittenau-apartment-a","video_relpath":"tour.mp4","scenes":[{"asset_relpath":"scene-01.jpg"}]}',
+        encoding="utf-8",
+    )
+    (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
 
     created = client.post(
         "/app/api/signals/willhaben/property-tour",
@@ -103,10 +122,16 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
     assert body["telegram_delivery_status"] == "sent"
     assert body["telegram_chat_ref"] == "1354554303"
     assert body["telegram_message_ids"] == ["tg-1"]
+    assert body["telegram_video_delivery_status"] == "sent"
+    assert body["telegram_video_message_ids"] == ["tg-video-1"]
+    assert body["telegram_video_url"] == "https://myexternalbrain.com/tours/files/brigittenau-apartment-a/tour.mp4"
 
     tg_events = client.get("/app/api/events", params={"channel": "product", "event_type": "willhaben_property_tour_telegram_sent"})
     assert tg_events.status_code == 200
     assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in tg_events.json()["items"])
+    video_events = client.get("/app/api/events", params={"channel": "product", "event_type": "willhaben_property_tour_telegram_video_sent"})
+    assert video_events.status_code == 200
+    assert any(item["payload"]["telegram_video_url"].endswith("/tour.mp4") for item in video_events.json()["items"])
 
 
 def test_telegram_outbound_workflow_blocked_property_tour_sends_scout_update(monkeypatch: pytest.MonkeyPatch) -> None:
