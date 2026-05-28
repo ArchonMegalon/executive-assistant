@@ -94,7 +94,14 @@ def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, princi
         if not chat_ref:
             continue
         candidates.append(row)
-    candidates.sort(key=lambda item: str(item.updated_at or ""), reverse=True)
+    def _sort_key(item: ConnectorBinding) -> tuple[int, int, str]:
+        metadata = dict(item.auth_metadata_json or {})
+        chat_ref = str(metadata.get("default_chat_ref") or item.external_account_ref or "").strip()
+        numeric = 1 if chat_ref.isdigit() else 0
+        plausible_numeric = 1 if numeric and int(chat_ref) > 1000 else 0
+        return (plausible_numeric, numeric, str(item.updated_at or ""))
+
+    candidates.sort(key=_sort_key, reverse=True)
     return candidates[0] if candidates else None
 
 

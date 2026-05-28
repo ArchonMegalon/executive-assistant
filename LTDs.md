@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-05-25
+Updated: 2026-05-28
 
 ## Workspace Integration Tier Guide
 
@@ -15,7 +15,7 @@ Updated: 2026-05-25
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-25T19:49:10.593134+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-28T11:18:19.215951+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Legacy prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for internal guide pipelines; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. Candidate newsroom sound-design lane only after rights, cue provenance, and adapter proof exist. |
@@ -49,6 +49,7 @@ Updated: 2026-05-25
 | `Invoiless` | `1x code-based` | `1 code` | `Activated` |  | `Tier 3` | None | Redeemed and activated; still out of the current hot-path product architecture. |
 | `katteb.com` | `10x code-based` | `10 codes` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Newly tracked code-based holding; account credentials are present locally and code activation verification is still pending. |
 | `Lunacal` | `Tier 4 (highest AppSumo tier)` | `1 account` | `Activated` |  | `Tier 4` | BrowserAct-stored credentials plus local `.env` username/password; no active runtime lane yet | Highest AppSumo tier is confirmed at `app.lunacal.ai`; BrowserAct and the local env both hold the account credentials for later structured verification. |
+| `MagicFit` | `License Tier 5` | `1 account` | `Owned` |  | `Tier 3` | None yet; candidate `MagicFitProviderAdapter` for `chummer6-media-factory` after provider verification | Acquired for Chummer6 promo-video recovery and Black Ledger Newsroom provider bake-off. Candidate uses: text-to-video/image-to-video B-roll, faction promo scenes, social derivatives, and short photoreal anchor tests. It may render candidate assets only; it must not publish directly, own editorial/product truth, or serve as product proof. Promote only after provider verification, commercial-use/watermark/export/credit receipts, motion/people-action scores, public-safety scan, and human creative review. Account/user reported as `tibor.girschele@gmail.com`. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom poster frames, proof cards, and contact sheets after adapter proof lands. |
 | `MetaSurvey` | `Plus exclusive / 3x code-based` | `3 codes` | `Activated` |  | `Tier 2` | BrowserAct content-template packets for survey-results reading | Redeemed and activated; structured feedback collection has staged extraction support, not a verified end-to-end lane. |
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. Candidate newsroom host/motion lane only until verified. |
@@ -65,7 +66,7 @@ Updated: 2026-05-25
 
 ## Summary
 
-- `42` total LTD products tracked
+- `43` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -75,7 +76,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-25T19:49:10.593134+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-25T19:49:10.593134+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-28T11:18:19.215951+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-28T11:18:19.215951+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
@@ -104,6 +105,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Invoiless` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `katteb.com` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-24T00:00:00Z | 10-code holding is tracked; account credentials are seeded locally and redemption/activation verification is still pending. |
 | `Lunacal` | `the.girscheles@gmail.com` | `manual_seeded` | `browseract_local` | 2026-04-16T09:16:24Z | Highest AppSumo tier and account email were seeded manually; credentials are stored locally and in BrowserAct; structured verification is still pending. |
+| `MagicFit` | `tibor.girschele@gmail.com` | `manual_seeded` | `user_reported` | 2026-05-27T00:00:00Z | License Tier 5 was reported by the user and is now tracked as a candidate Chummer6 video/newsroom provider. Structured BrowserAct/provider verification, account capability capture, commercial-use/watermark/export checks, monthly-credit confirmation, and Media Factory adapter proof are still pending before runtime use. |
 | `MarkupGo` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `MetaSurvey` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
@@ -121,6 +123,8 @@ Use this section to track missing tier/email/account facts discovered through th
 ## Attention Items
 
 `katteb.com` is now tracked as a 10-code holding but still needs redemption/activation verification.
+
+`MagicFit` License Tier 5 is now tracked from user report and needs provider verification before it can become a Chummer6 Media Factory render lane.
 
 ## Notes
 
