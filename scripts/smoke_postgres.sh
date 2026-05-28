@@ -280,8 +280,14 @@ echo "== smoke-postgres: compose up (api) =="
 echo "== smoke-postgres: readiness check =="
 ready_json=""
 ready_reason=""
-for _ in $(seq 1 40); do
-  ready_json="$(curl -sS "${BASE}/health/ready" || true)"
+ready_http_code=""
+for _ in $(seq 1 90); do
+  ready_http_code="$(curl -sS --connect-timeout 2 --max-time 5 -o /tmp/ea_smoke_ready.json -w '%{http_code}' "${BASE}/health/ready" || true)"
+  if [[ -f /tmp/ea_smoke_ready.json ]]; then
+    ready_json="$(cat /tmp/ea_smoke_ready.json)"
+  else
+    ready_json=""
+  fi
   ready_reason="$(python3 -c 'import json,sys
 raw = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
 if not raw:
@@ -303,7 +309,9 @@ else:
 done
 if [[ "${ready_reason}" != "postgres_ready" ]]; then
   echo "expected readiness reason postgres_ready, got: ${ready_reason}" >&2
+  echo "readiness http code: ${ready_http_code}" >&2
   echo "readiness payload: ${ready_json}" >&2
+  docker logs --tail 120 ea-api >&2 || true
   exit 31
 fi
 

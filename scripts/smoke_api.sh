@@ -77,6 +77,24 @@ curl_status_code() {
   return 1
 }
 
+curl_body_retry() {
+  local attempts="$1"
+  local sleep_seconds="$2"
+  shift 2
+  local body=""
+  local i
+  for i in $(seq 1 "${attempts}"); do
+    body="$(curl -fsS "$@" || true)"
+    if [[ -n "${body}" ]]; then
+      printf '%s' "${body}"
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+  printf '%s' "${body}"
+  return 1
+}
+
 HOST_PORT="${EA_HOST_PORT:-}"
 if [[ -z "${HOST_PORT}" && -f "${EA_ROOT}/.env" ]]; then
   HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
@@ -111,7 +129,11 @@ operator_curl() {
     curl -fsS "${AUTH_ARGS[@]}" "${OPERATOR_PRINCIPAL_ARGS[@]}" "$@"
     return
   fi
-  if command -v docker >/dev/null 2>&1 && docker exec ea-api /bin/sh -lc 'for i in 1 2 3; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
+  local operator_container=""
+  if command -v docker >/dev/null 2>&1; then
+    operator_container="$(docker ps --filter label=com.docker.compose.service=ea-api --format '{{.Names}}' | head -n1)"
+  fi
+  if [[ -n "${operator_container}" ]] && docker exec "${operator_container}" /bin/sh -lc 'for i in 1 2 3; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
     local arg
     local translated=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
     for arg in "$@"; do
@@ -120,7 +142,7 @@ operator_curl() {
       fi
       translated+=("$(printf '%q' "${arg}")")
     done
-    docker exec ea-api /bin/sh -lc "curl -fsS ${translated[*]}"
+    docker exec "${operator_container}" /bin/sh -lc "curl -fsS ${translated[*]}"
     return
   fi
   echo "operator context unavailable for control-plane smoke calls" >&2
@@ -268,10 +290,10 @@ fi
 echo "registration/workspace access ok"
 
 echo "== smoke: workspace browser surfaces =="
-SEARCH_PAGE="$(curl -fsS "${BASE}/app/search?query=board" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-PLAN_PAGE="$(curl -fsS "${BASE}/app/settings/plan" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-GOOGLE_SETTINGS_PAGE="$(curl -fsS "${BASE}/app/settings/google" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-TRUST_PAGE="$(curl -fsS "${BASE}/app/settings/trust" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+SEARCH_PAGE="$(curl_body_retry 15 1 "${BASE}/app/search?query=board" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+PLAN_PAGE="$(curl_body_retry 15 1 "${BASE}/app/settings/plan" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+GOOGLE_SETTINGS_PAGE="$(curl_body_retry 15 1 "${BASE}/app/settings/google" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+TRUST_PAGE="$(curl_body_retry 15 1 "${BASE}/app/settings/trust" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 WORKSPACE_BROWSER_FIELDS="$(python3 -c "import sys; search, plan, google, trust = sys.argv[1:5]; print('{}|{}|{}|{}'.format('Workspace search' in search and '/app/search' in search, 'Workspace plan' in plan and 'Billing state' in plan, 'Google sync' in google and 'Pending commitment candidates' in google, 'Workspace trust' in trust and 'Recent product events' in trust))" "${SEARCH_PAGE}" "${PLAN_PAGE}" "${GOOGLE_SETTINGS_PAGE}" "${TRUST_PAGE}")"
 if [[ "${WORKSPACE_BROWSER_FIELDS}" != "True|True|True|True" ]]; then
   echo "expected workspace browser surfaces to render search, plan, Google sync, and trust details; got ${WORKSPACE_BROWSER_FIELDS}" >&2
