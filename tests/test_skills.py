@@ -17,8 +17,9 @@ from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService
 
 
-DESIGN_SKILL_BOOTSTRAP_PATH = Path("/docker/EA/scripts/bootstrap_design_governance_skills.py")
-CHUMMER_GUIDE_BOOTSTRAP_PATH = Path("/docker/EA/scripts/bootstrap_chummer6_guide_skill.py")
+ROOT = Path(__file__).resolve().parents[1]
+DESIGN_SKILL_BOOTSTRAP_PATH = ROOT / "scripts" / "bootstrap_design_governance_skills.py"
+CHUMMER_GUIDE_BOOTSTRAP_PATH = ROOT / "scripts" / "bootstrap_chummer6_guide_skill.py"
 
 
 def load_design_skill_bootstrap_module():

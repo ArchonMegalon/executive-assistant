@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
@@ -42,6 +42,7 @@ GOOGLE_SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar"
 GOOGLE_SCOPE_CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
 GOOGLE_SCOPE_CONTACTS_READONLY = "https://www.googleapis.com/auth/contacts.readonly"
 GOOGLE_SCOPE_DRIVE_METADATA_READONLY = "https://www.googleapis.com/auth/drive.metadata.readonly"
+GOOGLE_SCOPE_PHOTOS_PICKER = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"
 
 GOOGLE_SCOPE_SEND_ONLY = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_SEND,
@@ -68,11 +69,26 @@ GOOGLE_SCOPE_FULL_WORKSPACE = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
 )
 
+GOOGLE_SCOPE_PHOTOS = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_PHOTOS_PICKER,
+)
+
+GOOGLE_SCOPE_CORE_AND_PHOTOS = GOOGLE_SCOPE_CORE + (
+    GOOGLE_SCOPE_PHOTOS_PICKER,
+)
+
+GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS = GOOGLE_SCOPE_FULL_WORKSPACE + (
+    GOOGLE_SCOPE_PHOTOS_PICKER,
+)
+
 SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
     "send": GOOGLE_SCOPE_SEND_ONLY,
     "verify": GOOGLE_SCOPE_VERIFY,
     "core": GOOGLE_SCOPE_CORE,
+    "photos": GOOGLE_SCOPE_PHOTOS,
+    "core_photos": GOOGLE_SCOPE_CORE_AND_PHOTOS,
     "full_workspace": GOOGLE_SCOPE_FULL_WORKSPACE,
+    "full_workspace_photos": GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS,
     "all": GOOGLE_SCOPE_FULL_WORKSPACE,
 }
 
@@ -117,6 +133,33 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
             "No Drive file index context",
         ),
     },
+    "photos": {
+        "label": "Google Photos Picker",
+        "summary": "Authorize EA to create photo-picking sessions and read the photos you explicitly select from Google Photos.",
+        "capabilities": (
+            "Create Google Photos picker sessions",
+            "Read selected photos and videos from a picker session",
+        ),
+        "limitations": (
+            "Does not grant whole-library background access",
+            "Only selected items are shared with EA",
+        ),
+    },
+    "core_photos": {
+        "label": "Google Core + Photos Picker",
+        "summary": "Google Core plus the Google Photos Picker lane for explicit photo selection.",
+        "capabilities": (
+            "Send mail",
+            "Mailbox verification",
+            "Calendar read context",
+            "Contacts read context",
+            "Google Photos picker sessions",
+        ),
+        "limitations": (
+            "No inbox mutation",
+            "Only selected Google Photos items are shared",
+        ),
+    },
     "full_workspace": {
         "label": "Google Full Workspace",
         "summary": "Broader assistant context: inbox actions plus richer calendar and Drive index context.",
@@ -127,6 +170,20 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         ),
         "limitations": (
             "Still not a promise that every Google surface is integrated today",
+        ),
+    },
+    "full_workspace_photos": {
+        "label": "Google Full Workspace + Photos Picker",
+        "summary": "Full Workspace plus Google Photos Picker access for explicitly selected photos and videos.",
+        "capabilities": (
+            "Inbox understanding and modification",
+            "Richer calendar actions",
+            "Drive file index context",
+            "Google Photos picker sessions",
+        ),
+        "limitations": (
+            "Still not a promise that every Google surface is integrated today",
+            "Only selected Google Photos items are shared",
         ),
     },
     "all": {
@@ -286,6 +343,17 @@ class GoogleWorkspaceSignal:
     counterparty: str
     due_at: str | None
     payload: dict[str, Any]
+    attachments: tuple["GoogleWorkspaceAttachment", ...] = ()
+
+
+@dataclass(frozen=True)
+class GoogleWorkspaceAttachment:
+    attachment_id: str
+    filename: str
+    mime_type: str
+    part_id: str
+    size_bytes: int
+    content_bytes: bytes = field(default=b"", repr=False)
 
 
 @dataclass(frozen=True)
@@ -293,6 +361,29 @@ class GoogleWorkspaceSignalSync:
     account_email: str
     granted_scopes: tuple[str, ...]
     signals: tuple[GoogleWorkspaceSignal, ...]
+    account_emails: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GooglePhotosPickerSession:
+    account_email: str
+    binding_id: str
+    granted_scopes: tuple[str, ...]
+    session_id: str
+    picker_uri: str
+    poll_interval: str
+    timeout_in: str
+    media_items_set: bool
+
+
+@dataclass(frozen=True)
+class GooglePhotosSignalSync:
+    account_email: str
+    binding_id: str
+    session_id: str
+    granted_scopes: tuple[str, ...]
+    signals: tuple[GoogleWorkspaceSignal, ...]
+    media_items_set: bool
     account_emails: tuple[str, ...] = ()
 
 
@@ -906,6 +997,156 @@ def list_recent_workspace_signals(
     )
 
 
+def create_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+    max_item_count: int = 50,
+) -> GooglePhotosPickerSession:
+    binding, access_token, granted_scopes, account_email = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    bounded_max_item_count = max(1, min(int(max_item_count or 50), 2000))
+    payload = _google_photos_picker_request(
+        access_token=access_token,
+        path="/v1/sessions",
+        method="POST",
+        payload={"pickingConfig": {"maxItemCount": str(bounded_max_item_count)}},
+    )
+    session_id = str(payload.get("id") or "").strip()
+    if not session_id:
+        raise RuntimeError("google_photos_picker_session_missing_id")
+    polling = dict(payload.get("pollingConfig") or {}) if isinstance(payload.get("pollingConfig"), dict) else {}
+    return GooglePhotosPickerSession(
+        account_email=account_email,
+        binding_id=str(binding.binding_id or "").strip(),
+        granted_scopes=granted_scopes,
+        session_id=session_id,
+        picker_uri=str(payload.get("pickerUri") or "").strip(),
+        poll_interval=str(polling.get("pollInterval") or "").strip(),
+        timeout_in=str(polling.get("timeoutIn") or "").strip(),
+        media_items_set=bool(payload.get("mediaItemsSet")),
+    )
+
+
+def get_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    session_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+) -> GooglePhotosPickerSession:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        raise RuntimeError("google_photos_picker_session_id_missing")
+    binding, access_token, granted_scopes, account_email = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    payload = _google_photos_picker_request(
+        access_token=access_token,
+        path=f"/v1/sessions/{urllib.parse.quote(normalized_session_id, safe='')}",
+        method="GET",
+    )
+    polling = dict(payload.get("pollingConfig") or {}) if isinstance(payload.get("pollingConfig"), dict) else {}
+    return GooglePhotosPickerSession(
+        account_email=account_email,
+        binding_id=str(binding.binding_id or "").strip(),
+        granted_scopes=granted_scopes,
+        session_id=normalized_session_id,
+        picker_uri=str(payload.get("pickerUri") or "").strip(),
+        poll_interval=str(polling.get("pollInterval") or "").strip(),
+        timeout_in=str(polling.get("timeoutIn") or "").strip(),
+        media_items_set=bool(payload.get("mediaItemsSet")),
+    )
+
+
+def sync_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    session_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+    max_items: int = 50,
+) -> GooglePhotosSignalSync:
+    session = get_google_photos_picker_session(
+        container=container,
+        principal_id=principal_id,
+        session_id=session_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+    )
+    binding, access_token, granted_scopes, account_email = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=session.binding_id,
+        account_email_filter=session.account_email,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    if not session.media_items_set:
+        return GooglePhotosSignalSync(
+            account_email=account_email,
+            account_emails=(account_email,) if account_email else (),
+            binding_id=str(binding.binding_id or "").strip(),
+            session_id=session.session_id,
+            granted_scopes=granted_scopes,
+            signals=(),
+            media_items_set=False,
+        )
+    bounded_max_items = max(1, min(int(max_items or 50), 500))
+    rows = _google_photos_picker_media_items(
+        access_token=access_token,
+        session_id=session.session_id,
+        max_items=bounded_max_items,
+        account_email=account_email,
+    )
+    return GooglePhotosSignalSync(
+        account_email=account_email,
+        account_emails=(account_email,) if account_email else (),
+        binding_id=str(binding.binding_id or "").strip(),
+        session_id=session.session_id,
+        granted_scopes=granted_scopes,
+        signals=tuple(rows),
+        media_items_set=True,
+    )
+
+
+def delete_google_photos_picker_session(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    session_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+) -> None:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        raise RuntimeError("google_photos_picker_session_id_missing")
+    _, access_token, _, _ = _resolve_google_binding_access_token(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+        account_email_filter=account_email_filter,
+        required_scope=GOOGLE_SCOPE_PHOTOS_PICKER,
+    )
+    _google_photos_picker_request(
+        access_token=access_token,
+        path=f"/v1/sessions/{urllib.parse.quote(normalized_session_id, safe='')}",
+        method="DELETE",
+    )
+
+
 def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict[str, Any]:
     payload = urllib.parse.urlencode(
         {
@@ -924,6 +1165,281 @@ def _exchange_google_code_for_tokens(*, code: str, client_id: str, client_secret
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _resolve_google_binding_access_token(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+    account_email_filter: str = "",
+    required_scope: str = "",
+) -> tuple[ProviderBindingRecord, str, tuple[str, ...], str]:
+    config = load_google_oauth_config()
+    normalized_binding_id = str(binding_id or "").strip()
+    normalized_account_email_filter = str(account_email_filter or "").strip().lower()
+    bindings = [
+        row
+        for row in _list_google_binding_records(container=container, principal_id=principal_id)
+        if str(row.status or "").strip().lower() == "enabled"
+    ]
+    if normalized_binding_id:
+        bindings = [row for row in bindings if str(row.binding_id or "").strip() == normalized_binding_id]
+    if not bindings:
+        raise RuntimeError("google_oauth_binding_not_found")
+    first_error = ""
+    scope_missing = False
+    for binding in bindings:
+        metadata = dict(binding.auth_metadata_json or {})
+        account_email = str(metadata.get("google_email") or "").strip().lower()
+        if normalized_account_email_filter and account_email != normalized_account_email_filter:
+            continue
+        granted_scopes = tuple(
+            sorted(str(scope or "").strip() for scope in (metadata.get("granted_scopes") or []) if str(scope or "").strip())
+        )
+        if required_scope and required_scope not in set(granted_scopes):
+            scope_missing = True
+            continue
+        refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+        if not refresh_token_ref:
+            first_error = first_error or "google_gmail_refresh_token_missing"
+            continue
+        refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+        try:
+            token_payload = _refresh_google_access_token(
+                refresh_token=refresh_token,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+            )
+        except Exception as exc:
+            reason = _google_refresh_error_reason(exc)
+            _mark_google_binding_reauth_required(
+                container=container,
+                binding=binding,
+                principal_id=principal_id,
+                reason=reason,
+            )
+            first_error = first_error or reason
+            continue
+        access_token = str(token_payload.get("access_token") or "").strip()
+        if not access_token:
+            first_error = first_error or "google_oauth_access_token_missing"
+            continue
+        updated_metadata = dict(metadata)
+        updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+        updated_metadata["last_refresh_at"] = _utc_iso_now()
+        updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+        updated_metadata["token_status"] = "active"
+        container.provider_registry.upsert_binding_record(
+            binding_id=binding.binding_id,
+            principal_id=principal_id,
+            provider_key=GOOGLE_PROVIDER_KEY,
+            status=binding.status,
+            priority=binding.priority,
+            probe_state="ready",
+            probe_details_json=dict(binding.probe_details_json or {}),
+            scope_json=dict(binding.scope_json or {}),
+            auth_metadata_json=updated_metadata,
+        )
+        return binding, access_token, granted_scopes, account_email
+    if normalized_account_email_filter and not any(
+        str(dict(row.auth_metadata_json or {}).get("google_email") or "").strip().lower() == normalized_account_email_filter
+        for row in _list_google_binding_records(container=container, principal_id=principal_id)
+    ):
+        raise RuntimeError("google_oauth_account_not_found")
+    if required_scope and scope_missing:
+        raise RuntimeError("google_photos_scope_missing")
+    if first_error:
+        raise RuntimeError(first_error)
+    raise RuntimeError("google_oauth_binding_not_found")
+
+
+def _google_photos_picker_request(
+    *,
+    access_token: str,
+    path: str,
+    method: str,
+    payload: dict[str, object] | None = None,
+    query: dict[str, object] | None = None,
+) -> dict[str, Any]:
+    normalized_query = {
+        str(key): str(value)
+        for key, value in dict(query or {}).items()
+        if str(key or "").strip() and str(value or "").strip()
+    }
+    suffix = f"?{urllib.parse.urlencode(normalized_query)}" if normalized_query else ""
+    request = urllib.request.Request(
+        f"https://photospicker.googleapis.com{str(path or '').strip()}{suffix}",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        data=None if payload is None else json.dumps(payload).encode("utf-8"),
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read().decode("utf-8", errors="replace").strip()
+            if not body:
+                return {}
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        if exc.code == 401:
+            raise RuntimeError("google_photos_unauthorized") from exc
+        if exc.code == 403:
+            lowered_detail = detail.lower()
+            if "service_disabled" in lowered_detail or "google photos picker api has not been used" in lowered_detail:
+                activation_url = ""
+                try:
+                    payload = json.loads(detail)
+                    links = (
+                        payload.get("error", {})
+                        .get("details", [{}])[-1]
+                        .get("links", [])
+                    )
+                    if isinstance(links, list):
+                        for item in links:
+                            if not isinstance(item, dict):
+                                continue
+                            candidate = str(item.get("url") or "").strip()
+                            if candidate:
+                                activation_url = candidate
+                                break
+                except Exception:
+                    activation_url = ""
+                suffix = f":{activation_url}" if activation_url else ""
+                raise RuntimeError(f"google_photos_service_disabled{suffix}") from exc
+            raise RuntimeError("google_photos_forbidden") from exc
+        if exc.code == 404:
+            raise RuntimeError("google_photos_picker_session_not_found") from exc
+        if exc.code == 412:
+            raise RuntimeError("google_photos_account_inactive") from exc
+        if exc.code == 429:
+            raise RuntimeError("google_photos_rate_limited") from exc
+        compact = detail[:240] if detail else f"http_{exc.code}"
+        raise RuntimeError(f"google_photos_http_{exc.code}:{compact}") from exc
+
+
+def _google_photos_picker_media_items(
+    *,
+    access_token: str,
+    session_id: str,
+    max_items: int,
+    account_email: str = "",
+) -> list[GoogleWorkspaceSignal]:
+    rows: list[GoogleWorkspaceSignal] = []
+    next_page_token = ""
+    remaining = max_items
+    while remaining > 0:
+        page_size = min(remaining, 100)
+        query: dict[str, object] = {
+            "sessionId": session_id,
+            "pageSize": str(page_size),
+        }
+        if next_page_token:
+            query["pageToken"] = next_page_token
+        payload = _google_photos_picker_request(
+            access_token=access_token,
+            path="/v1/mediaItems",
+            method="GET",
+            query=query,
+        )
+        items = list(payload.get("mediaItems") or []) if isinstance(payload.get("mediaItems"), list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            signal = _google_photos_media_item_signal(
+                item=item,
+                session_id=session_id,
+                account_email=account_email,
+            )
+            if signal is not None:
+                rows.append(signal)
+                remaining -= 1
+                if remaining <= 0:
+                    break
+        next_page_token = str(payload.get("nextPageToken") or "").strip()
+        if not next_page_token or not items or remaining <= 0:
+            break
+    return rows
+
+
+def _google_photos_image_url(base_url: str, *, width: int, height: int) -> str:
+    normalized_base = str(base_url or "").strip()
+    if not normalized_base:
+        return ""
+    bounded_width = max(64, min(int(width or 1600), 4096))
+    bounded_height = max(64, min(int(height or 1600), 4096))
+    return f"{normalized_base}=w{bounded_width}-h{bounded_height}"
+
+
+def _google_photos_media_item_signal(
+    *,
+    item: dict[str, Any],
+    session_id: str,
+    account_email: str,
+) -> GoogleWorkspaceSignal | None:
+    item_id = str(item.get("id") or "").strip()
+    if not item_id:
+        return None
+    item_type = str(item.get("type") or "").strip().lower() or "photo"
+    media_file = dict(item.get("mediaFile") or {}) if isinstance(item.get("mediaFile"), dict) else {}
+    media_metadata = dict(media_file.get("mediaFileMetadata") or {}) if isinstance(media_file.get("mediaFileMetadata"), dict) else {}
+    photo_metadata = dict(media_metadata.get("photoMetadata") or {}) if isinstance(media_metadata.get("photoMetadata"), dict) else {}
+    video_metadata = dict(media_metadata.get("videoMetadata") or {}) if isinstance(media_metadata.get("videoMetadata"), dict) else {}
+    width = _safe_int(media_metadata.get("width"), default=0)
+    height = _safe_int(media_metadata.get("height"), default=0)
+    filename = str(media_file.get("filename") or "").strip() or f"Google Photos item {item_id}"
+    mime_type = str(media_file.get("mimeType") or "").strip().lower()
+    base_url = str(media_file.get("baseUrl") or "").strip()
+    preview_url = _google_photos_image_url(base_url, width=max(width, 1600) or 1600, height=max(height, 1600) or 1600)
+    create_time = str(item.get("createTime") or "").strip()
+    title = filename
+    summary_parts = [item_type.upper()]
+    if width > 0 and height > 0:
+        summary_parts.append(f"{width}x{height}")
+    camera_make = str(media_metadata.get("cameraMake") or "").strip()
+    camera_model = str(media_metadata.get("cameraModel") or "").strip()
+    if camera_make or camera_model:
+        summary_parts.append(" ".join(part for part in (camera_make, camera_model) if part).strip())
+    summary = " · ".join(part for part in summary_parts if part)
+    text_parts = [
+        f"Google Photos {item_type} selected by {account_email or 'connected account'}.",
+        filename,
+        summary,
+    ]
+    payload: dict[str, Any] = {
+        "account_email": account_email,
+        "google_photos_session_id": session_id,
+        "google_photos_media_item_id": item_id,
+        "media_type": item_type,
+        "mime_type": mime_type,
+        "filename": filename,
+        "create_time": create_time,
+        "width": width,
+        "height": height,
+        "camera_make": camera_make,
+        "camera_model": camera_model,
+        "base_url": base_url,
+        "preview_url": preview_url,
+        "photo_metadata": photo_metadata,
+        "video_metadata": video_metadata,
+        "suppress_candidate_staging": True,
+    }
+    return GoogleWorkspaceSignal(
+        signal_type="photo_library_item",
+        channel="google_photos",
+        title=title,
+        summary=summary,
+        text=" ".join(part for part in text_parts if part).strip(),
+        source_ref=f"google-photo:{account_email}:{item_id}" if account_email else f"google-photo:{item_id}",
+        external_id=f"google-photo:{account_email}:{item_id}" if account_email else f"google-photo:{item_id}",
+        counterparty=account_email,
+        due_at=None,
+        payload=payload,
+    )
 
 
 def _list_recent_gmail_signals(
@@ -988,6 +1504,15 @@ def _list_recent_gmail_signals(
             snippet = str(details.get("snippet") or "").strip()
             body_text = _gmail_message_body_text(details)
             body_excerpt = body_text[:4000]
+            attachments = (
+                _gmail_pdf_attachments(
+                    access_token=access_token,
+                    message_id=message_id,
+                    details=details,
+                )
+                if include_message_body
+                else ()
+            )
             summary = body_excerpt[:280] or snippet or f"Recent mail from {counterparty or 'a contact'}."
             text = " ".join(part for part in (subject, body_excerpt or snippet) if part).strip() or subject
             source_ref = f"gmail-thread:{normalized_account_email}:{thread_id}" if normalized_account_email else f"gmail-thread:{thread_id}"
@@ -1025,7 +1550,18 @@ def _list_recent_gmail_signals(
                         "body_source": "gmail_full" if body_excerpt else "snippet",
                         "body_available": bool(body_excerpt),
                         "account_email": normalized_account_email,
+                        "attachments": [
+                            {
+                                "attachment_id": row.attachment_id,
+                                "filename": row.filename,
+                                "mime_type": row.mime_type,
+                                "part_id": row.part_id,
+                                "size_bytes": row.size_bytes,
+                            }
+                            for row in attachments
+                        ],
                     },
+                    attachments=attachments,
                 )
             )
             if len(rows) >= max_results:
@@ -1191,6 +1727,95 @@ def _gmail_message_details(*, access_token: str, message_id: str, include_messag
         raise
 
 
+def _gmail_pdf_attachments(
+    *,
+    access_token: str,
+    message_id: str,
+    details: dict[str, Any],
+) -> tuple[GoogleWorkspaceAttachment, ...]:
+    payload = details.get("payload")
+    if not isinstance(payload, dict):
+        return ()
+    parts: list[dict[str, Any]] = []
+    _collect_gmail_pdf_parts(payload, parts=parts)
+    max_bytes = _gmail_attachment_max_bytes()
+    rows: list[GoogleWorkspaceAttachment] = []
+    for item in parts:
+        filename = str(item.get("filename") or "").strip() or "attachment.pdf"
+        mime_type = str(item.get("mimeType") or "").strip() or "application/pdf"
+        part_id = str(item.get("partId") or "").strip()
+        body = dict(item.get("body") or {}) if isinstance(item.get("body"), dict) else {}
+        attachment_id = str(body.get("attachmentId") or "").strip()
+        content_bytes = _decode_gmail_body_bytes(body.get("data"))
+        if not content_bytes and attachment_id:
+            try:
+                content_bytes = _gmail_attachment_bytes(
+                    access_token=access_token,
+                    message_id=message_id,
+                    attachment_id=attachment_id,
+                )
+            except urllib.error.HTTPError:
+                content_bytes = b""
+        if max_bytes > 0 and len(content_bytes) > max_bytes:
+            content_bytes = b""
+        size_bytes = _safe_int(body.get("size"), default=len(content_bytes))
+        rows.append(
+            GoogleWorkspaceAttachment(
+                attachment_id=attachment_id or f"{message_id}:{part_id or filename}",
+                filename=filename,
+                mime_type=mime_type,
+                part_id=part_id,
+                size_bytes=max(size_bytes, len(content_bytes)),
+                content_bytes=content_bytes,
+            )
+        )
+    return tuple(rows)
+
+
+def _collect_gmail_pdf_parts(payload: dict[str, Any], *, parts: list[dict[str, Any]]) -> None:
+    mime_type = str(payload.get("mimeType") or "").strip().lower()
+    filename = str(payload.get("filename") or "").strip()
+    if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
+        parts.append(payload)
+    for item in list(payload.get("parts") or []):
+        if isinstance(item, dict):
+            _collect_gmail_pdf_parts(item, parts=parts)
+
+
+def _gmail_attachment_bytes(*, access_token: str, message_id: str, attachment_id: str) -> bytes:
+    normalized_message_id = str(message_id or "").strip()
+    normalized_attachment_id = str(attachment_id or "").strip()
+    if not normalized_message_id or not normalized_attachment_id:
+        return b""
+    request = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+        f"{urllib.parse.quote(normalized_message_id)}/attachments/{urllib.parse.quote(normalized_attachment_id)}",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return _decode_gmail_body_bytes(payload.get("data"))
+
+
+def _decode_gmail_body_bytes(value: object) -> bytes:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return b""
+    padding = "=" * (-len(normalized) % 4)
+    try:
+        return base64.urlsafe_b64decode(f"{normalized}{padding}".encode("ascii"))
+    except Exception:
+        return b""
+
+
+def _gmail_attachment_max_bytes() -> int:
+    try:
+        return max(int(str(os.getenv("EA_GMAIL_PDF_ATTACHMENT_MAX_BYTES") or "26214400").strip()), 0)
+    except Exception:
+        return 26214400
+
+
 def _gmail_message_body_text(details: dict[str, Any]) -> str:
     payload = details.get("payload")
     if not isinstance(payload, dict):
@@ -1226,13 +1851,8 @@ def _collect_gmail_body_text(
 
 
 def _decode_gmail_body_data(value: object) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
-        return ""
-    padding = "=" * (-len(normalized) % 4)
-    try:
-        raw = base64.urlsafe_b64decode(f"{normalized}{padding}".encode("ascii"))
-    except Exception:
+    raw = _decode_gmail_body_bytes(value)
+    if not raw:
         return ""
     return raw.decode("utf-8", errors="replace")
 

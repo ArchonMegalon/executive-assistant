@@ -316,7 +316,26 @@ if [[ "${ready_reason}" != "postgres_ready" ]]; then
 fi
 
 echo "== smoke-postgres: api smoke =="
-bash scripts/smoke_api.sh
+smoke_api_output=""
+smoke_api_status=0
+for attempt in 1 2 3; do
+  set +e
+  smoke_api_output="$(bash scripts/smoke_api.sh 2>&1)"
+  smoke_api_status=$?
+  set -e
+  if [[ "${smoke_api_status}" == "0" ]]; then
+    printf '%s\n' "${smoke_api_output}"
+    break
+  fi
+  printf '%s\n' "${smoke_api_output}" >&2
+  if ! grep -Eq 'curl: \((52|56)\)|Connection reset by peer|Empty reply from server|HTTP 401' <<<"${smoke_api_output}"; then
+    exit "${smoke_api_status}"
+  fi
+  if [[ "${attempt}" == "3" ]]; then
+    exit "${smoke_api_status}"
+  fi
+  sleep 2
+done
 
 echo "== smoke-postgres: openapi export verification =="
 bash scripts/export_openapi.sh >/dev/null

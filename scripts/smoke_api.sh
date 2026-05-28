@@ -124,15 +124,37 @@ if [[ -n "${OPERATOR_PRINCIPAL_ID}" ]]; then
   OPERATOR_PRINCIPAL_ARGS=(-H "X-EA-Principal-ID: ${OPERATOR_PRINCIPAL_ID}")
 fi
 
+resolve_api_container() {
+  local container=""
+  if ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+  container="$(docker ps --filter label=com.docker.compose.service=ea-api --format '{{.Names}}' | head -n1)"
+  if [[ -z "${container}" ]]; then
+    container="$(docker ps --filter name='ea-api' --format '{{.Names}}' | head -n1)"
+  fi
+  printf '%s' "${container}"
+}
+
+if [[ -z "${EA_API_TOKEN}" ]] && command -v docker >/dev/null 2>&1; then
+  api_container="$(resolve_api_container)"
+  if [[ -n "${api_container}" ]]; then
+    EA_API_TOKEN="$(docker exec "${api_container}" /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
+  fi
+fi
+
+AUTH_ARGS=()
+if [[ -n "${EA_API_TOKEN:-}" ]]; then
+  AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}")
+fi
+
 operator_curl() {
   if [[ -n "${OPERATOR_PRINCIPAL_ID}" ]]; then
     curl -fsS "${AUTH_ARGS[@]}" "${OPERATOR_PRINCIPAL_ARGS[@]}" "$@"
     return
   fi
   local operator_container=""
-  if command -v docker >/dev/null 2>&1; then
-    operator_container="$(docker ps --filter label=com.docker.compose.service=ea-api --format '{{.Names}}' | head -n1)"
-  fi
+  operator_container="$(resolve_api_container)"
   if [[ -n "${operator_container}" ]] && docker exec "${operator_container}" /bin/sh -lc 'for i in 1 2 3; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
     local arg
     local translated=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
@@ -351,7 +373,7 @@ echo "google signal sync ok"
 echo "== smoke: rewrite =="
 operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
   -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
-REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
+REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
 echo "${REWRITE_JSON}"
 ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("artifact_id",""))' <<<"${REWRITE_JSON}")"
 SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("execution_session_id",""))' <<<"${REWRITE_JSON}")"
@@ -872,7 +894,7 @@ echo "human tasks ok"
 
 echo "== smoke: human task last-transition sort =="
 ensure_operator_profile "operator-sorter" "communications_reviewer" '["tone"]' "standard" "Queue Sorter"
-SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sort seed"}')"
+SORT_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sort seed"}')"
 SORT_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SORT_REWRITE_JSON}")"
 SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SORT_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SORT_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SORT_SESSION_JSON}")"
@@ -912,7 +934,7 @@ fi
 echo "human task last-transition sort ok"
 
 echo "== smoke: human task created-asc sort =="
-CREATED_ASC_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"created asc seed"}')"
+CREATED_ASC_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"created asc seed"}')"
 CREATED_ASC_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${CREATED_ASC_REWRITE_JSON}")"
 CREATED_ASC_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${CREATED_ASC_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 CREATED_ASC_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${CREATED_ASC_SESSION_JSON}")"
@@ -974,7 +996,7 @@ fi
 echo "human task created-asc sort ok"
 
 echo "== smoke: human task priority-desc-created-asc sort =="
-PRIORITY_SORT_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority sort seed"}')"
+PRIORITY_SORT_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority sort seed"}')"
 PRIORITY_SORT_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_SORT_REWRITE_JSON}")"
 PRIORITY_SORT_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SORT_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_SORT_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_SORT_SESSION_JSON}")"
@@ -1039,7 +1061,7 @@ fi
 echo "human task priority-desc-created-asc sort ok"
 
 echo "== smoke: human task priority filter =="
-PRIORITY_FILTER_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority filter seed"}')"
+PRIORITY_FILTER_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority filter seed"}')"
 PRIORITY_FILTER_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_FILTER_REWRITE_JSON}")"
 PRIORITY_FILTER_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_FILTER_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_FILTER_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_FILTER_SESSION_JSON}")"
@@ -1128,7 +1150,7 @@ fi
 echo "human task multi-priority filter ok"
 
 echo "== smoke: human task priority summary =="
-PRIORITY_SUMMARY_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority summary seed"}')"
+PRIORITY_SUMMARY_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"priority summary seed"}')"
 PRIORITY_SUMMARY_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${PRIORITY_SUMMARY_REWRITE_JSON}")"
 PRIORITY_SUMMARY_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${PRIORITY_SUMMARY_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 PRIORITY_SUMMARY_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${PRIORITY_SUMMARY_SESSION_JSON}")"
@@ -1247,7 +1269,7 @@ rm -f /docker/EA/.smoke_tmp/ea_priority_summary_urgent.json /docker/EA/.smoke_tm
 echo "human task priority summary ok"
 
 echo "== smoke: human task SLA sort =="
-SLA_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
+SLA_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"sla sort seed"}')"
 SLA_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${SLA_REWRITE_JSON}")"
 SLA_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${SLA_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 SLA_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${SLA_SESSION_JSON}")"
@@ -1280,7 +1302,7 @@ fi
 echo "human task SLA sort ok"
 
 echo "== smoke: human task combined SLA + transition sort =="
-COMBINED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"combined sort seed"}')"
+COMBINED_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"combined sort seed"}')"
 COMBINED_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${COMBINED_REWRITE_JSON}")"
 COMBINED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${COMBINED_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 COMBINED_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${COMBINED_SESSION_JSON}")"
@@ -1323,7 +1345,7 @@ fi
 echo "human task combined sort ok"
 
 echo "== smoke: human task unscheduled fallback sort =="
-UNSCHED_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"unscheduled fallback seed"}')"
+UNSCHED_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"unscheduled fallback seed"}')"
 UNSCHED_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("execution_session_id",""))' <<<"${UNSCHED_REWRITE_JSON}")"
 UNSCHED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${UNSCHED_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 UNSCHED_STEP_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("steps") or []; print(((rows[-1] or {}).get("step_id")) if rows else "")' <<<"${UNSCHED_SESSION_JSON}")"
@@ -2561,7 +2583,7 @@ operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/js
   -d "{\"task_key\":\"rewrite_text\",\"deliverable_type\":\"rewrite_note\",\"default_risk_class\":\"low\",\"default_approval_class\":\"none\",\"allowed_tools\":[\"artifact_repository\"],\"evidence_requirements\":[\"stakeholder_context\"],\"memory_write_policy\":\"reviewed_only\",\"budget_policy_json\":{\"class\":\"low\",\"human_review_role\":\"${HUMAN_REWRITE_ROLE}\",\"human_review_task_type\":\"communications_review\",\"human_review_brief\":\"Review the rewrite before finalizing it.\",\"human_review_priority\":\"high\",\"human_review_sla_minutes\":45,\"human_review_auto_assign_if_unique\":true,\"human_review_desired_output_json\":{\"format\":\"review_packet\",\"escalation_policy\":\"manager_review\"},\"human_review_authority_required\":\"send_on_behalf_review\",\"human_review_why_human\":\"Executive-facing rewrite needs human judgment before finalization.\",\"human_review_quality_rubric_json\":{\"checks\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"]}}}" >/dev/null
 operator_post_json "${BASE}/v1/human/tasks/operators" -H 'content-type: application/json' \
   -d "{\"operator_id\":\"${HUMAN_REWRITE_SPECIALIST_ID}\",\"display_name\":\"Senior Comms Reviewer\",\"roles\":[\"${HUMAN_REWRITE_ROLE}\"],\"skill_tags\":[\"tone\",\"accuracy\",\"stakeholder_sensitivity\"],\"trust_tier\":\"senior\",\"status\":\"active\"}" >/dev/null
-HUMAN_REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"rewrite with human review"}')"
+HUMAN_REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"rewrite with human review"}')"
 HUMAN_REWRITE_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}".format(body.get("status",""), body.get("next_action",""), bool(body.get("human_task_id","")), body.get("approval_id","")))' <<<"${HUMAN_REWRITE_JSON}")"
 if [[ "${HUMAN_REWRITE_FIELDS}" != "awaiting_human|poll_or_subscribe|True|" ]]; then
   echo "expected awaiting_human rewrite acceptance contract with human_task_id; got ${HUMAN_REWRITE_FIELDS}" >&2

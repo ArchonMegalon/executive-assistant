@@ -43,6 +43,8 @@ services:
       - EA_PORT=8090
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
       - HOME=/home/ea
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
       - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
@@ -58,6 +60,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -88,6 +91,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -118,6 +122,8 @@ services:
       - EA_ROLE=worker
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
       - HOME=/home/ea
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
       - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
@@ -131,6 +137,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -155,6 +162,8 @@ services:
       - EA_ROLE=scheduler
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
+      - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments
+      - EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS=${EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS:-1}
       - HOME=/home/ea
       - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
       - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
@@ -168,6 +177,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
+      - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger
     extra_hosts:

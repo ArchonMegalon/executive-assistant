@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -60,6 +61,7 @@ from app.product.projections import (
     status_open,
     thread_items_from_objects,
 )
+from app.services import photo_signal_analysis
 from app.yaml_inputs import load_yaml_dict as load_design_yaml_dict
 from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
@@ -136,6 +138,9 @@ _POCKET_SYNC_MAX_SCAN_PAGES = 12
 def _property_alert_gmail_query() -> str:
     configured = str(os.getenv("EA_PROPERTY_ALERT_GMAIL_QUERY") or "").strip()
     return configured or _PROPERTY_ALERT_GMAIL_QUERY
+
+
+_ATTACHMENT_FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 _POCKET_NON_ACTIONABLE_SUMMARY_MARKERS = (
@@ -565,6 +570,26 @@ def _willhaben_property_url_from_signal(
     external_id: str,
     payload: dict[str, object],
 ) -> str:
+    urls = _willhaben_property_urls_from_signal(
+        title=title,
+        summary=summary,
+        text=text,
+        source_ref=source_ref,
+        external_id=external_id,
+        payload=payload,
+    )
+    return urls[0] if urls else ""
+
+
+def _willhaben_property_urls_from_signal(
+    *,
+    title: str,
+    summary: str,
+    text: str,
+    source_ref: str,
+    external_id: str,
+    payload: dict[str, object],
+) -> tuple[str, ...]:
     all_urls: list[str] = []
     seen: set[str] = set()
     for value in (
@@ -587,7 +612,7 @@ def _willhaben_property_url_from_signal(
             continue
         seen.add(normalized)
         all_urls.append(normalized)
-    return next((value for value in all_urls if _is_willhaben_property_url(value)), "")
+    return tuple(value for value in all_urls if _is_willhaben_property_url(value))
 
 
 def _property_listing_url_from_signal(
@@ -665,6 +690,17 @@ def _willhaben_search_agent_auto_create_spec(
         payload=payload,
     )
     if not property_url:
+        all_urls = _willhaben_property_urls_from_signal(
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            payload=payload,
+        )
+        if all_urls:
+            property_url = str(all_urls[0] or "").strip()
+    if not property_url:
         return None
     recipient_email = _first_non_empty_text(
         payload.get("delivery_recipient_email"),
@@ -731,6 +767,248 @@ def _property_alert_review_brief(title: str) -> str:
     return f"Review apartment alert: {normalized_title}"
 
 
+def _property_alert_priority_from_fit(assessment: dict[str, object] | None) -> str:
+    if not isinstance(assessment, dict):
+        return "normal"
+    recommendation = str(assessment.get("recommendation") or "").strip().lower()
+    try:
+        fit_score = float(assessment.get("fit_score") or 0.0)
+    except Exception:
+        fit_score = 0.0
+    if recommendation == "shortlist" or fit_score >= 80.0:
+        return "high"
+    if recommendation in {"reject", "drop"} or fit_score < 35.0:
+        return "low"
+    if recommendation in {"view_if_compelling", "ask_for_clarification"} or fit_score >= 60.0:
+        return "high"
+    return "normal"
+
+
+def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
+    if not isinstance(assessment, dict):
+        return ""
+    try:
+        fit_score = float(assessment.get("fit_score") or 0.0)
+    except Exception:
+        fit_score = 0.0
+    recommendation = str(assessment.get("recommendation") or "").strip().replace("_", " ")
+    reasons = [str(item or "").strip() for item in list(assessment.get("match_reasons_json") or []) if str(item or "").strip()]
+    mismatches = [str(item or "").strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item or "").strip()]
+    parts: list[str] = []
+    if fit_score > 0.0:
+        parts.append(f"Personal fit {int(round(fit_score)):d}/100")
+    if recommendation:
+        parts.append(recommendation)
+    if reasons:
+        parts.append(compact_text(reasons[0], fallback="", limit=110))
+    elif mismatches:
+        parts.append(compact_text(mismatches[0], fallback="", limit=110))
+    return " · ".join(part for part in parts if part).strip()
+
+
+def _property_alert_fit_score(assessment: dict[str, object] | None) -> float:
+    if not isinstance(assessment, dict):
+        return 0.0
+    try:
+        return max(0.0, min(100.0, float(assessment.get("fit_score") or 0.0)))
+    except Exception:
+        return 0.0
+
+
+def _property_alert_next_action_text(
+    assessment: dict[str, object] | None,
+    *,
+    property_url: str = "",
+) -> str:
+    if not isinstance(assessment, dict):
+        return "Review the listing manually."
+    recommendation = str(assessment.get("recommendation") or "").strip().lower()
+    fit_score = _property_alert_fit_score(assessment)
+    has_listing = bool(str(property_url or "").strip())
+    if recommendation == "shortlist" or fit_score >= 80.0:
+        if has_listing:
+            return "Next: open the listing and generate a tour."
+        return "Next: open the strongest listing from the alert and generate a tour."
+    if recommendation in {"mention", "view_if_compelling"} or fit_score >= 60.0:
+        if has_listing:
+            return "Next: review the listing and compare it against the shortlist."
+        return "Next: review the top listing and compare it against the shortlist."
+    if recommendation in {"ask_for_clarification"} or fit_score >= 45.0:
+        if has_listing:
+            return "Next: inspect the listing details before deciding."
+        return "Next: inspect the top listing details before deciding."
+    return "Next: ignore unless new evidence makes it stronger."
+
+
+def _property_scout_brief_text(
+    *,
+    title: str,
+    property_url: str = "",
+    fit_summary: str = "",
+    next_action: str = "",
+    status_text: str = "",
+    why_now: str = "",
+    source_text: str = "",
+    mailbox: str = "",
+    extra_lines: tuple[str, ...] = (),
+) -> str:
+    headline = compact_text(str(title or property_url or "Apartment listing").strip(), fallback="Apartment listing", limit=140)
+    lines: list[str] = [
+        "Scout update.",
+        f"Title: {headline}",
+    ]
+    if str(source_text or "").strip():
+        lines.append(f"Source: {compact_text(str(source_text or '').strip(), fallback='', limit=80)}")
+    if str(mailbox or "").strip():
+        lines.append(f"Mailbox: {compact_text(str(mailbox or '').strip().lower(), fallback='', limit=80)}")
+    if str(property_url or "").strip():
+        lines.append(f"Listing: {str(property_url or '').strip()}")
+    if str(fit_summary or "").strip():
+        lines.append(str(fit_summary or "").strip())
+    if str(status_text or "").strip():
+        lines.append(f"Status: {str(status_text or '').strip()}")
+    if str(next_action or "").strip():
+        lines.append(str(next_action or "").strip())
+    if str(why_now or "").strip():
+        lines.append(f"Why now: {str(why_now or '').strip()}")
+    lines.extend(str(line or "").strip() for line in extra_lines if str(line or "").strip())
+    return "\n".join(line for line in lines if str(line or "").strip())
+
+
+def _property_alert_ranked_candidates(
+    *,
+    preference_profiles,
+    principal_id: str,
+    property_urls: tuple[str, ...],
+    limit: int = 3,
+) -> tuple[dict[str, object], ...]:
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw_url in property_urls:
+        normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        packet_title = ""
+        try:
+            packet = _load_willhaben_property_packet(normalized)
+            packet_title = str(dict(packet or {}).get("title") or "").strip()
+        except Exception:
+            packet_title = ""
+        assessment = _property_alert_personal_fit_assessment(
+            preference_profiles=preference_profiles,
+            principal_id=principal_id,
+            property_url=normalized,
+        )
+        rows.append(
+            {
+                "property_url": normalized,
+                "listing_title": packet_title,
+                "fit_score": _property_alert_fit_score(assessment),
+                "recommendation": str(dict(assessment or {}).get("recommendation") or "").strip(),
+                "fit_summary": _property_alert_fit_summary(assessment),
+                "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+            }
+        )
+    rows.sort(key=lambda item: (float(item.get("fit_score") or 0.0), str(item.get("recommendation") or "")), reverse=True)
+    return tuple(rows[: max(1, limit)])
+
+
+def _default_property_alert_policy() -> dict[str, object]:
+    return {
+        "auto_score": True,
+        "auto_compare": True,
+        "auto_generate_tour_for_good_fit": True,
+        "notify_only_if_good": True,
+        "good_fit_min_score": 80.0,
+        "good_fit_recommendations": ("shortlist",),
+    }
+
+
+def _normalize_property_alert_policy(payload: dict[str, object] | None) -> dict[str, object]:
+    base = dict(_default_property_alert_policy())
+    if not isinstance(payload, dict):
+        return base
+    for key in ("auto_score", "auto_compare", "auto_generate_tour_for_good_fit", "notify_only_if_good"):
+        if key in payload:
+            base[key] = bool(payload.get(key))
+    try:
+        base["good_fit_min_score"] = max(0.0, min(100.0, float(payload.get("good_fit_min_score") or base["good_fit_min_score"])))
+    except Exception:
+        pass
+    raw_recommendations = payload.get("good_fit_recommendations")
+    if isinstance(raw_recommendations, (list, tuple, set)):
+        normalized = tuple(
+            str(item or "").strip().lower()
+            for item in raw_recommendations
+            if str(item or "").strip()
+        )
+        if normalized:
+            base["good_fit_recommendations"] = normalized
+    return base
+
+
+def _property_alert_is_good_fit(
+    assessment: dict[str, object] | None,
+    *,
+    policy: dict[str, object] | None = None,
+) -> bool:
+    if not isinstance(assessment, dict):
+        return False
+    normalized_policy = _normalize_property_alert_policy(policy)
+    score = _property_alert_fit_score(assessment)
+    recommendation = str(assessment.get("recommendation") or "").strip().lower()
+    allowed = {
+        str(item or "").strip().lower()
+        for item in list(normalized_policy.get("good_fit_recommendations") or [])
+        if str(item or "").strip()
+    }
+    if recommendation and recommendation in allowed:
+        return True
+    try:
+        min_score = float(normalized_policy.get("good_fit_min_score") or 0.0)
+    except Exception:
+        min_score = 0.0
+    return score >= min_score
+
+
+def _property_alert_personal_fit_assessment(
+    *,
+    preference_profiles: object,
+    principal_id: str,
+    property_url: str,
+) -> dict[str, object] | None:
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized_url or not _is_willhaben_property_url(normalized_url):
+        return None
+    try:
+        packet = _load_willhaben_property_packet(normalized_url)
+        property_facts_json = dict(packet.get("property_facts_json") or {})
+        property_facts_json.update(
+            {
+                "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
+                "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
+            }
+        )
+        listing_id = str(packet.get("listing_id") or "").strip() or normalized_url
+        assess_candidate = getattr(preference_profiles, "assess_candidate", None)
+        if not callable(assess_candidate):
+            return None
+        assessment = assess_candidate(
+            principal_id=principal_id,
+            person_id="self",
+            domain="willhaben",
+            object_type="listing",
+            object_id=listing_id,
+            object_payload=property_facts_json,
+            persist=True,
+            require_existing_profile=True,
+        )
+        return dict(assessment or {}) if isinstance(assessment, dict) else None
+    except Exception:
+        return None
+
+
 def _property_alert_review_telegram_text(
     *,
     title: str,
@@ -738,21 +1016,49 @@ def _property_alert_review_telegram_text(
     counterparty: str,
     account_email: str,
     property_url: str,
+    personal_fit_assessment: dict[str, object] | None = None,
+    candidate_properties: tuple[dict[str, object], ...] = (),
 ) -> str:
-    lines: list[str] = ["New property alert analyzed."]
-    headline = compact_text(str(title or "").strip(), fallback="Apartment alert", limit=140)
-    lines.append(f"Title: {headline}")
-    if str(counterparty or "").strip():
-        lines.append(f"Source: {compact_text(str(counterparty or '').strip(), fallback='', limit=80)}")
-    if str(account_email or "").strip():
-        lines.append(f"Mailbox: {compact_text(str(account_email or '').strip().lower(), fallback='', limit=80)}")
+    top_listing_title = ""
+    if candidate_properties:
+        top_listing_title = str(candidate_properties[0].get("listing_title") or "").strip()
+    headline = compact_text(str(top_listing_title or title or "").strip(), fallback="Apartment alert", limit=140)
     normalized_summary = compact_text(str(summary or "").strip(), fallback="", limit=220)
+    extra_lines: list[str] = []
     if normalized_summary and normalized_summary.lower() != headline.lower():
-        lines.append(f"Summary: {normalized_summary}")
+        extra_lines.append(f"Summary: {normalized_summary}")
+    fit_summary = _property_alert_fit_summary(personal_fit_assessment)
+    next_action = ""
     if str(property_url or "").strip():
-        lines.append(f"Listing: {str(property_url or '').strip()}")
-    lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
-    return "\n".join(line for line in lines if str(line or "").strip())
+        pass
+    if candidate_properties:
+        top = candidate_properties[0]
+        total = len(candidate_properties)
+        if total > 1:
+            extra_lines.append(f"EA found {total} concrete listings in this alert.")
+        top_summary = str(top.get('fit_summary') or '').strip()
+        top_url = str(top.get('property_url') or '').strip()
+        listing_title = str(top.get('listing_title') or '').strip()
+        if listing_title and listing_title != headline:
+            extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
+        if top_summary:
+            extra_lines.append(f"Top candidate: {top_summary}")
+        if top_url and top_url != str(property_url or '').strip():
+            extra_lines.append(f"Top listing: {top_url}")
+        top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
+        next_action = _property_alert_next_action_text(top_assessment, property_url=top_url)
+    elif fit_summary:
+        next_action = _property_alert_next_action_text(personal_fit_assessment, property_url=property_url)
+    extra_lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
+    return _property_scout_brief_text(
+        title=headline,
+        property_url=property_url,
+        fit_summary=fit_summary,
+        next_action=next_action,
+        source_text=counterparty,
+        mailbox=account_email,
+        extra_lines=tuple(extra_lines),
+    )
 
 
 def _property_tour_delivery_message(
@@ -787,14 +1093,41 @@ def _property_tour_delivery_message(
     if facts:
         body.extend(["", "Quick facts:", *facts])
     decision_summary = decision_summary_json if isinstance(decision_summary_json, dict) else {}
-    good_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("good_fit_reasons") or []) if str(value or "").strip()]
-    bad_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("bad_fit_reasons") or []) if str(value or "").strip()]
-    unknowns = [str(value or "").strip() for value in list(decision_summary.get("unknowns") or []) if str(value or "").strip()]
+    good_fit_reasons = [
+        str(value or "").strip()
+        for value in list(
+            decision_summary.get("good_fit_reasons")
+            or decision_summary.get("match_reasons_json")
+            or []
+        )
+        if str(value or "").strip()
+    ]
+    bad_fit_reasons = [
+        str(value or "").strip()
+        for value in list(
+            decision_summary.get("bad_fit_reasons")
+            or decision_summary.get("mismatch_reasons_json")
+            or []
+        )
+        if str(value or "").strip()
+    ]
+    unknowns = [
+        str(value or "").strip()
+        for value in list(
+            decision_summary.get("unknowns")
+            or decision_summary.get("unknowns_json")
+            or []
+        )
+        if str(value or "").strip()
+    ]
     recommendation = str(decision_summary.get("recommendation") or "").strip().replace("_", " ")
+    fit_score_value = decision_summary.get("fit_score")
     livability_snapshot = dict(decision_summary.get("livability_snapshot") or {}) if isinstance(decision_summary.get("livability_snapshot"), dict) else {}
     location_fit_score = decision_summary.get("location_fit_score")
     if recommendation:
         body.extend(["", f"Recommendation: {recommendation}"])
+    if isinstance(fit_score_value, (int, float)):
+        body.append(f"Personal fit score: {int(round(float(fit_score_value))):d}/100")
     if isinstance(location_fit_score, (int, float)):
         body.extend(["", f"Neighborhood fit score: {int(location_fit_score):d}"])
     livability_lines: list[str] = []
@@ -823,6 +1156,30 @@ def _property_tour_delivery_message(
         body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
     body.extend(["", "Open the tour link to review the space directly."])
     return subject[:220], "\n".join(body).strip() + "\n"
+
+
+def _property_tour_followup_telegram_text(
+    *,
+    title: str,
+    property_url: str,
+    blocked_reason: str,
+) -> str:
+    reason = str(blocked_reason or "").strip().replace("_", " ")
+    next_action = "Next: review the listing and unblock the tour path."
+    if str(blocked_reason or "").strip() == "listing_360_media_missing":
+        next_action = "Next: open the listing and continue once the 360/tour media path is available."
+    elif str(blocked_reason or "").strip() == "browseract_connector_unconfigured":
+        next_action = "Next: reconnect the tour worker and regenerate the tour."
+    elif str(blocked_reason or "").strip() == "property_tour_execution_failed":
+        next_action = "Next: retry the tour generation path for this listing."
+    elif str(blocked_reason or "").strip() == "property_tour_delivery_failed":
+        next_action = "Next: reopen the listing and retry the delivery path."
+    return _property_scout_brief_text(
+        title=title,
+        property_url=property_url,
+        status_text=f"blocked at {reason}." if reason else "",
+        next_action=next_action,
+    )
 
 
 def _google_send_error_detail(exc: Exception) -> str:
@@ -3797,6 +4154,307 @@ class ProductService:
     def _signal_ingest_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="signal-ingest")
 
+    def _onedrive_document_secret(self) -> str:
+        return resolve_signing_secret(self._container.settings, purpose="onedrive-documents")
+
+    def _onedrive_attachment_root(self) -> Path:
+        raw = str(os.getenv("EA_ONEDRIVE_ATTACHMENT_ROOT") or "/data/onedrive_attachments").strip()
+        return Path(raw).expanduser()
+
+    def _onedrive_document_public_base_url(self) -> str:
+        return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
+
+    def _onedrive_answerly_import_enabled(self) -> bool:
+        return str(os.getenv("EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS") or "1").strip().lower() not in {"0", "false", "no", "off"}
+
+    def _onedrive_answerly_training_config(self) -> dict[str, str] | None:
+        api_key = str(os.getenv("EA_ANSWERLY_ONEDRIVE_API_KEY") or "").strip()
+        training_id = str(os.getenv("EA_ANSWERLY_ONEDRIVE_TRAINING_ID") or "").strip()
+        if not api_key:
+            return None
+        return {
+            "api_key": api_key,
+            "training_id": training_id,
+            "workspace_id": str(os.getenv("EA_ANSWERLY_ONEDRIVE_WORKSPACE_ID") or "").strip(),
+            "base_url": str(os.getenv("EA_ANSWERLY_BASE_URL") or "https://ai.api.answerly.io").strip().rstrip("/"),
+            "label": str(os.getenv("EA_ANSWERLY_ONEDRIVE_LABEL") or "OneDrive documents").strip() or "OneDrive documents",
+        }
+
+    def _answerly_backend_pending_reason(self, error_text: str) -> str:
+        normalized = str(error_text or "").strip().lower()
+        if not normalized:
+            return ""
+        if "task_not_found" in normalized:
+            return "answerly_training_backend_unavailable"
+        if "no available server" in normalized:
+            return "answerly_ingest_backend_unavailable"
+        if "503" in normalized and "server" in normalized:
+            return "answerly_ingest_backend_unavailable"
+        return ""
+
+    def _encode_onedrive_document_token(
+        self,
+        *,
+        relpath: str,
+        filename: str,
+        mime_type: str,
+    ) -> str:
+        payload = {
+            "kind": "onedrive_document",
+            "relpath": str(relpath or "").strip(),
+            "filename": str(filename or "").strip(),
+            "mime_type": str(mime_type or "").strip() or "application/octet-stream",
+        }
+        body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")).decode("ascii").rstrip("=")
+        signature = hmac.new(
+            self._onedrive_document_secret().encode("utf-8"),
+            body.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{body}.{signature}"
+
+    def onedrive_document_download_url(
+        self,
+        *,
+        relpath: str,
+        filename: str,
+        mime_type: str,
+    ) -> str:
+        token = self._encode_onedrive_document_token(relpath=relpath, filename=filename, mime_type=mime_type)
+        return f"{self._onedrive_document_public_base_url()}/documents/onedrive-mail/{urllib.parse.quote(token, safe='')}"
+
+    def _sanitize_attachment_filename(self, value: str) -> str:
+        normalized = str(value or "").strip() or "attachment.pdf"
+        lowered = _ATTACHMENT_FILENAME_SANITIZE_RE.sub("-", normalized).strip(".-") or "attachment.pdf"
+        if not lowered.lower().endswith(".pdf"):
+            lowered = f"{lowered}.pdf"
+        return lowered[:180]
+
+    def _gmail_pdf_attachment_relpath(
+        self,
+        *,
+        account_email: str,
+        message_id: str,
+        attachment: google_oauth_service.GoogleWorkspaceAttachment,
+    ) -> str:
+        normalized_account = re.sub(r"[^a-z0-9._-]+", "-", str(account_email or "unattributed").strip().lower()) or "unattributed"
+        message_slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(message_id or "").strip()) or uuid4().hex
+        filename = self._sanitize_attachment_filename(attachment.filename)
+        today = datetime.now(timezone.utc)
+        return str(
+            Path("gmail_pdf_imports")
+            / normalized_account
+            / today.strftime("%Y")
+            / today.strftime("%m")
+            / f"{message_slug}-{filename}"
+        )
+
+    def _save_gmail_pdf_attachment(
+        self,
+        *,
+        account_email: str,
+        message_id: str,
+        attachment: google_oauth_service.GoogleWorkspaceAttachment,
+    ) -> dict[str, object] | None:
+        content_bytes = bytes(attachment.content_bytes or b"")
+        if not content_bytes:
+            return None
+        relpath = self._gmail_pdf_attachment_relpath(
+            account_email=account_email,
+            message_id=message_id,
+            attachment=attachment,
+        )
+        root = self._onedrive_attachment_root().resolve()
+        path = (root / relpath).resolve()
+        if path != root and root not in path.parents:
+            raise RuntimeError("onedrive_attachment_path_escape")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.write_bytes(content_bytes)
+        return {
+            "relpath": relpath,
+            "path": str(path),
+            "filename": path.name,
+            "mime_type": str(attachment.mime_type or "application/pdf").strip() or "application/pdf",
+            "download_url": self.onedrive_document_download_url(
+                relpath=relpath,
+                filename=path.name,
+                mime_type=str(attachment.mime_type or "application/pdf").strip() or "application/pdf",
+            ),
+            "size_bytes": len(content_bytes),
+        }
+
+    def _answerly_create_onedrive_data_item(
+        self,
+        *,
+        config: dict[str, str],
+        source_url: str,
+    ) -> dict[str, object]:
+        request = urllib.request.Request(
+            f"{str(config.get('base_url') or '').rstrip('/')}/dataitem/create",
+            data=json.dumps(
+                {
+                    "APIKey": str(config.get("api_key") or "").strip(),
+                    "dataItem": {
+                        "trainingId": str(config.get("training_id") or "").strip(),
+                        "type": "PDF",
+                        "source": source_url,
+                        "content": "",
+                        "properties": {},
+                    },
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not bool(payload.get("status")):
+            raise RuntimeError(str(payload.get("data") or "answerly_dataitem_create_failed").strip() or "answerly_dataitem_create_failed")
+        return dict(payload.get("data") or {})
+
+    def _auto_import_gmail_pdf_attachments(
+        self,
+        *,
+        principal_id: str,
+        channel: str,
+        signal_type: str,
+        external_id: str,
+        source_ref: str,
+        payload: dict[str, object],
+        attachments: tuple[google_oauth_service.GoogleWorkspaceAttachment, ...],
+    ) -> list[dict[str, object]]:
+        if str(channel or "").strip().lower() != "gmail" or str(signal_type or "").strip().lower() != "email_thread":
+            return []
+        if not attachments:
+            return []
+        normalized_external_id = str(external_id or source_ref or "").strip()
+        account_email = str(payload.get("account_email") or "").strip().lower()
+        message_id = str(payload.get("message_id") or "").strip()
+        results: list[dict[str, object]] = []
+        training_config = self._onedrive_answerly_training_config() if self._onedrive_answerly_import_enabled() else None
+        for attachment in attachments:
+            if str(attachment.mime_type or "").strip().lower() != "application/pdf":
+                continue
+            attachment_key = str(attachment.attachment_id or attachment.part_id or attachment.filename).strip()
+            dedupe_key = f"{principal_id}|gmail-pdf|{normalized_external_id}|{attachment_key}"
+            if self._container.channel_runtime.find_observation_by_dedupe(dedupe_key, principal_id=principal_id) is not None:
+                continue
+            saved = self._save_gmail_pdf_attachment(
+                account_email=account_email,
+                message_id=message_id or normalized_external_id,
+                attachment=attachment,
+            )
+            if saved is None:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="gmail_pdf_attachment_skipped",
+                    payload={
+                        "source_ref": source_ref,
+                        "external_id": normalized_external_id,
+                        "account_email": account_email,
+                        "attachment_id": attachment_key,
+                        "filename": attachment.filename,
+                        "reason": "attachment_bytes_unavailable",
+                    },
+                    source_id=normalized_external_id,
+                    dedupe_key=f"{dedupe_key}|skipped",
+                )
+                continue
+            saved_payload = {
+                "source_ref": source_ref,
+                "external_id": normalized_external_id,
+                "account_email": account_email,
+                "message_id": message_id,
+                "attachment_id": attachment_key,
+                "filename": str(saved["filename"] or ""),
+                "mime_type": str(saved["mime_type"] or ""),
+                "path": str(saved["path"] or ""),
+                "relpath": str(saved["relpath"] or ""),
+                "download_url": str(saved["download_url"] or ""),
+                "size_bytes": int(saved["size_bytes"] or 0),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="gmail_pdf_attachment_saved_to_onedrive",
+                payload=saved_payload,
+                source_id=normalized_external_id,
+                dedupe_key=dedupe_key,
+            )
+            enrolled = False
+            pending_answerly_import = False
+            answerly_data_item_id = ""
+            answerly_error = ""
+            if training_config is not None:
+                if not str(training_config.get("training_id") or "").strip():
+                    pending_answerly_import = True
+                    answerly_error = "answerly_training_id_missing"
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="answerly_onedrive_pdf_import_pending",
+                        payload={
+                            **saved_payload,
+                            "training_id": "",
+                            "workspace_id": str(training_config.get("workspace_id") or ""),
+                            "answerly_scope": "onedrive",
+                            "error": answerly_error,
+                        },
+                        source_id=normalized_external_id,
+                        dedupe_key=f"{dedupe_key}|answerly-onedrive-pending",
+                    )
+                else:
+                    try:
+                        answerly_data = self._answerly_create_onedrive_data_item(
+                            config=training_config,
+                            source_url=str(saved["download_url"] or ""),
+                        )
+                        enrolled = True
+                        answerly_data_item_id = str(answerly_data.get("id") or "").strip()
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="answerly_onedrive_pdf_enrolled",
+                            payload={
+                                **saved_payload,
+                                "training_id": str(training_config.get("training_id") or ""),
+                                "workspace_id": str(training_config.get("workspace_id") or ""),
+                                "answerly_scope": "onedrive",
+                                "answerly_data_item_id": answerly_data_item_id,
+                            },
+                            source_id=normalized_external_id,
+                            dedupe_key=f"{dedupe_key}|answerly-onedrive",
+                        )
+                    except Exception as exc:
+                        answerly_error = compact_text(str(exc or ""), fallback="answerly_onedrive_pdf_enroll_failed", limit=220)
+                        pending_reason = self._answerly_backend_pending_reason(answerly_error)
+                        pending_answerly_import = bool(pending_reason)
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="answerly_onedrive_pdf_import_pending" if pending_answerly_import else "answerly_onedrive_pdf_enroll_failed",
+                            payload={
+                                **saved_payload,
+                                "training_id": str(training_config.get("training_id") or ""),
+                                "workspace_id": str(training_config.get("workspace_id") or ""),
+                                "answerly_scope": "onedrive",
+                                "error": pending_reason or answerly_error,
+                            },
+                            source_id=normalized_external_id,
+                            dedupe_key=(
+                                f"{dedupe_key}|answerly-onedrive-pending"
+                                if pending_answerly_import
+                                else f"{dedupe_key}|answerly-onedrive-failed"
+                            ),
+                        )
+            results.append(
+                {
+                    **saved_payload,
+                    "enrolled": enrolled,
+                    "pending_answerly_import": pending_answerly_import,
+                    "answerly_data_item_id": answerly_data_item_id,
+                    "answerly_error": answerly_error,
+                }
+            )
+        return results
+
     def _record_product_event(
         self,
         *,
@@ -5322,6 +5980,11 @@ class ProductService:
         title_text = str(title or "").strip()
         source_text = str(text or "").strip() or " ".join(part for part in (title_text, summary_text) if part).strip()
         payload_json = dict(payload or {})
+        attachments_runtime = tuple(
+            row
+            for row in list(payload_json.pop("attachments_runtime", None) or [])
+            if isinstance(row, google_oauth_service.GoogleWorkspaceAttachment)
+        )
         is_willhaben_search_agent = (
             normalized_channel == "gmail"
             and normalized_signal == "email_thread"
@@ -5567,6 +6230,15 @@ class ProductService:
                 source_id=str(resolved_signal_source_id or event.observation_id or "").strip(),
                 dedupe_key=f"{principal_id}|{dedupe_key}|office-signal-ooda",
             )
+        attachment_imports = self._auto_import_gmail_pdf_attachments(
+            principal_id=principal_id,
+            channel=normalized_channel,
+            signal_type=normalized_signal,
+            external_id=str(external_id or "").strip(),
+            source_ref=str(source_ref or "").strip(),
+            payload=payload_json,
+            attachments=attachments_runtime,
+        )
         return {
             "observation_id": str(event.observation_id or ""),
             "channel": str(event.channel or ""),
@@ -5580,6 +6252,7 @@ class ProductService:
             "draft_count": 1 if staged_draft is not None else 0,
             "deduplicated": False,
             "ooda_loop": dict(ooda_loop or {}),
+            "attachment_imports": [dict(item) for item in attachment_imports],
         }
 
     def _existing_property_alert_review_task(
@@ -5588,15 +6261,21 @@ class ProductService:
         principal_id: str,
         source_ref: str,
         external_id: str,
+        property_url: str = "",
     ) -> HumanTask | None:
         normalized_source = str(source_ref or "").strip()
         normalized_external = str(external_id or "").strip()
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_source and not normalized_external:
             return None
         for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
             if str(getattr(row, "task_type", "") or "").strip() != "property_alert_review":
                 continue
             input_json = dict(getattr(row, "input_json", {}) or {})
+            existing_property_url = urllib.parse.urldefrag(str(input_json.get("property_url") or "").strip())[0]
+            if normalized_property_url and existing_property_url and existing_property_url == normalized_property_url:
+                if not normalized_source or str(input_json.get("source_ref") or "").strip() == normalized_source:
+                    return row
             if normalized_source and str(input_json.get("source_ref") or "").strip() == normalized_source:
                 return row
             if normalized_external and str(input_json.get("external_id") or "").strip() == normalized_external:
@@ -5615,13 +6294,24 @@ class ProductService:
         account_email: str,
         property_url: str,
         actor: str,
+        notify_telegram: bool = True,
+        candidate_properties: tuple[dict[str, object], ...] = (),
     ) -> dict[str, object]:
+        personal_fit_assessment = _property_alert_personal_fit_assessment(
+            preference_profiles=self._preference_profiles,
+            principal_id=principal_id,
+            property_url=property_url,
+        )
+        task_priority = _property_alert_priority_from_fit(personal_fit_assessment)
+        fit_score = _property_alert_fit_score(personal_fit_assessment)
         existing = self._existing_property_alert_review_task(
             principal_id=principal_id,
             source_ref=source_ref,
             external_id=external_id,
+            property_url=property_url,
         )
         if existing is not None:
+            existing_input = dict(getattr(existing, "input_json", {}) or {})
             return {
                 "status": "existing",
                 "human_task_id": f"human_task:{existing.human_task_id}",
@@ -5631,6 +6321,8 @@ class ProductService:
                 "source_ref": source_ref,
                 "external_id": external_id,
                 "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
+                "willhaben_fit_score": float(existing_input.get("willhaben_fit_score") or 0.0),
+                "personal_fit_rank": str(existing_input.get("personal_fit_rank") or "").strip(),
             }
         session_id = self._start_product_review_session(
             principal_id=principal_id,
@@ -5644,7 +6336,7 @@ class ProductService:
             role_required="operator",
             brief=_property_alert_review_brief(title),
             why_human="Apartment-search mail should stay visible as a review item, not a fake commitment. Decide whether to open the listing, generate a tour, or ignore the alert.",
-            priority="normal",
+            priority=task_priority,
             input_json={
                 "title": str(title or "").strip(),
                 "summary": str(summary or "").strip(),
@@ -5654,6 +6346,10 @@ class ProductService:
                 "source_ref": str(source_ref or "").strip(),
                 "external_id": str(external_id or "").strip(),
                 "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
+                "willhaben_fit_score": fit_score,
+                "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
+                "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
+                "candidate_properties": [dict(item) for item in candidate_properties],
             },
             desired_output_json={
                 "resolution": "reviewed",
@@ -5671,6 +6367,8 @@ class ProductService:
             "source_ref": str(source_ref or "").strip(),
             "external_id": str(external_id or "").strip(),
             "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
+            "willhaben_fit_score": fit_score,
+            "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -5682,41 +6380,55 @@ class ProductService:
                 "counterparty": str(counterparty or "").strip(),
                 "account_email": str(account_email or "").strip().lower(),
                 "actor": str(actor or "").strip() or "office_api",
+                "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
+                "candidate_properties": [dict(item) for item in candidate_properties],
             },
             source_id=str(source_ref or external_id or task.human_task_id).strip(),
             dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-created",
         )
-        try:
-            telegram_receipt = send_telegram_message_for_principal(
-                self._container.tool_runtime,
-                principal_id=principal_id,
-                text=_property_alert_review_telegram_text(
-                    title=title,
-                    summary=summary,
-                    counterparty=counterparty,
-                    account_email=account_email,
-                    property_url=property_url,
-                ),
-            )
-            payload["telegram_delivery_status"] = "sent"
-            payload["telegram_message_ids"] = list(telegram_receipt.message_ids)
-            payload["telegram_chat_ref"] = str(telegram_receipt.chat_id or "").strip()
+        if notify_telegram:
+            try:
+                telegram_receipt = send_telegram_message_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    text=_property_alert_review_telegram_text(
+                        title=title,
+                        summary=summary,
+                        counterparty=counterparty,
+                        account_email=account_email,
+                        property_url=property_url,
+                        personal_fit_assessment=personal_fit_assessment,
+                        candidate_properties=candidate_properties,
+                    ),
+                )
+                payload["telegram_delivery_status"] = "sent"
+                payload["telegram_message_ids"] = list(telegram_receipt.message_ids)
+                payload["telegram_chat_ref"] = str(telegram_receipt.chat_id or "").strip()
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_alert_review_telegram_sent",
+                    payload={**payload},
+                    source_id=str(source_ref or external_id or task.human_task_id).strip(),
+                    dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-sent",
+                )
+            except Exception as exc:
+                payload["telegram_delivery_status"] = "failed"
+                payload["telegram_delivery_error"] = compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=160)
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_alert_review_telegram_failed",
+                    payload={**payload},
+                    source_id=str(source_ref or external_id or task.human_task_id).strip(),
+                    dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-failed",
+                )
+        else:
+            payload["telegram_delivery_status"] = "suppressed"
             self._record_product_event(
                 principal_id=principal_id,
-                event_type="property_alert_review_telegram_sent",
+                event_type="property_alert_review_telegram_suppressed",
                 payload={**payload},
                 source_id=str(source_ref or external_id or task.human_task_id).strip(),
-                dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-sent",
-            )
-        except Exception as exc:
-            payload["telegram_delivery_status"] = "failed"
-            payload["telegram_delivery_error"] = compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=160)
-            self._record_product_event(
-                principal_id=principal_id,
-                event_type="property_alert_review_telegram_failed",
-                payload={**payload},
-                source_id=str(source_ref or external_id or task.human_task_id).strip(),
-                dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-failed",
+                dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-telegram-suppressed",
             )
         return payload
 
@@ -5746,6 +6458,7 @@ class ProductService:
             payload=payload,
         ):
             return None
+        policy = self.property_alert_policy(principal_id=principal_id)
         auto_create_spec = _property_alert_auto_create_spec(
             principal_id=principal_id,
             title=title,
@@ -5758,6 +6471,20 @@ class ProductService:
         )
         if auto_create_spec is not None:
             return None
+        property_urls = _willhaben_property_urls_from_signal(
+            title=title,
+            summary=summary,
+            text=text,
+            source_ref=source_ref,
+            external_id=external_id,
+            payload=payload,
+        )
+        candidate_properties = _property_alert_ranked_candidates(
+            preference_profiles=self._preference_profiles,
+            principal_id=principal_id,
+            property_urls=property_urls,
+            limit=3,
+        )
         property_url = _property_listing_url_from_signal(
             title=title,
             summary=summary,
@@ -5766,6 +6493,57 @@ class ProductService:
             external_id=external_id,
             payload=payload,
         )
+        if not property_url and candidate_properties:
+            property_url = str(candidate_properties[0].get("property_url") or "").strip()
+        personal_fit_assessment = _property_alert_personal_fit_assessment(
+            preference_profiles=self._preference_profiles,
+            principal_id=principal_id,
+            property_url=property_url,
+        )
+        notify_telegram = True
+        if bool(policy.get("notify_only_if_good")):
+            notify_telegram = _property_alert_is_good_fit(personal_fit_assessment, policy=policy)
+        if not property_url:
+            notify_telegram = False if bool(policy.get("notify_only_if_good")) else notify_telegram
+        elif (
+            bool(policy.get("notify_only_if_good"))
+            and property_url
+            and "willhaben" not in str(property_url).lower()
+            and not candidate_properties
+            and not _property_alert_fit_score(personal_fit_assessment)
+        ):
+            notify_telegram = True
+        if candidate_properties:
+            review_results: list[dict[str, object]] = []
+            account_email = str(payload.get("account_email") or "").strip().lower()
+            for index, candidate in enumerate(candidate_properties):
+                candidate_url = str(candidate.get("property_url") or "").strip()
+                if not candidate_url:
+                    continue
+                candidate_title = str(candidate.get("listing_title") or "").strip() or title
+                candidate_notify = notify_telegram if index == 0 else False
+                candidate_source_ref = source_ref if index == 0 else f"{source_ref}#listing:{index + 1}"
+                candidate_external_id = external_id if index == 0 else f"{external_id}#listing:{index + 1}"
+                review_results.append(
+                    self._open_property_alert_review(
+                        principal_id=principal_id,
+                        title=candidate_title,
+                        summary=summary,
+                        source_ref=candidate_source_ref,
+                        external_id=candidate_external_id,
+                        counterparty=counterparty,
+                        account_email=account_email,
+                        property_url=candidate_url,
+                        actor=actor,
+                        notify_telegram=candidate_notify,
+                        candidate_properties=(candidate,),
+                    )
+                )
+            if review_results:
+                primary = dict(review_results[0])
+                primary["related_reviews"] = [dict(item) for item in review_results[1:]]
+                primary["review_count"] = len(review_results)
+                return primary
         return self._open_property_alert_review(
             principal_id=principal_id,
             title=title,
@@ -5776,6 +6554,8 @@ class ProductService:
             account_email=str(payload.get("account_email") or "").strip().lower(),
             property_url=property_url,
             actor=actor,
+            notify_telegram=notify_telegram,
+            candidate_properties=candidate_properties,
         )
 
     def _attach_property_alert_review_to_ooda_loop(
@@ -6423,7 +7203,7 @@ class ProductService:
             goal=f"Finish apartment-tour automation for {title or property_url}",
             source_ref=source_ref or property_url,
         )
-        return self._container.orchestrator.create_human_task(
+        task = self._container.orchestrator.create_human_task(
             session_id=session_id,
             principal_id=principal_id,
             task_type="property_tour_followup",
@@ -6447,7 +7227,57 @@ class ProductService:
                 "delivery_email": str(recipient_email or "").strip().lower(),
             },
         )
-
+        payload = {
+            "human_task_id": f"human_task:{task.human_task_id}",
+            "property_url": str(property_url or "").strip(),
+            "title": str(title or "").strip(),
+            "variant_key": str(variant_key or "").strip(),
+            "blocked_reason": str(blocked_reason or "").strip(),
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "connector_binding_id": str(connector_binding_id or "").strip(),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_tour_followup_created",
+            payload=payload,
+            source_id=str(source_ref or property_url or task.human_task_id).strip(),
+            dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-tour-followup-created",
+        )
+        try:
+            telegram_receipt = send_telegram_message_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                text=_property_tour_followup_telegram_text(
+                    title=title,
+                    property_url=property_url,
+                    blocked_reason=blocked_reason,
+                ),
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_tour_followup_telegram_sent",
+                payload={
+                    **payload,
+                    "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
+                    "telegram_message_ids": list(telegram_receipt.message_ids),
+                },
+                source_id=str(source_ref or property_url or task.human_task_id).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-tour-followup-telegram-sent",
+            )
+        except Exception as exc:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_tour_followup_telegram_failed",
+                payload={
+                    **payload,
+                    "error": compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=200),
+                },
+                source_id=str(source_ref or property_url or task.human_task_id).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-tour-followup-telegram-failed",
+            )
+        return task
     def _maybe_create_willhaben_property_tour_from_signal(
         self,
         *,
@@ -6461,6 +7291,7 @@ class ProductService:
         payload: dict[str, object],
         actor: str,
     ) -> dict[str, object] | None:
+        policy = self.property_alert_policy(principal_id=principal_id)
         wants_tour = bool(payload.get("auto_create_property_tour"))
         if not wants_tour:
             actions = payload.get("ooda_actions")
@@ -6478,6 +7309,25 @@ class ProductService:
         )
         if not wants_tour and auto_create_spec is not None:
             wants_tour = True
+        if not wants_tour:
+            property_url_for_policy = _first_non_empty_text(
+                auto_create_spec.get("property_url") if auto_create_spec is not None else "",
+                _willhaben_property_url_from_signal(
+                    title=title,
+                    summary=summary,
+                    text=text,
+                    source_ref=source_ref,
+                    external_id=external_id,
+                    payload=payload,
+                ),
+            )
+            if bool(policy.get("auto_generate_tour_for_good_fit")) and property_url_for_policy:
+                assessment = _property_alert_personal_fit_assessment(
+                    preference_profiles=self._preference_profiles,
+                    principal_id=principal_id,
+                    property_url=property_url_for_policy,
+                )
+                wants_tour = _property_alert_is_good_fit(assessment, policy=policy)
         if not wants_tour:
             return None
         property_url = _first_non_empty_text(
@@ -7169,6 +8019,212 @@ class ProductService:
             dedupe_key_prefix="google-willhaben-signal-sync",
         )
 
+    def create_google_photos_picker_session(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        account_email: str = "",
+        binding_id: str = "",
+        max_item_count: int = 50,
+        autoclose: bool = True,
+    ) -> dict[str, object]:
+        session = google_oauth_service.create_google_photos_picker_session(
+            container=self._container,
+            principal_id=principal_id,
+            binding_id=binding_id,
+            account_email_filter=account_email,
+            max_item_count=max_item_count,
+        )
+        picker_uri = str(session.picker_uri or "").strip()
+        if picker_uri and autoclose and not picker_uri.endswith("/autoclose"):
+            picker_uri = f"{picker_uri.rstrip('/')}/autoclose"
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_photos_picker_session_created",
+            payload={
+                "account_email": session.account_email,
+                "binding_id": session.binding_id,
+                "session_id": session.session_id,
+                "max_item_count": max(1, min(int(max_item_count or 50), 2000)),
+                "actor": str(actor or "").strip() or "google_photos",
+            },
+            source_id=f"google-photos-session:{session.session_id}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "status": "ready_for_selection",
+            "account_email": session.account_email,
+            "binding_id": session.binding_id,
+            "granted_scopes": list(session.granted_scopes),
+            "session_id": session.session_id,
+            "picker_uri": picker_uri,
+            "poll_interval": session.poll_interval,
+            "timeout_in": session.timeout_in,
+            "media_items_set": session.media_items_set,
+        }
+
+    def get_google_photos_picker_session(
+        self,
+        *,
+        principal_id: str,
+        session_id: str,
+        account_email: str = "",
+        binding_id: str = "",
+        autoclose: bool = True,
+    ) -> dict[str, object]:
+        session = google_oauth_service.get_google_photos_picker_session(
+            container=self._container,
+            principal_id=principal_id,
+            session_id=session_id,
+            binding_id=binding_id,
+            account_email_filter=account_email,
+        )
+        picker_uri = str(session.picker_uri or "").strip()
+        if picker_uri and autoclose and not picker_uri.endswith("/autoclose"):
+            picker_uri = f"{picker_uri.rstrip('/')}/autoclose"
+        return {
+            "generated_at": _now_iso(),
+            "status": "media_items_ready" if session.media_items_set else "waiting_for_selection",
+            "account_email": session.account_email,
+            "binding_id": session.binding_id,
+            "granted_scopes": list(session.granted_scopes),
+            "session_id": session.session_id,
+            "picker_uri": picker_uri,
+            "poll_interval": session.poll_interval,
+            "timeout_in": session.timeout_in,
+            "media_items_set": session.media_items_set,
+        }
+
+    def sync_google_photos_signals(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        session_id: str,
+        account_email: str = "",
+        binding_id: str = "",
+        max_items: int = 50,
+        delete_session: bool = False,
+    ) -> dict[str, object]:
+        packet = google_oauth_service.sync_google_photos_picker_session(
+            container=self._container,
+            principal_id=principal_id,
+            session_id=session_id,
+            binding_id=binding_id,
+            account_email_filter=account_email,
+            max_items=max_items,
+        )
+        items: list[dict[str, object]] = []
+        deduplicated_total = 0
+        synced_total = 0
+        analyzed_total = 0
+        top_suggestions: list[str] = []
+        for row in packet.signals:
+            payload_json = dict(row.payload or {})
+            analysis = self._analyze_google_photo_signal_payload(
+                title=row.title,
+                summary=row.summary,
+                payload=payload_json,
+            )
+            if analysis:
+                analyzed_total += 1
+                payload_json["photo_analysis"] = dict(analysis)
+                suggestion_list = [str(value).strip() for value in list(analysis.get("suggestions") or []) if str(value).strip()]
+                for suggestion in suggestion_list:
+                    if suggestion not in top_suggestions:
+                        top_suggestions.append(suggestion)
+                if str(analysis.get("summary") or "").strip():
+                    payload_json["analysis_summary"] = str(analysis.get("summary") or "").strip()
+            summary_text = str(payload_json.get("analysis_summary") or row.summary or "").strip()
+            text_parts = [str(row.text or "").strip()]
+            analysis_summary = str(dict(payload_json.get("photo_analysis") or {}).get("summary") or "").strip()
+            if analysis_summary:
+                text_parts.append(f"Photo signal analysis: {analysis_summary}")
+            notable_details = [
+                str(value).strip()
+                for value in list(dict(payload_json.get("photo_analysis") or {}).get("notable_details") or [])
+                if str(value).strip()
+            ]
+            if notable_details:
+                text_parts.append("Notable details: " + "; ".join(notable_details[:4]))
+            item = self.ingest_office_signal(
+                principal_id=principal_id,
+                signal_type=row.signal_type,
+                channel=row.channel,
+                title=row.title,
+                summary=summary_text or row.summary,
+                text=" ".join(part for part in text_parts if part).strip(),
+                source_ref=row.source_ref,
+                external_id=row.external_id,
+                counterparty=row.counterparty,
+                due_at=row.due_at,
+                payload=payload_json,
+                actor=actor,
+            )
+            items.append(item)
+            if bool(item.get("deduplicated")):
+                deduplicated_total += 1
+            else:
+                synced_total += 1
+        if top_suggestions:
+            self._send_google_photos_sync_telegram_summary(
+                principal_id=principal_id,
+                session_id=packet.session_id,
+                account_email=packet.account_email,
+                suggestions=top_suggestions,
+                analyzed_total=analyzed_total,
+            )
+        if delete_session and packet.media_items_set:
+            try:
+                google_oauth_service.delete_google_photos_picker_session(
+                    container=self._container,
+                    principal_id=principal_id,
+                    session_id=packet.session_id,
+                    binding_id=packet.binding_id,
+                    account_email_filter=packet.account_email,
+                )
+            except RuntimeError:
+                pass
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_photos_signal_sync_completed",
+            payload={
+                "account_email": packet.account_email,
+                "account_emails": list(packet.account_emails),
+                "binding_id": packet.binding_id,
+                "session_id": packet.session_id,
+                "selected_total": len(packet.signals),
+                "processed_total": len(items),
+                "synced_total": synced_total,
+                "deduplicated_total": deduplicated_total,
+                "suppressed_total": 0,
+                "analyzed_total": analyzed_total,
+                "suggestion_total": len(top_suggestions),
+                "top_suggestions": top_suggestions[:5],
+            },
+            source_id=f"google-photos-session:{packet.session_id}",
+            dedupe_key=f"{principal_id}|google-photos-signal-sync|{packet.session_id}|{len(packet.signals)}|{_now_iso()}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "account_email": packet.account_email,
+            "account_emails": list(packet.account_emails),
+            "binding_id": packet.binding_id,
+            "session_id": packet.session_id,
+            "granted_scopes": list(packet.granted_scopes),
+            "media_items_set": packet.media_items_set,
+            "items": items,
+            "total": len(items),
+            "selected_total": len(packet.signals),
+            "synced_total": synced_total,
+            "deduplicated_total": deduplicated_total,
+            "suppressed_total": 0,
+            "analyzed_total": analyzed_total,
+            "suggestion_total": len(top_suggestions),
+            "top_suggestions": top_suggestions[:5],
+        }
+
     def _ingest_google_workspace_signal_packet(
         self,
         *,
@@ -7193,7 +8249,7 @@ class ProductService:
                 external_id=row.external_id,
                 counterparty=row.counterparty,
                 due_at=row.due_at,
-                payload=row.payload,
+                payload={**dict(row.payload or {}), "attachments_runtime": list(row.attachments or ())},
                 actor=actor,
             )
             for row in curated_signals
@@ -7274,6 +8330,75 @@ class ProductService:
             "deduplicated_total": deduplicated_total,
             "suppressed_total": suppressed_total,
         }
+
+    def _analyze_google_photo_signal_payload(
+        self,
+        *,
+        title: str,
+        summary: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        preview_url = str(payload.get("preview_url") or payload.get("content_url") or "").strip()
+        mime_type = str(payload.get("mime_type") or "").strip()
+        analysis = photo_signal_analysis.analyze_photo_url(
+            image_url=preview_url,
+            title=title,
+            summary=summary,
+            mime_type=mime_type,
+        )
+        cleaned_summary = str(analysis.get("summary") or "").strip()
+        if not cleaned_summary:
+            filename = str(payload.get("filename") or title or "Google Photos item").strip()
+            cleaned_summary = f"Google Photos signal captured: {filename}."
+            analysis["summary"] = cleaned_summary
+        return dict(analysis)
+
+    def _send_google_photos_sync_telegram_summary(
+        self,
+        *,
+        principal_id: str,
+        session_id: str,
+        account_email: str,
+        suggestions: list[str],
+        analyzed_total: int,
+    ) -> None:
+        if not suggestions:
+            return
+        lines = [
+            "Google Photos signal review",
+            f"Account: {account_email or 'connected Google account'}",
+            f"Analyzed items: {analyzed_total}",
+            "Top suggestions:",
+        ]
+        lines.extend(f"- {value}" for value in suggestions[:5])
+        try:
+            receipt = send_telegram_message_for_principal(
+                container=self._container,
+                principal_id=principal_id,
+                text="\n".join(lines),
+            )
+        except Exception as exc:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="google_photos_sync_telegram_failed",
+                payload={
+                    "session_id": session_id,
+                    "account_email": account_email,
+                    "error": compact_text(str(exc or ""), fallback="telegram_send_failed", limit=220),
+                },
+                source_id=f"google-photos-session:{session_id}",
+            )
+            return
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_photos_sync_telegram_sent",
+            payload={
+                "session_id": session_id,
+                "account_email": account_email,
+                "message_ids": list(receipt.get("message_ids") or []),
+            },
+            source_id=f"google-photos-session:{session_id}",
+        )
 
     def google_signal_sync_status(self, *, principal_id: str) -> dict[str, object]:
         diagnostics = self.workspace_diagnostics(principal_id=principal_id)
@@ -8198,6 +9323,58 @@ class ProductService:
                 continue
             return row
         return None
+
+    def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
+        event = self._latest_product_event(
+            principal_id=principal_id,
+            event_type="property_alert_policy_updated",
+        )
+        payload = dict(getattr(event, "payload", {}) or {}) if event is not None else {}
+        return _normalize_property_alert_policy(payload)
+
+    def update_property_alert_policy(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        auto_score: bool | None = None,
+        auto_compare: bool | None = None,
+        auto_generate_tour_for_good_fit: bool | None = None,
+        notify_only_if_good: bool | None = None,
+        good_fit_min_score: float | None = None,
+        good_fit_recommendations: tuple[str, ...] | None = None,
+        source_id: str = "",
+    ) -> dict[str, object]:
+        payload = self.property_alert_policy(principal_id=principal_id)
+        if auto_score is not None:
+            payload["auto_score"] = bool(auto_score)
+        if auto_compare is not None:
+            payload["auto_compare"] = bool(auto_compare)
+        if auto_generate_tour_for_good_fit is not None:
+            payload["auto_generate_tour_for_good_fit"] = bool(auto_generate_tour_for_good_fit)
+        if notify_only_if_good is not None:
+            payload["notify_only_if_good"] = bool(notify_only_if_good)
+        if good_fit_min_score is not None:
+            payload["good_fit_min_score"] = max(0.0, min(100.0, float(good_fit_min_score)))
+        if good_fit_recommendations is not None:
+            payload["good_fit_recommendations"] = [
+                str(item or "").strip().lower()
+                for item in good_fit_recommendations
+                if str(item or "").strip()
+            ]
+        normalized = _normalize_property_alert_policy(payload)
+        event_payload = {
+            **normalized,
+            "actor": str(actor or "").strip() or "office_api",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_alert_policy_updated",
+            payload=event_payload,
+            source_id=str(source_id or principal_id).strip(),
+            dedupe_key=f"{principal_id}|property-alert-policy|{json.dumps(normalized, sort_keys=True)}",
+        )
+        return normalized
 
     def _pocket_sync_cursor(self, *, principal_id: str) -> dict[str, str]:
         last_sync_event = self._latest_product_event(
@@ -10168,14 +11345,34 @@ class ProductService:
         )
 
     def _queue_item_from_human_task(self, row: HumanTask) -> DecisionQueueItem:
-        summary = " · ".join(
-            part
-            for part in (
-                compact_text(row.why_human, fallback="Human judgment is still required."),
-                f"Role {row.role_required}" if row.role_required else "",
+        input_json = dict(getattr(row, "input_json", {}) or {})
+        rank_score = 0.0
+        if str(getattr(row, "task_type", "") or "").strip() == "property_alert_review":
+            rank_score = float(input_json.get("willhaben_fit_score") or 0.0)
+            summary_parts = [
+                _property_alert_fit_summary(dict(input_json.get("personal_fit_assessment") or {})),
+                compact_text(str(input_json.get("summary") or "").strip(), fallback="", limit=110),
                 f"Due {row.sla_due_at[:10]}" if row.sla_due_at else "",
+            ]
+            summary = " · ".join(part for part in summary_parts if part) or compact_text(
+                row.why_human,
+                fallback="Human judgment is still required.",
             )
-            if part
+        else:
+            summary = " · ".join(
+                part
+                for part in (
+                    compact_text(row.why_human, fallback="Human judgment is still required."),
+                    f"Role {row.role_required}" if row.role_required else "",
+                    f"Due {row.sla_due_at[:10]}" if row.sla_due_at else "",
+                )
+                if part
+            )
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=str(getattr(row, "principal_id", "") or "").strip(),
+            title=str(row.brief or ""),
+            summary=str(summary or ""),
+            notes=str(row.why_human or ""),
         )
         return DecisionQueueItem(
             id=f"human_task:{row.human_task_id}",
@@ -10183,6 +11380,7 @@ class ProductService:
             title=row.brief,
             summary=summary,
             priority=row.priority,
+            rank_score=rank_score,
             deadline=row.sla_due_at,
             owner_role=row.role_required,
             requires_principal=False,
@@ -10190,51 +11388,76 @@ class ProductService:
                 EvidenceRef(ref_id=f"human_task:{row.human_task_id}", label="Human task", source_type="human_task", note=row.task_type),
                 EvidenceRef(ref_id=f"session:{row.session_id}", label="Session", source_type="session", note=row.step_id or ""),
             ),
+            profile_followup_refs=profile_followup_refs,
             resolution_state=row.status,
         )
 
     def _queue_item_from_commitment(self, row: CommitmentItem) -> DecisionQueueItem:
+        summary = compact_text(
+            row.proof_refs[0].note if row.proof_refs else "",
+            fallback="Commitment is still open and needs a visible next action.",
+        )
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=str(getattr(row, "principal_id", "") or "").strip(),
+            title=str(row.statement or ""),
+            summary=str(summary or ""),
+            notes=str(row.resolution_reason or ""),
+        )
         return DecisionQueueItem(
             id=row.id,
             queue_kind="close_commitment",
             title=row.statement,
-            summary=compact_text(
-                row.proof_refs[0].note if row.proof_refs else "",
-                fallback="Commitment is still open and needs a visible next action.",
-            ),
+            summary=summary,
             priority=row.risk_level,
             deadline=row.due_at,
             owner_role=row.owner,
             requires_principal=False,
             evidence_refs=row.proof_refs,
+            profile_followup_refs=profile_followup_refs,
             resolution_state=row.status,
         )
 
     def _queue_item_from_decision(self, row: DecisionWindow) -> DecisionQueueItem:
+        summary = compact_text(row.context or row.notes, fallback="Decision window is open.")
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=str(getattr(row, "principal_id", "") or "").strip(),
+            title=str(row.title or ""),
+            summary=str(summary or ""),
+            notes=str(row.notes or ""),
+        )
         return DecisionQueueItem(
             id=f"decision:{row.decision_window_id}",
             queue_kind="choose_option",
             title=row.title,
-            summary=compact_text(row.context or row.notes, fallback="Decision window is open."),
+            summary=summary,
             priority=row.urgency,
             deadline=row.closes_at or row.opens_at,
             owner_role=row.authority_required,
             requires_principal=str(row.authority_required or "").strip().lower() in {"principal", "exec", "executive"},
             evidence_refs=(EvidenceRef(ref_id=f"decision:{row.decision_window_id}", label="Decision", source_type="decision", note=row.status),),
+            profile_followup_refs=profile_followup_refs,
             resolution_state=row.status,
         )
 
     def _queue_item_from_deadline(self, row: DeadlineWindow) -> DecisionQueueItem:
+        summary = compact_text(row.notes, fallback="Deadline window is active.")
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=str(getattr(row, "principal_id", "") or "").strip(),
+            title=str(row.title or ""),
+            summary=str(summary or ""),
+            notes=str(row.notes or ""),
+        )
         return DecisionQueueItem(
             id=f"deadline:{row.window_id}",
             queue_kind="defer",
             title=row.title,
-            summary=compact_text(row.notes, fallback="Deadline window is active."),
+            summary=summary,
             priority=row.priority,
             deadline=row.end_at or row.start_at,
             owner_role="office",
             requires_principal=False,
             evidence_refs=(EvidenceRef(ref_id=f"deadline:{row.window_id}", label="Deadline", source_type="deadline", note=row.status),),
+            profile_followup_refs=profile_followup_refs,
             resolution_state=row.status,
         )
 
@@ -10255,8 +11478,464 @@ class ProductService:
             if status_open(row.status):
                 items.append(self._queue_item_from_deadline(row))
         items = [item for item in items if status_open(item.resolution_state)]
-        items.sort(key=lambda item: (priority_weight(item.priority), due_bonus(item.deadline), item.title.lower()), reverse=True)
+        items = [self._queue_item_with_profile_rank_boost(principal_id=principal_id, item=item) for item in items]
+        items.sort(
+            key=lambda item: (
+                priority_weight(item.priority),
+                float(item.rank_score or 0.0),
+                due_bonus(item.deadline),
+                item.title.lower(),
+            ),
+            reverse=True,
+        )
         return tuple(items[:limit])
+
+    def _queue_item_with_profile_rank_boost(
+        self,
+        *,
+        principal_id: str,
+        item: DecisionQueueItem,
+    ) -> DecisionQueueItem:
+        boost = self._queue_profile_rank_boost(principal_id=principal_id, item=item)
+        if boost <= 0.0:
+            return item
+        return replace(item, rank_score=float(item.rank_score or 0.0) + boost)
+
+    def _queue_profile_rank_boost(
+        self,
+        *,
+        principal_id: str,
+        item: DecisionQueueItem,
+    ) -> float:
+        haystack = " ".join(
+            part.strip()
+            for part in (
+                str(item.title or ""),
+                str(item.summary or ""),
+                str(item.queue_kind or ""),
+                " ".join(str(ref.note or "") for ref in tuple(item.evidence_refs or ())),
+            )
+            if part and str(part).strip()
+        )
+        return self._profile_admin_relevance_boost(
+            principal_id=principal_id,
+            text=haystack,
+            has_deadline=bool(item.deadline),
+        )
+
+    def _profile_admin_relevance_boost(
+        self,
+        *,
+        principal_id: str,
+        text: str,
+        has_deadline: bool = False,
+    ) -> float:
+        try:
+            bundle = self._preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+        except Exception:
+            return 0.0
+        nodes = list(bundle.get("preference_nodes") or [])
+        haystack = str(text or "").strip().lower()
+        if not nodes or not haystack:
+            return 0.0
+        boost = 0.0
+        for row in nodes:
+            if str(row.get("status") or "").strip().lower() != "active":
+                continue
+            category = str(row.get("category") or "").strip().lower()
+            key = str(row.get("key") or "").strip().lower()
+            confidence = float(row.get("confidence") or 0.0)
+            rule_boost = 0.0
+            if category == "medical_admin" and key == "proactive_case_management":
+                if any(token in haystack for token in ("akh", "arzt", "befund", "rehab", "nrz", "physio", "ergo", "neuro", "ambulanz")):
+                    rule_boost = 18.0
+            elif category == "medical_admin" and key == "official_followup_management":
+                if any(token in haystack for token in ("amtsarzt", "wiederbestellung", "kontrolle", "krankmeldung", "medizin")):
+                    rule_boost = 20.0
+            elif category == "insurance_admin" and key == "rehab_authorization_management":
+                if any(token in haystack for token in ("kfa", "bewilligung", "genehmigung", "reha", "versicherung", "physio", "ergo")):
+                    rule_boost = 24.0
+            elif category == "insurance_admin" and key == "insurance_and_lab_followthrough":
+                if any(token in haystack for token in ("ögk", "versicherung", "fragebogen", "labor", "blut", "befund")):
+                    rule_boost = 18.0
+            elif category == "school_admin" and key == "school_and_kindergarten_coordination":
+                if any(token in haystack for token in ("schule", "schulanmeldung", "kindergarten", "kiga", "bildungsdirektion", "essen rechnung")):
+                    rule_boost = 22.0
+            elif category == "care_admin" and key == "care_leave_management":
+                if any(token in haystack for token in ("pflegefreistellung", "krankmeldung", "noah", "kind")):
+                    rule_boost = 18.0
+            elif category == "utilities_admin" and key == "utility_and_provider_account_management":
+                if any(token in haystack for token in ("wiener netze", "smartmeter", "mywevig", "sepa", "provider")):
+                    rule_boost = 16.0
+            elif category == "housing_admin" and key == "rental_and_utilities_admin":
+                if any(token in haystack for token in ("miete", "miet", "wiener wohnen", "mietervereinigung", "hausordnung", "wevig", "wiener netze")):
+                    rule_boost = 16.0
+            elif category == "financial_admin" and key == "banking_card_admin":
+                if any(token in haystack for token in ("easybank", "bank99", "visa", "konto", "bank", "card")):
+                    rule_boost = 14.0
+            elif category == "travel_admin" and key == "family_passport_document_management":
+                if any(token in haystack for token in ("reisepass", "passport", "travel", "visa")):
+                    rule_boost = 10.0
+            elif category == "household" and key in {"shared_family_admin_involvement", "child_related_admin"}:
+                if any(token in haystack for token in ("noah", "family", "kindergarten", "schule", "reisepass", "pflegefreistellung")):
+                    rule_boost = 10.0
+            elif category == "workflow" and key == "prefers_proactive_deadline_tracking":
+                if has_deadline or any(token in haystack for token in ("due ", "frist", "deadline", "follow-up", "follow up", "wiederbestellung")):
+                    rule_boost = 8.0
+            if rule_boost > 0.0:
+                boost += rule_boost * max(0.25, min(confidence, 1.0))
+        return round(boost, 2)
+
+    def _brief_item_with_profile_score_boost(
+        self,
+        *,
+        principal_id: str,
+        row: BriefItem,
+    ) -> BriefItem:
+        haystack = " ".join(
+            part.strip()
+            for part in (
+                str(row.title or ""),
+                str(row.summary or ""),
+                str(row.why_now or ""),
+                str(row.recommended_action or ""),
+                " ".join(str(ref.note or "") for ref in tuple(row.evidence_refs or ())),
+            )
+            if part and str(part).strip()
+        )
+        boost = self._profile_admin_relevance_boost(
+            principal_id=principal_id,
+            text=haystack,
+            has_deadline=("due " in str(row.why_now or "").lower()),
+        )
+        if boost <= 0.0:
+            return row
+        return replace(row, score=float(row.score or 0.0) + boost)
+
+    def _profile_followup_definition(self, *, category: str, key: str) -> dict[str, object] | None:
+        normalized_category = str(category or "").strip().lower()
+        normalized_key = str(key or "").strip().lower()
+        if normalized_category == "insurance_admin" and normalized_key == "rehab_authorization_management":
+            return {
+                "title": "Review rehab approvals and KfA authorization status",
+                "summary": "Recurring KfA, reha, and physio/ergo authorization paperwork suggests a likely pending follow-up.",
+                "why_now": "Profile pattern: rehab authorization management is active.",
+                "recommended_action": "check rehab approvals",
+                "score": 82.0,
+                "token_markers": ("kfa", "rehab", "bewilligung", "genehmigung"),
+                "cooldown_hours": 18,
+            }
+        if normalized_category == "medical_admin" and normalized_key == "official_followup_management":
+            return {
+                "title": "Check official medical follow-up dates",
+                "summary": "Amtsarzt and related follow-up paperwork suggest there may be a date or form worth checking proactively.",
+                "why_now": "Profile pattern: official medical follow-up management is active.",
+                "recommended_action": "review follow-up dates",
+                "score": 80.0,
+                "token_markers": ("amtsarzt", "wiederbestellung", "kontrolle"),
+                "cooldown_hours": 12,
+            }
+        if normalized_category == "school_admin" and normalized_key == "school_and_kindergarten_coordination":
+            return {
+                "title": "Review Noah school and kindergarten paperwork",
+                "summary": "Enrollment, attendance, and kindergarten planning documents suggest a recurring coordination load.",
+                "why_now": "Profile pattern: school and kindergarten coordination is active.",
+                "recommended_action": "review school paperwork",
+                "score": 79.0,
+                "token_markers": ("schule", "schulanmeldung", "kindergarten", "kiga"),
+                "cooldown_hours": 36,
+            }
+        if normalized_category == "care_admin" and normalized_key == "care_leave_management":
+            return {
+                "title": "Check care-leave and child schedule admin",
+                "summary": "Recurring Pflegefreistellung signals suggest care-leave or child-schedule admin may need attention.",
+                "why_now": "Profile pattern: care-leave management is active.",
+                "recommended_action": "review care leave",
+                "score": 77.0,
+                "token_markers": ("pflegefreistellung", "kind", "noah"),
+                "cooldown_hours": 24,
+            }
+        if normalized_category == "utilities_admin" and normalized_key == "utility_and_provider_account_management":
+            return {
+                "title": "Review utility and provider account admin",
+                "summary": "Wiener Netze, Wiener Wohnen, and provider-account paperwork recur often enough to justify a proactive check.",
+                "why_now": "Profile pattern: utility and provider-account management is active.",
+                "recommended_action": "review utility admin",
+                "score": 74.0,
+                "token_markers": ("wiener netze", "wiener wohnen", "mywevig", "smartmeter"),
+                "cooldown_hours": 48,
+            }
+        if normalized_category == "insurance_admin" and normalized_key == "insurance_and_lab_followthrough":
+            return {
+                "title": "Check insurance and lab follow-through",
+                "summary": "Insurance and lab paperwork recur often enough that a pending questionnaire, result, or follow-up is plausible.",
+                "why_now": "Profile pattern: insurance and lab follow-through is active.",
+                "recommended_action": "review insurance follow-ups",
+                "score": 73.0,
+                "token_markers": ("ögk", "labor", "blut", "versicherung"),
+                "cooldown_hours": 24,
+            }
+        return None
+
+    def _profile_followup_briefs(
+        self,
+        *,
+        principal_id: str,
+        workspace_id: str,
+        existing_items: tuple[BriefItem, ...] = (),
+        limit: int = 3,
+    ) -> tuple[BriefItem, ...]:
+        try:
+            bundle = self._preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+        except Exception:
+            return ()
+        nodes = list(bundle.get("preference_nodes") or [])
+        evidence_rows = list(bundle.get("recent_evidence_events") or [])
+        existing_haystack = " ".join(
+            " ".join(
+                part.strip().lower()
+                for part in (str(item.title or ""), str(item.summary or ""), str(item.why_now or ""))
+                if part and str(part).strip()
+            )
+            for item in existing_items
+        )
+        suggestions: list[BriefItem] = []
+        for row in nodes:
+            if str(row.get("status") or "").strip().lower() != "active":
+                continue
+            category = str(row.get("category") or "").strip().lower()
+            key = str(row.get("key") or "").strip().lower()
+            confidence = float(row.get("confidence") or 0.0)
+            definition = self._profile_followup_definition(category=category, key=key)
+            if definition is None:
+                continue
+            title = str(definition.get("title") or "").strip()
+            summary = str(definition.get("summary") or "").strip()
+            why_now = str(definition.get("why_now") or "").strip()
+            recommended_action = str(definition.get("recommended_action") or "").strip()
+            score = float(definition.get("score") or 0.0)
+            token_markers = tuple(str(token or "").strip().lower() for token in tuple(definition.get("token_markers") or ()) if str(token or "").strip())
+            if token_markers and any(token in existing_haystack for token in token_markers):
+                continue
+            evidence_refs = tuple(
+                EvidenceRef(
+                    ref_id=str(event.get("event_id") or ""),
+                    label="Preference evidence",
+                    source_type="preference_evidence",
+                    note=str(event.get("object_id") or ""),
+                )
+                for event in evidence_rows
+                if any(token in str(event.get("object_id") or "").lower() or token in json.dumps(event.get("interpreted_signal_json") or {}).lower() for token in token_markers[:2] or ("",))
+            )[:3]
+            suggestions.append(
+                BriefItem(
+                    id=f"brief:profile:{category}:{key}",
+                    workspace_id=workspace_id,
+                    kind="profile_followup",
+                    title=title,
+                    summary=summary,
+                    score=float(score * max(0.35, min(confidence, 1.0))),
+                    why_now=why_now,
+                    evidence_refs=evidence_refs,
+                    related_people=(),
+                    related_commitment_ids=(),
+                    recommended_action=recommended_action,
+                    status="open",
+                    confidence=confidence,
+                    object_ref=f"profile_followup:{category}:{key}",
+                    profile_followup_refs=(f"profile_followup:{category}:{key}",),
+                    evidence_count=len(evidence_refs),
+                )
+            )
+        suggestions.sort(key=lambda row: (row.score, row.confidence, row.title.lower()), reverse=True)
+        return tuple(suggestions[:limit])
+
+    def _profile_followup_nudge_allowed(
+        self,
+        *,
+        principal_id: str,
+        object_ref: str,
+        cooldown_hours: int | None = None,
+    ) -> bool:
+        normalized_ref = str(object_ref or "").strip()
+        if not normalized_ref:
+            return False
+        normalized_lower = normalized_ref.lower()
+        if normalized_lower.startswith("profile_followup:"):
+            _prefix, category, key = (normalized_lower.split(":", 2) + ["", ""])[:3]
+            definition = self._profile_followup_definition(category=category, key=key)
+            if definition is not None and cooldown_hours is None:
+                cooldown_hours = int(definition.get("cooldown_hours") or 18)
+        effective_cooldown = max(int(cooldown_hours or 18), 1)
+        cutoff = _utcnow() - timedelta(hours=effective_cooldown)
+        latest_evidence_at = self._profile_followup_latest_evidence_at(
+            principal_id=principal_id,
+            object_ref=normalized_ref,
+        )
+        rows = list(self._container.channel_runtime.list_recent_observations(limit=200, principal_id=principal_id))
+        rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")), reverse=True)
+        for row in rows:
+            if str(row.channel or "").strip() != "product":
+                continue
+            event_type = str(row.event_type or "").strip().lower()
+            if event_type not in {"profile_followup_nudged", "profile_followup_resolution_recorded"}:
+                continue
+            payload = dict(row.payload or {})
+            if str(payload.get("object_ref") or "").strip() != normalized_ref:
+                continue
+            created_at = _parse_iso(str(row.created_at or ""))
+            if created_at is None:
+                continue
+            if latest_evidence_at is not None and latest_evidence_at > created_at:
+                return True
+            if event_type == "profile_followup_resolution_recorded":
+                resolution_cooldown = max(int(payload.get("cooldown_hours") or self._profile_followup_resolution_cooldown_hours(action=str(payload.get("action") or ""))), 1)
+                if created_at >= (_utcnow() - timedelta(hours=resolution_cooldown)):
+                    return False
+                continue
+            if created_at >= cutoff:
+                return False
+        return True
+
+    def _profile_followup_latest_evidence_at(
+        self,
+        *,
+        principal_id: str,
+        object_ref: str,
+    ) -> datetime | None:
+        normalized_ref = str(object_ref or "").strip().lower()
+        if not normalized_ref.startswith("profile_followup:"):
+            return None
+        _prefix, category, key = (normalized_ref.split(":", 2) + ["", ""])[:3]
+        definition = self._profile_followup_definition(category=category, key=key)
+        if definition is None:
+            return None
+        token_markers = tuple(str(token or "").strip().lower() for token in tuple(definition.get("token_markers") or ()) if str(token or "").strip())
+        if not token_markers:
+            return None
+        try:
+            bundle = self._preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+        except Exception:
+            return None
+        latest: datetime | None = None
+        for event in list(bundle.get("recent_evidence_events") or []):
+            haystacks = (
+                str(event.get("object_id") or "").lower(),
+                json.dumps(event.get("interpreted_signal_json") or {}).lower(),
+                json.dumps(event.get("raw_signal_json") or {}).lower(),
+            )
+            if not any(token in haystack for token in token_markers for haystack in haystacks):
+                continue
+            created_at = _parse_iso(str(event.get("created_at") or ""))
+            if created_at is None:
+                continue
+            if latest is None or created_at > latest:
+                latest = created_at
+        return latest
+
+    def _profile_followup_resolution_cooldown_hours(self, *, action: str) -> int:
+        normalized = str(action or "").strip().lower()
+        if normalized in {"close", "closed", "complete", "completed", "done", "resolve", "resolved", "approve", "approved"}:
+            return 72
+        if normalized in {"defer", "deferred", "snooze"}:
+            return 36
+        if normalized in {"reject", "rejected"}:
+            return 24
+        return 18
+
+    def _matching_profile_followup_refs(
+        self,
+        *,
+        principal_id: str,
+        text: str,
+    ) -> tuple[str, ...]:
+        haystack = " ".join(str(text or "").lower().split()).strip()
+        if not haystack:
+            return ()
+        try:
+            bundle = self._preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+        except Exception:
+            return ()
+        refs: list[str] = []
+        for row in list(bundle.get("preference_nodes") or []):
+            if str(row.get("status") or "").strip().lower() != "active":
+                continue
+            category = str(row.get("category") or "").strip().lower()
+            key = str(row.get("key") or "").strip().lower()
+            definition = self._profile_followup_definition(category=category, key=key)
+            if definition is None:
+                continue
+            token_markers = tuple(
+                str(token or "").strip().lower()
+                for token in tuple(definition.get("token_markers") or ())
+                if str(token or "").strip()
+            )
+            if token_markers and any(token in haystack for token in token_markers):
+                refs.append(f"profile_followup:{category}:{key}")
+        return tuple(dict.fromkeys(refs))
+
+    def _queue_item_profile_followup_refs(
+        self,
+        *,
+        principal_id: str,
+        title: str,
+        summary: str,
+        notes: str = "",
+    ) -> tuple[str, ...]:
+        return self._matching_profile_followup_refs(
+            principal_id=principal_id,
+            text=" ".join(part for part in (title, summary, notes) if str(part or "").strip()),
+        )
+
+    def _record_profile_followup_resolution_signals(
+        self,
+        *,
+        principal_id: str,
+        item_ref: str,
+        action: str,
+        actor: str,
+        reason: str,
+        source_id: str,
+        text: str,
+        explicit_refs: tuple[str, ...] = (),
+    ) -> None:
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in {
+            "close",
+            "closed",
+            "complete",
+            "completed",
+            "done",
+            "resolve",
+            "resolved",
+            "approve",
+            "approved",
+            "defer",
+            "deferred",
+            "snooze",
+            "reject",
+            "rejected",
+        }:
+            return
+        matched_refs = tuple(str(ref or "").strip() for ref in explicit_refs if str(ref or "").strip()) or self._matching_profile_followup_refs(
+            principal_id=principal_id,
+            text=" ".join(part for part in (item_ref, text, reason) if str(part or "").strip()),
+        )
+        for object_ref in matched_refs:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="profile_followup_resolution_recorded",
+                payload={
+                    "object_ref": object_ref,
+                    "item_ref": item_ref,
+                    "action": normalized_action,
+                    "actor": actor,
+                    "reason": reason or "",
+                    "cooldown_hours": self._profile_followup_resolution_cooldown_hours(action=normalized_action),
+                },
+                source_id=source_id,
+                dedupe_key=f"{principal_id}|{source_id}|{object_ref}|profile-followup-resolution|{normalized_action}",
+            )
 
     def resolve_queue_item(
         self,
@@ -10297,6 +11976,29 @@ class ProductService:
                 event_type="queue_resolved",
                 payload={"item_ref": item_ref, "action": decision, "actor": actor, "reason": reason or ""},
                 source_id=approval_id,
+            )
+            resolution_text = ""
+            if request is not None:
+                requested_action = dict(request.requested_action_json or {})
+                resolution_text = " ".join(
+                    part
+                    for part in (
+                        str(request.reason or ""),
+                        str(requested_action.get("subject") or ""),
+                        str(requested_action.get("body") or requested_action.get("content") or ""),
+                    )
+                    if str(part or "").strip()
+                )
+            else:
+                resolution_text = str(decided.draft_text or "")
+            self._record_profile_followup_resolution_signals(
+                principal_id=principal_id,
+                item_ref=item_ref,
+                action=decision,
+                actor=actor,
+                reason=reason,
+                source_id=approval_id,
+                text=resolution_text,
             )
             if request is None:
                 return DecisionQueueItem(
@@ -10349,6 +12051,16 @@ class ProductService:
             current = self._container.orchestrator.fetch_human_task(item_ref.split(":", 1)[1], principal_id=principal_id)
             if current is None:
                 return None
+            current_queue_item = self._queue_item_from_human_task(current)
+            resolution_text = " ".join(
+                part
+                for part in (
+                    str(current.brief or ""),
+                    str(current.why_human or ""),
+                    str(current.task_type or ""),
+                )
+                if str(part or "").strip()
+            )
             operator_id = str(current.assigned_operator_id or actor or "").strip()
             if normalized in {"assign", "claim"}:
                 result = self.assign_handoff(
@@ -10373,12 +12085,32 @@ class ProductService:
                 payload={"item_ref": item_ref, "action": normalized or "complete", "actor": actor, "operator_id": operator_id},
                 source_id=current.human_task_id,
             )
+            self._record_profile_followup_resolution_signals(
+                principal_id=principal_id,
+                item_ref=item_ref,
+                action=normalized or "complete",
+                actor=actor,
+                reason=reason,
+                source_id=current.human_task_id,
+                text=resolution_text,
+                explicit_refs=current_queue_item.profile_followup_refs,
+            )
             refreshed = self._container.orchestrator.fetch_human_task(current.human_task_id, principal_id=principal_id)
             return None if refreshed is None else self._queue_item_from_human_task(refreshed)
         if item_ref.startswith("decision:"):
             current = self._container.memory_runtime.get_decision_window(item_ref.split(":", 1)[1], principal_id=principal_id)
             if current is None:
                 return None
+            current_queue_item = self._queue_item_from_decision(current)
+            resolution_text = " ".join(
+                part
+                for part in (
+                    str(current.title or ""),
+                    str(current.context or ""),
+                    str(current.notes or ""),
+                )
+                if str(part or "").strip()
+            )
             source = dict(current.source_json or {})
             next_status = "decided" if normalized in {"resolve", "close", "done", "complete"} else "open"
             if normalized in {"defer", "snooze", "reopen", "escalate"}:
@@ -10415,11 +12147,30 @@ class ProductService:
                 payload={"item_ref": item_ref, "action": normalized or "resolve", "actor": actor, "reason": reason or ""},
                 source_id=current.decision_window_id,
             )
+            self._record_profile_followup_resolution_signals(
+                principal_id=principal_id,
+                item_ref=item_ref,
+                action=normalized or "resolve",
+                actor=actor,
+                reason=reason,
+                source_id=current.decision_window_id,
+                text=resolution_text,
+                explicit_refs=current_queue_item.profile_followup_refs,
+            )
             return self._queue_item_from_decision(updated)
         if item_ref.startswith("deadline:"):
             current = self._container.memory_runtime.get_deadline_window(item_ref.split(":", 1)[1], principal_id=principal_id)
             if current is None:
                 return None
+            current_queue_item = self._queue_item_from_deadline(current)
+            resolution_text = " ".join(
+                part
+                for part in (
+                    str(current.title or ""),
+                    str(current.notes or ""),
+                )
+                if str(part or "").strip()
+            )
             next_status = "elapsed" if normalized in {"resolve", "close", "done", "complete"} else "open"
             updated = self._container.memory_runtime.upsert_deadline_window(
                 principal_id=principal_id,
@@ -10437,6 +12188,16 @@ class ProductService:
                 event_type="queue_resolved",
                 payload={"item_ref": item_ref, "action": normalized or "resolve", "actor": actor, "reason": reason or ""},
                 source_id=current.window_id,
+            )
+            self._record_profile_followup_resolution_signals(
+                principal_id=principal_id,
+                item_ref=item_ref,
+                action=normalized or "resolve",
+                actor=actor,
+                reason=reason,
+                source_id=current.window_id,
+                text=resolution_text,
+                explicit_refs=current_queue_item.profile_followup_refs,
             )
             return self._queue_item_from_deadline(updated)
         return None
@@ -10694,6 +12455,7 @@ class ProductService:
             status=row.resolution_state,
             confidence=confidence,
             object_ref=row.id,
+            profile_followup_refs=row.profile_followup_refs,
             evidence_count=len(row.evidence_refs),
         )
 
@@ -10702,6 +12464,12 @@ class ProductService:
             str(row.sla_status or "").replace("_", " ").title(),
             row.impact_summary or row.summary,
         ]
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=workspace_id,
+            title=str(row.title or ""),
+            summary=str(row.summary or ""),
+            notes=" ".join(part for part in (row.impact_summary, row.rationale, row.next_action) if str(part or "").strip()),
+        )
         return BriefItem(
             id=f"brief:{row.id}",
             workspace_id=workspace_id,
@@ -10717,6 +12485,7 @@ class ProductService:
             status=row.status,
             confidence=0.9 if row.evidence_refs else 0.75,
             object_ref=row.id,
+            profile_followup_refs=profile_followup_refs,
             evidence_count=len(row.evidence_refs),
         )
 
@@ -10732,6 +12501,12 @@ class ProductService:
             recommended_action = "check external dependency"
         elif str(row.status or "").strip().lower() == "scheduled":
             recommended_action = "confirm scheduled follow-up"
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=workspace_id,
+            title=str(row.statement or ""),
+            summary=str(row.proof_refs[0].note if row.proof_refs else row.statement),
+            notes=" ".join(part for part in (row.counterparty, row.resolution_reason, recommended_action) if str(part or "").strip()),
+        )
         return BriefItem(
             id=f"brief:{row.id}",
             workspace_id=workspace_id,
@@ -10747,6 +12522,7 @@ class ProductService:
             status=row.status,
             confidence=row.confidence,
             object_ref=row.id,
+            profile_followup_refs=profile_followup_refs,
             evidence_count=len(row.proof_refs),
         )
 
@@ -10756,6 +12532,13 @@ class ProductService:
             f"Due {row.due_time[:10]}" if row.due_time else "",
             row.owner,
         ]
+        recommended_action = "claim handoff" if row.status == "pending" else "review handoff"
+        profile_followup_refs = self._queue_item_profile_followup_refs(
+            principal_id=workspace_id,
+            title=str(row.summary or ""),
+            summary=str(row.evidence_refs[0].note if row.evidence_refs else row.summary),
+            notes=" ".join(part for part in (row.owner, row.status, recommended_action) if str(part or "").strip()),
+        )
         return BriefItem(
             id=f"brief:{row.id}",
             workspace_id=workspace_id,
@@ -10767,10 +12550,11 @@ class ProductService:
             evidence_refs=row.evidence_refs,
             related_people=(row.owner,) if row.owner else (),
             related_commitment_ids=(),
-            recommended_action="claim handoff" if row.status == "pending" else "review handoff",
+            recommended_action=recommended_action,
             status=row.status,
             confidence=0.8 if row.evidence_refs else 0.65,
             object_ref=row.id,
+            profile_followup_refs=profile_followup_refs,
             evidence_count=len(row.evidence_refs),
         )
 
@@ -10806,15 +12590,17 @@ class ProductService:
             if row.id.startswith(("decision:", "commitment:", "follow_up:", "human_task:")):
                 continue
             items.append(self._brief_item_from_queue(row, workspace_id=principal_id))
+        items.extend(self._profile_followup_briefs(principal_id=principal_id, workspace_id=principal_id, existing_items=tuple(items), limit=3))
         contextualized: list[BriefItem] = []
         for row in items:
             deferred_count = int(deferred_counts.get(str(row.object_ref or row.id).strip()) or 0)
             if deferred_count <= 0:
-                contextualized.append(row)
+                contextualized.append(self._brief_item_with_profile_score_boost(principal_id=principal_id, row=row))
                 continue
             deferred_label = f"Deferred {deferred_count} time" if deferred_count == 1 else f"Deferred {deferred_count} times"
-            contextualized.append(
-                BriefItem(
+            boosted = self._brief_item_with_profile_score_boost(
+                principal_id=principal_id,
+                row=BriefItem(
                     id=row.id,
                     workspace_id=row.workspace_id,
                     kind=row.kind,
@@ -10829,8 +12615,12 @@ class ProductService:
                     status=row.status,
                     confidence=row.confidence,
                     object_ref=row.object_ref,
+                    profile_followup_refs=row.profile_followup_refs,
                     evidence_count=row.evidence_count,
-                )
+                ),
+            )
+            contextualized.append(
+                boosted
             )
         deduped: dict[str, BriefItem] = {}
         for row in contextualized:
@@ -12993,6 +14783,29 @@ class ProductService:
                     source_id=delivery_id,
                     dedupe_key=f"{principal_id}|{delivery_id}|delivery-telegram-failed",
                 )
+        if normalized_digest == "memo":
+            for item in list(digest.get("items") or []):
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("tag") or "").strip().lower() != "profile follow-up":
+                    continue
+                object_ref = str(item.get("object_ref") or "").strip()
+                if not object_ref:
+                    continue
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="profile_followup_nudged",
+                    payload={
+                        "delivery_id": delivery_id,
+                        "digest_key": normalized_digest,
+                        "title": str(item.get("title") or "").strip(),
+                        "object_ref": object_ref,
+                        "recommended_action": str(item.get("recommended_action") or "").strip(),
+                        "delivery_channel": str(payload.get("delivery_channel") or ""),
+                    },
+                    source_id=delivery_id,
+                    dedupe_key=f"{principal_id}|{delivery_id}|{object_ref}|profile-followup-nudged",
+                )
         self._record_product_event(
             principal_id=principal_id,
             event_type="channel_digest_delivery_issued",
@@ -13172,7 +14985,17 @@ class ProductService:
                     "action_method": support_action_method,
                 }
             )
-        for item in snapshot.brief_items[:2]:
+        proactive_profile_brief = next((item for item in snapshot.brief_items if str(item.kind or "").strip() == "profile_followup"), None)
+        if proactive_profile_brief is None:
+            generated_profile_followups = self._profile_followup_briefs(
+                principal_id=principal_id,
+                workspace_id=principal_id,
+                existing_items=tuple(snapshot.brief_items),
+                limit=1,
+            )
+            proactive_profile_brief = generated_profile_followups[0] if generated_profile_followups else None
+        top_brief_items = list(snapshot.brief_items[:2])
+        for item in top_brief_items:
             memo_items.append(
                 {
                     "title": item.title,
@@ -13182,8 +15005,30 @@ class ProductService:
                     "action_href": "/app/today",
                     "action_label": "Open memo",
                     "action_method": "get",
+                    "object_ref": str(item.object_ref or "").strip(),
+                    "profile_followup_refs": list(item.profile_followup_refs),
                 }
             )
+        if proactive_profile_brief is not None and all(proactive_profile_brief.id != item.id for item in top_brief_items):
+            proactive_object_ref = str(proactive_profile_brief.object_ref or "").strip()
+            if not proactive_object_ref or self._profile_followup_nudge_allowed(
+                principal_id=principal_id,
+                object_ref=proactive_object_ref,
+            ):
+                memo_items.append(
+                    {
+                        "title": proactive_profile_brief.title,
+                        "detail": proactive_profile_brief.why_now or proactive_profile_brief.summary or "A proactive admin follow-up is worth checking.",
+                        "tag": "Profile follow-up",
+                        "href": "/app/today",
+                        "action_href": "/app/today",
+                        "action_label": "Open memo",
+                        "action_method": "get",
+                        "object_ref": proactive_object_ref,
+                        "profile_followup_refs": list(proactive_profile_brief.profile_followup_refs),
+                        "recommended_action": str(proactive_profile_brief.recommended_action or "").strip(),
+                    }
+                )
         if at_risk_commitments:
             commitment = at_risk_commitments[0]
             memo_items.append(

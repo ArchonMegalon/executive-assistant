@@ -34,6 +34,9 @@ class _TelegramScenarioAgent:
 
     def ask(self, text: str) -> dict[str, object]:
         self._message_id += 1
+        return self.send_message_payload({"text": text})
+
+    def send_message_payload(self, payload: dict[str, object]) -> dict[str, object]:
         response = self.client.post(
             "/v1/channels/telegram/ingest",
             headers={"X-Telegram-Bot-Api-Secret-Token": self.secret},
@@ -41,8 +44,8 @@ class _TelegramScenarioAgent:
                 "message": {
                     "message_id": self._message_id,
                     "date": 123 + self._message_id,
-                    "text": text,
                     "chat": {"id": self.chat_id, "type": "private"},
+                    **payload,
                 }
             },
         )
@@ -140,6 +143,21 @@ def test_telegram_bot_workflow_routes_documents_photos_and_ltd_actions(monkeypat
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
     monkeypatch.setattr(channels_route, "_answerly_chat", _fake_answerly_chat)
+    monkeypatch.setattr(
+        channels_route,
+        "resolve_telegram_message_payload",
+        lambda *, payload, bot_token: {
+            **dict(payload or {}),
+            "text": (
+                "Can you start the photo picker now?"
+                if str(dict(payload or {}).get("kind") or "").strip().lower() == "voice"
+                else str(dict(payload or {}).get("text") or "")
+            ),
+            "transcription_status": (
+                "ok" if str(dict(payload or {}).get("kind") or "").strip().lower() == "voice" else ""
+            ),
+        },
+    )
     monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
     monkeypatch.setattr(
         channels_route,
@@ -209,7 +227,8 @@ def test_telegram_bot_workflow_routes_documents_photos_and_ltd_actions(monkeypat
     assert photos["reply_sent"] is True
     assert "only on photos you explicitly select in the picker" in photos["reply_text"]
 
-    voice = agent.ask("Voice Message")
+    agent._message_id += 1
+    voice = agent.send_message_payload({"voice": {"file_id": "voice-file-1", "duration": 8}})
     assert voice["reply_sent"] is True
     assert "Google Photos Picker access is connected" in voice["reply_text"] or "Google Photos Picker is ready" in voice["reply_text"]
 

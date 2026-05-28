@@ -18,7 +18,8 @@ def _load_script(path: str, name: str) -> ModuleType:
 
 
 def test_newsroom_editorial_packet_builds_expected_contract() -> None:
-    module = _load_script("/docker/EA/scripts/newsroom_editorial_packet.py", "newsroom_editorial_packet_test")
+    root = Path(__file__).resolve().parents[1]
+    module = _load_script(str(root / "scripts" / "newsroom_editorial_packet.py"), "newsroom_editorial_packet_test")
 
     payload = module.build_payload()
 
@@ -32,20 +33,21 @@ def test_newsroom_editorial_packet_builds_expected_contract() -> None:
 
 
 def test_verify_newsroom_editorial_packet_accepts_materialized_output(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[1]
     output_path = tmp_path / "NEWSROOM_EDITORIAL_PACKET.generated.json"
     subprocess.run(
-        ["python3", "/docker/EA/scripts/newsroom_editorial_packet.py", "--write", str(output_path)],
+        ["python3", str(root / "scripts" / "newsroom_editorial_packet.py"), "--write", str(output_path)],
         check=True,
         capture_output=True,
         text=True,
     )
-    repo_output = Path("/docker/EA/.codex-studio/published/NEWSROOM_EDITORIAL_PACKET.generated.json")
+    repo_output = root / ".codex-studio" / "published" / "NEWSROOM_EDITORIAL_PACKET.generated.json"
     original = repo_output.read_text(encoding="utf-8") if repo_output.exists() else None
     repo_output.parent.mkdir(parents=True, exist_ok=True)
     repo_output.write_text(output_path.read_text(encoding="utf-8"), encoding="utf-8")
     try:
         completed = subprocess.run(
-            ["python3", "/docker/EA/scripts/verify_newsroom_editorial_packet.py"],
+            ["python3", str(root / "scripts" / "verify_newsroom_editorial_packet.py")],
             check=True,
             capture_output=True,
             text=True,

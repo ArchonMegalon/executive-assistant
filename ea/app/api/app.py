@@ -22,6 +22,7 @@ def _include_public_routes(
     app: FastAPI,
     *,
     settings,
+    public_documents_router: APIRouter,
     landing_setup_router: APIRouter,
     landing_actions_router: APIRouter,
     landing_channel_router: APIRouter,
@@ -31,6 +32,7 @@ def _include_public_routes(
     health_router: APIRouter,
     register_router: APIRouter,
 ) -> None:
+    app.include_router(public_documents_router)
     app.include_router(landing_setup_router)
     app.include_router(landing_actions_router)
     app.include_router(landing_channel_router)
@@ -116,6 +118,7 @@ def create_app() -> FastAPI:
     from app.api.routes.images import router as images_router
     from app.api.routes.landing_actions import router as landing_actions_router
     from app.api.routes.landing_channel import router as landing_channel_router
+    from app.api.routes.public_documents import router as public_documents_router
     from app.api.routes.human import router as human_router
     from app.api.routes.landing import router as landing_router
     from app.api.routes.landing_objects import router as landing_objects_router
@@ -145,6 +148,7 @@ def create_app() -> FastAPI:
     _include_public_routes(
         app,
         settings=s,
+        public_documents_router=public_documents_router,
         landing_setup_router=landing_setup_router,
         landing_actions_router=landing_actions_router,
         landing_channel_router=landing_channel_router,

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-SCRIPT_PATH = Path("/docker/EA/scripts/refresh_onemin_browseract_balances.py")
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "refresh_onemin_browseract_balances.py"
 
 
 def _load_module():

@@ -12,7 +12,8 @@ import urllib.request
 from pathlib import Path
 
 
-_MODULE_PATH = Path("/docker/EA/scripts/teable_host_proxy.py")
+ROOT = Path(__file__).resolve().parents[1]
+_MODULE_PATH = ROOT / "scripts" / "teable_host_proxy.py"
 _SPEC = importlib.util.spec_from_file_location("teable_host_proxy", _MODULE_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 teable_host_proxy = importlib.util.module_from_spec(_SPEC)

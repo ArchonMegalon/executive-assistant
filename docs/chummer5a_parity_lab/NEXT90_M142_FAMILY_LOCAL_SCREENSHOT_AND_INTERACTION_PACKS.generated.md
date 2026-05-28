@@ -1,12 +1,12 @@
 # Next90 M142 EA Family-Local Screenshot And Interaction Packs
 
-- status: `pass`
+- status: `fail`
 - ready: `False`
 - canonical queue frontier: `5399660048`
 
 ## Desktop readiness
 - `desktop_client`: `ready`
-- summary: EA-scoped family-local screenshot and interaction proof for milestone 142 is ready.
+- summary: Desktop install, release-channel, and flagship workbench proof are current.
 
 ## Family summary
 - `dense_builder_and_career_workflows`: pass
@@ -30,7 +30,7 @@
     receipt proof: `workflow_gate` requires `create-open-import-save-save-as-print-export, dense-workbench-affordances-search-add-edit-remove-preview-drill-in-compare, Loaded_runner_workbench_preserves_legacy_frmcareer_landmarks, Character_creation_preserves_familiar_dense_builder_rhythm, Advancement_and_karma_journal_workflows_preserve_familiar_progression_rhythm`
   - interaction `workbench:classic_dense_posture` -> `ok`
     receipt proof: `classic_dense_gate` requires `usesCompactFluentDensity, Character_creation_preserves_familiar_dense_builder_rhythm`
-- `dice_initiative_and_table_utilities`: pass
+- `dice_initiative_and_table_utilities`: fail
   - compare artifacts: `menu:dice_roller, workflow:initiative`
   - workflow task ids: `locate_save_import_settings`
   - required screenshots: `02-menu-open-light.png, 04-loaded-runner-light.png`
@@ -43,7 +43,7 @@
   - interaction receipts:
   - interaction `menu:dice_roller` -> `ok`
     receipt proof: `generated_dialog_parity` requires `dialog.dice_roller, dice_roller`
-  - interaction `workflow:initiative` -> `ok`
+  - interaction `workflow:initiative` -> `missing`
     receipt proof: `gm_runboard_route` requires `Initiative lane:, ResolveRunboardInitiativeSummary, gm_runboard`
   - interaction `workflow:initiative_budget_receipt` -> `ok`
     receipt proof: `core_receipts_doc` requires `workflow:initiative, SessionActionBudgetDeterministicReceipt`
@@ -75,4 +75,5 @@
 - duplicate queue or registry rows fail closed
 
 ## Closeout blockers
+- dice_initiative_and_table_utilities: missing interaction receipts: workflow:initiative
 - canonical design/queue rows are not marked complete yet

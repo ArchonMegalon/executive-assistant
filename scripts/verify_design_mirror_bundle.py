@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 from dataclasses import dataclass
@@ -19,7 +20,11 @@ if str(ROOT / "ea") not in sys.path:
 from app.yaml_inputs import load_yaml_dict
 
 LOCAL_PRODUCT_ROOT = ROOT / ".codex-design" / "product"
-DEFAULT_DESIGN_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
+DEFAULT_DESIGN_ROOT = Path(
+    os.environ.get("EA_DESIGN_ROOT")
+    or os.environ.get("EA_MIRROR_FIXTURE_ROOT")
+    or "/docker/chummercomplete/chummer-design/products/chummer"
+)
 QUEUE_OVERLAY_PATH = ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
 EXPECTED_QUEUE_PACKAGE_ID = "audit-task-4257456"
 EXPECTED_QUEUE_SOURCE_REF = "audit_task_candidates[4257456]"

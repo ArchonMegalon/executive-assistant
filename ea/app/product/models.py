@@ -45,6 +45,7 @@ class BriefItem:
     status: str = "open"
     confidence: float = 0.0
     object_ref: str = ""
+    profile_followup_refs: tuple[str, ...] = ()
     evidence_count: int = 0
 
 
@@ -55,10 +56,12 @@ class DecisionQueueItem:
     title: str
     summary: str
     priority: str
+    rank_score: float = 0.0
     deadline: str | None = None
     owner_role: str = ""
     requires_principal: bool = False
     evidence_refs: tuple[EvidenceRef, ...] = ()
+    profile_followup_refs: tuple[str, ...] = ()
     resolution_state: str = "open"
 
 

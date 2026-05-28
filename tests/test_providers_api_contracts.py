@@ -761,6 +761,56 @@ def test_telegram_ingest_sends_math_reply_for_plain_message(monkeypatch: pytest.
     assert sent and sent[0]["payload"]["text"] == "2+2 = 4"
 
 
+def test_telegram_ingest_sends_plain_language_math_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-math-words")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-math-words")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 1}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append({"url": request.full_url, "payload": payload, "timeout": timeout})
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 4321},
+                    "text": "2 plus 2?",
+                    "message_id": 12,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is True
+    assert body["reply_text"] == "2 + 2 = 4"
+    assert sent and sent[0]["payload"]["text"] == "2 + 2 = 4"
+
+
 def test_telegram_ingest_accepts_raw_telegram_webhook_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -1035,6 +1085,58 @@ def test_telegram_ingest_repeats_previous_useful_reply_for_again(monkeypatch: py
     assert second.json()["reply_text"] == first.json()["reply_text"]
 
 
+def test_telegram_ingest_prefers_real_ea_for_ambiguous_followup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-real-followup")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-real-followup")
+    from app.api.routes import channels as channels_route
+
+    seen: list[str] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 83}}).encode("utf-8")
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_real_ea_reply_text",
+        lambda **kwargs: seen.append(str(kwargs.get("text") or "")) or "I would score tomorrow around 7/10.",
+    )
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_local_assistant_reply_text",
+        lambda *args, **kwargs: "LOCAL_FALLBACK_SHOULD_NOT_WIN",
+    )
+
+    client = _client(principal_id="", operator=False)
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update_id": 64,
+            "message": {
+                "chat": {"id": 9497},
+                "text": "well? score?",
+                "message_id": 23,
+                "date": 125,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reply_sent"] is True
+    assert resp.json()["reply_text"] == "I would score tomorrow around 7/10."
+    assert seen == ["well? score?"]
+
+
 def test_telegram_ingest_answers_capability_question_directly(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -1205,8 +1307,29 @@ def test_telegram_ingest_answers_focus_on_tomorrow_from_calendar_signal(monkeypa
 def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import channels as channels_route
     from types import SimpleNamespace
+    from app.product.models import EvidenceRef
 
     class _FakeProductService:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {
+                "preference_nodes": [
+                    {
+                        "domain": "life_admin",
+                        "category": "insurance_admin",
+                        "key": "rehab_authorization_management",
+                        "status": "active",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "domain": "family_admin",
+                        "category": "school_admin",
+                        "key": "school_and_kindergarten_coordination",
+                        "status": "active",
+                        "confidence": 0.88,
+                    },
+                ]
+            }
+
         def list_office_events(self, *, principal_id: str, limit: int = 20, **kwargs):
             return [
                 {"channel": "gmail", "summary": "Signal from Amazon.de"},
@@ -1238,6 +1361,8 @@ def test_telegram_local_assistant_focus_ignores_sync_noise(monkeypatch: pytest.M
     assert "Reply to Arc'teryx |" not in reply
     assert "Arc'teryx Rücksendung gestartet | email thread" in reply
     assert "Apartment alert: Mietwohnungen 2,20, 09 (2 new listings)" in reply
+    assert "Profile-based focus:" in reply
+    assert "Insurance admin is a real theme" in reply
 
 
 def test_telegram_async_worker_sends_real_ea_followup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1311,6 +1436,8 @@ def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: 
 
 def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import channels as channels_route
+    from app.product.models import EvidenceRef
+    from types import SimpleNamespace
 
     seen: dict[str, object] = {}
 
@@ -1322,9 +1449,135 @@ def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeyp
         seen.update(kwargs)
         return _Result("EA says hello.")
 
+    class _FakeProductService:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {
+                "preference_nodes": [
+                    {
+                        "domain": "willhaben",
+                        "status": "active",
+                        "key": "preferred_districts",
+                        "value_json": ["Waehring", "Doebling"],
+                        "confidence": 0.95,
+                    },
+                    {
+                        "domain": "willhaben",
+                        "status": "active",
+                        "key": "avoid_heating_types",
+                        "value_json": ["gasheizung"],
+                        "confidence": 1.0,
+                    },
+                ]
+            }
+
+        def list_office_events(self, *, principal_id: str, limit: int = 12, **kwargs):
+            return [
+                {"channel": "product", "event_type": "property_alert_review_created", "summary": "New property alert analyzed."},
+                {"channel": "gmail", "event_type": "office_signal_email", "summary": "Reply from Arc'teryx needs approval."},
+            ]
+
+        def list_brief_items(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return [
+                SimpleNamespace(
+                    id="brief-strong-waehring",
+                    score=97.0,
+                    title="Strong Waehring listing",
+                    why_now="High-fit property alert with 360 media and preferred district match.",
+                    recommended_action="review property alert",
+                    object_ref="willhaben:1411708198",
+                    profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+                    evidence_refs=(
+                        EvidenceRef(
+                            ref_id="listing:1411708198",
+                            href="https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/wien-1180-waehring/1411708198/",
+                            label="Willhaben listing",
+                        ),
+                    ),
+                ),
+                SimpleNamespace(
+                    id="brief-arcteryx-approval",
+                    score=82.0,
+                    title="Arc'teryx approval",
+                    why_now="Approval is waiting and blocks the next outbound reply.",
+                    recommended_action="approve draft",
+                    object_ref="gmail-thread:arc-1",
+                    evidence_refs=(),
+                ),
+                SimpleNamespace(
+                    id="brief-doebling-listing",
+                    score=91.0,
+                    title="Strong Doebling listing",
+                    why_now="Another high-fit property alert with lift and bike access.",
+                    recommended_action="compare against shortlist",
+                    object_ref="willhaben:1071155412",
+                    evidence_refs=(
+                        EvidenceRef(
+                            ref_id="listing:1071155412",
+                            href="https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/wien-1190-doebling/1071155412/",
+                            label="Willhaben listing",
+                        ),
+                    ),
+                ),
+            ]
+
+        def list_queue(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return [
+                SimpleNamespace(
+                    id="queue-property-1411708198",
+                    priority="high",
+                    rank_score=96.0,
+                    title="Review apartment alert: Strong Waehring listing",
+                    summary="Personal fit 96/100 · shortlist · The listing is in Waehring, which matches established district preferences.",
+                    profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+                    evidence_refs=(
+                        EvidenceRef(
+                            ref_id="listing:1411708198",
+                            href="https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/wien-1180-waehring/1411708198/",
+                            label="Willhaben listing",
+                        ),
+                    ),
+                ),
+                SimpleNamespace(
+                    id="queue-approval-arcteryx",
+                    priority="high",
+                    rank_score=0.0,
+                    title="Approve reply to Arc'teryx",
+                    summary="Arc'teryx Rücksendung gestartet | email thread",
+                    evidence_refs=(
+                        EvidenceRef(
+                            ref_id="gmail-thread:arc-1",
+                            href="",
+                            label="Email thread",
+                        ),
+                    ),
+                ),
+            ]
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(channels_route, "_telegram_upcoming_calendar_events", lambda *args, **kwargs: [])
     monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _fake_generate_upstream_text)
+    client = _client(principal_id="exec-telegram-upstream", operator=False)
+    container = client.app.state.container
+    container.channel_runtime.ingest_observation(
+        principal_id="exec-telegram-upstream",
+        channel="telegram",
+        event_type="telegram.message",
+        payload={"text": "What should I focus on tomorrow?"},
+        source_id="telegram:1354554303",
+        external_id="29",
+        dedupe_key="telegram-history-29",
+    )
+    container.channel_runtime.ingest_observation(
+        principal_id="exec-telegram-upstream",
+        channel="telegram",
+        event_type="telegram.reply_async_sent",
+        payload={"reply_text": "Top priority is the Waehring property review."},
+        source_id="telegram:1354554303",
+        external_id="30",
+        dedupe_key="telegram-history-30",
+    )
     reply = channels_route._telegram_real_ea_reply_text(
-        container=_client(principal_id="exec-telegram-upstream", operator=False).app.state.container,
+        container=container,
         principal_id="exec-telegram-upstream",
         text="test",
         current_message_id="31",
@@ -1335,9 +1588,866 @@ def test_telegram_real_ea_reply_text_calls_upstream_with_required_kwargs(monkeyp
     assert seen["chatplayground_audit_callback_only"] is False
     assert seen["chatplayground_audit_principal_id"] == "exec-telegram-upstream"
     assert seen["preferred_onemin_labels"] == ("fallback_1",)
+    system_messages = [item["content"] for item in seen["messages"] if item["role"] == "system"]
+    assert len(system_messages) >= 2
+    prompt_text = str(system_messages[0])
+    grounding_text = str(system_messages[1])
+    assert "Recent conversation focus:" in grounding_text
+    assert "- user: What should I focus on tomorrow?" in grounding_text
+    assert "- assistant: Top priority is the Waehring property review." in grounding_text
+    assert "Likely active subjects for short follow-ups:" in grounding_text
+    assert "- the Waehring property review" in grounding_text
+    assert "Last active object map:" in grounding_text
+    assert "active_property_candidate: Strong Waehring listing | willhaben:1411708198" in grounding_text
+    assert "active_queue_item: Review apartment alert: Strong Waehring listing | queue-property-1411708198" in grounding_text
+    assert "active_property_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "active_queue_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "active_email_thread: gmail-thread:arc-1" in grounding_text
+    assert "Active housing preferences:" in grounding_text
+    assert "preferred_districts: Waehring, Doebling" in grounding_text
+    assert "avoid_heating_types: gasheizung" in grounding_text
+    assert "Active admin focus:" in grounding_text
+    assert "Insurance admin is a real theme" in grounding_text
+    assert "Top brief items:" in grounding_text
+    assert "Strong Waehring listing (score 97)" in grounding_text
+    assert "next: review property alert" in grounding_text
+    assert "refs: brief-strong-waehring, willhaben:1411708198, listing:1411708198" in grounding_text
+    assert "profile refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "Top property comparisons:" in grounding_text
+    assert "option 1: Strong Waehring listing (score 97)" in grounding_text
+    assert "option 2: Strong Doebling listing (score 91)" in grounding_text
+    assert "Top queue items:" in grounding_text
+    assert "Review apartment alert: Strong Waehring listing" in grounding_text
+    assert "rank 96" in grounding_text
+    assert "refs: queue-property-1411708198, listing:1411708198" in grounding_text
+    assert "profile refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "Approve reply to Arc'teryx" in grounding_text
+    assert "Treat short follow-ups like 'well?', 'and?', 'why?', or 'again?'" in prompt_text
+    non_system_messages = [item for item in seen["messages"] if item["role"] != "system"]
+    serialized = json.dumps(non_system_messages)
+    assert "What should I focus on tomorrow?" in serialized
+    assert "Top priority is the Waehring property review." in serialized
 
 
-def test_telegram_async_worker_uses_local_assistant_fallback_when_real_ea_reply_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_telegram_office_grounding_uses_persisted_active_object_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    class _FakeProductService:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {
+                "preference_nodes": [
+                    {
+                        "domain": "life_admin",
+                        "category": "utilities_admin",
+                        "key": "utility_and_provider_account_management",
+                        "status": "active",
+                        "confidence": 0.86,
+                    }
+                ]
+            }
+
+        def list_office_events(self, *, principal_id: str, limit: int = 12, **kwargs):
+            return []
+
+        def list_brief_items(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return []
+
+        def list_queue(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return []
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(channels_route, "_telegram_upcoming_calendar_events", lambda *args, **kwargs: [])
+    client = _client(principal_id="exec-telegram-persisted-map", operator=False)
+    container = client.app.state.container
+    container.channel_runtime.ingest_observation(
+        principal_id="exec-telegram-persisted-map",
+        channel="telegram",
+        event_type="telegram.reply_sent",
+        payload={
+            "chat_id": "1354554303",
+            "reply_text": "Strong Waehring listing still looks best.",
+            "active_object_map": {
+                "active_property_candidate": "Strong Waehring listing | willhaben:1411708198",
+                "active_property_refs": "brief-strong-waehring, willhaben:1411708198, listing:1411708198",
+                "active_property_profile_refs": "profile_followup:insurance_admin:rehab_authorization_management",
+                "active_queue_item": "Review apartment alert: Strong Waehring listing | queue-property-1411708198",
+                "active_queue_profile_refs": "profile_followup:insurance_admin:rehab_authorization_management",
+                "active_email_thread": "gmail-thread:arc-1",
+            },
+            "intent_state": {
+                "active_intent": "property_compare",
+                "active_profile_themes": "profile_followup:insurance_admin:rehab_authorization_management",
+            },
+            "comparison_state": {
+                "comparison_primary": "Strong Waehring listing | willhaben:1411708198",
+                "comparison_primary_reason": "High-fit property alert with 360 media and preferred district match.",
+                "comparison_primary_action": "review property alert",
+                "comparison_primary_score": "97",
+                "comparison_secondary": "Strong Doebling listing | willhaben:1071155412",
+                "comparison_secondary_reason": "Another high-fit property alert with lift and bike access.",
+                "comparison_secondary_action": "compare against shortlist",
+                "comparison_secondary_score": "91",
+                "comparison_pair": "Strong Waehring listing | willhaben:1411708198 || Strong Doebling listing | willhaben:1071155412",
+                "comparison_pair_refs": "brief-strong-waehring, willhaben:1411708198, listing:1411708198 ; brief-doebling-listing, willhaben:1071155412, listing:1071155412",
+            },
+        },
+        source_id="telegram:1354554303",
+        external_id="701",
+        dedupe_key="telegram-persisted-map-701",
+    )
+    grounding_text = channels_route._telegram_office_grounding_text(
+        container,
+        principal_id="exec-telegram-persisted-map",
+    )
+    assert "Last active object map:" in grounding_text
+    assert "active_property_candidate: Strong Waehring listing | willhaben:1411708198" in grounding_text
+    assert "active_property_refs: brief-strong-waehring, willhaben:1411708198, listing:1411708198" in grounding_text
+    assert "active_property_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "active_queue_item: Review apartment alert: Strong Waehring listing | queue-property-1411708198" in grounding_text
+    assert "active_queue_profile_refs: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "active_email_thread: gmail-thread:arc-1" in grounding_text
+    assert "Last active intent:" in grounding_text
+    assert "active_intent: property_compare" in grounding_text
+    assert "active_profile_themes: profile_followup:insurance_admin:rehab_authorization_management" in grounding_text
+    assert "Active admin focus:" in grounding_text
+    assert "Utility admin is active" in grounding_text
+    assert "Last comparison pair:" in grounding_text
+    assert "comparison_primary: Strong Waehring listing | willhaben:1411708198" in grounding_text
+    assert "comparison_primary_reason: High-fit property alert with 360 media and preferred district match." in grounding_text
+    assert "comparison_primary_action: review property alert" in grounding_text
+    assert "comparison_primary_score: 97" in grounding_text
+    assert "comparison_secondary: Strong Doebling listing | willhaben:1071155412" in grounding_text
+    assert "comparison_secondary_reason: Another high-fit property alert with lift and bike access." in grounding_text
+    assert "comparison_secondary_action: compare against shortlist" in grounding_text
+    assert "comparison_secondary_score: 91" in grounding_text
+    assert "comparison_pair: Strong Waehring listing | willhaben:1411708198 || Strong Doebling listing | willhaben:1071155412" in grounding_text
+
+
+def test_telegram_reinforces_active_object_map_from_reply_text() -> None:
+    from app.api.routes import channels as channels_route
+    from app.product.models import EvidenceRef
+    from types import SimpleNamespace
+
+    brief_items = [
+        SimpleNamespace(
+            id="brief-strong-waehring",
+            score=97.0,
+            title="Strong Waehring listing",
+            object_ref="willhaben:1411708198",
+            evidence_refs=(
+                EvidenceRef(ref_id="listing:1411708198", href="", label="Willhaben listing"),
+            ),
+        ),
+        SimpleNamespace(
+            id="brief-doebling-listing",
+            score=91.0,
+            title="Strong Doebling listing",
+            object_ref="willhaben:1071155412",
+            evidence_refs=(
+                EvidenceRef(ref_id="listing:1071155412", href="", label="Willhaben listing"),
+            ),
+        ),
+    ]
+    queue_items = [
+        SimpleNamespace(
+            id="queue-property-1411708198",
+            priority="high",
+            rank_score=96.0,
+            title="Review apartment alert: Strong Waehring listing",
+            evidence_refs=(),
+        ),
+        SimpleNamespace(
+            id="queue-property-1071155412",
+            priority="high",
+            rank_score=91.0,
+            title="Review apartment alert: Strong Doebling listing",
+            evidence_refs=(),
+        ),
+    ]
+    base_map = channels_route._telegram_build_active_object_map(brief_items, queue_items)
+    reinforced = channels_route._telegram_reinforce_active_object_map_from_reply(
+        base_map,
+        brief_items=brief_items,
+        queue_items=queue_items,
+        reply_text="The Strong Doebling listing looks like the better alternative right now.",
+    )
+    assert reinforced["active_property_candidate"] == "Strong Doebling listing | willhaben:1071155412"
+    assert "listing:1071155412" in reinforced["active_property_refs"]
+
+
+def test_telegram_reinforces_comparison_state_from_reply_text() -> None:
+    from app.api.routes import channels as channels_route
+    from app.product.models import EvidenceRef
+    from types import SimpleNamespace
+
+    brief_items = [
+        SimpleNamespace(
+            id="brief-strong-waehring",
+            score=97.0,
+            title="Strong Waehring listing",
+            object_ref="willhaben:1411708198",
+            why_now="High-fit property alert",
+            recommended_action="review property alert",
+            evidence_refs=(
+                EvidenceRef(ref_id="listing:1411708198", href="", label="Willhaben listing"),
+            ),
+        ),
+        SimpleNamespace(
+            id="brief-doebling-listing",
+            score=91.0,
+            title="Strong Doebling listing",
+            object_ref="willhaben:1071155412",
+            why_now="Another strong alternative",
+            recommended_action="compare against shortlist",
+            evidence_refs=(
+                EvidenceRef(ref_id="listing:1071155412", href="", label="Willhaben listing"),
+            ),
+        ),
+    ]
+    base_state = channels_route._telegram_build_comparison_state(brief_items)
+    reinforced = channels_route._telegram_reinforce_comparison_state_from_reply(
+        base_state,
+        brief_items=brief_items,
+        reply_text="The Strong Doebling listing is the better comparison target now.",
+    )
+    assert reinforced["comparison_primary"] == "Strong Doebling listing | willhaben:1071155412"
+    assert reinforced["comparison_primary_reason"] == "Another strong alternative"
+    assert reinforced["comparison_primary_action"] == "compare against shortlist"
+    assert reinforced["comparison_primary_score"] == "91"
+    assert reinforced["comparison_secondary"] == "Strong Waehring listing | willhaben:1411708198"
+    assert reinforced["comparison_secondary_reason"] == "High-fit property alert"
+    assert reinforced["comparison_secondary_action"] == "review property alert"
+    assert reinforced["comparison_secondary_score"] == "97"
+    assert reinforced["comparison_pair"].startswith(
+        "Strong Doebling listing | willhaben:1071155412 || Strong Waehring listing | willhaben:1411708198"
+    )
+    assert "listing:1071155412" in reinforced["comparison_pair_refs"]
+
+
+def test_telegram_reinforces_active_profile_themes_from_reply_text() -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    brief_items = [
+        SimpleNamespace(
+            id="brief-profile-rehab",
+            title="Review rehab approvals and KfA authorization status",
+            summary="Recurring KfA, reha, and physio/ergo authorization paperwork suggests a likely pending follow-up.",
+            object_ref="profile_followup:insurance_admin:rehab_authorization_management",
+            profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+        ),
+    ]
+    queue_items = []
+    themes = channels_route._telegram_reinforced_profile_themes_from_reply(
+        brief_items=brief_items,
+        queue_items=queue_items,
+        reply_text="Focus on the rehab approvals and KfA authorization paperwork first.",
+        active_object_map={},
+    )
+    assert themes == "profile_followup:insurance_admin:rehab_authorization_management"
+
+
+def test_telegram_build_intent_state_prefers_admin_followup_for_profile_themes() -> None:
+    from app.api.routes import channels as channels_route
+
+    intent_state = channels_route._telegram_build_intent_state(
+        text="What about that paperwork?",
+        reply_text="Focus on the rehab approvals first.",
+        active_object_map={
+            "active_queue_profile_refs": "profile_followup:insurance_admin:rehab_authorization_management",
+        },
+    )
+    assert intent_state["active_intent"] == "admin_followup"
+    assert (
+        intent_state["active_profile_themes"]
+        == "profile_followup:insurance_admin:rehab_authorization_management"
+    )
+
+
+def test_telegram_local_assistant_uses_admin_followup_theme_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    class _FakeProductService:
+        def list_brief_items(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return [
+                SimpleNamespace(
+                    id="brief-profile-rehab",
+                    score=88.0,
+                    title="Review rehab approvals and KfA authorization status",
+                    why_now="Recurring KfA, reha, and physio authorization paperwork suggests a likely pending follow-up.",
+                    recommended_action="check rehab approvals",
+                    object_ref="profile_followup:insurance_admin:rehab_authorization_management",
+                    profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+                ),
+            ]
+
+        def list_queue(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return []
+
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"preference_nodes": []}
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_recent_persisted_intent_state",
+        lambda container, *, principal_id: {
+            "active_intent": "admin_followup",
+            "active_profile_themes": "profile_followup:insurance_admin:rehab_authorization_management",
+        },
+    )
+    monkeypatch.setattr(channels_route, "_telegram_recent_persisted_object_map", lambda container, *, principal_id: {})
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-admin-followup", operator=False).app.state.container,
+        principal_id="exec-telegram-admin-followup",
+        text="What about that paperwork?",
+    )
+    assert "Review rehab approvals and KfA authorization status" in reply
+    assert "Next: check rehab approvals." in reply
+
+
+def test_telegram_local_assistant_uses_second_admin_followup_for_after_that(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    class _FakeProductService:
+        def list_brief_items(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return []
+
+        def list_queue(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return [
+                SimpleNamespace(
+                    id="queue-rehab",
+                    priority="high",
+                    rank_score=96.0,
+                    title="Check KfA rehab authorization",
+                    summary="Rehab approval and KfA paperwork still need review.",
+                    profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+                ),
+                SimpleNamespace(
+                    id="queue-school",
+                    priority="high",
+                    rank_score=85.0,
+                    title="Review Noah school paperwork",
+                    summary="School enrollment and coordination paperwork need a pass.",
+                    profile_followup_refs=("profile_followup:school_admin:school_and_kindergarten_coordination",),
+                ),
+            ]
+
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"preference_nodes": []}
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_recent_persisted_intent_state",
+        lambda container, *, principal_id: {
+            "active_intent": "admin_followup",
+            "active_profile_themes": (
+                "profile_followup:insurance_admin:rehab_authorization_management, "
+                "profile_followup:school_admin:school_and_kindergarten_coordination"
+            ),
+        },
+    )
+    monkeypatch.setattr(channels_route, "_telegram_recent_persisted_object_map", lambda container, *, principal_id: {})
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-admin-followup-2", operator=False).app.state.container,
+        principal_id="exec-telegram-admin-followup-2",
+        text="And after that?",
+    )
+    assert "After that, focus on Review Noah school paperwork." in reply
+
+
+def test_telegram_enriches_intent_state_with_admin_followup_primary_and_secondary() -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    queue_items = [
+        SimpleNamespace(
+            id="queue-rehab",
+            priority="high",
+            rank_score=96.0,
+            title="Check KfA rehab authorization",
+            profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+        ),
+        SimpleNamespace(
+            id="queue-school",
+            priority="high",
+            rank_score=85.0,
+            title="Review Noah school paperwork",
+            profile_followup_refs=("profile_followup:school_admin:school_and_kindergarten_coordination",),
+        ),
+    ]
+    enriched = channels_route._telegram_with_admin_followup_state(
+        {
+            "active_intent": "admin_followup",
+            "active_profile_themes": (
+                "profile_followup:insurance_admin:rehab_authorization_management, "
+                "profile_followup:school_admin:school_and_kindergarten_coordination"
+            ),
+        },
+        brief_items=[],
+        queue_items=queue_items,
+        active_object_map={},
+    )
+    assert enriched["active_admin_primary"] == "queue-rehab"
+    assert enriched["active_admin_primary_title"] == "Check KfA rehab authorization"
+    assert enriched["active_admin_secondary"] == "queue-school"
+    assert enriched["active_admin_secondary_title"] == "Review Noah school paperwork"
+
+
+def test_telegram_local_assistant_explains_admin_primary_from_persisted_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    class _FakeProductService:
+        def list_brief_items(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return []
+
+        def list_queue(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return [
+                SimpleNamespace(
+                    id="queue-rehab",
+                    priority="high",
+                    rank_score=96.0,
+                    title="Check KfA rehab authorization",
+                    summary="Rehab approval and KfA paperwork still need review.",
+                    recommended_action="check rehab approvals",
+                    profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+                ),
+                SimpleNamespace(
+                    id="queue-school",
+                    priority="high",
+                    rank_score=85.0,
+                    title="Review Noah school paperwork",
+                    summary="School enrollment and coordination paperwork need a pass.",
+                    recommended_action="review school paperwork",
+                    profile_followup_refs=("profile_followup:school_admin:school_and_kindergarten_coordination",),
+                ),
+            ]
+
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"preference_nodes": []}
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_recent_persisted_intent_state",
+        lambda container, *, principal_id: {
+            "active_intent": "admin_followup",
+            "active_profile_themes": (
+                "profile_followup:insurance_admin:rehab_authorization_management, "
+                "profile_followup:school_admin:school_and_kindergarten_coordination"
+            ),
+            "active_admin_primary": "queue-rehab",
+            "active_admin_primary_title": "Check KfA rehab authorization",
+            "active_admin_secondary": "queue-school",
+            "active_admin_secondary_title": "Review Noah school paperwork",
+        },
+    )
+    monkeypatch.setattr(channels_route, "_telegram_recent_persisted_object_map", lambda container, *, principal_id: {})
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-admin-why", operator=False).app.state.container,
+        principal_id="exec-telegram-admin-why",
+        text="Why that one?",
+    )
+    assert "That one leads because Rehab approval and KfA paperwork still need review." in reply
+    assert "Next: check rehab approvals." in reply
+
+
+def test_telegram_local_assistant_can_answer_named_ltd_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_ltd_runtime_profiles",
+        lambda container: [
+            SimpleNamespace(
+                service_name="MarkupGo",
+                runtime_state="browseract_ui_service",
+                workspace_integration_tier="Tier 3",
+                aliases=("markupgo",),
+                actions=(
+                    SimpleNamespace(action_key="inspect_workspace"),
+                    SimpleNamespace(action_key="discover_account"),
+                ),
+            ),
+        ],
+    )
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-ltd-request", operator=False).app.state.container,
+        principal_id="exec-telegram-ltd-request",
+        text="Use MarkupGo for this.",
+    )
+    assert "MarkupGo is available in EA" in reply
+    assert "inspect_workspace" in reply
+
+
+def test_telegram_local_assistant_uses_answerly_for_document_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "answerly-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "agent-123")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "Scanned OneDrive documents")
+    monkeypatch.setattr(
+        channels_route,
+        "_answerly_chat",
+        lambda **kwargs: {
+            "status": True,
+            "data": {
+                "messages": [
+                    "The latest KfA rehab approval confirms Rosenhügel NRZ and references the authorization status."
+                ],
+                "actionResponse": {"name": "conversational"},
+                "meta": {
+                    "source": [
+                        {"dataItemId": "scan-akh-1"},
+                        {"dataItemId": "scan-kfa-2"},
+                    ]
+                },
+            },
+        },
+    )
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-answerly-doc", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-doc",
+        text="What does the latest OneDrive KfA rehab approval say?",
+    )
+    assert "The latest KfA rehab approval confirms Rosenhügel NRZ" in reply
+    assert "Matched Scanned OneDrive documents Answerly items: scan-akh-1, scan-kfa-2." in reply
+
+
+def test_telegram_local_assistant_routes_birth_certificate_request_to_onedrive_answerly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "agent-123")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "Scanned OneDrive documents")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_API_KEY", "shareone-key")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_AGENT_ID", "shareone-agent")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_LABEL", "ShareOne documents")
+    answerly_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        channels_route,
+        "_answerly_chat",
+        lambda **kwargs: answerly_calls.append(kwargs)
+        or {
+            "status": True,
+            "data": {
+                "messages": ["Noah Girschele's birth certificate is in the scanned OneDrive documents."],
+                "actionResponse": {"name": "conversational"},
+                "meta": {"source": [{"dataItemId": "onedrive-birth-cert-1"}]},
+            },
+        },
+    )
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-answerly-birth-cert", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-birth-cert",
+        text="Send me the birth certificate of Noah Girschele.",
+    )
+    assert "Noah Girschele's birth certificate is in the scanned OneDrive documents." in reply
+    assert "Matched Scanned OneDrive documents Answerly items: onedrive-birth-cert-1." in reply
+    assert answerly_calls[-1]["config"]["scope"] == "onedrive"
+
+
+def test_telegram_local_assistant_routes_medication_whereabouts_request_to_onedrive_answerly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "agent-123")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "Scanned OneDrive documents")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_API_KEY", "shareone-key")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_AGENT_ID", "shareone-agent")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_LABEL", "ShareOne documents")
+    answerly_calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        channels_route,
+        "_answerly_chat",
+        lambda **kwargs: answerly_calls.append(kwargs)
+        or {
+            "status": True,
+            "data": {
+                "messages": ["Your medication is currently listed in the bedside drawer medication organizer."],
+                "actionResponse": {"name": "conversational"},
+                "meta": {"source": [{"dataItemId": "onedrive-medication-1"}]},
+            },
+        },
+    )
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-answerly-medication", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-medication",
+        text="Where is my medication right now?",
+    )
+    assert "Your medication is currently listed in the bedside drawer medication organizer." in reply
+    assert "Matched Scanned OneDrive documents Answerly items: onedrive-medication-1." in reply
+    assert answerly_calls[-1]["config"]["scope"] == "onedrive"
+
+
+def test_telegram_local_assistant_reports_unconfigured_answerly_when_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.delenv("EA_ANSWERLY_ONEDRIVE_API_KEY", raising=False)
+    monkeypatch.delenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", raising=False)
+    monkeypatch.delenv("EA_ANSWERLY_SHAREONE_API_KEY", raising=False)
+    monkeypatch.delenv("EA_ANSWERLY_SHAREONE_AGENT_ID", raising=False)
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-answerly-missing", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-missing",
+        text="Use Answerly to search the scanned documents.",
+    )
+    assert reply == "Answerly document Q&A is not configured yet in EA."
+
+
+def test_telegram_local_assistant_requires_explicit_source_when_answerly_corpora_are_split(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "onedrive-agent")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "OneDrive documents")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_API_KEY", "shareone-key")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_AGENT_ID", "shareone-agent")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_LABEL", "ShareOne documents")
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-answerly-split", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-split",
+        text="Search the documents for the rehab approval.",
+    )
+    assert "Your document backends stay separated." in reply
+    assert "OneDrive documents or ShareOne documents" in reply
+
+
+def test_telegram_local_assistant_resolves_named_ltd_request_to_best_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_ltd_runtime_profiles",
+        lambda container: [
+            SimpleNamespace(
+                service_name="MarkupGo",
+                runtime_state="browseract_ui_service",
+                workspace_integration_tier="Tier 3",
+                aliases=("markupgo",),
+                actions=(
+                    SimpleNamespace(
+                        action_key="inspect_workspace",
+                        route_path="/v1/ltds/runtime-catalog/MarkupGo/inspect-workspace",
+                        executable=True,
+                        description="Inspect the MarkupGo workspace.",
+                    ),
+                ),
+            ),
+        ],
+    )
+
+    class _FakeCatalog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(channels_route, "LtdRuntimeCatalogService", _FakeCatalog)
+    monkeypatch.setattr(
+        channels_route,
+        "projected_task_key_for_request",
+        lambda **kwargs: channels_route.projected_task_key("MarkupGo", "inspect_workspace"),
+    )
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-ltd-action", operator=False).app.state.container,
+        principal_id="exec-telegram-ltd-action",
+        text="Use MarkupGo for this PDF.",
+    )
+    assert "For MarkupGo, I would use inspect_workspace." in reply
+    assert "/v1/ltds/runtime-catalog/MarkupGo/inspect-workspace" in reply
+    assert "Executable now." in reply
+
+
+def test_telegram_local_assistant_executes_safe_onemin_ltd_action(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from app.domain.models import ToolInvocationResult
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_ltd_runtime_profiles",
+        lambda container: [
+            SimpleNamespace(
+                service_name="1min.AI",
+                runtime_state="provider_executable",
+                workspace_integration_tier="Tier 1",
+                aliases=("1min ai",),
+                actions=(
+                    SimpleNamespace(
+                        action_key="background_remove",
+                        route_path="/v1/ltds/runtime-catalog/1min.AI/actions/background_remove",
+                        executable=True,
+                        description="Remove the background from an image.",
+                        tool_name="provider.onemin.media_transform",
+                        action_kind="media_transform",
+                    ),
+                ),
+            ),
+        ],
+    )
+
+    class _FakeCatalog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(channels_route, "LtdRuntimeCatalogService", _FakeCatalog)
+    monkeypatch.setattr(
+        channels_route,
+        "projected_task_key_for_request",
+        lambda **kwargs: channels_route.projected_task_key("1min.AI", "background_remove"),
+    )
+    captured = []
+
+    def _fake_execute(request):  # noqa: ANN001
+        captured.append(request)
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="provider://onemin/background-remove",
+            output_json={"ok": True},
+            receipt_json={"principal_id": request.context_json["principal_id"]},
+        )
+
+    client = _client(principal_id="exec-telegram-ltd-exec", operator=False)
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute)
+    reply = channels_route._telegram_local_assistant_reply_text(
+        client.app.state.container,
+        principal_id="exec-telegram-ltd-exec",
+        text="Use 1min.AI to remove the background from https://example.invalid/cat.png",
+    )
+    assert "Executed 1min.AI background_remove." in reply
+    assert "provider://onemin/background-remove" in reply
+    assert captured[0].payload_json["feature_type"] == "BACKGROUND_REMOVER"
+    assert captured[0].payload_json["image_url"] == "https://example.invalid/cat.png"
+    assert captured[0].context_json["principal_id"] == "exec-telegram-ltd-exec"
+
+
+def test_telegram_office_grounding_includes_ltd_runtime_lanes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    class _FakeProductService:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"preference_nodes": []}
+
+        def list_office_events(self, *, principal_id: str, limit: int = 12, **kwargs):
+            return []
+
+        def list_brief_items(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return []
+
+        def list_queue(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return []
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(channels_route, "_telegram_upcoming_calendar_events", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_ltd_runtime_profiles",
+        lambda container: [
+            SimpleNamespace(
+                service_name="1min.AI",
+                runtime_state="provider_executable",
+                workspace_integration_tier="Tier 1",
+                actions=(
+                    SimpleNamespace(action_key="background_remove"),
+                    SimpleNamespace(action_key="image_generate"),
+                ),
+            ),
+            SimpleNamespace(
+                service_name="MarkupGo",
+                runtime_state="browseract_ui_service",
+                workspace_integration_tier="Tier 3",
+                actions=(SimpleNamespace(action_key="inspect_workspace"),),
+            ),
+        ],
+    )
+    grounding_text = channels_route._telegram_office_grounding_text(
+        _client(principal_id="exec-telegram-ltd-grounding", operator=False).app.state.container,
+        principal_id="exec-telegram-ltd-grounding",
+    )
+    assert "Available LTD runtime lanes:" in grounding_text
+    assert "1min.AI [provider_executable] Tier 1 | actions: background_remove, image_generate" in grounding_text
+    assert "MarkupGo [browseract_ui_service] Tier 3 | actions: inspect_workspace" in grounding_text
+
+
+def test_telegram_office_grounding_includes_answerly_document_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import channels as channels_route
+
+    class _FakeProductService:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"preference_nodes": []}
+
+        def list_office_events(self, *, principal_id: str, limit: int = 12, **kwargs):
+            return []
+
+        def list_brief_items(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return []
+
+        def list_queue(self, *, principal_id: str, limit: int = 5, **kwargs):
+            return []
+
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "answerly-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "agent-123")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "Scanned OneDrive documents")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_API_KEY", "answerly-key-2")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_AGENT_ID", "agent-456")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_LABEL", "ShareOne documents")
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(channels_route, "_telegram_upcoming_calendar_events", lambda *args, **kwargs: [])
+    monkeypatch.setattr(channels_route, "_telegram_ltd_runtime_profiles", lambda container: [])
+    grounding_text = channels_route._telegram_office_grounding_text(
+        _client(principal_id="exec-telegram-answerly-grounding", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-grounding",
+    )
+    assert "Document Q&A backend:" in grounding_text
+    assert "Answerly connected for Scanned OneDrive documents [onedrive]." in grounding_text
+    assert "Answerly connected for ShareOne documents [shareone]." in grounding_text
+
+
+def test_telegram_reinforces_active_intent_to_admin_followup_from_reply_text() -> None:
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    brief_items = [
+        SimpleNamespace(
+            id="brief-profile-rehab",
+            title="Review rehab approvals and KfA authorization status",
+            why_now="Recurring KfA and rehab authorization paperwork suggests a likely pending follow-up.",
+            recommended_action="check rehab approvals",
+            object_ref="profile_followup:insurance_admin:rehab_authorization_management",
+            profile_followup_refs=("profile_followup:insurance_admin:rehab_authorization_management",),
+        ),
+    ]
+    reinforced = channels_route._telegram_reinforced_intent_state_from_reply(
+        {
+            "active_intent": "property_compare",
+            "active_profile_themes": "profile_followup:insurance_admin:rehab_authorization_management",
+        },
+        brief_items=brief_items,
+        queue_items=[],
+        reply_text="Focus on the rehab approvals and KfA authorization paperwork first.",
+        active_object_map={},
+    )
+    assert reinforced["active_intent"] == "admin_followup"
+    assert (
+        reinforced["active_profile_themes"]
+        == "profile_followup:insurance_admin:rehab_authorization_management"
+    )
+
+
+def test_telegram_async_worker_sends_last_resort_reply_when_real_ea_reply_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
     monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback")
@@ -1369,10 +2479,1081 @@ def test_telegram_async_worker_uses_local_assistant_fallback_when_real_ea_reply_
         principal_id="exec-telegram-fallback",
         bot_config={"token": "telegram-token-fallback"},
         chat_id="9797",
-        text="test",
+        text="tell me more",
         current_message_id="21",
     )
-    assert sent and sent[0]["text"] == "I am here."
+    assert sent
+    assert sent[-1]["text"] == "I'm here. Give me a concrete task."
+
+
+def test_telegram_async_worker_keeps_fallback_reply_free_of_stale_intent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-fallback-intent")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-fallback-intent")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 31}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    client = _client(principal_id="", operator=False)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-fallback-intent",
+        bot_config={"token": "telegram-token-fallback-intent"},
+        chat_id="9796",
+        text="Receiver check. Reply with one short line.",
+        current_message_id="31",
+    )
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-fallback-intent"))
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_async_sent")
+    assert payload.get("reply_text") == "I'm here. Ask directly."
+    assert dict(payload.get("intent_state") or {}) == {}
+    assert dict(payload.get("comparison_state") or {}) == {}
+
+
+def test_telegram_async_worker_sends_probe_fallback_when_real_ea_reply_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-probe-fallback")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-probe-fallback")
+    from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 771}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        sent.append({"url": getattr(request, "full_url", ""), "body": request.data.decode("utf-8") if request.data else ""})
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", lambda **kwargs: SimpleNamespace(text=""))
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="exec-telegram-probe-fallback", operator=False)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-probe-fallback",
+        bot_config={"token": "telegram-token-probe-fallback", "preferred_onemin_labels": ()},
+        chat_id="1354554303",
+        text="Test",
+        current_message_id="991001",
+    )
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-probe-fallback"))
+    assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
+    assert sent
+    assert "I'm here. Ask directly." in sent[-1]["body"]
+
+
+def test_telegram_ingest_answers_question_mark_probe_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-question-probe")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-question-probe")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 991}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    client = _client(principal_id="", operator=False)
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991002,
+                "date": 123,
+                "text": "?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert body["reply_text"] == "Ask directly."
+    assert sent[-1]["text"] == "Ask directly."
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-question-probe"))
+    assert any(str(row.event_type) == "telegram.reply_sent" for row in observations)
+    assert not any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
+
+
+def test_telegram_ingest_answers_google_photos_capability_request_from_grounded_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 992}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [])
+    monkeypatch.setattr(
+        channels_route.google_oauth_service,
+        "build_google_oauth_start",
+        lambda **kwargs: type("Packet", (), {"auth_url": "https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos"})(),
+    )
+    client = _client(principal_id="", operator=False)
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991003,
+                "date": 123,
+                "text": "You should have access to my Google photos. Can you find me the picture where Noah is sleeping on a mattress?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert "I do not see a connected Google account" in body["reply_text"]
+    assert "Google Photos Picker" in body["reply_text"]
+    assert "https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos" in body["reply_text"]
+    assert sent[-1]["text"] == body["reply_text"]
+
+
+def test_telegram_resolve_message_payload_transcribes_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import telegram_session_service
+
+    class _FakeResponse:
+        headers = {"Content-Type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"file_path": "voice/file-123.ogg"}}).encode("utf-8")
+
+    monkeypatch.setattr(telegram_session_service.product_service, "_pocket_audio_fallback_available", lambda: True)
+    monkeypatch.setattr(
+        telegram_session_service.product_service,
+        "_pocket_retranscribe_from_audio_url",
+        lambda **kwargs: {
+            "transcript_text": "Can you start the photo picker now?",
+            "transcript_metadata": {"transcriber": "test-transcriber"},
+        },
+    )
+    monkeypatch.setattr(telegram_session_service.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    resolved = telegram_session_service.resolve_telegram_message_payload(
+        payload={
+            "text": "Voice Message",
+            "kind": "voice",
+            "message_metadata": {"file_id": "voice-file-123", "duration": 8},
+            "message_id": 42,
+        },
+        bot_token="tg-token",
+    )
+    assert resolved["text"] == "Can you start the photo picker now?"
+    assert resolved["transcription_status"] == "ok"
+    assert dict(resolved["transcript_metadata"] or {})["telegram_file_id"] == "voice-file-123"
+
+
+def test_telegram_resolve_message_payload_sanitizes_transcription_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import telegram_session_service
+
+    monkeypatch.setattr(telegram_session_service.product_service, "_pocket_audio_fallback_available", lambda: True)
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda **kwargs: "https://api.telegram.org/file/bot-secret-token/voice/file-123.ogg",
+    )
+
+    def _raise_failure(**kwargs):
+        raise RuntimeError("telegram_getfile_http_401:https://api.telegram.org/file/bot-secret-token/voice/file-123.ogg")
+
+    monkeypatch.setattr(
+        telegram_session_service.product_service,
+        "_pocket_retranscribe_from_audio_url",
+        _raise_failure,
+    )
+    resolved = telegram_session_service.resolve_telegram_message_payload(
+        payload={
+            "text": "Voice Message",
+            "kind": "voice",
+            "message_metadata": {"file_id": "voice-file-123", "duration": 8},
+            "message_id": 43,
+        },
+        bot_token="tg-token",
+    )
+    assert resolved["transcription_status"] == "failed"
+    assert resolved["transcription_error_code"] == "telegram_getfile_http_401"
+    assert "bot-secret-token" not in json.dumps(resolved)
+
+
+def test_telegram_resolve_message_payload_skips_long_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import telegram_session_service
+
+    monkeypatch.setenv("EA_TELEGRAM_MAX_AUDIO_TRANSCRIBE_SECONDS", "10")
+    monkeypatch.setattr(telegram_session_service.product_service, "_pocket_audio_fallback_available", lambda: True)
+    called: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda **kwargs: called.append(dict(kwargs)) or "https://example.invalid/audio.ogg",
+    )
+    resolved = telegram_session_service.resolve_telegram_message_payload(
+        payload={
+            "text": "Voice Message",
+            "kind": "voice",
+            "message_metadata": {"file_id": "voice-file-999", "duration": 11},
+            "message_id": 44,
+        },
+        bot_token="tg-token",
+    )
+    assert resolved["transcription_status"] == "skipped"
+    assert resolved["transcription_error_code"] == "duration_limit"
+    assert called == []
+
+
+def test_telegram_resolve_message_payload_truncates_long_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import telegram_session_service
+
+    monkeypatch.setenv("EA_TELEGRAM_MAX_TRANSCRIPT_CHARS", "32")
+    monkeypatch.setattr(telegram_session_service.product_service, "_pocket_audio_fallback_available", lambda: True)
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda **kwargs: "https://example.invalid/audio.ogg",
+    )
+    monkeypatch.setattr(
+        telegram_session_service.product_service,
+        "_pocket_retranscribe_from_audio_url",
+        lambda **kwargs: {
+            "transcript_text": "This is a very long transcript that should be truncated before it enters the Telegram session payload.",
+            "transcript_metadata": {"transcriber": "test-transcriber"},
+        },
+    )
+    resolved = telegram_session_service.resolve_telegram_message_payload(
+        payload={
+            "text": "Voice Message",
+            "kind": "voice",
+            "message_metadata": {"file_id": "voice-file-555", "duration": 8},
+            "message_id": 45,
+        },
+        bot_token="tg-token",
+    )
+    assert resolved["transcription_status"] == "ok"
+    assert len(resolved["text"]) <= 35
+    assert resolved["text"].endswith("...")
+
+
+def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-deduped-voice")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-deduped-voice")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    resolve_calls: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 995}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    def _fake_resolve_message_payload(*, payload, bot_token):
+        resolve_calls.append(dict(payload or {}))
+        return {
+            **dict(payload or {}),
+            "text": "Can you start the photo picker now?",
+            "transcription_status": "ok",
+        }
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "resolve_telegram_message_payload", _fake_resolve_message_payload)
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    client = _client(principal_id="", operator=False)
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        json={"message": {"message_id": 991500, "date": 123, "voice": {"file_id": "voice-file-1", "duration": 8}, "chat": {"id": 1354554303, "type": "private"}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert first.status_code == 200
+    assert resolve_calls
+    first_count = len(resolve_calls)
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        json={"message": {"message_id": 991500, "date": 123, "voice": {"file_id": "voice-file-1", "duration": 8}, "chat": {"id": 1354554303, "type": "private"}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert second.status_code == 200
+    assert len(resolve_calls) == first_count
+
+
+def test_telegram_ingest_answers_done_from_recent_google_photos_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-done")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-done")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 994}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    monkeypatch.setattr(
+        channels_route.google_oauth_service,
+        "build_google_oauth_start",
+        lambda **kwargs: type("Packet", (), {"auth_url": "https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos"})(),
+    )
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "create_google_photos_picker_session",
+        lambda **kwargs: {"picker_uri": "https://photos.app/picker/session-123/autoclose"},
+    )
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991005,
+                "date": 123,
+                "text": "You should have access to my Google photos. Can you find me the picture where Noah is sleeping on a mattress?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991006,
+                "date": 124,
+                "text": "Done",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert second.status_code == 200
+    body = second.json()
+    assert body["reply_sent"] is True
+    assert "Google Photos Picker is ready" in body["reply_text"]
+    assert "https://photos.app/picker/session-123/autoclose" in body["reply_text"]
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=20, principal_id="exec-telegram-google-photos-done"))
+    assert any(
+        str(row.event_type) == "telegram.reply_sent" and "Google Photos Picker is ready" in str(dict(row.payload or {}).get("reply_text") or "")
+        for row in observations
+    )
+    assert not any(
+        str(row.event_type) == "telegram.reply_async_started" and "Done" in str(dict(row.payload or {}).get("prompt_text") or "")
+        for row in observations
+    )
+
+
+def test_telegram_ingest_suppresses_repeated_done_when_google_photos_state_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-done-repeat")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-done-repeat")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 997}}).encode("utf-8")
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    counter = {"n": 0}
+
+    def _build_start(**kwargs):
+        counter["n"] += 1
+        return type(
+            "Packet",
+            (),
+            {"auth_url": f"https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos&nonce={counter['n']}"},
+        )()
+
+    monkeypatch.setattr(
+        channels_route.google_oauth_service,
+        "build_google_oauth_start",
+        _build_start,
+    )
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+
+    def _boom(**kwargs):
+        raise RuntimeError("google_photos_forbidden")
+
+    monkeypatch.setattr(product_service, "create_google_photos_picker_session", _boom)
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    for message_id in (991009, 991010, 991011):
+        response = client.post(
+            "/v1/channels/telegram/ingest",
+            json={
+                "message": {
+                    "message_id": message_id,
+                    "date": message_id,
+                    "text": "Done",
+                    "chat": {"id": 1354554303, "type": "private"},
+                }
+            },
+            headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        )
+        assert response.status_code == 200
+
+    first_body = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991012,
+                "date": 991012,
+                "text": "You should have access to my Google photos. Can you find me the picture where Noah is sleeping on a mattress?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    ).json()
+    assert first_body["reply_sent"] is True
+
+    repeat_one = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991013,
+                "date": 991013,
+                "text": "Done",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    ).json()
+    assert repeat_one["reply_sent"] is True
+
+    repeat_two = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991014,
+                "date": 991014,
+                "text": "Done",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    ).json()
+    assert repeat_two["reply_sent"] is False
+    assert repeat_two["reply_text"] == ""
+
+
+def test_telegram_ingest_suppresses_repeated_again_when_google_photos_state_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-again-repeat")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-again-repeat")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 998}}).encode("utf-8")
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    counter = {"n": 0}
+
+    def _build_start(**kwargs):
+        counter["n"] += 1
+        return type(
+            "Packet",
+            (),
+            {"auth_url": f"https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos&nonce={counter['n']}"},
+        )()
+
+    monkeypatch.setattr(channels_route.google_oauth_service, "build_google_oauth_start", _build_start)
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+
+    def _boom(**kwargs):
+        raise RuntimeError("google_photos_forbidden")
+
+    monkeypatch.setattr(product_service, "create_google_photos_picker_session", _boom)
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    first_body = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991015,
+                "date": 991015,
+                "text": "You should have access to my Google photos. Can you find me the picture where Noah is sleeping on a mattress?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    ).json()
+    assert first_body["reply_sent"] is True
+
+    done_body = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991016,
+                "date": 991016,
+                "text": "Done",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    ).json()
+    assert done_body["reply_sent"] is True
+
+    again_one = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991017,
+                "date": 991016,
+                "text": "Again?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    ).json()
+    assert again_one["reply_sent"] is False
+    assert again_one["reply_text"] == ""
+
+
+def test_telegram_ingest_reuses_google_photos_context_for_voice_message_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-voice")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-voice")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 999}}).encode("utf-8")
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "create_google_photos_picker_session",
+        lambda **kwargs: {"picker_uri": "https://photos.app/picker/session-voice/autoclose"},
+    )
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    first = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991018,
+                "date": 991018,
+                "text": "You should have access to my Google photos. Can you find me the picture where Noah is sleeping on a mattress?",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991019,
+                "date": 991019,
+                "text": "Voice Message",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert second.status_code == 200
+    body = second.json()
+    assert body["reply_sent"] is True
+    assert "Google Photos Picker is ready" in body["reply_text"]
+    assert "https://photos.app/picker/session-voice/autoclose" in body["reply_text"]
+
+
+def test_telegram_ingest_answers_start_picker_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-picker")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-picker")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 995}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "create_google_photos_picker_session",
+        lambda **kwargs: {"picker_uri": "https://photos.app/picker/session-456/autoclose"},
+    )
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991007,
+                "date": 125,
+                "text": "start photo picker",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert "Google Photos Picker is ready" in body["reply_text"]
+    assert "https://photos.app/picker/session-456/autoclose" in body["reply_text"]
+    assert sent[-1]["text"] == body["reply_text"]
+
+
+def test_telegram_ingest_surfaces_google_photos_picker_forbidden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-forbidden")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-forbidden")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 996}}).encode("utf-8")
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    monkeypatch.setattr(
+        channels_route.google_oauth_service,
+        "build_google_oauth_start",
+        lambda **kwargs: type("Packet", (), {"auth_url": "https://accounts.google.com/o/oauth2/v2/auth?scope_bundle=full_workspace_photos"})(),
+    )
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+
+    def _boom(**kwargs):
+        raise RuntimeError("google_photos_forbidden")
+
+    monkeypatch.setattr(product_service, "create_google_photos_picker_session", _boom)
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991008,
+                "date": 126,
+                "text": "start photo picker",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert "Google is still refusing picker sessions for this app with a 403" in body["reply_text"]
+
+
+def test_telegram_ingest_surfaces_google_photos_picker_service_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-google-photos-service-disabled")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-google-photos-service-disabled")
+    from app.api.routes import channels as channels_route
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 999}}).encode("utf-8")
+
+    class _Account:
+        def __init__(self):
+            self.token_status = "active"
+            self.binding = type("Binding", (), {"status": "enabled"})()
+            self.granted_scopes = [channels_route.google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER]
+            self.google_email = "tibor.girschele@gmail.com"
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", lambda request, timeout=30: _FakeResponse())
+    monkeypatch.setattr(channels_route.google_oauth_service, "list_google_accounts", lambda **kwargs: [_Account()])
+    client = _client(principal_id="", operator=False)
+    product_service = channels_route.build_product_service(client.app.state.container)
+
+    def _boom(**kwargs):
+        raise RuntimeError(
+            "google_photos_service_disabled:https://console.developers.google.com/apis/api/photospicker.googleapis.com/overview?project=357214671780"
+        )
+
+    monkeypatch.setattr(product_service, "create_google_photos_picker_session", _boom)
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: product_service)
+
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991018,
+                "date": 127,
+                "text": "start photo picker",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert "Google Photos Picker API is disabled" in body["reply_text"]
+    assert "https://console.developers.google.com/apis/api/photospicker.googleapis.com/overview?project=357214671780" in body["reply_text"]
+
+
+def test_telegram_ingest_answers_meta_assistant_prompt_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-meta")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-meta")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 993}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    client = _client(principal_id="", operator=False)
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 991004,
+                "date": 123,
+                "text": "I want you to finally work.",
+                "chat": {"id": 1354554303, "type": "private"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert body["reply_text"] == "I'm here. Give me a concrete task."
+    assert sent[-1]["text"] == "I'm here. Give me a concrete task."
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-meta"))
+    assert any(str(row.event_type) == "telegram.reply_sent" for row in observations)
+    assert not any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
+    payload = next(dict(row.payload or {}) for row in observations if str(row.event_type) == "telegram.reply_sent")
+    assert dict(payload.get("active_object_map") or {}) == {}
+    assert dict(payload.get("intent_state") or {}) == {}
+    assert dict(payload.get("comparison_state") or {}) == {}
+
+
+def test_telegram_ingest_schedules_async_codex_reply_for_generic_plain_chat(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-real-chat")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-real-chat")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 22}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append(payload)
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "Here is the real EA answer.")
+    client = _client(principal_id="", operator=False)
+
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 9798},
+                    "text": "Tell me something useful.",
+                    "message_id": 22,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_sent"] is False
+    assert body["reply_text"] == ""
+    observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-real-chat"))
+    assert any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
+
+
+def test_telegram_ingest_updates_property_alert_policy_from_plain_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "telegram-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-policy")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-policy")
+    from app.api.routes import channels as channels_route
+
+    client = _client(principal_id="", operator=False)
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 401}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent.append({"url": request.full_url, "payload": payload, "timeout": timeout})
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "telegram-secret"},
+        json={
+            "update": {
+                "message": {
+                    "message_id": 401,
+                    "chat": {"id": "telegram-policy-chat"},
+                    "text": "I want EA to do all of that by itself. If it's good, I want a notification here.",
+                    "date": 123,
+                }
+            },
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert "score and compare property alerts automatically" in body["reply_text"]
+    assert sent and "only notify you here when the fit looks genuinely good" in str(sent[0]["payload"]["text"])
 
 
 def test_telegram_local_assistant_can_answer_capability_question() -> None:
@@ -1713,6 +3894,56 @@ def test_browser_landing_uses_cloudflare_access_identity_for_gmail_onboarding(mo
     assert "cf-email:browser@gmail.com" not in callback.text
     assert 'href="/get-started"' in callback.text
     assert "First signal sync finished." in callback.text
+
+
+def test_browser_google_callback_renders_error_page_for_google_error_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-browser-google-error")
+    callback = owner.get(
+        "/google/callback",
+        params={"error": "access_denied", "error_description": "User denied the request"},
+    )
+    assert callback.status_code == 400
+    assert "Google connection needs attention" in callback.text
+    assert "User denied the request" in callback.text
+    assert "instead of a blank gateway error" in callback.text
+
+
+def test_browser_google_callback_renders_failure_page_for_unexpected_callback_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-browser-google-failure")
+
+    started = owner.post(
+        "/google/connect",
+        data={"scope_bundle": "core"},
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    parsed = urllib.parse.urlparse(started.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    state = query["state"][0]
+
+    from app.api.routes import landing_setup as landing_setup_route
+
+    def _boom(*args, **kwargs):
+        raise ValueError("google_token_exchange_boom")
+
+    monkeypatch.setattr(landing_setup_route, "complete_google_oauth_callback", _boom)
+
+    callback = owner.get("/google/callback", params={"code": "code-123", "state": state})
+    assert callback.status_code == 502
+    assert "Google connection needs attention" in callback.text
+    assert "google_token_exchange_boom" in callback.text
 
 
 def test_browser_shell_routes_and_nav_links_resolve() -> None:

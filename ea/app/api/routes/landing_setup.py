@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import urllib.parse
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import CloudflareAccessIdentity, get_cloudflare_access_identity, get_container
@@ -93,6 +93,41 @@ def _google_sync_detail(sync_result: dict[str, object]) -> str:
             f"deduplicated {deduplicated_total}, suppressed {suppressed_total}."
         )
     return "First signal sync finished. No recent Gmail or Calendar signals were staged yet."
+
+
+def _render_google_oauth_callback_failure(
+    request: Request,
+    *,
+    detail: str,
+    status_code: int,
+) -> HTMLResponse:
+    response = _render_public_template(
+        request,
+        "channel_detail.html",
+        page_title="Google connection needs attention",
+        public_nav=PUBLIC_NAV,
+        current_nav="integrations",
+        access_identity=None,
+        principal_id="",
+        channel_title="Google connection",
+        channel_eyebrow="Google",
+        channel={
+            "status": "needs_attention",
+            "detail": detail or "Google connection could not be completed on this host.",
+            "capabilities": [],
+            "limitations": [],
+        },
+        detail_points=(
+            "The OAuth callback did not complete cleanly.",
+            "Retry the consent flow from the latest setup page if this was an expired or cancelled sign-in.",
+        ),
+        body_points=(
+            "EA keeps the browser callback fail-closed and should show the real blocker instead of a blank gateway error.",
+            "If this persists, check Google OAuth credentials, redirect URI, and provider availability.",
+        ),
+    )
+    response.status_code = status_code
+    return response
 
 
 @router.post("/setup/start")
@@ -268,15 +303,28 @@ async def google_connect_browser(
 @router.get("/google/callback", response_class=HTMLResponse, response_model=None, name="google_oauth_browser_callback")
 def google_oauth_browser_callback(
     request: Request,
-    code: str,
-    state: str,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    error_description: str = "",
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse | RedirectResponse:
+    if str(error or "").strip():
+        detail = str(error_description or error or "google_oauth_denied").strip()
+        return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
+    if not str(code or "").strip() or not str(state or "").strip():
+        return _render_google_oauth_callback_failure(
+            request,
+            detail="Google did not return a valid OAuth code and state.",
+            status_code=400,
+        )
     try:
         state_payload = read_google_oauth_state(state)
         account = complete_google_oauth_callback(container=container, code=code, state=state)
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _render_google_oauth_callback_failure(request, detail=str(exc), status_code=400)
+    except Exception as exc:
+        return _render_google_oauth_callback_failure(request, detail=str(exc or "google_oauth_callback_failed"), status_code=502)
     product = build_product_service(container)
     product.record_surface_event(
         principal_id=account.binding.principal_id,

@@ -11,6 +11,10 @@ from app.api.routes.product_api_contracts import (
     ChannelDigestDeliveryCreateIn,
     ChannelDigestDeliveryOut,
     ChannelLoopOut,
+    GooglePhotosPickerSessionIn,
+    GooglePhotosPickerSessionOut,
+    GooglePhotosSignalSyncIn,
+    GooglePhotosSignalSyncOut,
     GoogleSignalSyncOut,
     GoogleSignalSyncStatusOut,
     OfficeEventOut,
@@ -318,6 +322,78 @@ def sync_google_willhaben_signals(
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return GoogleSignalSyncOut(**payload)
+
+
+@router.post("/signals/google/photos/session", response_model=GooglePhotosPickerSessionOut)
+def create_google_photos_picker_session(
+    body: GooglePhotosPickerSessionIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GooglePhotosPickerSessionOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "google_photos").strip()
+    try:
+        payload = service.create_google_photos_picker_session(
+            principal_id=context.principal_id,
+            actor=actor,
+            account_email=body.account_email,
+            binding_id=body.binding_id,
+            max_item_count=body.max_item_count,
+            autoclose=body.autoclose,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return GooglePhotosPickerSessionOut(**payload)
+
+
+@router.get("/signals/google/photos/session/{session_id}", response_model=GooglePhotosPickerSessionOut)
+def get_google_photos_picker_session(
+    session_id: str,
+    account_email: str = Query(default=""),
+    binding_id: str = Query(default=""),
+    autoclose: bool = Query(default=True),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GooglePhotosPickerSessionOut:
+    service = build_product_service(container)
+    try:
+        payload = service.get_google_photos_picker_session(
+            principal_id=context.principal_id,
+            session_id=session_id,
+            account_email=account_email,
+            binding_id=binding_id,
+            autoclose=autoclose,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "google_photos_picker_session_not_found" else 409
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return GooglePhotosPickerSessionOut(**payload)
+
+
+@router.post("/signals/google/photos/sync", response_model=GooglePhotosSignalSyncOut)
+def sync_google_photos_signals(
+    body: GooglePhotosSignalSyncIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GooglePhotosSignalSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "google_photos").strip()
+    try:
+        payload = service.sync_google_photos_signals(
+            principal_id=context.principal_id,
+            actor=actor,
+            session_id=body.session_id,
+            account_email=body.account_email,
+            binding_id=body.binding_id,
+            max_items=body.max_items,
+            delete_session=body.delete_session,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "google_photos_picker_session_not_found" else 409
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return GooglePhotosSignalSyncOut(**payload)
 
 
 @router.get("/signals/google/status", response_model=GoogleSignalSyncStatusOut)

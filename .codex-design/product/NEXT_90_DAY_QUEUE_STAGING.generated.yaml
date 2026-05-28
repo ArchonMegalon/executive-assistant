@@ -2917,8 +2917,9 @@ items:
   - portable_dossier_export_ui
   proof:
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignArtifactWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/MainWindow.DesktopSurfaceNavigation.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M115PortableDossierGuardTests.cs
@@ -3022,7 +3023,7 @@ items:
     instead of reopening the desktop publication and moderation slice.
   proof:
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
+  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M116CreatorPublicationGuardTests.cs
@@ -3158,9 +3159,7 @@ items:
     instead of reopening the desktop artifact shelf slice.
   proof:
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignArtifactWindow.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopRuleEnvironmentStudioWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCreatorPublicationWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M117ArtifactShelfGuardTests.cs
@@ -3302,7 +3301,6 @@ items:
     desktop package.
   proof:
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopOrganizerOperationsWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/App.axaml.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Desktop.Runtime/DesktopStartupSurfaceCatalog.cs
@@ -3502,7 +3500,6 @@ items:
   do_not_reopen_reason: M119 chummer6-ui desktop first playable session entry points are complete; future shards must verify the home and campaign starter-lane actions, the closed-package guard and receipt, standard verifier wiring, and the canonical registry plus queue rows instead of reopening this slice.
   proof:
   - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopHomeWindow.cs
-  - /docker/chummercomplete/chummer-presentation/Chummer.Avalonia/DesktopCampaignWorkspaceWindow.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M119FirstSessionFlowGuardTests.cs
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj

@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-05-25T18:45:08Z'
+generated_at: '2026-05-28T08:59:27Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -13,10 +13,10 @@ allowed_paths:
 - scripts
 - feedback
 - docs
-status: pass
+status: fail
 summary:
   family_count: 3
-  family_pass_count: 3
+  family_pass_count: 2
   fleet_m142_gate_status: pass
   fleet_m142_route_local_status: pass
   desktop_client_status: ready
@@ -71,25 +71,25 @@ source_inputs:
     generated_at: '2026-05-07T23:31:39.358211Z'
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-21T14:22:53.020400Z'
+    generated_at: '2026-05-28T07:30:15.992203Z'
   visual_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-21T14:29:09.497125Z'
+    generated_at: '2026-05-28T07:30:13.629235Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-21T11:51:16.509186Z'
+    generated_at: '2026-05-28T07:47:06.213114Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    generated_at: '2026-05-19T09:36:48.220678Z'
+    generated_at: '2026-05-28T07:26:48.495959Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    generated_at: '2026-05-22T14:28:28.801857Z'
+    generated_at: '2026-05-28T07:22:35.657243Z'
   generated_dialog_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    generated_at: '2026-05-22T14:27:56.190881Z'
+    generated_at: '2026-05-28T07:22:03.461580Z'
   gm_runboard_route:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
-    generated_at: '2026-05-05T16:28:45Z'
+    generated_at: '2026-05-27T20:42:38Z'
   core_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
     generated_at: '2026-05-22T15:24:31Z'
@@ -100,18 +100,18 @@ source_inputs:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
     status: ready
-    summary: EA-scoped family-local screenshot and interaction proof for milestone
-      142 is ready.
+    summary: Desktop install, release-channel, and flagship workbench proof are current.
     reason_count: 0
-    source_status: missing
-    source_summary: Desktop flagship proof is still incomplete.
-    source_reason_count: 2
+    source_status: ready
+    source_summary: Desktop install, release-channel, and flagship workbench proof
+      are current.
+    source_reason_count: 0
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: 4e5610c1dad1363787d0fb6216fcd0ca2cead47d4eaa46a63c3b1a956b84b125
+    row_fingerprint: d5edc9364de3c1713e5f1465e3b35c1af931e6fc753c2962cc0e37447a1cbfa3
 canonical_monitors:
   guide_markers:
     wave: true
@@ -151,8 +151,7 @@ canonical_monitors:
 desktop_client_readiness:
   coverage_key: desktop_client
   status: ready
-  summary: EA-scoped family-local screenshot and interaction proof for milestone 142
-    is ready.
+  summary: Desktop install, release-channel, and flagship workbench proof are current.
   reason_count: 0
   reasons: []
 family_local_packs:
@@ -191,8 +190,8 @@ family_local_packs:
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: EA-scoped family-local screenshot and interaction proof for
-      milestone 142 is ready.
+    coverage_summary: Desktop install, release-channel, and flagship workbench proof
+      are current.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:dense_workbench_light
@@ -285,8 +284,8 @@ family_local_packs:
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: EA-scoped family-local screenshot and interaction proof for
-      milestone 142 is ready.
+    coverage_summary: Desktop install, release-channel, and flagship workbench proof
+      are current.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:menu_open
@@ -315,7 +314,7 @@ family_local_packs:
     - 'Initiative lane:'
     - ResolveRunboardInitiativeSummary
     - gm_runboard
-    satisfied: true
+    satisfied: false
   - route_id: workflow:initiative_budget_receipt
     source_key: core_receipts_doc
     required_tokens:
@@ -338,7 +337,8 @@ family_local_packs:
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
   - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
-  issues: []
+  issues:
+  - 'missing interaction receipts: workflow:initiative'
 - family_id: identity_contacts_lifestyles_history
   label: Identity, contacts, lifestyles, and history workflows
   compare_artifacts:
@@ -370,8 +370,8 @@ family_local_packs:
   desktop_client_dependency:
     coverage_key: desktop_client
     coverage_status: ready
-    coverage_summary: EA-scoped family-local screenshot and interaction proof for
-      milestone 142 is ready.
+    coverage_summary: Desktop install, release-channel, and flagship workbench proof
+      are current.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:contacts_section
@@ -423,6 +423,7 @@ family_local_packs:
 closeout:
   ready: false
   blockers:
+  - 'dice_initiative_and_table_utilities: missing interaction receipts: workflow:initiative'
   - canonical design/queue rows are not marked complete yet
   notes:
   - This EA packet compiles family-local screenshot and interaction proof for milestone

@@ -537,11 +537,28 @@ class PreferenceProfileService:
         total_rent = facts.get("total_rent_eur")
         rooms = facts.get("rooms")
         area_sqm = facts.get("area_sqm")
-        heating = str(facts.get("heating") or attributes.get("HEIZUNGSART") or attributes.get("HEATING_TYPE") or "").strip()
+        heating = str(
+            facts.get("heating")
+            or facts.get("heating_type")
+            or attributes.get("HEIZUNGSART")
+            or attributes.get("HEATING_TYPE")
+            or ""
+        ).strip()
         has_floorplan = bool(facts.get("floorplan_count") or facts.get("has_floorplan") or facts.get("floorplan_urls_json"))
-        has_360 = str(facts.get("tour_media_mode") or "").strip().lower() == "panorama_360" or bool(facts.get("source_virtual_tour_url"))
+        has_360 = (
+            bool(facts.get("has_360"))
+            or str(facts.get("tour_media_mode") or "").strip().lower() == "panorama_360"
+            or bool(facts.get("source_virtual_tour_url"))
+        )
         has_balcony = "balkon" in _normalize_key(facts.get("headline_hook")) or "balkon" in _normalize_key(attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"))
-        has_lift = "lift" in _normalize_key(facts.get("headline_hook")) or "lift" in _normalize_key(attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"))
+        has_lift = (
+            bool(facts.get("lift"))
+            or "lift" in _normalize_key(facts.get("headline_hook"))
+            or "lift" in _normalize_key(attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"))
+        )
+        bike_score = float(facts.get("bike_infrastructure_score") or 0.0)
+        green_score = float(facts.get("green_space_score") or 0.0)
+        playground_score = float(facts.get("playground_score") or 0.0)
         score = 50.0
         match_reasons: list[str] = []
         mismatch_reasons: list[str] = []
@@ -589,8 +606,11 @@ class PreferenceProfileService:
             elif category in {"soft_preference", "aversion"} and key == "preferred_districts":
                 preferred = {_normalize_key(item) for item in _list_value(value)}
                 if district and _normalize_key(district) in preferred:
-                    score += 5.0 * weight
+                    score += 9.0 * weight
                     match_reasons.append(f"The listing is in {district}, which matches established district preferences.")
+                elif district:
+                    score -= 2.5 * weight
+                    mismatch_reasons.append(f"The listing is outside the established preferred districts ({district}).")
             elif category in {"soft_preference", "aversion"} and key == "avoided_districts":
                 avoided = {_normalize_key(item) for item in _list_value(value)}
                 if district and _normalize_key(district) in avoided:
@@ -599,15 +619,15 @@ class PreferenceProfileService:
             elif category == "aversion" and key == "avoid_heating_types":
                 avoided_heating = {_normalize_key(item) for item in _list_value(value)}
                 if heating and _normalize_key(heating) in avoided_heating:
-                    score -= 8.0 * weight
+                    score -= 12.0 * weight
                     mismatch_reasons.append(f"{heating} matches a recorded heating aversion.")
             elif category == "soft_preference" and key == "requires_floorplan_for_remote_review":
                 if bool(value):
                     if has_floorplan:
-                        score += 4.0 * weight
+                        score += 6.0 * weight
                         match_reasons.append("A floor plan is available, which supports the preferred remote review workflow.")
                     else:
-                        score -= 4.0 * weight
+                        score -= 6.0 * weight
                         mismatch_reasons.append("No floor plan is available, which conflicts with the preferred remote review workflow.")
             elif category == "soft_preference" and key == "prefer_balcony":
                 if bool(value):
@@ -620,19 +640,49 @@ class PreferenceProfileService:
             elif category == "soft_preference" and key == "prefer_lift":
                 if bool(value):
                     if has_lift:
-                        score += 3.0 * weight
+                        score += 6.0 * weight
                         match_reasons.append("Lift access appears available, which matches the preferred accessibility workflow.")
                     else:
-                        score -= 2.0 * weight
+                        score -= 5.0 * weight
                         mismatch_reasons.append("Lift access is not clearly available, which conflicts with the preferred accessibility workflow.")
             elif category == "soft_preference" and key == "prefer_360_for_remote_review":
                 if bool(value):
                     if has_360:
-                        score += 4.0 * weight
+                        score += 7.0 * weight
                         match_reasons.append("A live 360 source is available, which matches the preferred remote review workflow.")
                     else:
-                        score -= 3.0 * weight
+                        score -= 6.0 * weight
                         mismatch_reasons.append("No live 360 source is available, which conflicts with the preferred remote review workflow.")
+            elif category == "soft_preference" and key == "prefer_bike_infrastructure":
+                if bool(value):
+                    if bike_score >= 0.7:
+                        score += 5.5 * weight
+                        match_reasons.append("Bike infrastructure looks strong enough to match the cycling preference.")
+                    elif bike_score > 0.0:
+                        score -= 3.5 * weight
+                        mismatch_reasons.append("Bike infrastructure looks weaker than the stated preference.")
+                    else:
+                        unknowns.append("Bike infrastructure still needs local verification.")
+            elif category == "soft_preference" and key == "prefer_running_green_space":
+                if bool(value):
+                    if green_score >= 0.68:
+                        score += 4.5 * weight
+                        match_reasons.append("Green-space access looks strong enough to support regular running or walking.")
+                    elif green_score > 0.0:
+                        score -= 2.5 * weight
+                        mismatch_reasons.append("Green-space access looks weaker than the stated outdoor preference.")
+                    else:
+                        unknowns.append("Running and green-space access still need local verification.")
+            elif category == "soft_preference" and key == "prefer_playgrounds_nearby":
+                if bool(value):
+                    if playground_score >= 0.6:
+                        score += 3.5 * weight
+                        match_reasons.append("Nearby playground access looks compatible with the household preference.")
+                    elif playground_score > 0.0:
+                        score -= 2.0 * weight
+                        mismatch_reasons.append("Nearby playground access looks weaker than preferred.")
+                    else:
+                        unknowns.append("Playground proximity still needs local verification.")
             elif category == "constraint" and key == "require_lift":
                 if bool(value) and not has_lift:
                     blocking_constraints.append("Lift access is required, but the listing does not clearly provide it.")

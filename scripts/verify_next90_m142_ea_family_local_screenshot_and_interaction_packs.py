@@ -101,6 +101,7 @@ def _check_forbidden_markers(label: str, text: str, issues: list[str]) -> None:
 
 def main() -> int:
     issues: list[str] = []
+    family_markdown_status: dict[str, str] = {}
     for path in (PACK_PATH, MARKDOWN_PATH, FEEDBACK_PATH):
         if not path.is_file():
             issues.append(f"missing required file: {path}")
@@ -267,9 +268,13 @@ def main() -> int:
             issues.append(f"{row.get('family_id')}: parity_audit behavioral_parity missing or invalid")
         if visual_parity != "yes" or behavioral_parity != "yes":
             direct_gap_families.append(str(row.get("family_id") or ""))
+        row_has_missing_receipt = False
         for receipt in screenshot_receipts + interaction_receipts:
             if not receipt.get("required_tokens"):
                 issues.append(f"{row.get('family_id')}::{receipt.get('route_id')}: required_tokens missing")
+            if receipt.get("satisfied") is not True:
+                row_has_missing_receipt = True
+        family_markdown_status[str(row.get("family_id") or "")] = "fail" if row_has_missing_receipt or list(row.get("issues") or []) else "pass"
 
     closeout = dict(payload.get("closeout") or {})
     blockers = [str(item) for item in (closeout.get("blockers") or [])]
@@ -289,7 +294,8 @@ def main() -> int:
     if "approved `.codex-design` local mirror" not in markdown_text:
         issues.append("markdown summary missing local mirror guardrail")
     for family_id, markers in EXPECTED_MARKDOWN_RECEIPTS.items():
-        if f"- `{family_id}`: pass" not in markdown_text:
+        expected_status = family_markdown_status.get(family_id, "pass")
+        if f"- `{family_id}`: {expected_status}" not in markdown_text:
             issues.append(f"markdown summary missing explicit family status line for {family_id}")
         for marker in markers:
             if marker not in markdown_text:

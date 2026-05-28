@@ -1466,6 +1466,8 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     cross_slice_participation_subject = "ea: add participation followthrough packets"
     workspace_sync_commit = "91b76f8"
     workspace_sync_subject = "chore: sync workspace state"
+    ea_workspace_sync_commit = "e280438"
+    ea_workspace_sync_subject = "ea: harden telegram, property scoring, and preference lanes"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1498,6 +1500,11 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             continue
         if commit == workspace_sync_commit:
             assert subject == workspace_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if commit == ea_workspace_sync_commit:
+            assert subject == ea_workspace_sync_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue
@@ -1727,6 +1734,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue
+        if commit == ea_workspace_sync_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == ea_workspace_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -1857,6 +1876,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 text=True,
             ).stdout.strip()
             assert subject == workspace_sync_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if commit == ea_workspace_sync_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == ea_workspace_sync_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue

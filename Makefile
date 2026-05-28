@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets docs-verify all-local
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
@@ -52,6 +52,9 @@ test-api:
 
 test-postgres-contracts:
 	bash scripts/test_postgres_contracts.sh
+
+test-telegram-bot:
+	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests/e2e/test_telegram_bot_workflows.py tests/e2e/test_telegram_bot_outbound_workflows.py
 
 openapi-export:
 	bash scripts/export_openapi.sh

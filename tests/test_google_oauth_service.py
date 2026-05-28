@@ -295,6 +295,76 @@ def test_google_signal_loader_uses_full_message_text_when_modify_scope_granted(m
     assert detail_query["format"] == ["full"]
 
 
+def test_google_signal_loader_extracts_pdf_attachments_when_full_message_access_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    pdf_bytes = b"%PDF-1.7 test"
+    encoded_pdf = base64.urlsafe_b64encode(pdf_bytes).decode("ascii").rstrip("=")
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            return _Response({"messages": [{"id": "msg-pdf-1", "threadId": "thread-pdf-1"}]})
+        if "/gmail/v1/users/me/messages/msg-pdf-1?" in url:
+            return _Response(
+                {
+                    "threadId": "thread-pdf-1",
+                    "labelIds": ["INBOX"],
+                    "snippet": "The attachment is included.",
+                    "payload": {
+                        "mimeType": "multipart/mixed",
+                        "headers": [
+                            {"name": "Subject", "value": "Medical approval"},
+                            {"name": "From", "value": "KfA <office@example.com>"},
+                            {"name": "Date", "value": "Sat, 29 Mar 2026 12:00:00 +0000"},
+                        ],
+                        "parts": [
+                            {
+                                "partId": "1",
+                                "mimeType": "application/pdf",
+                                "filename": "approval.pdf",
+                                "body": {"attachmentId": "att-1", "size": len(pdf_bytes)},
+                            }
+                        ],
+                    },
+                }
+            )
+        if "/gmail/v1/users/me/messages/msg-pdf-1/attachments/att-1" in url:
+            return _Response({"data": encoded_pdf})
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    rows = google_service._list_recent_gmail_signals(
+        access_token="token-123",
+        max_results=5,
+        include_message_body=True,
+        account_email="tibor.girschele@gmail.com",
+    )
+
+    assert len(rows) == 1
+    attachment = rows[0].attachments[0]
+    assert attachment.filename == "approval.pdf"
+    assert attachment.mime_type == "application/pdf"
+    assert attachment.content_bytes == pdf_bytes
+    assert rows[0].payload["attachments"][0]["filename"] == "approval.pdf"
+
+
 def test_google_signal_loader_falls_back_to_metadata_when_full_message_fetch_is_forbidden(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

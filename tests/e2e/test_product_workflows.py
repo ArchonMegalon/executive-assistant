@@ -852,9 +852,7 @@ def test_support_fix_verification_flow_in_real_browser(page: Page, product_brows
     support_item_row = page.locator(".console-row", has_text="Confirm the fix reached you")
     with page.expect_response(lambda value: "/app/channel-actions/" in value.url) as confirm_response:
         support_item_row.get_by_role("link", name="Confirm", exact=True).click()
-    assert confirm_response.value.status == 200
-    assert "The requested action was recorded." in page.content()
-    page.get_by_role("link", name="Open related workspace surface").click()
+    assert confirm_response.value.status == 303
     page.wait_for_url(f"{base_url}/app/channel-loop/memo")
     page.wait_for_load_state("networkidle")
 

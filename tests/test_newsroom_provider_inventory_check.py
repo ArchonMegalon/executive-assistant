@@ -8,7 +8,7 @@ from types import ModuleType
 
 
 def _load_script() -> ModuleType:
-    path = Path("/docker/EA/scripts/newsroom_provider_inventory_check.py")
+    path = Path(__file__).resolve().parents[1] / "scripts" / "newsroom_provider_inventory_check.py"
     spec = importlib.util.spec_from_file_location("newsroom_provider_inventory_check", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

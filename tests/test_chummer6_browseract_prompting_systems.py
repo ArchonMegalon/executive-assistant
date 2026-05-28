@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 
-SCRIPT_PATH = Path("/docker/EA/scripts/chummer6_browseract_prompting_systems.py")
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "chummer6_browseract_prompting_systems.py"
 
 
 def _load_module():

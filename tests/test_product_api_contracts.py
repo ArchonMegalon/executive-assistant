@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -625,8 +626,924 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     )
     assert signal.status_code == 200
     assert observed_telegram["principal_id"] == principal_id
-    assert "New property alert analyzed." in str(observed_telegram["text"])
+    assert "Scout update." in str(observed_telegram["text"])
     assert "Listing: https://www.immoscout24.at/expose/telegram-test-property-1" in str(observed_telegram["text"])
+
+
+def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority(monkeypatch) -> None:
+    principal_id = "exec-product-signal-property-fit-priority"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Fit Priority Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "fit-priority-1",
+            "title": "Strong Waehring listing",
+            "property_facts_json": {
+                "postal_name": "Waehring",
+                "heating_type": "Fernwaerme",
+                "has_floorplan": True,
+                "has_360": True,
+                "lift": True,
+                "bike_infrastructure_score": 9,
+                "green_space_score": 8,
+                "playground_score": 7,
+            },
+            "media_urls_json": [],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.png"],
+        },
+    )
+
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "assessment_id": "assessment-property-fit-priority",
+            "domain": "willhaben",
+            "object_id": "fit-priority-1",
+            "fit_score": 92.0,
+            "confidence": 0.91,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["The listing is in Waehring, which matches established district preferences."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "summary": "\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden",
+            "text": (
+                "Neue Anzeige gefunden. "
+                "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-fit-priority-1"
+            ),
+            "counterparty": "willhaben-Suchagent",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-fit-priority-1",
+            "payload": {
+                "from_email": "no-reply@agent.willhaben.at",
+                "from_name": "willhaben-Suchagent",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+
+    queue = client.get("/app/api/queue")
+    assert queue.status_code == 200
+    item = next(row for row in queue.json()["items"] if row["id"].startswith("human_task:"))
+    assert item["priority"] == "high"
+    assert item["rank_score"] == 92.0
+    assert "Personal fit 92/100" in item["summary"]
+    assert "shortlist" in item["summary"].lower()
+
+
+def test_signal_ingest_property_alert_queue_orders_higher_fit_first(monkeypatch) -> None:
+    principal_id = "exec-product-signal-property-fit-order"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Fit Ordering Office")
+
+    def _fake_packet(url: str) -> dict[str, object]:
+        listing_id = "high-fit-1" if "high-fit-1" in url else "mid-fit-1"
+        district = "Waehring" if listing_id == "high-fit-1" else "Floridsdorf"
+        return {
+            "property_url": url,
+            "listing_id": listing_id,
+            "title": f"Listing {listing_id}",
+            "property_facts_json": {
+                "postal_name": district,
+                "heating_type": "Fernwaerme",
+                "has_floorplan": True,
+                "has_360": True,
+                "lift": True,
+            },
+            "media_urls_json": [],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.png"],
+        }
+
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", _fake_packet)
+
+    def _fake_assess_candidate(**kwargs):
+        object_id = str(kwargs.get("object_id") or "")
+        if "high-fit-1" in object_id:
+            return {
+                "assessment_id": "assessment-high-fit-1",
+                "domain": "willhaben",
+                "object_id": object_id,
+                "fit_score": 96.0,
+                "confidence": 0.95,
+                "predicted_reaction": "shortlist",
+                "recommendation": "shortlist",
+                "match_reasons_json": ["The listing is in Waehring, which matches established district preferences."],
+                "mismatch_reasons_json": [],
+                "unknowns_json": [],
+                "blocking_constraints_json": [],
+            }
+        return {
+            "assessment_id": "assessment-mid-fit-1",
+            "domain": "willhaben",
+            "object_id": object_id,
+            "fit_score": 61.0,
+            "confidence": 0.76,
+            "predicted_reaction": "consider",
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": ["The listing could work, but the district fit is less certain."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+
+    for suffix in ("mid-fit-1", "high-fit-1"):
+        signal = client.post(
+            "/app/api/signals/ingest",
+            json={
+                "signal_type": "email_thread",
+                "channel": "gmail",
+                "title": f"\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden ({suffix})",
+                "summary": f"\"Mietwohnungen 2,20, 09\" hat 1 neue Anzeige für dich gefunden ({suffix})",
+                "text": f"https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/{suffix}",
+                "counterparty": "willhaben-Suchagent",
+                "source_ref": f"gmail-thread:elisabeth.girschele@gmail.com:{suffix}",
+                "external_id": f"gmail-message:elisabeth.girschele@gmail.com:{suffix}",
+                "payload": {
+                    "from_email": "no-reply@agent.willhaben.at",
+                    "from_name": "willhaben-Suchagent",
+                    "account_email": "elisabeth.girschele@gmail.com",
+                    "labels": ["CATEGORY_UPDATES", "INBOX"],
+                },
+            },
+        )
+        assert signal.status_code == 200
+
+    queue = client.get("/app/api/queue")
+    assert queue.status_code == 200
+    items = [row for row in queue.json()["items"] if row["id"].startswith("human_task:")]
+    assert len(items) >= 2
+    assert items[0]["rank_score"] == 96.0
+    assert "Personal fit 96/100" in items[0]["summary"]
+    assert items[1]["rank_score"] == 61.0
+
+
+def test_queue_uses_profile_admin_boost_for_matching_tasks() -> None:
+    principal_id = "exec-product-profile-queue-boost"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Queue Boost Office")
+    seeded = seed_product_state(client, principal_id=principal_id)
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={
+            "enabled": True,
+            "entities": ["KfA", "NRZ"],
+            "focus_areas": ["rehab_authorizations", "physio_ergo_approvals"],
+        },
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+
+    container = client.app.state.container
+    matching = container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="KfA rehab authorization follow-up",
+        why_human="Need to review the KfA rehab approval and physio authorization paperwork.",
+        priority="normal",
+        sla_due_at="2026-05-29T09:00:00+00:00",
+    )
+    generic = container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="General inbox cleanup",
+        why_human="Clear a general inbox backlog item.",
+        priority="normal",
+        sla_due_at="2026-05-29T09:00:00+00:00",
+    )
+
+    queue = client.get("/app/api/queue")
+    assert queue.status_code == 200
+    items = [
+        row
+        for row in queue.json()["items"]
+        if row["id"] in {f"human_task:{matching.human_task_id}", f"human_task:{generic.human_task_id}"}
+    ]
+    assert len(items) == 2
+    assert items[0]["id"] == f"human_task:{matching.human_task_id}"
+    assert items[0]["rank_score"] > items[1]["rank_score"]
+
+
+def test_brief_items_use_profile_admin_boost_for_matching_tasks() -> None:
+    principal_id = "exec-product-profile-brief-boost"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Brief Boost Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={
+            "enabled": True,
+            "entities": ["KfA", "NRZ"],
+            "focus_areas": ["rehab_authorizations", "physio_ergo_approvals"],
+        },
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+
+    container = client.app.state.container
+    matching = container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="KfA rehab authorization follow-up",
+        why_human="Need to review the KfA rehab approval and physio authorization paperwork.",
+        priority="normal",
+        sla_due_at="2026-05-29T09:00:00+00:00",
+    )
+    generic = container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="General inbox cleanup",
+        why_human="Clear a general inbox backlog item.",
+        priority="normal",
+        sla_due_at="2026-05-29T09:00:00+00:00",
+    )
+
+    brief = client.get("/app/api/brief")
+    assert brief.status_code == 200
+    items = [
+        row
+        for row in brief.json()["items"]
+        if row["object_ref"] in {f"human_task:{matching.human_task_id}", f"human_task:{generic.human_task_id}"}
+    ]
+    assert len(items) == 2
+    assert items[0]["object_ref"] == f"human_task:{matching.human_task_id}"
+    assert items[0]["score"] > items[1]["score"]
+
+
+def test_brief_items_include_proactive_profile_followup() -> None:
+    principal_id = "exec-product-profile-proactive-brief"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Proactive Brief Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={
+            "enabled": True,
+            "entities": ["KfA", "NRZ"],
+            "focus_areas": ["rehab_authorizations", "physio_ergo_approvals"],
+        },
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+
+    brief = client.get("/app/api/brief")
+    assert brief.status_code == 200
+    row = next(item for item in brief.json()["items"] if item["object_ref"] == "profile_followup:insurance_admin:rehab_authorization_management")
+    assert row["title"] == "Review rehab approvals and KfA authorization status"
+    assert row["recommended_action"] == "check rehab approvals"
+    assert row["score"] > 60
+
+
+def test_channel_loop_memo_surfaces_proactive_profile_followup() -> None:
+    principal_id = "exec-product-profile-memo-followup"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Memo Followup Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={
+            "enabled": True,
+            "entities": ["KfA", "NRZ"],
+            "focus_areas": ["rehab_authorizations", "physio_ergo_approvals"],
+        },
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+
+    container = client.app.state.container
+    container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="Property review 1",
+        why_human="Review apartment alert in Waehring.",
+        priority="high",
+        sla_due_at="2026-05-29T09:00:00+00:00",
+    )
+    container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="handoff",
+        role_required="operator",
+        brief="Property review 2",
+        why_human="Review apartment alert in Doebling.",
+        priority="high",
+        sla_due_at="2026-05-29T09:00:00+00:00",
+    )
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    memo_digest = next(item for item in loop.json()["digests"] if item["key"] == "memo")
+    proactive = next(item for item in memo_digest["items"] if item["title"] == "Review rehab approvals and KfA authorization status")
+    assert proactive["tag"] == "Profile follow-up"
+
+
+def test_channel_loop_memo_suppresses_recent_profile_followup_nudge() -> None:
+    principal_id = "exec-product-profile-memo-followup-cooldown"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Memo Followup Cooldown Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+    product._record_product_event(
+        principal_id=principal_id,
+        event_type="profile_followup_nudged",
+        payload={
+            "object_ref": "profile_followup:insurance_admin:rehab_authorization_management",
+            "title": "Review rehab approvals and KfA authorization status",
+        },
+        source_id="memo-cooldown-test",
+        dedupe_key=f"{principal_id}|memo-cooldown-test|profile_followup:insurance_admin:rehab_authorization_management|profile-followup-nudged",
+    )
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    memo_digest = next(item for item in loop.json()["digests"] if item["key"] == "memo")
+    assert all(item["title"] != "Review rehab approvals and KfA authorization status" for item in memo_digest["items"])
+
+
+def test_issue_channel_digest_delivery_records_profile_followup_nudge() -> None:
+    principal_id = "exec-product-profile-memo-followup-receipt"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Memo Followup Receipt Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+
+    delivery = product.issue_channel_digest_delivery(
+        principal_id=principal_id,
+        digest_key="memo",
+        recipient_email="tibor@example.com",
+        role="principal",
+        delivery_channel="email",
+    )
+    assert delivery is not None
+
+    rows = list(client.app.state.container.channel_runtime.list_recent_observations(limit=50, principal_id=principal_id))
+    nudge = next(
+        row
+        for row in rows
+        if str(row.channel or "") == "product" and str(row.event_type or "").strip().lower() == "profile_followup_nudged"
+    )
+    assert str((nudge.payload or {}).get("object_ref") or "") == "profile_followup:insurance_admin:rehab_authorization_management"
+    assert str((nudge.payload or {}).get("recommended_action") or "") == "check rehab approvals"
+
+
+def test_channel_loop_memo_reopens_profile_followup_after_fresh_evidence(monkeypatch) -> None:
+    principal_id = "exec-product-profile-memo-followup-fresh-evidence"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Memo Followup Fresh Evidence Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations-old",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+    product._record_product_event(
+        principal_id=principal_id,
+        event_type="profile_followup_nudged",
+        payload={
+            "object_ref": "profile_followup:insurance_admin:rehab_authorization_management",
+            "title": "Review rehab approvals and KfA authorization status",
+        },
+        source_id="memo-fresh-evidence-test",
+        dedupe_key=f"{principal_id}|memo-fresh-evidence-test|profile_followup:insurance_admin:rehab_authorization_management|profile-followup-nudged",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations-new",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250705_Rehaantrag KfA Ablehnung.pdf"]},
+        interpreted_signal_json={"summary": "Fresh KfA rehab authorization paperwork arrived after the last nudge."},
+        signal_strength=0.95,
+        reversible=True,
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_profile_followup_latest_evidence_at",
+        lambda self, **kwargs: product_service._utcnow() + timedelta(minutes=5),
+    )
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    memo_digest = next(item for item in loop.json()["digests"] if item["key"] == "memo")
+    proactive = next(item for item in memo_digest["items"] if item["title"] == "Review rehab approvals and KfA authorization status")
+    assert proactive["tag"] == "Profile follow-up"
+
+
+def test_profile_followup_uses_category_specific_cooldown(monkeypatch) -> None:
+    principal_id = "exec-product-profile-followup-category-cooldown"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Followup Category Cooldown Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Elisabeth Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="utilities_admin",
+        key="utility_and_provider_account_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product._record_product_event(
+        principal_id=principal_id,
+        event_type="profile_followup_nudged",
+        payload={
+            "object_ref": "profile_followup:utilities_admin:utility_and_provider_account_management",
+            "title": "Review utility and provider account admin",
+        },
+        source_id="memo-category-cooldown-test",
+        dedupe_key=f"{principal_id}|memo-category-cooldown-test|profile_followup:utilities_admin:utility_and_provider_account_management|profile-followup-nudged",
+    )
+
+    monkeypatch.setattr(product_service, "_utcnow", lambda: product_service._parse_iso("2026-05-28T18:00:00+00:00"))
+    monkeypatch.setattr(
+        product,
+        "_profile_followup_latest_evidence_at",
+        lambda **kwargs: product_service._parse_iso("2026-05-27T00:00:00+00:00"),
+    )
+    assert product._profile_followup_nudge_allowed(
+        principal_id=principal_id,
+        object_ref="profile_followup:utilities_admin:utility_and_provider_account_management",
+    ) is False
+
+
+def test_queue_item_exposes_explicit_profile_followup_refs() -> None:
+    principal_id = "exec-product-profile-followup-queue-refs"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Followup Queue Refs Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    decision = client.app.state.container.memory_runtime.upsert_decision_window(
+        principal_id=principal_id,
+        title="Check KfA rehab authorization",
+        context="Follow up on rehab Bewilligung and KfA paperwork.",
+        opens_at="2026-05-28T09:00:00+00:00",
+        closes_at="2026-05-29T09:00:00+00:00",
+        urgency="high",
+        authority_required="principal",
+        status="open",
+        notes="Waiting on rehab paperwork update.",
+        source_json={"source": "test"},
+    )
+
+    queue_item = product._queue_item_from_decision(decision)
+    assert queue_item.profile_followup_refs == ("profile_followup:insurance_admin:rehab_authorization_management",)
+
+
+def test_brief_item_exposes_explicit_profile_followup_refs() -> None:
+    principal_id = "exec-product-profile-followup-brief-refs"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Followup Brief Refs Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    decision = client.app.state.container.memory_runtime.upsert_decision_window(
+        principal_id=principal_id,
+        title="Check KfA rehab authorization",
+        context="Follow up on rehab Bewilligung and KfA paperwork.",
+        opens_at="2026-05-28T09:00:00+00:00",
+        closes_at="2026-05-29T09:00:00+00:00",
+        urgency="high",
+        authority_required="principal",
+        status="open",
+        notes="Waiting on rehab paperwork update.",
+        source_json={"source": "test"},
+    )
+
+    brief_item = product._brief_item_from_decision(product._decision_item_from_window(decision), workspace_id=principal_id)
+    assert brief_item.profile_followup_refs == ("profile_followup:insurance_admin:rehab_authorization_management",)
+
+
+def test_channel_loop_memo_item_carries_profile_followup_refs() -> None:
+    principal_id = "exec-product-profile-followup-memo-refs"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Followup Memo Refs Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    memo_digest = next(item for item in loop.json()["digests"] if item["key"] == "memo")
+    proactive = next(item for item in memo_digest["items"] if item["title"] == "Review rehab approvals and KfA authorization status")
+    assert proactive["profile_followup_refs"] == ["profile_followup:insurance_admin:rehab_authorization_management"]
+
+
+def test_queue_resolution_suppresses_matching_profile_followup() -> None:
+    principal_id = "exec-product-profile-followup-resolution-suppression"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Followup Resolution Suppression Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+    decision = client.app.state.container.memory_runtime.upsert_decision_window(
+        principal_id=principal_id,
+        title="Check KfA rehab authorization",
+        context="Follow up on rehab Bewilligung and KfA paperwork.",
+        opens_at="2026-05-28T09:00:00+00:00",
+        closes_at="2026-05-29T09:00:00+00:00",
+        urgency="high",
+        authority_required="principal",
+        status="open",
+        notes="Waiting on rehab paperwork update.",
+        source_json={"source": "test"},
+    )
+
+    product.resolve_queue_item(
+        principal_id=principal_id,
+        item_ref=f"decision:{decision.decision_window_id}",
+        action="defer",
+        actor="tibor",
+        reason="Waiting on rehab paperwork update.",
+    )
+
+    rows = list(client.app.state.container.channel_runtime.list_recent_observations(limit=50, principal_id=principal_id))
+    resolution = next(
+        row
+        for row in rows
+        if str(row.channel or "") == "product" and str(row.event_type or "").strip().lower() == "profile_followup_resolution_recorded"
+    )
+    assert str((resolution.payload or {}).get("object_ref") or "") == "profile_followup:insurance_admin:rehab_authorization_management"
+    assert str((resolution.payload or {}).get("action") or "") == "defer"
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    memo_digest = next(item for item in loop.json()["digests"] if item["key"] == "memo")
+    assert all(item["title"] != "Review rehab approvals and KfA authorization status" for item in memo_digest["items"])
+
+
+def test_profile_followup_resolution_suppression_expires(monkeypatch) -> None:
+    principal_id = "exec-product-profile-followup-resolution-expiry"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Profile Followup Resolution Expiry Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Elisabeth Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="utilities_admin",
+        key="utility_and_provider_account_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product._record_product_event(
+        principal_id=principal_id,
+        event_type="profile_followup_resolution_recorded",
+        payload={
+            "object_ref": "profile_followup:utilities_admin:utility_and_provider_account_management",
+            "action": "defer",
+            "cooldown_hours": 36,
+        },
+        source_id="old-resolution-test",
+        dedupe_key=f"{principal_id}|old-resolution-test|profile_followup:utilities_admin:utility_and_provider_account_management|profile-followup-resolution|defer",
+    )
+    monkeypatch.setattr(product_service, "_utcnow", lambda: product_service._parse_iso("2026-06-01T12:00:00+00:00"))
+    monkeypatch.setattr(
+        product,
+        "_profile_followup_latest_evidence_at",
+        lambda **kwargs: product_service._parse_iso("2026-05-27T00:00:00+00:00"),
+    )
+    assert product._profile_followup_nudge_allowed(
+        principal_id=principal_id,
+        object_ref="profile_followup:utilities_admin:utility_and_provider_account_management",
+    ) is True
 
 
 def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_tibor(monkeypatch) -> None:
@@ -927,6 +1844,61 @@ def test_property_tour_delivery_message_includes_decision_reasoning() -> None:
     assert "Why it could fit:" in body
     assert "Why it may not fit:" in body
     assert "What still needs checking:" in body
+
+
+def test_property_tour_delivery_message_accepts_personal_fit_assessment_shape() -> None:
+    subject, body = product_service._property_tour_delivery_message(
+        property_title="Strong Waehring apartment",
+        property_url="https://www.willhaben.at/test-fit-listing",
+        tour_url="https://myexternalbrain.com/tours/test-fit-listing",
+        decision_summary_json={
+            "fit_score": 96.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["The listing is in Waehring, which matches established district preferences."],
+            "mismatch_reasons_json": ["Gas heating may raise running-cost risk."],
+            "unknowns_json": ["Check noise in person."],
+        },
+    )
+
+    assert "Apartment tour ready: Strong Waehring apartment" in subject
+    assert "Personal fit score: 96/100" in body
+    assert "Recommendation: shortlist" in body
+    assert "Why it could fit:" in body
+    assert "Why it may not fit:" in body
+    assert "What still needs checking:" in body
+
+
+def test_property_alert_review_telegram_text_includes_top_candidate_summary() -> None:
+    text = product_service._property_alert_review_telegram_text(
+        title='"Eigentumswohnungen" hat 5 neue Anzeigen für dich gefunden',
+        summary="Recent mail from willhaben-Suchagent.",
+        counterparty="willhaben-Suchagent",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="",
+        personal_fit_assessment=None,
+        candidate_properties=(
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1",
+                "listing_title": "Bright Waehring apartment with balcony",
+                "fit_score": 91.0,
+                "recommendation": "shortlist",
+                "fit_summary": "Personal fit 91/100 · shortlist · The listing is in Waehring, which matches established district preferences.",
+                "assessment": {"fit_score": 91.0, "recommendation": "shortlist"},
+            },
+            {
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-2",
+                "fit_score": 74.0,
+                "recommendation": "mention",
+                "fit_summary": "Personal fit 74/100 · mention",
+            },
+        ),
+    )
+
+    assert "Title: Bright Waehring apartment with balcony" in text
+    assert "EA found 2 concrete listings in this alert." in text
+    assert "Top candidate: Personal fit 91/100" in text
+    assert "Top listing: https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1" in text
+    assert "Next: open the listing and generate a tour." in text
 
 
 def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
@@ -1906,6 +2878,61 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
         item["payload"]["tour_url"] == "https://myexternalbrain.com/tours/recreated-apartment"
         for item in events.json()["items"]
     )
+
+
+def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monkeypatch) -> None:
+    monkeypatch.delenv("BROWSERACT_API_KEY", raising=False)
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/apartment-followup-telegram-001",
+        "listing_id": "listing-followup-telegram-001",
+        "title": "Quiet district apartment",
+        "listing_uuid": "listing-followup-telegram-uuid-001",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["tg-followup-1"], chat_id="1354554303"),
+    )
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "browseract_connector_unconfigured"
+    assert sent
+    assert "Scout update." in str(sent[0]["kwargs"]["text"])
+    assert "Next: reconnect the tour worker and regenerate the tour." in str(sent[0]["kwargs"]["text"])
+
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "property_tour_followup_telegram_sent"},
+    )
+    assert events.status_code == 200
+    assert any(item["payload"]["telegram_chat_ref"] == "1354554303" for item in events.json()["items"])
 
 
 def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> None:
@@ -4233,6 +5260,164 @@ def test_google_signal_sync_ingests_recent_gmail_and_calendar_activity(monkeypat
     assert len(board_packet_matches) == 1
 
 
+def test_google_signal_sync_saves_pdf_attachments_to_onedrive_and_enrolls_onedrive_answerly(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    principal_id = "exec-product-google-pdf-import"
+    client = build_product_client(principal_id=principal_id)
+
+    monkeypatch.setenv("EA_ONEDRIVE_ATTACHMENT_ROOT", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS", "1")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_TRAINING_ID", "onedrive-training")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "OneDrive documents")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_API_KEY", "shareone-key")
+    monkeypatch.setenv("EA_ANSWERLY_SHAREONE_AGENT_ID", "shareone-agent")
+
+    captured_answerly: list[dict[str, object]] = []
+
+    def _fake_create_onedrive_data_item(self, *, config, source_url):  # type: ignore[no-untyped-def]
+        captured_answerly.append({"config": dict(config), "source_url": source_url})
+        return {"id": "answerly-data-item-1"}
+
+    monkeypatch.setattr(ProductService, "_answerly_create_onedrive_data_item", _fake_create_onedrive_data_item)
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="tibor.girschele@gmail.com",
+            account_emails=("tibor.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Noah birth certificate",
+                    summary="Birth certificate attached as PDF.",
+                    text="Birth certificate attached as PDF.",
+                    source_ref="gmail-thread:tibor.girschele@gmail.com:pdf-import-1",
+                    external_id="gmail-message:tibor.girschele@gmail.com:pdf-import-1",
+                    counterparty="Magistrat",
+                    due_at=None,
+                    payload={
+                        "thread_id": "pdf-import-1",
+                        "message_id": "msg-pdf-import-1",
+                        "account_email": "tibor.girschele@gmail.com",
+                    },
+                    attachments=(
+                        google_oauth_service.GoogleWorkspaceAttachment(
+                            attachment_id="att-pdf-1",
+                            filename="Noah Birth Certificate.pdf",
+                            mime_type="application/pdf",
+                            part_id="1",
+                            size_bytes=18,
+                            content_bytes=b"%PDF-1.7 birth-cert",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 1, "calendar_limit": 0})
+    assert synced.status_code == 200
+    body = synced.json()
+    gmail_item = body["items"][0]
+    assert gmail_item["attachment_imports"]
+    imported = gmail_item["attachment_imports"][0]
+    assert imported["filename"].endswith(".pdf")
+    assert imported["enrolled"] is True
+    assert imported["answerly_data_item_id"] == "answerly-data-item-1"
+    assert Path(imported["path"]).exists()
+    assert Path(imported["path"]).read_bytes() == b"%PDF-1.7 birth-cert"
+
+    assert captured_answerly
+    assert captured_answerly[0]["config"]["training_id"] == "onedrive-training"
+    assert captured_answerly[0]["config"]["label"] == "OneDrive documents"
+    assert "shareone" not in json.dumps(captured_answerly[0]).lower()
+    assert str(captured_answerly[0]["source_url"]).startswith("https://myexternalbrain.com/documents/onedrive-mail/")
+
+    download_path = urlparse(str(captured_answerly[0]["source_url"])).path
+    download = client.get(download_path)
+    assert download.status_code == 200
+    assert download.content == b"%PDF-1.7 birth-cert"
+    assert download.headers["content-type"].startswith("application/pdf")
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    event_types = {item["event_type"] for item in events.json()["items"]}
+    assert "gmail_pdf_attachment_saved_to_onedrive" in event_types
+    assert "answerly_onedrive_pdf_enrolled" in event_types
+
+
+def test_google_signal_sync_marks_pdf_attachment_pending_when_answerly_training_is_not_ready(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    principal_id = "exec-product-google-pdf-import-pending"
+    client = build_product_client(principal_id=principal_id)
+
+    monkeypatch.setenv("EA_ONEDRIVE_ATTACHMENT_ROOT", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("EA_ANSWERLY_AUTO_IMPORT_GMAIL_PDFS", "1")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_WORKSPACE_ID", "answerly-workspace-1")
+    monkeypatch.delenv("EA_ANSWERLY_ONEDRIVE_TRAINING_ID", raising=False)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="tibor.girschele@gmail.com",
+            account_emails=("tibor.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title="Medication plan",
+                    summary="Medication PDF attached.",
+                    text="Medication PDF attached.",
+                    source_ref="gmail-thread:tibor.girschele@gmail.com:pdf-import-pending-1",
+                    external_id="gmail-message:tibor.girschele@gmail.com:pdf-import-pending-1",
+                    counterparty="Apotheke",
+                    due_at=None,
+                    payload={
+                        "thread_id": "pdf-import-pending-1",
+                        "message_id": "msg-pdf-import-pending-1",
+                        "account_email": "tibor.girschele@gmail.com",
+                    },
+                    attachments=(
+                        google_oauth_service.GoogleWorkspaceAttachment(
+                            attachment_id="att-pdf-pending-1",
+                            filename="Medication Plan.pdf",
+                            mime_type="application/pdf",
+                            part_id="1",
+                            size_bytes=16,
+                            content_bytes=b"%PDF-1.7 meds",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    synced = client.post("/app/api/signals/google/sync", params={"email_limit": 1, "calendar_limit": 0})
+    assert synced.status_code == 200
+    imported = synced.json()["items"][0]["attachment_imports"][0]
+    assert imported["enrolled"] is False
+    assert imported["pending_answerly_import"] is True
+    assert imported["answerly_error"] == "answerly_training_id_missing"
+
+    events = client.get("/app/api/events")
+    assert events.status_code == 200
+    event_types = {item["event_type"] for item in events.json()["items"]}
+    assert "gmail_pdf_attachment_saved_to_onedrive" in event_types
+    assert "answerly_onedrive_pdf_import_pending" in event_types
+
+
 def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_to_tibor(monkeypatch) -> None:
     from app.domain.models import Artifact
 
@@ -4408,6 +5593,189 @@ def test_google_property_sync_uses_configured_property_alert_query(monkeypatch) 
     assert response.status_code == 200
     assert observed_sync_kwargs["gmail_query"] == "from:(immmo.at OR immoscout.example)"
     assert observed_sync_kwargs["calendar_limit"] == 0
+
+
+def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Quiet Property Alert Office")
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title='"Eigentumswohnungen" hat 5 neue Anzeigen für dich gefunden',
+                    summary="Recent mail from willhaben-Suchagent.",
+                    text="Neue Anzeigen gefunden.",
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:quiet-digest-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:quiet-digest-1",
+                    counterparty="willhaben-Suchagent",
+                    due_at=None,
+                    payload={
+                        "from_email": "no-reply@agent.willhaben.at",
+                        "from_name": "willhaben-Suchagent",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "body_text_excerpt": "Neue Anzeigen gefunden.",
+                        "labels": ["CATEGORY_UPDATES", "INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["1"], chat_id="chat"),
+    )
+
+    synced = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+    assert synced.json()["synced_total"] == 1
+    assert sent == []
+
+    events = client.get("/app/api/events", params={"channel": "product"})
+    assert events.status_code == 200
+    event_types = [item["event_type"] for item in events.json()["items"]]
+    assert "property_alert_review_created" in event_types
+    assert "property_alert_review_telegram_suppressed" in event_types
+
+
+def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Split Digest Property Office")
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title='"Eigentumswohnungen" hat 2 neue Anzeigen für dich gefunden',
+                    summary="Recent mail from willhaben-Suchagent.",
+                    text=(
+                        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/top-fit-1 "
+                        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/floridsdorf/weak-fit-2"
+                    ),
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:split-digest-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:split-digest-1",
+                    counterparty="willhaben-Suchagent",
+                    due_at=None,
+                    payload={
+                        "from_email": "no-reply@agent.willhaben.at",
+                        "from_name": "willhaben-Suchagent",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "body_text_excerpt": (
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/top-fit-1 "
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/floridsdorf/weak-fit-2"
+                        ),
+                        "labels": ["CATEGORY_UPDATES", "INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": ("listing-top-fit-1" if "top-fit-1" in url else "listing-weak-fit-2"),
+            "title": "Mock listing",
+            "property_facts_json": {
+                "district": "Waehring" if "top-fit-1" in url else "Floridsdorf",
+                "heating_type": "Fernwaerme" if "top-fit-1" in url else "Gasheizung",
+                "has_360": True if "top-fit-1" in url else False,
+                "has_floorplan": True if "top-fit-1" in url else False,
+                "lift": True if "top-fit-1" in url else False,
+            },
+            "media_urls_json": ["https://cdn.example.com/property.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.jpg"] if "top-fit-1" in url else [],
+            "tour_variants_json": [],
+        },
+    )
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["1"], chat_id="chat"),
+    )
+
+    profile = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+            "high_stakes_domains_enabled": True,
+        },
+    )
+    assert profile.status_code == 200
+    for node_payload in (
+        {"domain": "willhaben", "category": "soft_preference", "key": "preferred_districts", "value_json": ["Waehring"], "confidence": 1.0},
+        {"domain": "willhaben", "category": "aversion", "key": "avoid_heating_types", "value_json": ["Gasheizung"], "confidence": 1.0},
+        {"domain": "willhaben", "category": "constraint", "key": "require_floorplan", "value_json": True, "confidence": 1.0},
+        {"domain": "willhaben", "category": "soft_preference", "key": "prefer_360_for_remote_review", "value_json": True, "confidence": 1.0},
+    ):
+        node = client.post("/app/api/people/self/preference-profile/nodes", json=node_payload)
+        assert node.status_code == 200
+
+    synced = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+    assert synced.json()["synced_total"] == 1
+
+    events = client.get("/app/api/events", params={"channel": "product"})
+    assert events.status_code == 200
+    created = [item for item in events.json()["items"] if item["event_type"] == "property_alert_review_created"]
+    assert len(created) == 2
+    assert any("top-fit-1" in json.dumps(item.get("payload") or {}) for item in created)
+    assert len(sent) <= 1
+
+
+def test_resolve_primary_telegram_binding_prefers_real_numeric_chat_ref() -> None:
+    class _Runtime:
+        def list_connector_bindings(self, principal_id: str, limit: int = 200):
+            return [
+                SimpleNamespace(
+                    connector_name="telegram_identity",
+                    status="enabled",
+                    external_account_ref="telegram-live-policy-test",
+                    auth_metadata_json={"default_chat_ref": "telegram-live-policy-test"},
+                    updated_at="2026-05-27T08:45:09+02:00",
+                ),
+                SimpleNamespace(
+                    connector_name="telegram_identity",
+                    status="enabled",
+                    external_account_ref="1354554303",
+                    auth_metadata_json={"default_chat_ref": "1354554303"},
+                    updated_at="2026-05-27T08:40:09+02:00",
+                ),
+            ]
+
+    from app.services.telegram_delivery import resolve_primary_telegram_binding
+
+    binding = resolve_primary_telegram_binding(_Runtime(), principal_id="cf-email:tibor.girschele@gmail.com")
+    assert binding is not None
+    assert str(binding.external_account_ref) == "1354554303"
 
 
 def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_binding(monkeypatch) -> None:
@@ -5063,6 +6431,137 @@ def test_google_signal_sync_status_tracks_per_account_sync_totals(monkeypatch) -
     assert account_rows["office@girschele.com"]["processed_total"] == 1
     assert account_rows["office@girschele.com"]["synced_total"] == 1
     assert account_rows["office@girschele.com"]["suppressed_total"] == 0
+
+
+def test_google_photos_picker_session_route_returns_picker_uri(monkeypatch) -> None:
+    principal_id = "exec-product-google-photos-session"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "create_google_photos_picker_session",
+        lambda **_: google_oauth_service.GooglePhotosPickerSession(
+            account_email="elisabeth.girschele@gmail.com",
+            binding_id="exec-google-photos:google_gmail:acct:elisabeth",
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER,),
+            session_id="photos-session-1",
+            picker_uri="https://photos.google.com/picker/session-1",
+            poll_interval="5s",
+            timeout_in="300s",
+            media_items_set=False,
+        ),
+    )
+
+    created = client.post(
+        "/app/api/signals/google/photos/session",
+        json={
+            "account_email": "elisabeth.girschele@gmail.com",
+            "max_item_count": 25,
+            "autoclose": True,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "ready_for_selection"
+    assert body["account_email"] == "elisabeth.girschele@gmail.com"
+    assert body["session_id"] == "photos-session-1"
+    assert body["picker_uri"].endswith("/autoclose")
+    assert google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER in body["granted_scopes"]
+
+
+def test_google_photos_sync_ingests_analyzed_photo_signals(monkeypatch) -> None:
+    principal_id = "exec-product-google-photos-sync"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "sync_google_photos_picker_session",
+        lambda **_: google_oauth_service.GooglePhotosSignalSync(
+            account_email="tibor.girschele@gmail.com",
+            account_emails=("tibor.girschele@gmail.com",),
+            binding_id="exec-google-photos:google_gmail",
+            session_id="photos-session-2",
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_PHOTOS_PICKER,),
+            media_items_set=True,
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="photo_library_item",
+                    channel="google_photos",
+                    title="IMG_1001.JPG",
+                    summary="PHOTO · 4032x3024 · Apple iPhone",
+                    text="Google Photos photo selected by tibor.girschele@gmail.com.",
+                    source_ref="google-photo:tibor.girschele@gmail.com:item-1001",
+                    external_id="google-photo:tibor.girschele@gmail.com:item-1001",
+                    counterparty="tibor.girschele@gmail.com",
+                    due_at=None,
+                    payload={
+                        "account_email": "tibor.girschele@gmail.com",
+                        "google_photos_session_id": "photos-session-2",
+                        "google_photos_media_item_id": "item-1001",
+                        "mime_type": "image/jpeg",
+                        "filename": "IMG_1001.JPG",
+                        "preview_url": "https://example.test/photo-1001.jpg",
+                        "suppress_candidate_staging": True,
+                    },
+                ),
+            ),
+        ),
+    )
+    from app.services import photo_signal_analysis
+
+    monkeypatch.setattr(
+        photo_signal_analysis,
+        "analyze_photo_url",
+        lambda **_: {
+            "summary": "Family outing in a green park with bikes and a playground nearby.",
+            "signal_kind": "outing",
+            "tags": ["family", "park", "bike", "playground"],
+            "suggestions": [
+                "This strengthens green-space and bike-infrastructure signals.",
+                "Consider saving this as a family lifestyle reference for housing scoring.",
+            ],
+            "notable_details": ["bikes", "green lawn", "playground"],
+            "sensitivity": "medium",
+            "confidence": 0.82,
+            "provider": "overlay_vision",
+            "status": "analyzed",
+        },
+    )
+    monkeypatch.setattr(
+        "app.product.service.send_telegram_message_for_principal",
+        lambda **_: {"message_ids": ["tg-photo-1"]},
+    )
+
+    synced = client.post(
+        "/app/api/signals/google/photos/sync",
+        json={
+            "session_id": "photos-session-2",
+            "account_email": "tibor.girschele@gmail.com",
+            "max_items": 10,
+            "delete_session": False,
+        },
+    )
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["account_email"] == "tibor.girschele@gmail.com"
+    assert body["session_id"] == "photos-session-2"
+    assert body["selected_total"] == 1
+    assert body["analyzed_total"] == 1
+    assert body["suggestion_total"] == 2
+    assert body["top_suggestions"][0].startswith("This strengthens green-space")
+    assert body["items"][0]["event_type"] == "office_signal_photo_library_item"
+
+    events = client.get("/app/api/events", params={"channel": "google_photos"})
+    assert events.status_code == 200
+    assert any(item["event_type"] == "office_signal_photo_library_item" for item in events.json()["items"])
+
+    product_events = client.get("/app/api/events", params={"channel": "product"})
+    assert product_events.status_code == 200
+    assert any(item["event_type"] == "google_photos_sync_telegram_sent" for item in product_events.json()["items"])
+
+
 def test_channel_loop_approvals_digest_counts_reviewable_candidates_not_rejected_history() -> None:
     principal_id = "exec-product-channel-loop-reviewable-candidates"
     client = build_product_client(principal_id=principal_id)

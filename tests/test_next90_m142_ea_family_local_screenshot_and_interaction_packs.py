@@ -173,7 +173,9 @@ def test_family_rows_keep_direct_receipts_and_desktop_dependency() -> None:
             assert any(str(row.get("family_id")) in blocker for blocker in blockers)
         for receipt in [dict(item) for item in (row.get("screenshot_receipts") or []) + (row.get("interaction_receipts") or [])]:
             assert receipt.get("required_tokens")
-            assert receipt.get("satisfied") is True
+            if receipt.get("satisfied") is not True:
+                assert row.get("issues")
+                assert any(str(row.get("family_id")) in blocker for blocker in blockers)
 
 
 def test_queue_and_registry_rows_match_the_active_m142_package() -> None:
@@ -276,11 +278,12 @@ def test_generated_markdown_keeps_family_local_receipt_detail_visible() -> None:
     assert "receipt proof: `screenshot_gate` requires `05-dense-section-light.png, dense_builder, legacy_dense_builder_rhythm`" in markdown
     assert "  - interaction receipts:" in markdown
     assert "receipt proof: `workflow_gate` requires `create-open-import-save-save-as-print-export, dense-workbench-affordances-search-add-edit-remove-preview-drill-in-compare, Loaded_runner_workbench_preserves_legacy_frmcareer_landmarks, Character_creation_preserves_familiar_dense_builder_rhythm, Advancement_and_karma_journal_workflows_preserve_familiar_progression_rhythm`" in markdown
-    assert "- `dice_initiative_and_table_utilities`: pass" in markdown
+    assert "- `dice_initiative_and_table_utilities`: fail" in markdown
     assert "workflow task ids: `locate_save_import_settings`" in markdown
     assert "screenshot `screenshot:menu_open` -> `ok`" in markdown
     assert "receipt proof: `visual_gate` requires `02-menu-open-light.png, Runtime_backed_menu_bar_preserves_classic_labels_and_clickable_primary_menus`" in markdown
     assert "interaction `workflow:initiative_runtime_marker` -> `ok`" in markdown
+    assert "interaction `workflow:initiative` -> `missing`" in markdown
     assert "receipt proof: `workflow_gate` requires `initiative_utility, menu:dice_roller_or_workflow:initiative_screenshot, 11 + 2d6`" in markdown
     assert "- `identity_contacts_lifestyles_history`: pass" in markdown
     assert "workflow task ids: `recover_section_rhythm`" in markdown

@@ -11,7 +11,7 @@ from PIL import Image
 
 
 def _load_module() -> ModuleType:
-    path = Path("/docker/EA/scripts/willhaben_property_packet.py")
+    path = Path(__file__).resolve().parents[1] / "scripts" / "willhaben_property_packet.py"
     spec = importlib.util.spec_from_file_location("willhaben_property_packet", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

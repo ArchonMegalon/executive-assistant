@@ -31,6 +31,7 @@ class BriefItemOut(BaseModel):
     status: str
     confidence: float = 0.0
     object_ref: str = ""
+    profile_followup_refs: list[str] = Field(default_factory=list)
     evidence_count: int = 0
 
 
@@ -40,10 +41,12 @@ class DecisionQueueItemOut(BaseModel):
     title: str
     summary: str
     priority: str
+    rank_score: float = 0.0
     deadline: str | None = None
     owner_role: str = ""
     requires_principal: bool = False
     evidence_refs: list[EvidenceRefOut]
+    profile_followup_refs: list[str] = Field(default_factory=list)
     resolution_state: str
 
 
@@ -452,6 +455,9 @@ class ChannelLoopItemOut(BaseModel):
     detail: str
     tag: str
     href: str = ""
+    object_ref: str = ""
+    profile_followup_refs: list[str] = Field(default_factory=list)
+    recommended_action: str = ""
     action_href: str = ""
     action_label: str = ""
     action_method: str = "get"
@@ -926,6 +932,7 @@ class OfficeSignalResultOut(BaseModel):
     draft_count: int = 0
     deduplicated: bool = False
     ooda_loop: dict[str, object] = Field(default_factory=dict)
+    attachment_imports: list[dict[str, object]] = Field(default_factory=list)
 
 
 class WillhabenPropertyTourIn(BaseModel):
@@ -1072,6 +1079,53 @@ class GoogleSignalSyncOut(BaseModel):
     suppressed_total: int = 0
 
 
+class GooglePhotosPickerSessionIn(BaseModel):
+    account_email: str = ""
+    binding_id: str = ""
+    max_item_count: int = Field(default=50, ge=1, le=2000)
+    autoclose: bool = True
+
+
+class GooglePhotosPickerSessionOut(BaseModel):
+    generated_at: str
+    status: str = "ready_for_selection"
+    account_email: str = ""
+    binding_id: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    session_id: str = ""
+    picker_uri: str = ""
+    poll_interval: str = ""
+    timeout_in: str = ""
+    media_items_set: bool = False
+
+
+class GooglePhotosSignalSyncIn(BaseModel):
+    session_id: str = Field(min_length=1)
+    account_email: str = ""
+    binding_id: str = ""
+    max_items: int = Field(default=50, ge=1, le=500)
+    delete_session: bool = False
+
+
+class GooglePhotosSignalSyncOut(BaseModel):
+    generated_at: str
+    account_email: str = ""
+    account_emails: list[str] = Field(default_factory=list)
+    binding_id: str = ""
+    session_id: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    media_items_set: bool = False
+    items: list[OfficeSignalResultOut] = Field(default_factory=list)
+    total: int = 0
+    selected_total: int = 0
+    synced_total: int = 0
+    deduplicated_total: int = 0
+    suppressed_total: int = 0
+    analyzed_total: int = 0
+    suggestion_total: int = 0
+    top_suggestions: list[str] = Field(default_factory=list)
+
+
 class GoogleSignalSyncStatusOut(BaseModel):
     generated_at: str
     connected: bool = False
@@ -1136,6 +1190,7 @@ def brief_out(value: BriefItem) -> BriefItemOut:
         status=value.status,
         confidence=value.confidence,
         object_ref=value.object_ref,
+        profile_followup_refs=list(value.profile_followup_refs),
         evidence_count=value.evidence_count,
     )
 
@@ -1147,10 +1202,12 @@ def queue_out(value: DecisionQueueItem) -> DecisionQueueItemOut:
         title=value.title,
         summary=value.summary,
         priority=value.priority,
+        rank_score=value.rank_score,
         deadline=value.deadline,
         owner_role=value.owner_role,
         requires_principal=value.requires_principal,
         evidence_refs=evidence_out(value.evidence_refs),
+        profile_followup_refs=list(value.profile_followup_refs),
         resolution_state=value.resolution_state,
     )
 
