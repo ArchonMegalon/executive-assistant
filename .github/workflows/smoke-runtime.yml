@@ -45,7 +45,7 @@ jobs:
 
       - name: Run Product Browser E2E
         run: |
-          PYTHONPATH=.:ea pytest -q tests/e2e/test_product_workflows.py
+          PYTHONPATH=.:ea python -m pytest -q tests/e2e/test_product_workflows.py
 
   smoke-runtime-api:
     runs-on: ubuntu-latest
