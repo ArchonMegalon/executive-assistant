@@ -55,6 +55,7 @@ Updated: 2026-05-29
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. Candidate newsroom host/motion lane only until verified. |
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. Candidate newsroom presenter lane only until verified. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
+| `PixiFy` | `Highest tier` | `1 account` | `Owned` |  | `Tier 4` | Local `.env` username/password only | Provider integration is pending provider-facing verification and media-factory risk gates before any runtime lane use. |
 | `ProductLift.dev` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dry-run Chummer signal-mirror adapters and receipts | Use on `chummer.run` as the public signal mirror for feedback, voting, roadmap, changelog, package follow, and Karma Forge signal projection, while Chummer remains the source of truth. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom thumbnail, poster, and contact-sheet adapter work when wired. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
@@ -66,7 +67,7 @@ Updated: 2026-05-29
 
 ## Summary
 
-- `43` total LTD products tracked
+- `44` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -111,6 +112,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
 | `Nonverbia` |  | `missing` | `manual_inventory` |  | Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `PixiFy` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-29T00:00:00Z | Provider credentials are now tracked in local `.env`; account-level verification and usage-boundary checks remain pending. |
 | `ProductLift.dev` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-22T00:00:00Z | Tier 5 is confirmed manually and local credentials plus the license key are now seeded for public feedback intake, roadmap/changelog projection, and webhook/API signal mapping; no structured BrowserAct account-detail verification run is recorded yet. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Signitic` | `tibor@girschele.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 4 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
@@ -123,6 +125,8 @@ Use this section to track missing tier/email/account facts discovered through th
 ## Attention Items
 
 `katteb.com` is now tracked as a 10-code holding but still needs redemption/activation verification.
+
+`PixiFy` is now tracked and requires provider verification before any runtime use.
 
 `MagicFit` License Tier 5 is now tracked from user report and needs provider verification before it can become a Chummer6 Media Factory render lane.
 

@@ -14,7 +14,7 @@ ARTIFACT_PATH = COMPLETION_ROOT / "MAGICFIT_TIER5_LTDS_ENTRY.generated.json"
 REQUIRED_TOKENS = [
     "| `MagicFit` | `License Tier 5` | `1 account` | `Owned` |  | `Tier 3` | None yet; candidate `MagicFitProviderAdapter` for `chummer6-media-factory` after provider verification |",
     "| `MagicFit` | `tibor.girschele@gmail.com` | `manual_seeded` | `user_reported` | 2026-05-27T00:00:00Z |",
-    "- `43` total LTD products tracked",
+    "- `44` total LTD products tracked",
     "`MagicFit` License Tier 5 is now tracked from user report and needs provider verification before it can become a Chummer6 Media Factory render lane.",
 ]
 
