@@ -1,5 +1,5 @@
 contract_name: ea.next90_m141_route_local_screenshot_packs
-generated_at: '2026-05-29T09:27:37Z'
+generated_at: '2026-05-29T11:08:56Z'
 package_id: next90-m141-ea-compile-route-local-screenshot-packs-and-compare-packets-for-translator-x
 title: Compile route-local screenshot packs and compare packets for translator, XML
   amendment, Hero Lab, and import-oracle proof without inventing parity.
@@ -95,19 +95,19 @@ source_inputs:
     generated_at: '2026-05-07T23:31:39.358211Z'
   ui_flagship_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
-    generated_at: '2026-05-28T18:11:51.129834Z'
+    generated_at: '2026-05-29T10:59:30.436736Z'
   desktop_visual_familiarity_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-29T08:09:41.212009Z'
+    generated_at: '2026-05-29T10:59:31.188754Z'
   desktop_workflow_execution_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-29T08:28:11.372428Z'
+    generated_at: '2026-05-29T10:59:35.787580Z'
   veteran_task_time_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
-    generated_at: '2026-05-28T18:08:23.829590Z'
+    generated_at: '2026-05-29T10:59:39.773554Z'
   ui_direct_import_route_proof:
     path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
-    generated_at: '2026-05-29T08:28:11Z'
+    generated_at: '2026-05-29T10:59:35Z'
   import_parity_certification:
     path: /docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json
     generated_at: '2026-05-22T17:00:28Z'
@@ -125,8 +125,8 @@ source_inputs:
     coverage_key: desktop_client
     status: missing
     summary: Desktop flagship proof is still incomplete.
-    reason_count: 7
-    row_fingerprint: d7bc04dcc99e689b0dd45d334f37fb0a12c1a50d56e6583e9df9b3f5378ae69f
+    reason_count: 2
+    row_fingerprint: 1edcd872426b5ac49ba39e6504aef6c28b37f3c8bf00147b729dbaee17f9a2da
 canonical_monitors:
   guide_markers:
     wave: true
@@ -173,18 +173,8 @@ desktop_client_readiness:
   coverage_key: desktop_client
   status: missing
   summary: Desktop flagship proof is still incomplete.
-  reason_count: 7
+  reason_count: 2
   reasons:
-  - Executable desktop workflow execution gate proof is missing or not passed. Catalog
-    parity without click-through receipts does not pass.
-  - Chummer5a desktop workflow parity proof is missing or not passed. Representative
-    shell parity is not enough.
-  - SR4 desktop workflow parity proof is missing or not passed. Chummer4 parity must
-    remain open until a real desktop parity gate lands.
-  - SR6 desktop workflow parity proof is missing or not passed. Cumulative carry-forward
-    workflows are not complete yet.
-  - SR4/SR6 desktop parity frontier receipt is missing or not passed. Cross-edition
-    completion cannot close on isolated family proofs alone.
   - Release channel does not publish any promoted Windows installer media.
   - 'Release channel is missing required desktop platform/head installer tuple pair(s):
     avalonia:macos, avalonia:windows.'
@@ -215,14 +205,16 @@ route_local_screenshot_packs:
   - 38-translator-dialog-light.png
   screenshots:
   - 38-translator-dialog-light.png
-  - 39-xml-editor-dialog-light.png
   missing_screenshots: []
   screenshot_review_job_status: pass
   screenshot_review_test_markers:
-  - Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture
-  screenshot_review_evidence_keys: []
+  - ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture
+  - ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture
+  - ExecuteCommandAsync_hero_lab_importer_opens_dialog_with_import_oracle_lane_posture
+  screenshot_review_evidence_keys:
+  - ui_flagship_gate.directImportRouteProof
   route_receipts:
-  - source_key: ui_flagship_gate
+  - source_key: ui_direct_import_route_proof
     required_tokens:
     - ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture
     - Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture
@@ -316,15 +308,17 @@ route_local_screenshot_packs:
   required_screenshots:
   - 39-xml-editor-dialog-light.png
   screenshots:
-  - 38-translator-dialog-light.png
   - 39-xml-editor-dialog-light.png
   missing_screenshots: []
   screenshot_review_job_status: pass
   screenshot_review_test_markers:
-  - Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture
-  screenshot_review_evidence_keys: []
+  - ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture
+  - ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture
+  - ExecuteCommandAsync_hero_lab_importer_opens_dialog_with_import_oracle_lane_posture
+  screenshot_review_evidence_keys:
+  - ui_flagship_gate.directImportRouteProof
   route_receipts:
-  - source_key: ui_flagship_gate
+  - source_key: ui_direct_import_route_proof
     required_tokens:
     - ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture
     - CreateCommandDialog_xml_editor_surfaces_xml_bridge_and_custom_data_posture
@@ -422,12 +416,14 @@ route_local_screenshot_packs:
   - 40-hero-lab-importer-dialog-light.png
   screenshots:
   - 40-hero-lab-importer-dialog-light.png
-  - 18-import-dialog-light.png
   missing_screenshots: []
   screenshot_review_job_status: pass
   screenshot_review_test_markers:
-  - Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture
-  screenshot_review_evidence_keys: []
+  - ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture
+  - ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture
+  - ExecuteCommandAsync_hero_lab_importer_opens_dialog_with_import_oracle_lane_posture
+  screenshot_review_evidence_keys:
+  - ui_flagship_gate.directImportRouteProof
   route_receipts:
   - source_key: ui_direct_import_route_proof
     required_tokens:
@@ -525,12 +521,14 @@ route_local_screenshot_packs:
   - 40-hero-lab-importer-dialog-light.png
   screenshots:
   - 40-hero-lab-importer-dialog-light.png
-  - 18-import-dialog-light.png
   missing_screenshots: []
   screenshot_review_job_status: pass
   screenshot_review_test_markers:
-  - Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture
-  screenshot_review_evidence_keys: []
+  - ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture
+  - ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture
+  - ExecuteCommandAsync_hero_lab_importer_opens_dialog_with_import_oracle_lane_posture
+  screenshot_review_evidence_keys:
+  - ui_flagship_gate.directImportRouteProof
   route_receipts:
   - source_key: import_receipts_doc
     required_tokens:
@@ -667,7 +665,6 @@ family_compare_packets:
   - 40-hero-lab-importer-dialog-light.png
   screenshots:
   - 40-hero-lab-importer-dialog-light.png
-  - 18-import-dialog-light.png
   missing_screenshots: []
   ui_direct_receipt_group: hero_lab_import_oracle
   ui_direct_receipt_checks:

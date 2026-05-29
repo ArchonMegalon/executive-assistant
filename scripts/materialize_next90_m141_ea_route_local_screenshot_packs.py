@@ -74,7 +74,7 @@ ROUTE_SPECS: dict[str, dict[str, Any]] = {
         "required_screenshots": ["38-translator-dialog-light.png"],
         "required_tokens": [
             {
-                "source_key": "ui_flagship_gate",
+                "source_key": "ui_direct_import_route_proof",
                 "tokens": [
                     "ExecuteCommandAsync_translator_opens_dialog_with_master_index_lane_posture",
                     "Runtime_backed_translator_xml_editor_and_hero_lab_importer_routes_surface_governed_posture",
@@ -104,7 +104,7 @@ ROUTE_SPECS: dict[str, dict[str, Any]] = {
         "required_screenshots": ["39-xml-editor-dialog-light.png"],
         "required_tokens": [
             {
-                "source_key": "ui_flagship_gate",
+                "source_key": "ui_direct_import_route_proof",
                 "tokens": [
                     "ExecuteCommandAsync_xml_editor_opens_dialog_with_xml_bridge_posture",
                     "CreateCommandDialog_xml_editor_surfaces_xml_bridge_and_custom_data_posture",
@@ -363,6 +363,38 @@ def _screenshot_review_job(group_jobs: dict[str, Any], group_id: str) -> dict[st
     }
 
 
+def _effective_screenshot_review_job(
+    *,
+    group_jobs: dict[str, Any],
+    group_id: str,
+    required_screenshots: list[str],
+    direct_receipt_group: dict[str, Any],
+    direct_import_summary: dict[str, Any],
+) -> dict[str, Any]:
+    screenshot_job = _screenshot_review_job(group_jobs, group_id)
+    if screenshot_job:
+        return screenshot_job
+    available_screenshots = [str(item) for item in (direct_import_summary.get("screenshots") or [])]
+    missing = [item for item in required_screenshots if item not in available_screenshots]
+    if (
+        direct_receipt_group.get("exists") is True
+        and direct_receipt_group.get("status_pass") is True
+        and direct_receipt_group.get("screenshots_exact") is True
+        and not missing
+    ):
+        return {
+            "frontierId": None,
+            "frontierIds": [],
+            "status": "pass",
+            "screenshots": list(required_screenshots),
+            "evidenceKeys": ["ui_flagship_gate.directImportRouteProof"],
+            "testMarkers": [str(item) for item in (direct_import_summary.get("characterOverviewPresenterTests") or [])],
+            "reasons": ["synthesized_from_ui_flagship_direct_import_route_proof"],
+            "memberJobIds": [group_id],
+        }
+    return {}
+
+
 def _flatten_rows(payload: object) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if isinstance(payload, dict):
@@ -614,6 +646,7 @@ def build_payload() -> dict[str, Any]:
     ui_route_parity = dict(dict(ui_flagship_gate.get("headProofs") or {}).get("routeSpecificParity") or {})
     screenshot_jobs = dict(dict(ui_flagship_gate.get("chummer5aScreenshotReviewProof") or {}).get("reviewJobs") or {})
     direct_route_receipt_checks = dict(dict(dict(ui_direct_proof.get("evidence") or {}).get("routeReceiptChecks") or {}))
+    direct_import_summary = dict(ui_flagship_gate.get("directImportRouteProof") or {})
     compare_rows: list[dict[str, Any]] = []
     unresolved: list[str] = []
 
@@ -649,6 +682,7 @@ def build_payload() -> dict[str, Any]:
 
     proof_texts = {
         "ui_flagship_gate": json.dumps(ui_flagship_gate, sort_keys=True),
+        "ui_flagship_direct_import_route_proof": json.dumps(direct_import_summary, sort_keys=True),
         "desktop_visual_familiarity_gate": json.dumps(visual_gate, sort_keys=True),
         "desktop_workflow_execution_gate": json.dumps(workflow_gate, sort_keys=True),
         "veteran_task_time_gate": json.dumps(veteran_task_gate, sort_keys=True),
@@ -667,10 +701,16 @@ def build_payload() -> dict[str, Any]:
         required_artifacts = list(spec["required_compare_artifacts"])
         missing_compare_artifacts = [item for item in required_artifacts if item not in compare_artifacts]
         missing_workflow_artifacts = [item for item in required_artifacts if item not in workflow_artifacts]
-        screenshot_job = _screenshot_review_job(screenshot_jobs, spec["ui_direct_group"])
+        direct_receipt_group = dict(direct_route_receipt_checks.get(spec["ui_direct_group"]) or {})
+        screenshot_job = _effective_screenshot_review_job(
+            group_jobs=screenshot_jobs,
+            group_id=spec["ui_direct_group"],
+            required_screenshots=list(spec["required_screenshots"]),
+            direct_receipt_group=direct_receipt_group,
+            direct_import_summary=direct_import_summary,
+        )
         screenshot_receipts = [str(item) for item in (screenshot_job.get("screenshots") or [])]
         missing_screenshots = [item for item in spec["required_screenshots"] if item not in screenshot_receipts]
-        direct_receipt_group = dict(direct_route_receipt_checks.get(spec["ui_direct_group"]) or {})
         parity_row = dict(parity_rows.get(str(spec.get("parity_row_id") or "")) or {})
         fleet_row = dict(fleet_rows.get(str(spec.get("parity_row_id") or "")) or {})
         line_proof = dict(_source_line_row(capture_pack, str(spec.get("legacy_source_line_id") or "")) or {})
@@ -771,8 +811,14 @@ def build_payload() -> dict[str, Any]:
         workflow_family = _workflow_family_row(workflow_pack, family_id)
         parity_row = dict(parity_rows.get(spec["parity_row_id"]) or {})
         fleet_row = dict(fleet_rows.get(spec["parity_row_id"]) or {})
-        screenshot_job = _screenshot_review_job(screenshot_jobs, spec["ui_direct_group"])
         direct_receipt_group = dict(direct_route_receipt_checks.get(spec["ui_direct_group"]) or {})
+        screenshot_job = _effective_screenshot_review_job(
+            group_jobs=screenshot_jobs,
+            group_id=spec["ui_direct_group"],
+            required_screenshots=list(spec["required_screenshots"]),
+            direct_receipt_group=direct_receipt_group,
+            direct_import_summary=direct_import_summary,
+        )
         compare_artifacts = [str(item) for item in (compare_family.get("compare_artifacts") or [])]
         workflow_artifacts = [str(item) for item in (workflow_family.get("compare_artifacts") or [])]
         missing_compare_artifacts = [item for item in spec["required_compare_artifacts"] if item not in compare_artifacts]

@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-05-29T09:27:36Z'
+generated_at: '2026-05-29T11:04:36Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -20,7 +20,7 @@ summary:
   fleet_m142_gate_status: pass
   fleet_m142_route_local_status: pass
   desktop_client_status: missing
-  desktop_client_reason_count: 7
+  desktop_client_reason_count: 2
 source_inputs:
   ea_compare_packs:
     path: /docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml
@@ -71,16 +71,16 @@ source_inputs:
     generated_at: '2026-05-07T23:31:39.358211Z'
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-29T08:09:43.480386Z'
+    generated_at: '2026-05-29T10:59:40.098142Z'
   visual_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-29T08:09:41.212009Z'
+    generated_at: '2026-05-29T10:59:31.188754Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-29T08:28:11.372428Z'
+    generated_at: '2026-05-29T10:59:35.787580Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    generated_at: '2026-05-28T18:08:23.788010Z'
+    generated_at: '2026-05-29T10:59:39.531771Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
     generated_at: '2026-05-28T18:04:02.236919Z'
@@ -101,16 +101,16 @@ source_inputs:
     coverage_key: desktop_client
     status: missing
     summary: Desktop flagship proof is still incomplete.
-    reason_count: 7
+    reason_count: 2
     source_status: missing
     source_summary: Desktop flagship proof is still incomplete.
-    source_reason_count: 7
+    source_reason_count: 2
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: d158c5aced0afb117d4ffd39019028eca5ab7817ae324ab56ad7ed46a2c8ed04
+    row_fingerprint: 77d748d5374de3f488b5cc723040872390d1a386ad53c802f9e9b3863b7f09b5
 canonical_monitors:
   guide_markers:
     wave: true
@@ -151,18 +151,8 @@ desktop_client_readiness:
   coverage_key: desktop_client
   status: missing
   summary: Desktop flagship proof is still incomplete.
-  reason_count: 7
+  reason_count: 2
   reasons:
-  - Executable desktop workflow execution gate proof is missing or not passed. Catalog
-    parity without click-through receipts does not pass.
-  - Chummer5a desktop workflow parity proof is missing or not passed. Representative
-    shell parity is not enough.
-  - SR4 desktop workflow parity proof is missing or not passed. Chummer4 parity must
-    remain open until a real desktop parity gate lands.
-  - SR6 desktop workflow parity proof is missing or not passed. Cumulative carry-forward
-    workflows are not complete yet.
-  - SR4/SR6 desktop parity frontier receipt is missing or not passed. Cross-edition
-    completion cannot close on isolated family proofs alone.
   - Release channel does not publish any promoted Windows installer media.
   - 'Release channel is missing required desktop platform/head installer tuple pair(s):
     avalonia:macos, avalonia:windows.'
@@ -203,11 +193,7 @@ family_local_packs:
     coverage_key: desktop_client
     coverage_status: missing
     coverage_summary: Desktop flagship proof is still incomplete.
-    relevant_reasons:
-    - Executable desktop workflow execution gate proof is missing or not passed. Catalog
-      parity without click-through receipts does not pass.
-    - Chummer5a desktop workflow parity proof is missing or not passed. Representative
-      shell parity is not enough.
+    relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:dense_workbench_light
     source_key: screenshot_gate
@@ -300,9 +286,7 @@ family_local_packs:
     coverage_key: desktop_client
     coverage_status: missing
     coverage_summary: Desktop flagship proof is still incomplete.
-    relevant_reasons:
-    - Executable desktop workflow execution gate proof is missing or not passed. Catalog
-      parity without click-through receipts does not pass.
+    relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:menu_open
     source_key: visual_gate

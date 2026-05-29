@@ -23,8 +23,6 @@ That does not mean:
 * EA owns milestones, blockers, queue truth, or release authority
 * EA becomes a substitute for Hub, Fleet, or `chummer6-design`
 
-EA owns its own executive-assistant product canon, but it must keep that canon explicit under `.codex-design/ea/*` instead of smuggling product truth through assistant behavior.
-
 ## Owns
 
 * morning-brief, decision-queue, commitment-ledger, and approved-action workflow posture for the EA product itself
@@ -35,6 +33,7 @@ EA owns its own executive-assistant product canon, but it must keep that canon e
 * interruption-budget throttling and operator-safe runtime guardrails
 * mirror-status briefs and ownership telemetry derived from design canon
 * EA-local implementation of skills, adapters, and runtime policy that stay downstream of Chummer canon
+* EA owns its own executive-assistant product canon under `.codex-design/ea/*` for release and surface truth
 
 ## Must not own
 
@@ -47,8 +46,8 @@ EA owns its own executive-assistant product canon, but it must keep that canon e
 
 ## Required inputs
 
+* EA product canon under `.codex-design/ea/*`
 * mirrored `.codex-design/product/*`
-* mirrored `.codex-design/ea/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
 * `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`

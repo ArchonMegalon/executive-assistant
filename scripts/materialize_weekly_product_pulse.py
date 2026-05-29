@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -58,6 +60,70 @@ def _resolve_for_read(root: Path, path: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git_metadata_for_path(path: Path) -> dict[str, str]:
+    candidate = path if path.is_dir() else path.parent
+    try:
+        repo_root = subprocess.run(
+            ["git", "-C", str(candidate), "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        git_head = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        git_branch = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except Exception:
+        return {}
+
+    metadata: dict[str, str] = {
+        "git_repo_root": repo_root,
+        "git_head": git_head,
+        "git_branch": git_branch,
+    }
+    try:
+        metadata["repo_relative_path"] = str(path.resolve().relative_to(Path(repo_root).resolve()))
+    except Exception:
+        pass
+    return metadata
+
+
+def _source_provenance(path: Path) -> dict[str, Any]:
+    resolved = path.resolve() if path.exists() else path
+    payload: dict[str, Any] = {
+        "source_path": path.as_posix(),
+        "resolved_path": resolved.as_posix(),
+        "present": path.exists(),
+    }
+    if not path.exists():
+        return payload
+    try:
+        stat = path.stat()
+        payload["size_bytes"] = stat.st_size
+        payload["mtime_utc"] = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        payload["sha256"] = _sha256_file(path)
+    except Exception:
+        pass
+    payload.update(_git_metadata_for_path(path))
+    return payload
+
+
 def _journey_gate_source(root: Path, journey_path: Path) -> dict[str, Any]:
     resolved = _resolve_for_read(root, journey_path)
     journey = _load_json(resolved) or {}
@@ -81,6 +147,7 @@ def _journey_gate_source(root: Path, journey_path: Path) -> dict[str, Any]:
         "warning": warning,
         "total": total,
         "ready_share": int(round((ready / total) * 100)) if total else 0,
+        "provenance": _source_provenance(resolved),
     }
 
 
@@ -98,6 +165,7 @@ def _flagship_receipt_source(root: Path, receipt_path: Path) -> dict[str, Any]:
         "browser_present": bool(browser.get("published_receipt_present")),
         "browser_receipt": str(browser.get("published_receipt") or "").strip(),
         "limitations": [str(item) for item in list(receipt.get("current_limitations") or []) if str(item).strip()],
+        "provenance": _source_provenance(resolved),
     }
 
 
@@ -200,7 +268,9 @@ def build_pulse(
         "as_of": generated_at[:10],
         "scorecard_source": scorecard_path.as_posix(),
         "release_truth_source": flagship_receipt_path.as_posix(),
+        "release_truth_provenance": receipt_info["provenance"],
         "journey_gate_source": journey_gates_path.as_posix(),
+        "journey_gate_provenance": journey_info["provenance"],
         "summary": summary,
         "active_wave": "EA flagship receipt closeout",
         "active_wave_status": "active",
@@ -301,7 +371,9 @@ def build_pulse(
             "launch_readiness": launch_readiness,
             "provider_route_stewardship": provider_route_stewardship,
             "journey_gate_source": journey_gates_path.as_posix(),
+            "journey_gate_git_head": str(journey_info["provenance"].get("git_head") or "").strip(),
             "flagship_release_receipt_source": flagship_receipt_path.as_posix(),
+            "flagship_release_receipt_git_head": str(receipt_info["provenance"].get("git_head") or "").strip(),
             "scorecard_source": scorecard_path.as_posix(),
             "release_pipeline_source": release_pipeline_path.as_posix(),
             "governor_loop_source": governor_loop_path.as_posix(),

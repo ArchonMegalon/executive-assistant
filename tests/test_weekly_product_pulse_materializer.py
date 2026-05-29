@@ -111,12 +111,18 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     assert pulse["active_wave_status"] == "active"
     assert pulse["release_truth_source"] == FLAGSHIP_RECEIPT_PATH.as_posix()
     assert pulse["journey_gate_source"] == str(JOURNEY_GATES_PATH)
+    assert pulse["release_truth_provenance"]["present"] is True
+    assert pulse["release_truth_provenance"]["sha256"]
+    assert pulse["journey_gate_provenance"]["present"] is True
+    assert pulse["journey_gate_provenance"]["sha256"]
     assert pulse["release_health"]["state"] == "blocked"
     assert pulse["flagship_readiness"]["state"] == "watch"
     assert pulse["journey_gate_health"]["state"] == "blocked"
     assert pulse["journey_gate_health"]["blocked_count"] == 3
     assert pulse["supporting_signals"]["journey_gate_source"] == str(JOURNEY_GATES_PATH)
     assert pulse["supporting_signals"]["flagship_release_receipt_source"] == FLAGSHIP_RECEIPT_PATH.as_posix()
+    assert pulse["supporting_signals"]["journey_gate_git_head"] == ""
+    assert pulse["supporting_signals"]["flagship_release_receipt_git_head"] == ""
     assert pulse["supporting_signals"]["launch_readiness"].startswith("Hold launch expansion")
     assert pulse["supporting_signals"]["overall_progress_percent"] == 50
     assert pulse["governor_decisions"]

@@ -147,10 +147,18 @@ assert pulse["contract_name"] == "ea.weekly_product_pulse"
 supporting = pulse.get("supporting_signals") or {}
 release_truth_source = pulse.get("release_truth_source") or supporting.get("flagship_release_receipt_source")
 journey_gate_source = pulse.get("journey_gate_source") or supporting.get("journey_gate_source")
+release_truth_provenance = pulse.get("release_truth_provenance") or {}
+journey_gate_provenance = pulse.get("journey_gate_provenance") or {}
 assert release_truth_source == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert journey_gate_source == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
 assert supporting.get("journey_gate_source") == "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
 assert supporting.get("flagship_release_receipt_source") == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+assert release_truth_provenance.get("present") is True
+assert release_truth_provenance.get("sha256")
+assert journey_gate_provenance.get("present") is True
+assert journey_gate_provenance.get("sha256")
+assert journey_gate_provenance.get("git_head")
+assert supporting.get("journey_gate_git_head") == journey_gate_provenance.get("git_head")
 assert supporting.get("launch_readiness")
 assert pulse["governor_decisions"]
 PY

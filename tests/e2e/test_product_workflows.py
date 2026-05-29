@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Error as PlaywrightError, Page, sync_playwright
 
 Config = uvicorn.Config
 Server = uvicorn.Server
@@ -194,6 +194,92 @@ def _pad_image_bottom_rows(image, *, target_height: int):
     return padded
 
 
+def _is_retryable_page_error(exc: Exception) -> bool:
+    text = str(exc)
+    return "ERR_INSUFFICIENT_RESOURCES" in text or "Page crashed" in text
+
+
+class ResilientPage:
+    def __init__(self, context: BrowserContext) -> None:
+        self._context = context
+        self._page = context.new_page()
+        self._last_url = "about:blank"
+
+    def __getattr__(self, name: str):
+        return getattr(self._page, name)
+
+    def _replace_page(self) -> None:
+        try:
+            self._page.close()
+        except Exception:
+            pass
+        self._page = self._context.new_page()
+
+    @staticmethod
+    def _normalized_wait_kwargs(kwargs: dict[str, object]) -> dict[str, object]:
+        normalized = dict(kwargs)
+        if normalized.get("wait_until") == "networkidle":
+            normalized["wait_until"] = "load"
+        return normalized
+
+    def goto(self, url: str, **kwargs):
+        last_error: Exception | None = None
+        normalized_kwargs = self._normalized_wait_kwargs(kwargs)
+        for _ in range(3):
+            try:
+                response = self._page.goto(url, **normalized_kwargs)
+                self._last_url = url
+                return response
+            except PlaywrightError as exc:
+                if not _is_retryable_page_error(exc):
+                    raise
+                last_error = exc
+                self._replace_page()
+        assert last_error is not None
+        raise last_error
+
+    def wait_for_url(self, url, **kwargs):
+        last_error: Exception | None = None
+        normalized_kwargs = self._normalized_wait_kwargs(kwargs)
+        for _ in range(3):
+            try:
+                result = self._page.wait_for_url(url, **normalized_kwargs)
+                if isinstance(url, str):
+                    self._last_url = url
+                return result
+            except PlaywrightError as exc:
+                if not _is_retryable_page_error(exc):
+                    raise
+                last_error = exc
+                self._replace_page()
+                if isinstance(url, str):
+                    self._page.goto(url, wait_until="load")
+                    self._last_url = url
+                    return None
+        assert last_error is not None
+        raise last_error
+
+    def wait_for_load_state(self, state=None, **kwargs):
+        last_error: Exception | None = None
+        normalized_state = "load" if state == "networkidle" else state
+        for _ in range(3):
+            try:
+                return self._page.wait_for_load_state(normalized_state, **kwargs)
+            except PlaywrightError as exc:
+                if not _is_retryable_page_error(exc):
+                    raise
+                last_error = exc
+                self._replace_page()
+                if self._last_url and self._last_url != "about:blank":
+                    self._page.goto(self._last_url, wait_until="load")
+                    return None
+        assert last_error is not None
+        raise last_error
+
+    def close(self) -> None:
+        self._page.close()
+
+
 def _rewrite_observation_event(
     client: TestClient,
     *,
@@ -300,10 +386,19 @@ def team_browser_server() -> Iterator[dict[str, object]]:
     yield from _start_browser_server(client, seeded=seeded)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+            ],
+        )
         try:
             yield browser
         finally:
@@ -311,13 +406,16 @@ def browser() -> Iterator[Browser]:
 
 
 @pytest.fixture()
-def page(browser: Browser, product_browser_server: dict[str, object]) -> Iterator[Page]:
+def page(browser: Browser, product_browser_server: dict[str, object]) -> Iterator[ResilientPage]:
     context: BrowserContext = browser.new_context()
-    page = context.new_page()
+    page = ResilientPage(context)
     try:
         yield page
     finally:
-        context.close()
+        try:
+            page.close()
+        finally:
+            context.close()
 
 
 def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_server: dict[str, object]) -> None:
