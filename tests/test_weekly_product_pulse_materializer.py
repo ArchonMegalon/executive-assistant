@@ -127,3 +127,45 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     assert pulse["supporting_signals"]["overall_progress_percent"] == 50
     assert pulse["governor_decisions"]
     assert len(pulse["governor_decisions"]) == 2
+
+
+def test_weekly_product_pulse_does_not_claim_missing_browser_proof_after_pass_receipt(tmp_path: Path) -> None:
+    _seed_truth_sources(tmp_path)
+
+    receipt = json.loads((tmp_path / FLAGSHIP_RECEIPT_PATH).read_text(encoding="utf-8"))
+    receipt["status"] = "pass"
+    receipt["browser_workflow_proof"]["published_receipt_present"] = True
+    (tmp_path / FLAGSHIP_RECEIPT_PATH).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--scorecard",
+            SCORECARD_PATH.as_posix(),
+            "--journey-gates",
+            str(JOURNEY_GATES_PATH),
+            "--flagship-receipt",
+            FLAGSHIP_RECEIPT_PATH.as_posix(),
+            "--output",
+            PULSE_PATH.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
+
+    assert pulse["supporting_signals"]["launch_readiness"] == "Hold launch expansion pending cross-host journey coverage."
+    assert (
+        pulse["supporting_signals"]["provider_route_stewardship"]["canary_status"]
+        == "Browser execution proof is published, but cross-host journey coverage remains blocked."
+    )
+    assert (
+        pulse["supporting_signals"]["provider_route_stewardship"]["next_decision"]
+        == "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
+    )

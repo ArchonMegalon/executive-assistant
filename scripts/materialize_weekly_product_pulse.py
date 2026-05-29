@@ -216,14 +216,30 @@ def build_pulse(
 
     launch_readiness = (
         "Hold launch expansion pending browser execution proof and cross-host journey coverage."
-        if release_truth_state != "pass" or journey_state == "blocked"
+        if release_truth_state != "pass"
+        else "Hold launch expansion pending cross-host journey coverage."
+        if journey_state == "blocked"
         else "Release truth is clear enough to widen claims."
+    )
+    canary_status = (
+        "Browser execution proof is still missing; cross-host journey coverage remains blocked."
+        if release_truth_state != "pass"
+        else "Browser execution proof is published, but cross-host journey coverage remains blocked."
+        if journey_state == "blocked"
+        else "Browser execution proof is published and routes are aligned to local truth surfaces."
+    )
+    next_decision = (
+        "Publish browser execution proof, then re-materialize the weekly pulse and release receipt."
+        if release_truth_state != "pass"
+        else "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
+        if journey_state == "blocked"
+        else "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     )
     provider_route_stewardship = {
         "default_status": "EA routes are governed by local truth surfaces.",
-        "canary_status": "Browser execution proof is still missing; cross-host journey coverage remains blocked.",
+        "canary_status": canary_status,
         "review_due": review_due,
-        "next_decision": "Publish browser execution proof, then re-materialize the weekly pulse and release receipt.",
+        "next_decision": next_decision,
     }
 
     governor_decisions = [
