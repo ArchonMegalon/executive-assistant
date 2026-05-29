@@ -3279,6 +3279,15 @@ milestones:
     - id: '141.1'
       owner: chummer6-ui
       title: Capture direct screenshot and runtime proof for translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle routes.
+      status: complete
+      landed_commit: unlanded
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M141 chummer6-ui translator, XML amendment, and Hero Lab direct route proof is complete; future shards must verify the closed-package receipt, focused guard test, runtime-backed screenshot gates, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+        - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/AvaloniaFlagshipUiGateTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/CharacterOverviewPresenterTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/DesktopDialogFactoryTests.cs, and /docker/chummercomplete/chummer6-ui/Chummer.Tests/Presentation/DualHeadAcceptanceTests.cs keep the translator, XML amendment editor, Hero Lab importer, and adjacent import-oracle flows bound to direct screenshot-backed and runtime-backed desktop route proof instead of broad family prose.
+        - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/veteran-task-time-evidence-gate.sh, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/b14-flagship-ui-release-gate.sh, and /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json keep the direct screenshot pack, runtime-backed route receipts, and published closure proof aligned for translator, XML amendment, Hero Lab importer, and adjacent import-oracle coverage.
+        - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Compliance/Next90M141DirectImportRouteProofGuardTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh, and /docker/chummercomplete/chummer6-ui/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, verify wiring, or worker-safe flagship frontier evidence drift from the completed package contract.
+        - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json records the closed-package receipt for `next90-m141-ui-capture-direct-screenshot-and-runtime-proof-for-translator-xml-amendment`.
     - id: '141.2'
       owner: chummer6-core
       title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.
@@ -3332,6 +3341,15 @@ milestones:
     - id: '142.1'
       owner: chummer6-ui
       title: Close direct screenshot and runtime proof for dense builder and career flows, dice or initiative utilities, and contacts or lifestyles or notes workflows.
+      status: complete
+      landed_commit: unlanded
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M142 chummer6-ui dense builder/career, dice/initiative, and contacts/lifestyles/notes direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local gates, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+        - /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/materialize-desktop-workflow-execution-gate.sh, and /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/b14-flagship-ui-release-gate.sh keep dense builder/career, dice/initiative, and contacts/lifestyles/notes proof bound to direct screenshot-backed and runtime-backed route receipts instead of family prose.
+        - /docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json, /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json, and /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json keep the three milestone-142 parity families aligned to route-local proof.
+        - /docker/chummercomplete/chummer6-ui/Chummer.Tests/Compliance/Next90M142DirectWorkflowProofGuardTests.cs, /docker/chummercomplete/chummer6-ui/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer6-ui/scripts/ai/milestones/next90-m142-ui-direct-workflow-proof-check.sh, and /docker/chummercomplete/chummer6-ui/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, audit evidence, or verify wiring drift from the completed package contract.
+        - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json records the closed-package receipt for `next90-m142-ui-close-direct-screenshot-and-runtime-proof-for-dense-builder-and-career-fl`.
     - id: '142.2'
       owner: chummer6-ui-kit
       title: Bind dense-workbench and noise-budget proof for these families into the flagship preset and fail-close on stale chrome regressions.
@@ -3373,6 +3391,15 @@ milestones:
     - id: '143.1'
       owner: chummer6-ui
       title: Capture direct screenshot and runtime proof for print, export, exchange, SR6 supplement, and house-rule workflows.
+      status: complete
+      landed_commit: unlanded
+      completion_action: verify_closed_package_only
+      do_not_reopen_reason: M143 chummer6-ui print/export/exchange and SR6 supplement/house-rule direct proof is complete; future shards must verify the closed-package receipt, focused guard test, route-local output gates, canonical registry row, and queue mirrors instead of reopening this slice.
+      evidence:
+        - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/chummer5a-screenshot-review-gate.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/section-host-ruleset-parity-check.sh, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/generated-dialog-element-parity-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/b14-flagship-ui-release-gate.sh keep print/export/exchange plus SR6 supplement/house-rule proof bound to direct screenshot-backed and runtime-backed route receipts instead of family prose.
+        - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M114_UI_RULE_STUDIO.generated.json, /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json keep the milestone-143 parity families aligned to route-local output proof.
+        - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M143DirectOutputProofGuardTests.cs, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m143-ui-direct-output-proof-check.sh, and /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh fail closed when canonical registry rows, queue mirrors, route-local receipts, or verify wiring drift from the completed package contract.
+        - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M143_UI_DIRECT_OUTPUT_PROOF.generated.json records the closed-package receipt for `next90-m143-ui-capture-direct-screenshot-and-runtime-proof-for-print-export-exchange-sr6`.
     - id: '143.2'
       owner: chummer6-core
       title: Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.

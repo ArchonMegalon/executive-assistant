@@ -60,6 +60,8 @@ build_label_prefix: Build
 public_channel_labels:
   - id: stable
     label: Public release
+  - id: public_stable
+    label: Public release
   - id: preview
     label: Preview channel
   - id: docker
@@ -67,8 +69,8 @@ public_channel_labels:
   - id: local
     label: Preview channel
 guest_gate_heading: Preview access
-guest_gate_summary: Create a Chummer account first when the current preview requires a linked download handoff, recovery path, or support history from the first launch.
-guest_gate_primary_label: Create account to install
+guest_gate_summary: Open downloads first. Create a Chummer account only when the current preview requires a linked handoff, recovery path, or support history from the first launch.
+guest_gate_primary_label: Open downloads
 guest_gate_secondary_label: Already have an account? Sign in
 signed_in_dispatch_heading: Keep this install linked from the first launch
 signed_in_dispatch_summary: Start the same published download from the signed-in handoff page and follow the platform-specific guided install path that keeps the install linked to your account from the first successful launch.
