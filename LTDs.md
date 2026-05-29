@@ -15,7 +15,7 @@ Updated: 2026-05-29
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-29T08:24:52.100707+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-05-29T09:27:16.881584+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `Prompting Systems` | `Gold Plan` | `1 account` | `Owned` |  | `Tier 2` | Legacy prompt-refinement adapters, BrowserAct workflow hooks, and visual-director provider hints | Wired as a bounded prompt/style helper for internal guide pipelines; still not a general runtime planner dependency. |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. Candidate newsroom sound-design lane only after rights, cue provenance, and adapter proof exist. |
@@ -55,8 +55,8 @@ Updated: 2026-05-29
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | BrowserAct video-renderer scaffold packets archived under `/mnt/pcloud/EA` | Activation is confirmed; the current local posture is scaffold-stage workflow generation, not yet a production render lane. Candidate newsroom host/motion lane only until verified. |
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct-stored credentials for account access; no active runtime lane yet | Official Nonverbia app access is available at `app.nonverbia.com`, and account credentials are stored in BrowserAct for later structured verification. Candidate newsroom presenter lane only until verified. |
 | `Paperguide` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Tracked LTD only; no active local runtime integration is verified in this repo yet. |
-| `Pixefy` | `License Tier 3` | `1 account` | `Owned` |  | `Tier 3` | Local `.env` username/password only | Provider integration is pending responsive-visual QA verification before any runtime lane use. |
-| `Rafter` | `License Tier 3` | `1 account` | `Owned` |  | `Tier 3` | Local `.env` API key only | Runtime use is pending security/repo-surface verification and live-site QA; no release truth role is allowed. |
+| `Pixefy` | `License Tier 3 / highest AppSumo tier` | `1 account` | `Owned` |  | `Tier 3` | None yet; candidate Fleet visual/responsive QA lane after provider verification | Acquired as responsive visual QA for `chummer.run`, PWA, Black Ledger, downloads/status, newsroom, faction onboarding, and support pages. Candidate uses: 300+ device responsive previews, synced scroll/click layout checks, element inspection, accessibility/SEO checks, and screenshot evidence. Pixefy is not a Media Factory renderer and must not be product truth. Promote to Tier 2 after provider verification and first Fleet visual-QA proof artifact. |
+| `Rafter` | `License Tier 3 / highest AppSumo tier` | `1 account` | `Owned` |  | `Tier 3` | None yet; candidate Fleet security/proof gate after provider verification | Acquired as Chummer6 release-security and false-complete prevention infrastructure. Candidate uses: GitHub repo vulnerability scans, secret scanning, dependency/security scan, live `chummer.run` performance/accessibility/best-practice/SEO/security flight checks, and AI-ready remediation packets for Codex. Rafter may produce auxiliary security evidence only; it must not own product truth, release truth, roadmap truth, or publish changes. Promote to Tier 2 after account/provider verification, repository access-scope review, secret-scan policy, and first Fleet proof artifact. |
 | `ProductLift.dev` | `License Tier 5` | `1 license` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dry-run Chummer signal-mirror adapters and receipts | Use on `chummer.run` as the public signal mirror for feedback, voting, roadmap, changelog, package follow, and Karma Forge signal projection, while Chummer remains the source of truth. |
 | `PeekShot` | `3x code-based` | `3 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; suitable for newsroom thumbnail, poster, and contact-sheet adapter work when wired. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Tier 4 and account identity were seeded manually; local credentials now exist for later structured verification or BrowserAct capture. |
@@ -78,7 +78,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-29T08:24:52.100707+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-29T08:24:52.100707+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` |  | `manual_seeded` | `local_env` | 2026-05-29T09:27:16.881584+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-05-29T09:27:16.881584+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `Prompting Systems` |  | `missing` | `manual_inventory` |  | Local prompt-refinement wiring exists; account-level verification still has no BrowserAct discovery run recorded yet. |
 | `ChatPlayground AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
 | `Soundmadeseen` |  | `complete` | `local_env` |  | API key captured locally; plan/tier and account email still need discovery. |
@@ -113,9 +113,9 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Mootion` |  | `complete` | `manual_inventory` |  | Plan/Tier: License Tier 3; Status: activated |
 | `Nonverbia` |  | `missing` | `manual_inventory` |  | Tier 4 is confirmed manually and credentials are stored in BrowserAct, but no structured account-detail verification run is recorded yet. |
 | `Paperguide` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
-| `Pixefy` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-29T00:00:00Z | Provider credentials are now tracked in local `.env`; account-level verification and responsive-visual QA checks remain pending. |
+| `Pixefy` | `the.girscheles@gmail.com` | `manual_seeded` | `user_reported` | 2026-05-29T00:00:00Z | Highest tier / License Tier 3 was reported by the user. Current LTD row is normalized from `PixiFy`; provider verification and Fleet visual-QA wiring are pending. |
 | `ProductLift.dev` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-04-22T00:00:00Z | Tier 5 is confirmed manually and local credentials plus the license key are now seeded for public feedback intake, roadmap/changelog projection, and webhook/API signal mapping; no structured BrowserAct account-detail verification run is recorded yet. |
-| `Rafter` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-29T00:00:00Z | API key is now seeded locally for future workflow wiring; provider verification and governance checks are still pending. |
+| `Rafter` | `the.girscheles@gmail.com` | `manual_seeded` | `user_reported` | 2026-05-29T00:00:00Z | Highest tier / License Tier 3 was reported by the user. Structured provider verification, GitHub access-scope capture, scan quotas, API/CLI availability, and Fleet security-gate proof are pending before runtime use. |
 | `PeekShot` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 | `Signitic` | `tibor@girschele.com` | `manual_seeded` | `local_env` | 2026-04-20T00:00:00Z | Tier 4 and account email were seeded manually; local credentials now exist and structured verification is still pending. |
 | `Syllabbles` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Tier 3 and shared credentials were seeded manually for the Black Ledger dispatch draft lane; structured verification and any BrowserAct capture are still pending. |
@@ -128,9 +128,9 @@ Use this section to track missing tier/email/account facts discovered through th
 
 `katteb.com` is now tracked as a 10-code holding but still needs redemption/activation verification.
 
-`Pixefy` is now tracked and requires provider/visual QA verification before any runtime use.
+`Pixefy` highest tier is tracked but needs normalized naming and responsive-visual-QA provider verification.
 
-`Rafter` is now tracked and remains runtime-closed until provider verification is completed.
+`Rafter` highest tier is now reported and needs provider verification before it can become a Fleet security gate.
 
 `MagicFit` License Tier 5 is now tracked from user report and needs provider verification before it can become a Chummer6 Media Factory render lane.
 
