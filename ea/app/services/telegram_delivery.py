@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import uuid
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.domain.models import ConnectorBinding
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR
@@ -98,6 +100,52 @@ def _telegram_send_json(*, token: str, method: str, payload: dict[str, object], 
         f"https://api.telegram.org/bot{token}/{method}",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    if not bool(body.get("ok")):
+        raise RuntimeError(f"telegram_{method.lower()}_failed")
+    return dict(body.get("result") or {})
+
+
+def _telegram_send_multipart(
+    *,
+    token: str,
+    method: str,
+    fields: dict[str, str],
+    file_field: str,
+    file_path: str,
+    timeout: int = 120,
+) -> dict[str, object]:
+    boundary = f"----ea-telegram-{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+    for key, value in fields.items():
+        parts.extend(
+            [
+                f"--{boundary}\r\n".encode("utf-8"),
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("utf-8"),
+                str(value).encode("utf-8"),
+                b"\r\n",
+            ]
+        )
+    upload_name = Path(file_path).name
+    parts.extend(
+        [
+            f"--{boundary}\r\n".encode("utf-8"),
+            (
+                f'Content-Disposition: form-data; name="{file_field}"; filename="{upload_name}"\r\n'
+                "Content-Type: video/mp4\r\n\r\n"
+            ).encode("utf-8"),
+            Path(file_path).read_bytes(),
+            b"\r\n",
+            f"--{boundary}--\r\n".encode("utf-8"),
+        ]
+    )
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=b"".join(parts),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -252,18 +300,34 @@ def send_telegram_video_for_principal(
     if not normalized_video_ref:
         raise RuntimeError("telegram_video_ref_missing")
     normalized_probe_ref = str(audio_probe_ref or normalized_video_ref).strip()
-    if not _telegram_video_has_audio(normalized_probe_ref):
-        raise RuntimeError("telegram_video_audio_missing")
-    result = _telegram_send_json(
-        token=token,
-        method="sendVideo",
-        payload={
-            "chat_id": chat_id,
-            "video": normalized_video_ref,
-            "caption": _telegram_caption(caption),
-            "supports_streaming": True,
-        },
-    )
+    has_audio = _telegram_video_has_audio(normalized_probe_ref)
+    if Path(normalized_video_ref).is_file():
+        method = "sendVideo" if has_audio else "sendDocument"
+        file_field = "video" if has_audio else "document"
+        result = _telegram_send_multipart(
+            token=token,
+            method=method,
+            fields={
+                "chat_id": chat_id,
+                "caption": _telegram_caption(caption),
+                **({"supports_streaming": "true"} if has_audio else {}),
+            },
+            file_field=file_field,
+            file_path=normalized_video_ref,
+        )
+    else:
+        if not has_audio:
+            raise RuntimeError("telegram_video_audio_missing")
+        result = _telegram_send_json(
+            token=token,
+            method="sendVideo",
+            payload={
+                "chat_id": chat_id,
+                "video": normalized_video_ref,
+                "caption": _telegram_caption(caption),
+                "supports_streaming": True,
+            },
+        )
     return TelegramDeliveryReceipt(
         principal_id=str(principal_id or "").strip(),
         chat_id=chat_id,
