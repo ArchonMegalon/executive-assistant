@@ -26,6 +26,7 @@ from app.api.routes.product_api_contracts import (
     PocketSignalCursorResetIn,
     PocketSignalCursorResetOut,
     PocketRecordingDetailOut,
+    PocketRecordingTelegramDeliveryOut,
     PocketSignalImportIn,
     PocketSignalImportOut,
     PocketSignalSyncOut,
@@ -308,6 +309,34 @@ def retranscribe_pocket_recording(
             status_code = 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return PocketRecordingDetailOut(**payload)
+
+
+@router.post("/signals/pocket/recordings/{recording_id}/deliver-telegram", response_model=PocketRecordingTelegramDeliveryOut)
+def deliver_pocket_recording_to_telegram(
+    recording_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketRecordingTelegramDeliveryOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.deliver_pocket_recording_to_telegram(
+            principal_id=context.principal_id,
+            actor=actor,
+            recording_id=recording_id,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "pocket_recording_not_found":
+            status_code = 404
+        elif detail.startswith("pocket_api_http_429:"):
+            status_code = 429
+        elif detail in {"telegram_binding_not_found", "pocket_recording_audio_unavailable"}:
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketRecordingTelegramDeliveryOut(**payload)
 
 
 @router.post("/signals/google/sync", response_model=GoogleSignalSyncOut)

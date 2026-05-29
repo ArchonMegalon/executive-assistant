@@ -1091,6 +1091,17 @@ class PocketRecordingDetailOut(BaseModel):
     preference_evidence_applied_total: int = 0
 
 
+class PocketRecordingTelegramDeliveryOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
+    audio_download_url: str = ""
+    audio_expires_at: str = ""
+
+
 class GoogleSignalSyncOut(BaseModel):
     generated_at: str
     account_email: str = ""

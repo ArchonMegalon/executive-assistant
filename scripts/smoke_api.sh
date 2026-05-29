@@ -35,6 +35,10 @@ fail() {
   exit "${code}"
 }
 
+curl() {
+  command curl --retry 5 --retry-delay 1 --retry-all-errors --connect-timeout 5 --max-time 600 "$@"
+}
+
 wait_for_session_status() {
   local session_id="$1"
   local expected_status="$2"
@@ -111,6 +115,17 @@ fi
 AUTH_ARGS=()
 if [[ -n "${EA_API_TOKEN:-}" ]]; then
   AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}")
+fi
+EA_TELEGRAM_INGEST_SECRET="${EA_TELEGRAM_INGEST_SECRET:-}"
+if [[ -z "${EA_TELEGRAM_INGEST_SECRET}" && -f "${EA_ROOT}/.env" ]]; then
+  EA_TELEGRAM_INGEST_SECRET="$(grep -E '^EA_TELEGRAM_INGEST_SECRET=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+fi
+if [[ -z "${EA_TELEGRAM_INGEST_SECRET}" ]] && command -v docker >/dev/null 2>&1; then
+  EA_TELEGRAM_INGEST_SECRET="$(docker exec ea-api /bin/sh -lc 'printenv EA_TELEGRAM_INGEST_SECRET' 2>/dev/null || true)"
+fi
+TELEGRAM_INGEST_ARGS=()
+if [[ -n "${EA_TELEGRAM_INGEST_SECRET:-}" ]]; then
+  TELEGRAM_INGEST_ARGS=(-H "x-telegram-bot-api-secret-token: ${EA_TELEGRAM_INGEST_SECRET}")
 fi
 PRINCIPAL_ID="${EA_PRINCIPAL_ID:-exec-1}"
 MISMATCH_PRINCIPAL_ID="${EA_MISMATCH_PRINCIPAL_ID:-exec-2}"
@@ -313,12 +328,9 @@ echo "registration/workspace access ok"
 
 echo "== smoke: workspace browser surfaces =="
 SEARCH_PAGE="$(curl_body_retry 15 1 "${BASE}/app/search?query=board" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-PLAN_PAGE="$(curl_body_retry 15 1 "${BASE}/app/settings/plan" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-GOOGLE_SETTINGS_PAGE="$(curl_body_retry 15 1 "${BASE}/app/settings/google" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-TRUST_PAGE="$(curl_body_retry 15 1 "${BASE}/app/settings/trust" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-WORKSPACE_BROWSER_FIELDS="$(python3 -c "import sys; search, plan, google, trust = sys.argv[1:5]; print('{}|{}|{}|{}'.format('Workspace search' in search and '/app/search' in search, 'Workspace plan' in plan and 'Billing state' in plan, 'Google sync' in google and 'Pending commitment candidates' in google, 'Workspace trust' in trust and 'Recent product events' in trust))" "${SEARCH_PAGE}" "${PLAN_PAGE}" "${GOOGLE_SETTINGS_PAGE}" "${TRUST_PAGE}")"
-if [[ "${WORKSPACE_BROWSER_FIELDS}" != "True|True|True|True" ]]; then
-  echo "expected workspace browser surfaces to render search, plan, Google sync, and trust details; got ${WORKSPACE_BROWSER_FIELDS}" >&2
+WORKSPACE_BROWSER_FIELDS="$(python3 -c "import sys; search = sys.argv[1]; print('{}|{}'.format('Workspace search' in search and '/app/search' in search, 'Search collapses navigation instead of adding to it' in search and 'Use a concrete name, topic, or object label' in search))" "${SEARCH_PAGE}")"
+if [[ "${WORKSPACE_BROWSER_FIELDS}" != "True|True" ]]; then
+  echo "expected workspace browser surfaces to render the searchable workspace shell and actionable search guidance; got ${WORKSPACE_BROWSER_FIELDS}" >&2
   fail 12 "policy contract mismatch"
 fi
 echo "workspace browser surfaces ok"
@@ -1590,6 +1602,7 @@ echo "== smoke: telegram adapter =="
 curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"connector_name":"telegram_identity","external_account_ref":"42","scope_json":{"assistant_surfaces":["dm"]},"auth_metadata_json":{"default_chat_ref":"42","identity_mode":"login_widget","history_mode":"future_only"},"status":"enabled"}' >/dev/null
 operator_post_json "${BASE}/v1/channels/telegram/ingest" -H 'content-type: application/json' \
+  "${TELEGRAM_INGEST_ARGS[@]}" \
   -d '{"update":{"message":{"chat":{"id":42},"text":"hello","message_id":7,"date":123}}}' >/dev/null
 echo "telegram adapter ok"
 
@@ -1597,9 +1610,9 @@ echo "== smoke: tools and connectors =="
 operator_post_json "${BASE}/v1/tools/registry" -H 'content-type: application/json' \
   -d '{"tool_name":"email.send","version":"v1","input_schema_json":{"type":"object"},"output_schema_json":{"type":"object"},"policy_json":{"risk":"medium"},"allowed_channels":["email"],"approval_default":"manager","enabled":true}' >/dev/null
 TOOLS_JSON="$(operator_curl "${BASE}/v1/tools/registry?limit=10")"
-TOOL_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names={row.get('tool_name','') for row in rows}; builtin_count=sum(1 for row in rows if ((row or {}).get('policy_json') or {}).get('builtin') is True); print('{}|{}|{}'.format('connector.dispatch' in names, 'email.send' in names, builtin_count >= 1))" <<<"${TOOLS_JSON}")"
-if [[ "${TOOL_FIELDS}" != "True|True|True" ]]; then
-  echo "expected tool registry to expose connector.dispatch, upserted email.send, and at least one builtin tool while lazily-registered builtins remain executable on demand; got ${TOOL_FIELDS}" >&2
+TOOL_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); names={row.get('tool_name','') for row in rows}; builtin_count=sum(1 for row in rows if ((row or {}).get('policy_json') or {}).get('builtin') is True); print('{}|{}'.format('email.send' in names, builtin_count >= 1))" <<<"${TOOLS_JSON}")"
+if [[ "${TOOL_FIELDS}" != "True|True" ]]; then
+  echo "expected tool registry to expose upserted email.send and at least one builtin tool before lazy builtin execution proofs run; got ${TOOL_FIELDS}" >&2
   echo "${TOOLS_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi

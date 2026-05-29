@@ -315,19 +315,20 @@ def _telegram_remote_ref_reachable(file_ref: str) -> bool:
         return False
 
 
+def _telegram_binding_principal_candidates(principal_id: str) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for candidate in (
+        str(principal_id or "").strip(),
+        str(os.getenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
+        str(os.getenv("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
+        "local-user",
+    ):
+        if candidate and candidate not in ordered:
+            ordered.append(candidate)
+    return tuple(ordered)
+
+
 def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, principal_id: str) -> ConnectorBinding | None:
-    rows = tool_runtime.list_connector_bindings(str(principal_id or "").strip(), limit=200)
-    candidates: list[ConnectorBinding] = []
-    for row in rows:
-        if str(row.connector_name or "").strip() != TELEGRAM_IDENTITY_CONNECTOR:
-            continue
-        if str(row.status or "").strip().lower() != "enabled":
-            continue
-        metadata = dict(row.auth_metadata_json or {})
-        chat_ref = str(metadata.get("default_chat_ref") or row.external_account_ref or "").strip()
-        if not chat_ref:
-            continue
-        candidates.append(row)
     def _sort_key(item: ConnectorBinding) -> tuple[int, int, str]:
         metadata = dict(item.auth_metadata_json or {})
         chat_ref = str(metadata.get("default_chat_ref") or item.external_account_ref or "").strip()
@@ -335,8 +336,23 @@ def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, princi
         plausible_numeric = 1 if numeric and int(chat_ref) > 1000 else 0
         return (plausible_numeric, numeric, str(item.updated_at or ""))
 
-    candidates.sort(key=_sort_key, reverse=True)
-    return candidates[0] if candidates else None
+    for binding_principal_id in _telegram_binding_principal_candidates(principal_id):
+        rows = tool_runtime.list_connector_bindings(binding_principal_id, limit=200)
+        candidates: list[ConnectorBinding] = []
+        for row in rows:
+            if str(row.connector_name or "").strip() != TELEGRAM_IDENTITY_CONNECTOR:
+                continue
+            if str(row.status or "").strip().lower() != "enabled":
+                continue
+            metadata = dict(row.auth_metadata_json or {})
+            chat_ref = str(metadata.get("default_chat_ref") or row.external_account_ref or "").strip()
+            if not chat_ref:
+                continue
+            candidates.append(row)
+        candidates.sort(key=_sort_key, reverse=True)
+        if candidates:
+            return candidates[0]
+    return None
 
 
 def send_telegram_message_for_principal(

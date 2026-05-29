@@ -4854,6 +4854,150 @@ def test_pocket_recording_retranscribe_route_forces_fallback_and_records_event(m
     assert nodes_by_key["needs_side_by_side_comparison"]["value_json"] is True
 
 
+def test_pocket_recording_deliver_telegram_route_sends_audio_and_records_event(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-telegram-delivery"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Hospital medical discussion and care",
+                "state": "completed",
+                "duration": 22.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["hospital"],
+                "transcript": {
+                    "text": "Please send me the earlier hospital recording.",
+                    "segments": [{"text": "Please send me the earlier hospital recording."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_audio_for_principal",
+        lambda tool_runtime, *, principal_id, audio_ref, caption="": SimpleNamespace(
+            chat_id="1354554303",
+            bot_key="default",
+            bot_handle="tibor_concierge_bot",
+            message_ids=("tg-audio-1",),
+        ),
+    )
+
+    delivered = client.post("/app/api/signals/pocket/recordings/rec-telegram/deliver-telegram")
+    assert delivered.status_code == 200
+    body = delivered.json()
+    assert body["recording_id"] == "rec-telegram"
+    assert body["telegram_delivery_status"] == "sent"
+    assert body["telegram_message_ids"] == ["tg-audio-1"]
+    assert body["telegram_chat_ref"] == "1354554303"
+    assert body["audio_download_url"] == "https://audio.example/rec-telegram.mp3"
+
+    events = client.get("/app/api/events", params={"channel": "product"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["event_type"] == "pocket_recording_telegram_sent")
+    assert event["source_id"] == "pocket-recording:rec-telegram"
+    assert event["payload"]["telegram_chat_ref"] == "1354554303"
+    assert event["payload"]["telegram_message_ids"] == ["tg-audio-1"]
+
+
+def test_pocket_recording_deliver_telegram_route_falls_back_to_local_upload_when_remote_audio_is_unreachable(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-telegram-delivery-fallback"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Hospital medical discussion and care",
+                "state": "completed",
+                "duration": 22.0,
+                "language": "en",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["hospital"],
+                "transcript": {"text": "Please send me the earlier hospital recording.", "segments": [], "metadata": {"source": "api"}},
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "signed_url": f"https://audio.example/{recording_id}.mp3",
+                "expires_at": "2026-05-01T08:00:00Z",
+                "expires_in": 3600,
+            },
+        },
+    )
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"fake-mp3-bytes"
+
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", lambda *args, **kwargs: _FakeResponse())
+    seen: list[str] = []
+
+    def _fake_send(tool_runtime, *, principal_id, audio_ref, caption=""):
+        seen.append(audio_ref)
+        if audio_ref.startswith("https://"):
+            raise RuntimeError("telegram_audio_unreachable")
+        assert Path(audio_ref).is_file()
+        return SimpleNamespace(
+            chat_id="1354554303",
+            bot_key="default",
+            bot_handle="tibor_concierge_bot",
+            message_ids=("tg-audio-2",),
+        )
+
+    monkeypatch.setattr(product_service, "send_telegram_audio_for_principal", _fake_send)
+
+    delivered = client.post("/app/api/signals/pocket/recordings/rec-telegram-fallback/deliver-telegram")
+    assert delivered.status_code == 200
+    body = delivered.json()
+    assert body["telegram_delivery_status"] == "sent"
+    assert body["telegram_message_ids"] == ["tg-audio-2"]
+    assert seen[0] == "https://audio.example/rec-telegram-fallback.mp3"
+    assert len(seen) == 2
+    assert seen[1].startswith("/tmp/")
+
+
 def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> None:
     principal_id = "exec-product-signal-draft-approve"
     client = build_product_client(principal_id=principal_id)

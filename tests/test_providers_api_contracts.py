@@ -495,6 +495,49 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["brief_preview"]["first_brief"] == status_body["brief_preview"]["first_brief_preview"]
 
 
+def test_onboarding_telegram_bind_chat_promotes_live_bot_binding() -> None:
+    owner = _client(principal_id="exec-onboarding-telegram-bind")
+
+    bound = owner.post(
+        "/v1/onboarding/telegram/bind-chat",
+        json={
+            "chat_ref": "1354554303",
+            "bot_handle": "tibor_concierge_bot",
+            "bot_key": "default",
+        },
+    )
+    assert bound.status_code == 200
+    body = bound.json()
+    assert body["telegram_bot"]["status"] == "enabled"
+    assert body["telegram_bot"]["default_chat_ref"] == "1354554303"
+    assert body["channels"]["telegram"]["status"] == "enabled"
+
+    bindings = owner.app.state.container.tool_runtime.list_connector_bindings("exec-onboarding-telegram-bind", limit=20)
+    by_connector = {item.connector_name: item for item in bindings}
+    assert str(by_connector["telegram_identity"].external_account_ref) == "1354554303"
+    assert dict(by_connector["telegram_identity"].auth_metadata_json or {})["default_chat_ref"] == "1354554303"
+    assert str(by_connector["telegram_official_bot"].external_account_ref) == "tibor_concierge_bot"
+    assert dict(by_connector["telegram_official_bot"].auth_metadata_json or {})["default_chat_ref"] == "1354554303"
+
+
+def test_onboarding_status_reflects_fallback_telegram_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
+    owner = _client(principal_id="cf-email:tibor.girschele@gmail.com")
+    owner.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="local-user",
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+
+    status = owner.get("/v1/onboarding/status")
+    assert status.status_code == 200
+    body = status.json()
+    assert body["channels"]["telegram"]["status"] == "enabled"
+
+
 def test_onboarding_google_callback_returns_api_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")

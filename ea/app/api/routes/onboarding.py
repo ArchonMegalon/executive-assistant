@@ -178,6 +178,13 @@ class OnboardingTelegramBotIn(BaseModel):
     default_chat_ref: str = Field(default="", max_length=200)
 
 
+class OnboardingTelegramBindChatIn(BaseModel):
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    chat_ref: str = Field(min_length=1, max_length=200)
+    bot_handle: str = Field(default="", max_length=200)
+    bot_key: str = Field(default="default", min_length=1, max_length=80)
+
+
 class OnboardingWhatsappBusinessIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     phone_number: str = Field(min_length=1, max_length=80)
@@ -520,6 +527,24 @@ def onboarding_telegram_link_bot(
         install_surfaces=tuple(body.install_surfaces),
         default_chat_ref=body.default_chat_ref,
     )
+
+
+@router.post("/telegram/bind-chat", response_model=OnboardingTelegramBotOut)
+def onboarding_telegram_bind_chat(
+    body: OnboardingTelegramBindChatIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    principal_id = resolve_principal_id(body.principal_id, context)
+    try:
+        return container.onboarding.bind_telegram_chat(
+            principal_id=principal_id,
+            chat_ref=body.chat_ref,
+            bot_handle=body.bot_handle,
+            bot_key=body.bot_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/whatsapp/start-business", response_model=OnboardingWhatsappBusinessOut)

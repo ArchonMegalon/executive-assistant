@@ -33,7 +33,6 @@ That does not mean:
 * interruption-budget throttling and operator-safe runtime guardrails
 * mirror-status briefs and ownership telemetry derived from design canon
 * EA-local implementation of skills, adapters, and runtime policy that stay downstream of Chummer canon
-* EA owns its own executive-assistant product canon under `.codex-design/ea/*` for release and surface truth
 
 ## Must not own
 
@@ -46,7 +45,6 @@ That does not mean:
 
 ## Required inputs
 
-* EA product canon under `.codex-design/ea/*`
 * mirrored `.codex-design/product/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`

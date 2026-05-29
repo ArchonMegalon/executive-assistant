@@ -6,6 +6,7 @@ from app.repositories.connector_bindings import InMemoryConnectorBindingReposito
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 from app.services.telegram_delivery import (
     _chunk_telegram_text,
+    resolve_primary_telegram_binding,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
     send_telegram_message_for_principal,
@@ -72,6 +73,72 @@ def test_send_telegram_message_for_principal_uses_bound_chat(monkeypatch) -> Non
     assert receipt.message_ids == ("7",)
     assert sent and sent[0]["payload"]["chat_id"] == "42"
     assert sent[0]["payload"]["text"] == "Hello from EA"
+
+
+def test_resolve_primary_telegram_binding_falls_back_to_default_principal(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="local-user",
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
+
+    binding = resolve_primary_telegram_binding(runtime, principal_id="cf-email:tibor.girschele@gmail.com")
+    assert binding is not None
+    assert str(binding.external_account_ref) == "1354554303"
+
+
+def test_send_telegram_message_for_principal_falls_back_to_default_principal_binding(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="local-user",
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "local-user")
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 17}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    receipt = send_telegram_message_for_principal(
+        runtime,
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        text="Fallback from local-user binding",
+    )
+    assert receipt.chat_id == "1354554303"
+    assert receipt.message_ids == ("17",)
+    assert sent and sent[0]["payload"]["chat_id"] == "1354554303"
 
 
 def test_send_telegram_video_for_principal_uses_bound_chat_and_sendvideo(monkeypatch) -> None:

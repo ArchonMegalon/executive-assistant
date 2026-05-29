@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -67,7 +68,12 @@ from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
-from app.services.telegram_delivery import resolve_primary_telegram_binding, send_telegram_message_for_principal, send_telegram_video_for_principal
+from app.services.telegram_delivery import (
+    resolve_primary_telegram_binding,
+    send_telegram_audio_for_principal,
+    send_telegram_message_for_principal,
+    send_telegram_video_for_principal,
+)
 from app.services.registration_email import (
     delivery_sender_emails,
     email_delivery_enabled,
@@ -9979,6 +9985,79 @@ class ProductService:
         payload["preference_evidence_recorded"] = evidence_total > 0
         payload["preference_evidence_applied_total"] = evidence_applied_total
         return payload
+
+    def deliver_pocket_recording_to_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        recording_id: str,
+    ) -> dict[str, object]:
+        payload = self.get_pocket_recording_detail(
+            recording_id=recording_id,
+            include_audio=True,
+            prefer_audio_fallback=False,
+            principal_id=principal_id,
+            actor=actor,
+        )
+        audio_download_url = str(payload.get("audio_download_url") or "").strip()
+        if not audio_download_url:
+            raise RuntimeError("pocket_recording_audio_unavailable")
+        audio_ref = audio_download_url
+        try:
+            receipt = send_telegram_audio_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                audio_ref=audio_ref,
+                caption=str(payload.get("title") or "").strip(),
+            )
+        except RuntimeError as exc:
+            if str(exc) != "telegram_audio_unreachable":
+                raise
+            with urllib.request.urlopen(audio_download_url, timeout=60) as response:
+                audio_bytes = response.read()
+            suffix = Path(urllib.parse.urlparse(audio_download_url).path).suffix or ".mp3"
+            with tempfile.NamedTemporaryFile(prefix="ea-pocket-telegram-", suffix=suffix, delete=False) as handle:
+                handle.write(audio_bytes)
+                audio_ref = handle.name
+            try:
+                receipt = send_telegram_audio_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    audio_ref=audio_ref,
+                    caption=str(payload.get("title") or "").strip(),
+                )
+            finally:
+                try:
+                    Path(audio_ref).unlink(missing_ok=True)
+                except OSError:
+                    pass
+        response = {
+            "recording_id": str(recording_id or "").strip(),
+            "title": str(payload.get("title") or "").strip(),
+            "telegram_delivery_status": "sent",
+            "telegram_delivery_error": "",
+            "telegram_message_ids": list(receipt.message_ids),
+            "telegram_chat_ref": receipt.chat_id,
+            "audio_download_url": audio_download_url,
+            "audio_expires_at": str(payload.get("audio_expires_at") or "").strip(),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_telegram_sent",
+            payload={
+                "recording_id": str(recording_id or "").strip(),
+                "title": str(payload.get("title") or "").strip(),
+                "actor": str(actor or "").strip() or "office_api",
+                "telegram_chat_ref": receipt.chat_id,
+                "telegram_message_ids": list(receipt.message_ids),
+                "audio_download_url": audio_download_url,
+                "audio_expires_at": str(payload.get("audio_expires_at") or "").strip(),
+            },
+            source_id=f"pocket-recording:{recording_id}",
+            dedupe_key=f"{principal_id}|pocket-recording-telegram-sent|{recording_id}|{receipt.chat_id}",
+        )
+        return response
 
     def reset_pocket_recording_sync_cursor(
         self,

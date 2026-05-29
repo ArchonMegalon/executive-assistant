@@ -9,6 +9,7 @@ from app.services.assistant_onboarding_service import AssistantOnboardingService
 from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_scope_bundle_details
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.provider_registry import ProviderRegistryService
+from app.services.telegram_delivery import _telegram_binding_principal_candidates
 from app.services.tool_runtime import ToolRuntimeService
 from app.services.telegram_onboarding_service import (
     TELEGRAM_IDENTITY_CONNECTOR,
@@ -307,6 +308,71 @@ class OnboardingService(AssistantOnboardingService):
         }
         return payload
 
+    def bind_telegram_chat(
+        self,
+        *,
+        principal_id: str,
+        chat_ref: str,
+        bot_handle: str,
+        bot_key: str = "default",
+    ) -> dict[str, object]:
+        normalized_chat_ref = str(chat_ref or "").strip()
+        if not normalized_chat_ref:
+            raise ValueError("telegram_chat_ref_required")
+        normalized_bot_handle = str(bot_handle or "").strip()
+        normalized_bot_key = str(bot_key or "default").strip() or "default"
+        official_external_ref = normalized_bot_handle or principal_id
+        official_binding = self._tool_runtime.upsert_connector_binding(
+            principal_id=principal_id,
+            connector_name=TELEGRAM_OFFICIAL_BOT_CONNECTOR,
+            external_account_ref=official_external_ref,
+            scope_json={"install_surfaces": ["dm"]},
+            auth_metadata_json={
+                "default_chat_ref": normalized_chat_ref,
+                "bot_handle": normalized_bot_handle,
+                "bot_key": normalized_bot_key,
+                "status": "enabled",
+            },
+            status="enabled",
+        )
+        identity_binding = self._tool_runtime.upsert_connector_binding(
+            principal_id=principal_id,
+            connector_name=TELEGRAM_IDENTITY_CONNECTOR,
+            external_account_ref=normalized_chat_ref,
+            scope_json={"assistant_surfaces": ["dm"]},
+            auth_metadata_json={
+                "identity_mode": "bot_webhook",
+                "history_mode": "future_only",
+                "default_chat_ref": normalized_chat_ref,
+                "bot_handle": normalized_bot_handle,
+                "bot_key": normalized_bot_key,
+                "status": "enabled",
+                "manual_bound": True,
+            },
+            status="enabled",
+        )
+        state = self._ensure_state(principal_id)
+        telegram_pref = dict((state.channel_preferences_json or {}).get("telegram") or {})
+        telegram_pref.update(
+            {
+                "bot_handle": official_external_ref,
+                "bot_binding_id": official_binding.binding_id,
+                "binding_id": identity_binding.binding_id,
+                "default_chat_ref": normalized_chat_ref,
+                "status": "enabled",
+                "next_step": "Telegram direct messages are bound and ready.",
+            }
+        )
+        updated = self._replace_channel_pref(state, "telegram", telegram_pref, status="in_progress")
+        payload = self.status(principal_id=principal_id, state_override=updated)
+        payload["telegram_bot"] = {
+            "binding_id": official_binding.binding_id,
+            "identity_binding_id": identity_binding.binding_id,
+            "status": "enabled",
+            "default_chat_ref": normalized_chat_ref,
+        }
+        return payload
+
     def start_whatsapp_business(
         self,
         *,
@@ -460,7 +526,7 @@ class OnboardingService(AssistantOnboardingService):
         }
         google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
-        connectors = self._tool_runtime.list_connector_bindings(principal_id=principal_id, limit=100)
+        connectors = self._connectors_for_status(principal_id=principal_id)
         channel_statuses = self._channel_statuses(
             principal_id=principal_id,
             state=state,
@@ -508,7 +574,7 @@ class OnboardingService(AssistantOnboardingService):
         state = state_override or self._repo.get_for_principal(principal_id)
         google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
-        connectors = self._tool_runtime.list_connector_bindings(principal_id=principal_id, limit=100)
+        connectors = self._connectors_for_status(principal_id=principal_id)
         channel_statuses = self._channel_statuses(
             principal_id=principal_id,
             state=state,
@@ -612,6 +678,19 @@ class OnboardingService(AssistantOnboardingService):
             status=status,
         )
 
+    def _connectors_for_status(self, *, principal_id: str) -> list[ConnectorBinding]:
+        merged: list[ConnectorBinding] = []
+        seen: set[str] = set()
+        for candidate_principal_id in _telegram_binding_principal_candidates(principal_id):
+            for binding in self._tool_runtime.list_connector_bindings(candidate_principal_id, limit=100):
+                binding_id = str(binding.binding_id or "").strip()
+                if binding_id and binding_id in seen:
+                    continue
+                if binding_id:
+                    seen.add(binding_id)
+                merged.append(binding)
+        return merged
+
     def _channel_statuses(
         self,
         *,
@@ -654,9 +733,18 @@ class OnboardingService(AssistantOnboardingService):
         telegram_detail = str(telegram_pref.get("next_step") or "").strip() or (
             "Telegram is a guided manual lane: identity linking and official bot setup are separate from history import."
         )
-        if by_name.get(TELEGRAM_OFFICIAL_BOT_CONNECTOR):
+        telegram_identity_bindings = by_name.get(TELEGRAM_IDENTITY_CONNECTOR, [])
+        telegram_bot_bindings = by_name.get(TELEGRAM_OFFICIAL_BOT_CONNECTOR, [])
+        telegram_chat_bound = any(
+            str(dict(binding.auth_metadata_json or {}).get("default_chat_ref") or binding.external_account_ref or "").strip()
+            for binding in telegram_identity_bindings
+            if str(binding.status or "").strip().lower() == "enabled"
+        )
+        if telegram_chat_bound:
+            telegram_status = "enabled"
+        elif telegram_bot_bindings:
             telegram_status = "bot_link_requested"
-        elif by_name.get(TELEGRAM_IDENTITY_CONNECTOR):
+        elif telegram_identity_bindings:
             telegram_status = telegram_status or "guided_manual"
         whatsapp_pref = dict(channel_prefs.get("whatsapp") or {})
         whatsapp_status = str(whatsapp_pref.get("status") or "").strip() or "not_selected"
@@ -705,7 +793,7 @@ class OnboardingService(AssistantOnboardingService):
                 "limitations": [
                     "No fake promise of generic history import on login alone",
                 ],
-                "bindings": [binding.binding_id for binding in by_name.get(TELEGRAM_IDENTITY_CONNECTOR, []) + by_name.get(TELEGRAM_OFFICIAL_BOT_CONNECTOR, [])],
+                "bindings": [binding.binding_id for binding in telegram_identity_bindings + telegram_bot_bindings],
             },
             "whatsapp": {
                 "status": whatsapp_status,
