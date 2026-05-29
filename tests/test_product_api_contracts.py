@@ -732,6 +732,7 @@ def test_signal_ingest_property_alert_queue_orders_higher_fit_first(monkeypatch)
         }
 
     monkeypatch.setattr(product_service, "_load_willhaben_property_packet", _fake_packet)
+    monkeypatch.setattr(ProductService, "_resolve_browseract_property_tour_binding_id", lambda self, **kwargs: "browseract-binding-1")
 
     def _fake_assess_candidate(**kwargs):
         object_id = str(kwargs.get("object_id") or "")
@@ -794,6 +795,133 @@ def test_signal_ingest_property_alert_queue_orders_higher_fit_first(monkeypatch)
     assert items[0]["rank_score"] == 96.0
     assert "Personal fit 96/100" in items[0]["summary"]
     assert items[1]["rank_score"] == 61.0
+
+
+def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:
+    principal_id = "exec-product-property-fit-end-to-end"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Fit End To End Office")
+    product = ProductService(client.app.state.container)
+    product.update_property_alert_policy(
+        principal_id=principal_id,
+        auto_score=True,
+        auto_compare=True,
+        auto_generate_tour_for_good_fit=False,
+        notify_only_if_good=True,
+        actor="test",
+    )
+    client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+
+    def _fake_packet(url: str) -> dict[str, object]:
+        listing_id = "high-fit-telegram-1" if "high-fit-telegram-1" in url else "low-fit-telegram-1"
+        district = "Waehring" if listing_id == "high-fit-telegram-1" else "Floridsdorf"
+        return {
+            "property_url": url,
+            "listing_id": listing_id,
+            "listing_uuid": f"uuid-{listing_id}",
+            "title": f"Listing {listing_id}",
+            "property_facts_json": {
+                "postal_name": district,
+                "area_label": "74 m²",
+                "rooms_label": "3 rooms",
+                "total_rent_eur": 1890.0 if listing_id == "high-fit-telegram-1" else 1790.0,
+                "heating": "Fernwaerme",
+                "floorplan_count": 1,
+                "decision_summary": {"recommendation": "shortlist" if listing_id == "high-fit-telegram-1" else "mention"},
+            },
+            "media_urls_json": ["https://cdn.example.com/photo-1.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.png"],
+            "tour_variants_json": [{"variant_key": "layout_first", "scene_strategy": "layout_first"}],
+        }
+
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", _fake_packet)
+    monkeypatch.setattr(ProductService, "_resolve_browseract_property_tour_binding_id", lambda self, **kwargs: "browseract-binding-1")
+
+    def _fake_assess_candidate(**kwargs):
+        object_id = str(kwargs.get("object_id") or "")
+        if "high-fit-telegram-1" in object_id:
+            return {
+                "assessment_id": "assessment-high-fit-telegram-1",
+                "domain": "willhaben",
+                "object_id": object_id,
+                "fit_score": 96.0,
+                "confidence": 0.95,
+                "predicted_reaction": "shortlist",
+                "recommendation": "shortlist",
+                "match_reasons_json": ["The listing is in Waehring, which matches established district preferences."],
+                "mismatch_reasons_json": [],
+                "unknowns_json": [],
+                "blocking_constraints_json": [],
+            }
+        return {
+            "assessment_id": "assessment-low-fit-telegram-1",
+            "domain": "willhaben",
+            "object_id": object_id,
+            "fit_score": 42.0,
+            "confidence": 0.7,
+            "predicted_reaction": "consider",
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": ["The listing may work, but district fit is weak."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+
+    observed_telegram: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("778",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text: observed_telegram.update({"principal_id": principal_id, "text": text}) or _TelegramReceipt(),
+    )
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "\"Mietwohnungen 2,20, 09\" hat 2 neue Anzeigen für dich gefunden",
+            "summary": "\"Mietwohnungen 2,20, 09\" hat 2 neue Anzeigen für dich gefunden",
+            "text": (
+                "Neue Anzeigen gefunden. "
+                "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/high-fit-telegram-1 "
+                "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/low-fit-telegram-1"
+            ),
+            "counterparty": "willhaben-Suchagent",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:high-low-fit-batch",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:high-low-fit-batch",
+            "payload": {
+                "from_email": "no-reply@agent.willhaben.at",
+                "from_name": "willhaben-Suchagent",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+    assert "Top candidate: Personal fit 96/100" in str(observed_telegram["text"])
+    assert "high-fit-telegram-1" in str(observed_telegram["text"])
+
+    queue = client.get("/app/api/queue")
+    assert queue.status_code == 200
+    items = [row for row in queue.json()["items"] if row["id"].startswith("human_task:")]
+    assert len(items) >= 2
+    assert items[0]["rank_score"] == 96.0
+    assert items[1]["rank_score"] == 42.0
+    assert "Personal fit 96/100" in items[0]["summary"]
 
 
 def test_queue_uses_profile_admin_boost_for_matching_tasks() -> None:
@@ -2132,6 +2260,101 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
     assert observed_email["decision_summary_json"]["domain"] == "willhaben"
 
 
+def test_willhaben_property_tour_records_video_followup_when_telegram_video_delivery_fails(monkeypatch, tmp_path) -> None:
+    from app.domain.models import Artifact
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Video Followup Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/video-fail-123",
+        "listing_id": "listing-video-fail-123",
+        "title": "Bright Waehring apartment",
+        "property_facts_json": {
+            "postal_name": "Waehring",
+            "area_label": "74 m²",
+            "rooms_label": "3 rooms",
+            "total_rent_eur": 1890.0,
+            "decision_summary": {"recommendation": "shortlist"},
+        },
+        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "tour_variants_json": [{"variant_key": "layout_first", "scene_strategy": "layout_first"}],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+    monkeypatch.setattr(
+        product_service,
+        "send_property_tour_email",
+        lambda **kwargs: RegistrationEmailReceipt(provider="emailit", message_id="property-tour-message-3", accepted_at="2026-05-02T00:00:00+00:00"),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "resolve_primary_telegram_binding",
+        lambda tool_runtime, *, principal_id: SimpleNamespace(
+            external_account_ref="1354554303",
+            auth_metadata_json={"default_chat_ref": "1354554303"},
+        ),
+    )
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        bundle_dir = tmp_path / "video-fail-123"
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
+        (bundle_dir / "tour.json").write_text(
+            '{"slug":"video-fail-123","video_relpath":"tour.mp4","scenes":[{"asset_relpath":"scene-01.jpg"}]}',
+            encoding="utf-8",
+        )
+        (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
+        return Artifact(
+            artifact_id="artifact-property-tour-video-fail",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-property-tour-video-fail",
+            principal_id=principal_id,
+            structured_output_json={
+                "hosted_url": "https://myexternalbrain.com/tours/video-fail-123",
+                "public_url": "https://myexternalbrain.com/tours/video-fail-123",
+                "crezlo_public_url": "https://vendor.example.com/tours/video-fail-123",
+                "editor_url": "https://vendor.example.com/editor/video-fail-123",
+                "tour_id": "tour-video-fail-123",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    class _TelegramTextReceipt:
+        chat_id = "1354554303"
+        message_ids = ("tg-2",)
+
+    monkeypatch.setattr(product_service, "send_telegram_message_for_principal", lambda *args, **kwargs: _TelegramTextReceipt())
+    monkeypatch.setattr(product_service, "send_telegram_video_for_principal", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("telegram_video_audio_missing")))
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={"property_url": packet["property_url"], "binding_id": "browseract-binding-1"},
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "sent"
+    assert body["delivery_status"] == "sent"
+    assert body["telegram_delivery_status"] == "sent"
+    assert body["telegram_video_delivery_status"] == "failed"
+    assert body["telegram_video_followup_ref"].startswith("human_task:")
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    assert any(item["id"] == body["telegram_video_followup_ref"] for item in handoffs.json())
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "willhaben_property_tour_telegram_video_failed"})
+    assert events.status_code == 200
+    assert any(item["payload"]["telegram_video_followup_ref"] == body["telegram_video_followup_ref"] for item in events.json()["items"])
+
+
 def test_preference_profile_teable_projection_endpoints_return_live_rows() -> None:
     principal_id = "pref-teable-api"
     client = build_product_client(principal_id=principal_id)
@@ -3237,7 +3460,7 @@ def test_pocket_saved_link_import_from_local_json_archive(tmp_path) -> None:
     assert repeated_body["deduplicated_total"] == 2
 
 
-def test_noneverbia_meeting_import_from_local_json_archive(tmp_path) -> None:
+def test_noneverbia_meeting_import_from_local_json_archive(tmp_path, monkeypatch) -> None:
     principal_id = "exec-product-noneverbia-import"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
@@ -3260,6 +3483,7 @@ def test_noneverbia_meeting_import_from_local_json_archive(tmp_path) -> None:
         encoding="utf-8",
     )
 
+    monkeypatch.setenv("EA_NONEVERBIA_IMPORT_ROOT", str(tmp_path))
     imported = client.post("/app/api/signals/noneverbia/import-local", json={"path": str(export_path)})
     assert imported.status_code == 200
     body = imported.json()
@@ -3285,6 +3509,21 @@ def test_noneverbia_meeting_import_from_local_json_archive(tmp_path) -> None:
     assert preferences.status_code == 200
     assert preferences.json()["profile"]["person_id"] == "self"
     assert preferences.json()["preference_nodes"]
+
+
+def test_noneverbia_meeting_import_rejects_absolute_path_outside_allowed_root(tmp_path, monkeypatch) -> None:
+    principal_id = "exec-product-noneverbia-import-blocked"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps([{"id": "meeting-1", "title": "Blocked"}]), encoding="utf-8")
+    monkeypatch.setenv("EA_NONEVERBIA_IMPORT_ROOT", str(allowed_root))
+
+    imported = client.post("/app/api/signals/noneverbia/import-local", json={"path": str(outside)})
+    assert imported.status_code == 403
+    assert "noneverbia_import_path_not_allowed" in imported.text
 
 
 def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:

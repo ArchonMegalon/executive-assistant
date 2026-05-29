@@ -89,6 +89,7 @@ def test_send_telegram_video_for_principal_uses_bound_chat_and_sendvideo(monkeyp
         json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: value.endswith(".mp4"))
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
 
     sent: list[dict[str, object]] = []
 
@@ -316,6 +317,7 @@ def test_send_telegram_document_for_principal_uses_bound_chat(monkeypatch) -> No
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
         json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
     )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
     sent: list[dict[str, object]] = []
 
     class _FakeResponse:
@@ -350,3 +352,92 @@ def test_send_telegram_document_for_principal_uses_bound_chat(monkeypatch) -> No
     assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendDocument"
     assert sent[0]["payload"]["document"] == "https://cdn.example/documents/report.pdf"
     assert sent[0]["payload"]["caption"] == "Hospital report"
+
+
+def test_send_telegram_message_retries_transient_failure(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-retry",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_REGISTRY_JSON", json.dumps({"default": {"token": "telegram-token"}}))
+    monkeypatch.setenv("EA_TELEGRAM_DELIVERY_MAX_ATTEMPTS", "2")
+    monkeypatch.setattr("app.services.telegram_delivery.time.sleep", lambda *_args, **_kwargs: None)
+    attempts = {"count": 0}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 15}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("temporary")
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    receipt = send_telegram_message_for_principal(runtime, principal_id="exec-telegram-retry", text="Retry me")
+    assert receipt.message_ids == ("15",)
+    assert attempts["count"] == 2
+
+
+def test_send_telegram_audio_rejects_unreachable_remote_ref(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-audio-unreachable",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_REGISTRY_JSON", json.dumps({"default": {"token": "telegram-token"}}))
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: False)
+
+    try:
+        send_telegram_audio_for_principal(
+            runtime,
+            principal_id="exec-telegram-audio-unreachable",
+            audio_ref="https://cdn.example.com/missing.mp3",
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "telegram_audio_unreachable"
+    else:
+        raise AssertionError("expected telegram_audio_unreachable")
+
+
+def test_send_telegram_document_rejects_oversized_local_upload(monkeypatch, tmp_path) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-document-large",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_REGISTRY_JSON", json.dumps({"default": {"token": "telegram-token"}}))
+    monkeypatch.setenv("EA_TELEGRAM_UPLOAD_MAX_BYTES", "4")
+    document_path = tmp_path / "report.pdf"
+    document_path.write_bytes(b"12345")
+
+    try:
+        send_telegram_document_for_principal(
+            runtime,
+            principal_id="exec-telegram-document-large",
+            document_ref=str(document_path),
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "telegram_upload_too_large"
+    else:
+        raise AssertionError("expected telegram_upload_too_large")

@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets docs-verify all-local
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets verify-design-mirror-bundle repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
@@ -130,6 +130,12 @@ ci-gates-postgres-legacy:
 verify-release-assets:
 	$(MAKE) materialize-release-assets
 	bash scripts/verify_release_assets.sh
+
+verify-design-mirror-bundle:
+	$(PYTHON_BIN) scripts/verify_design_mirror_bundle.py
+
+repair-design-mirror-bundle:
+	bash scripts/repair_design_mirror_bundle.sh
 
 docs-verify: verify-release-assets
 

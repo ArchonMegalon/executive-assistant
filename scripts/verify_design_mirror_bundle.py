@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -33,9 +34,22 @@ EXPECTED_QUEUE_AUDIT_SCOPE_ID = "ea"
 EXPECTED_QUEUE_ALLOWED_PATHS = [".codex-design"]
 EXPECTED_QUEUE_OWNED_SURFACES = ["design_mirror:ea"]
 EXPECTED_QUEUE_TASK = (
-    "Auto-detect and repair recurring `ea` mirror drift after 5837 repeated audit observations; "
+    "Auto-detect and repair recurring `ea` mirror drift; "
     "keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work."
 )
+
+
+def _normalize_queue_task_text(value: object) -> str:
+    normalized = " ".join(str(value or "").split()).strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(
+        r" after \d+ repeated audit observations;",
+        ";",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -117,6 +131,10 @@ def inspect_queue_overlay() -> dict[str, object]:
         mismatches.append("audit_finding_key")
     if str(item.get("audit_scope_id") or "").strip() != EXPECTED_QUEUE_AUDIT_SCOPE_ID:
         mismatches.append("audit_scope_id")
+    if _normalize_queue_task_text(item.get("title")) != EXPECTED_QUEUE_TASK:
+        mismatches.append("title")
+    if _normalize_queue_task_text(item.get("task")) != EXPECTED_QUEUE_TASK:
+        mismatches.append("task")
     if list(item.get("allowed_paths") or []) != EXPECTED_QUEUE_ALLOWED_PATHS:
         mismatches.append("allowed_paths")
     if list(item.get("owned_surfaces") or []) != EXPECTED_QUEUE_OWNED_SURFACES:
@@ -211,6 +229,8 @@ def repair_bundle() -> list[dict[str, object]]:
                 "package_id": EXPECTED_QUEUE_PACKAGE_ID,
             }
             items.append(item)
+        item["title"] = EXPECTED_QUEUE_TASK
+        item["task"] = EXPECTED_QUEUE_TASK
         item["source_ref"] = EXPECTED_QUEUE_SOURCE_REF
         item["audit_finding_key"] = EXPECTED_QUEUE_AUDIT_FINDING_KEY
         item["audit_scope_id"] = EXPECTED_QUEUE_AUDIT_SCOPE_ID

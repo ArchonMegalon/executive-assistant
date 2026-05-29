@@ -968,6 +968,7 @@ class WillhabenPropertyTourOut(BaseModel):
     telegram_video_delivery_error: str = ""
     telegram_video_message_ids: list[str] = Field(default_factory=list)
     telegram_video_url: str = ""
+    telegram_video_followup_ref: str = ""
     blocked_reason: str = ""
     human_task_id: str = ""
     source_ref: str = ""

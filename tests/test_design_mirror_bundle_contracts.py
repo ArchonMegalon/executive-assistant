@@ -59,6 +59,22 @@ def test_release_assets_guard_wires_design_mirror_bundle_verifier() -> None:
     assert "ok: bounded design mirror bundle parity" in script
 
 
+def test_makefile_exposes_design_mirror_bundle_targets() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "verify-design-mirror-bundle:" in makefile
+    assert "repair-design-mirror-bundle:" in makefile
+
+
+def test_verify_design_mirror_bundle_normalizes_dynamic_repeated_audit_count() -> None:
+    payload = yaml.safe_load((ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml").read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    items = payload.get("items") or []
+    assert isinstance(items, list) and items
+    item = items[0]
+    assert "repeated audit observations" not in str(item.get("title") or "")
+    assert "repeated audit observations" not in str(item.get("task") or "")
+
+
 def test_repair_design_mirror_bundle_restores_drifted_queue_staging(tmp_path) -> None:
     local_queue = ROOT / ".codex-design" / "product" / "NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
     source_queue = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")

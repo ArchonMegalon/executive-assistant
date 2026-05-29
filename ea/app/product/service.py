@@ -1178,6 +1178,8 @@ def _property_tour_followup_telegram_text(
         next_action = "Next: retry the tour generation path for this listing."
     elif str(blocked_reason or "").strip() == "property_tour_delivery_failed":
         next_action = "Next: reopen the listing and retry the delivery path."
+    elif str(blocked_reason or "").strip() == "property_tour_video_delivery_failed":
+        next_action = "Next: retry Telegram video delivery or send the hosted tour video manually."
     return _property_scout_brief_text(
         title=title,
         property_url=property_url,
@@ -2054,6 +2056,21 @@ def _pocket_preference_signal_usable(
     transcript_text: str,
     tags: Sequence[str] | None = None,
 ) -> bool:
+    return _conversation_preference_signal_usable(
+        title=title,
+        summary_markdown=summary_markdown,
+        transcript_text=transcript_text,
+        tags=tags,
+    )
+
+
+def _conversation_preference_signal_usable(
+    *,
+    title: str,
+    summary_markdown: str,
+    transcript_text: str,
+    tags: Sequence[str] | None = None,
+) -> bool:
     candidate_source = " ".join(
         part
         for part in (
@@ -2078,6 +2095,19 @@ def _pocket_preference_signal_strength(
     summary_markdown: str,
     transcript_text: str,
 ) -> float:
+    return _conversation_preference_signal_strength(
+        title=title,
+        summary_markdown=summary_markdown,
+        transcript_text=transcript_text,
+    )
+
+
+def _conversation_preference_signal_strength(
+    *,
+    title: str,
+    summary_markdown: str,
+    transcript_text: str,
+) -> float:
     normalized = " ".join(
         " ".join(part.split()).lower()
         for part in (str(title or ""), str(summary_markdown or ""), compact_text(transcript_text, fallback="", limit=1200))
@@ -2094,6 +2124,21 @@ def _pocket_preference_signal_strength(
 
 
 def _pocket_preference_hints(
+    *,
+    title: str,
+    summary_markdown: str,
+    transcript_text: str,
+    tags: Sequence[str] | None = None,
+) -> list[dict[str, object]]:
+    return _conversation_preference_hints(
+        title=title,
+        summary_markdown=summary_markdown,
+        transcript_text=transcript_text,
+        tags=tags,
+    )
+
+
+def _conversation_preference_hints(
     *,
     title: str,
     summary_markdown: str,
@@ -7748,6 +7793,7 @@ class ProductService:
         telegram_video_delivery_error = ""
         telegram_video_message_ids: list[str] = []
         telegram_video_url = ""
+        telegram_video_followup_ref = ""
         telegram_binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
         if telegram_binding is not None:
             telegram_delivery_status = "ready"
@@ -7886,6 +7932,19 @@ class ProductService:
                     except Exception as exc:
                         telegram_video_delivery_status = "failed"
                         telegram_video_delivery_error = str(exc)
+                if telegram_video_delivery_status == "failed" and (email_sent or telegram_delivery_status == "sent"):
+                    followup = self._open_property_tour_followup(
+                        principal_id=principal_id,
+                        property_url=normalized_url,
+                        title=title,
+                        variant_key=resolved_variant_key,
+                        blocked_reason="property_tour_video_delivery_failed",
+                        recipient_email=resolved_recipient_email,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        connector_binding_id=resolved_binding_id,
+                    )
+                    telegram_video_followup_ref = f"human_task:{followup.human_task_id}"
             elif telegram_delivery_status == "ready":
                 telegram_delivery_status = "not_configured"
             payload.update(
@@ -7900,6 +7959,7 @@ class ProductService:
                     "telegram_video_delivery_error": telegram_video_delivery_error,
                     "telegram_video_message_ids": list(telegram_video_message_ids),
                     "telegram_video_url": telegram_video_url,
+                    "telegram_video_followup_ref": telegram_video_followup_ref,
                 }
             )
             self._record_product_event(
@@ -7943,6 +8003,19 @@ class ProductService:
                     },
                     source_id=resolved_source_ref,
                     dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-telegram-video-sent",
+                )
+            elif telegram_video_delivery_status == "failed":
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="willhaben_property_tour_telegram_video_failed",
+                    payload={
+                        **payload,
+                        "telegram_chat_ref": telegram_chat_ref,
+                        "telegram_video_url": telegram_video_url,
+                        "telegram_video_followup_ref": telegram_video_followup_ref,
+                    },
+                    source_id=resolved_source_ref,
+                    dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-telegram-video-failed",
                 )
             return payload
         except Exception as exc:
@@ -9427,9 +9500,7 @@ class ProductService:
         counterparty: str = "Noneverbia",
         actor: str = "",
     ) -> dict[str, object]:
-        candidate_path = Path(str(path or "").strip()).expanduser()
-        if not candidate_path.is_absolute():
-            candidate_path = (_repo_root() / candidate_path).resolve()
+        candidate_path = self._resolve_noneverbia_import_path(path)
         if not candidate_path.exists():
             raise RuntimeError("noneverbia_import_path_not_found")
 
@@ -9601,13 +9672,13 @@ class ProductService:
             title = str(record.get("title") or "").strip()
             summary_markdown = str(record.get("summary_markdown") or "").strip()
             transcript_text = str(record.get("transcript_text") or "").strip()
-            if _pocket_preference_signal_usable(
+            if _conversation_preference_signal_usable(
                 title=title,
                 summary_markdown=summary_markdown,
                 transcript_text=transcript_text,
                 tags=tags,
             ):
-                preference_hints = _pocket_preference_hints(
+                preference_hints = _conversation_preference_hints(
                     title=title,
                     summary_markdown=summary_markdown,
                     transcript_text=transcript_text,
@@ -9634,7 +9705,7 @@ class ProductService:
                             "source": "noneverbia",
                             "preference_hints": preference_hints,
                         },
-                        signal_strength=_pocket_preference_signal_strength(
+                        signal_strength=_conversation_preference_signal_strength(
                             title=title,
                             summary_markdown=summary_markdown,
                             transcript_text=transcript_text,
@@ -9660,6 +9731,31 @@ class ProductService:
             "preference_evidence_total": preference_evidence_total,
             "preference_evidence_applied_total": preference_evidence_applied_total,
         }
+
+    def _resolve_noneverbia_import_path(self, path: str) -> Path:
+        raw = str(path or "").strip()
+        if not raw:
+            raise RuntimeError("noneverbia_import_path_not_found")
+        original = Path(raw).expanduser()
+        if original.is_absolute():
+            candidate_path = original.resolve()
+        else:
+            candidate_path = (_repo_root() / original).resolve()
+        configured_root = str(os.getenv("EA_NONEVERBIA_IMPORT_ROOT") or "").strip()
+        if configured_root:
+            allowed_root = Path(configured_root).expanduser().resolve()
+            try:
+                candidate_path.relative_to(allowed_root)
+            except ValueError as exc:
+                raise RuntimeError("noneverbia_import_path_not_allowed") from exc
+            return candidate_path
+        if original.is_absolute():
+            raise RuntimeError("noneverbia_import_path_not_allowed")
+        try:
+            candidate_path.relative_to(_repo_root())
+        except ValueError as exc:
+            raise RuntimeError("noneverbia_import_path_not_allowed") from exc
+        return candidate_path
 
     def _latest_product_event(self, *, principal_id: str, event_type: str):  # type: ignore[no-untyped-def]
         for row in self._container.channel_runtime.list_recent_observations(

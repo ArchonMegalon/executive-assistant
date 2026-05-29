@@ -96,6 +96,7 @@ def test_tool_execution_service_sends_rendered_video_to_telegram_when_audio_is_p
         json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
     )
     monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
     tool_runtime.upsert_tool(
         tool_name="test.video.render",
         version="test-v1",
@@ -250,6 +251,7 @@ def test_tool_execution_service_auto_sends_audio_outputs_to_telegram(monkeypatch
         "EA_TELEGRAM_BOT_REGISTRY_JSON",
         json.dumps({"default": {"token": "telegram-token"}}),
     )
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_remote_ref_reachable", lambda value: True)
     tool_runtime.upsert_tool(
         tool_name="test.audio.render",
         version="test-v1",

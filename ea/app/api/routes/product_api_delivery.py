@@ -189,7 +189,12 @@ def import_noneverbia_meetings_from_local_path(
         )
     except RuntimeError as exc:
         detail = str(exc)
-        status_code = 404 if detail == "noneverbia_import_path_not_found" else 400
+        if detail == "noneverbia_import_path_not_found":
+            status_code = 404
+        elif detail == "noneverbia_import_path_not_allowed":
+            status_code = 403
+        else:
+            status_code = 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return NoneverbiaSignalImportOut(**payload)
 

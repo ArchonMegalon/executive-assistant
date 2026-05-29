@@ -99,6 +99,12 @@ Then open `http://localhost:8090/health`.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.
 - Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 
+## Operator Shortcuts
+
+- `make verify-release-assets`: materialize and verify the EA flagship receipts plus the bounded design-mirror bundle
+- `make verify-design-mirror-bundle`: inspect only the bounded EA design-mirror bundle parity
+- `make repair-design-mirror-bundle`: restore the bounded EA design-mirror bundle from canonical sources
+
 ## Runtime Spine
 
 - `app.main` exposes a FastAPI app

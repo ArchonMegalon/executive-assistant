@@ -4,8 +4,10 @@ import json
 import mimetypes
 import os
 import subprocess
+import time
 import uuid
 import urllib.request
+from urllib.error import HTTPError, URLError
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +20,20 @@ _TELEGRAM_CAPTION_LIMIT = 1024
 _VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")
 _AUDIO_SUFFIXES = (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus")
 _DOCUMENT_SUFFIXES = (".pdf", ".txt", ".md", ".json", ".csv", ".rtf", ".doc", ".docx")
+_TELEGRAM_REMOTE_MEDIA_TIMEOUT = 30
+
+
+def _telegram_max_attempts() -> int:
+    return max(int(str(os.getenv("EA_TELEGRAM_DELIVERY_MAX_ATTEMPTS") or "3").strip() or "3"), 1)
+
+
+def _telegram_retry_backoff_seconds() -> float:
+    return max(float(str(os.getenv("EA_TELEGRAM_DELIVERY_RETRY_BACKOFF_SECONDS") or "1.5").strip() or "1.5"), 0.0)
+
+
+def _telegram_upload_max_bytes() -> int:
+    default_limit = 50 * 1024 * 1024
+    return max(int(str(os.getenv("EA_TELEGRAM_UPLOAD_MAX_BYTES") or str(default_limit)).strip() or str(default_limit)), 1)
 
 
 @dataclass(frozen=True)
@@ -99,17 +115,26 @@ def _telegram_caption(text: str) -> str:
 
 
 def _telegram_send_json(*, token: str, method: str, payload: dict[str, object], timeout: int = 30) -> dict[str, object]:
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/{method}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = json.loads(response.read().decode("utf-8"))
-    if not bool(body.get("ok")):
-        raise RuntimeError(f"telegram_{method.lower()}_failed")
-    return dict(body.get("result") or {})
+    last_error: Exception | None = None
+    for attempt in range(1, _telegram_max_attempts() + 1):
+        try:
+            request = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/{method}",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            if not bool(body.get("ok")):
+                raise RuntimeError(f"telegram_{method.lower()}_failed")
+            return dict(body.get("result") or {})
+        except Exception as exc:
+            last_error = exc
+            if attempt >= _telegram_max_attempts():
+                break
+            time.sleep(_telegram_retry_backoff_seconds() * attempt)
+    raise RuntimeError(f"telegram_{method.lower()}_failed") from last_error
 
 
 def _telegram_send_multipart(
@@ -122,6 +147,9 @@ def _telegram_send_multipart(
     content_type: str = "application/octet-stream",
     timeout: int = 120,
 ) -> dict[str, object]:
+    file_size = Path(file_path).stat().st_size
+    if file_size > _telegram_upload_max_bytes():
+        raise RuntimeError("telegram_upload_too_large")
     boundary = f"----ea-telegram-{uuid.uuid4().hex}"
     parts: list[bytes] = []
     for key, value in fields.items():
@@ -146,17 +174,27 @@ def _telegram_send_multipart(
             f"--{boundary}--\r\n".encode("utf-8"),
         ]
     )
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/{method}",
-        data=b"".join(parts),
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = json.loads(response.read().decode("utf-8"))
-    if not bool(body.get("ok")):
-        raise RuntimeError(f"telegram_{method.lower()}_failed")
-    return dict(body.get("result") or {})
+    request_body = b"".join(parts)
+    last_error: Exception | None = None
+    for attempt in range(1, _telegram_max_attempts() + 1):
+        try:
+            request = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/{method}",
+                data=request_body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            if not bool(body.get("ok")):
+                raise RuntimeError(f"telegram_{method.lower()}_failed")
+            return dict(body.get("result") or {})
+        except Exception as exc:
+            last_error = exc
+            if attempt >= _telegram_max_attempts():
+                break
+            time.sleep(_telegram_retry_backoff_seconds() * attempt)
+    raise RuntimeError(f"telegram_{method.lower()}_failed") from last_error
 
 
 def _telegram_video_has_audio(video_ref: str) -> bool:
@@ -253,6 +291,28 @@ def _guess_content_type(file_ref: str, *, fallback: str = "application/octet-str
     normalized = str(file_ref or "").strip()
     guessed, _ = mimetypes.guess_type(normalized)
     return str(guessed or fallback).strip() or fallback
+
+
+def _telegram_remote_ref_reachable(file_ref: str) -> bool:
+    normalized = str(file_ref or "").strip()
+    if not normalized.lower().startswith(("http://", "https://")):
+        return False
+    request = urllib.request.Request(normalized, method="HEAD")
+    try:
+        with urllib.request.urlopen(request, timeout=_TELEGRAM_REMOTE_MEDIA_TIMEOUT) as response:
+            return int(getattr(response, "status", 200) or 200) < 400
+    except HTTPError as exc:
+        status_code = int(getattr(exc, "code", 500) or 500)
+        if status_code == 405:
+            try:
+                fallback_request = urllib.request.Request(normalized, method="GET")
+                with urllib.request.urlopen(fallback_request, timeout=_TELEGRAM_REMOTE_MEDIA_TIMEOUT) as response:
+                    return int(getattr(response, "status", 200) or 200) < 400
+            except Exception:
+                return False
+        return status_code < 400
+    except (URLError, ValueError):
+        return False
 
 
 def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, principal_id: str) -> ConnectorBinding | None:
@@ -363,6 +423,8 @@ def send_telegram_video_for_principal(
     else:
         if not has_audio:
             raise RuntimeError("telegram_video_audio_missing")
+        if not _telegram_remote_ref_reachable(normalized_video_ref):
+            raise RuntimeError("telegram_video_unreachable")
         result = _telegram_send_json(
             token=token,
             method="sendVideo",
@@ -417,6 +479,8 @@ def send_telegram_audio_for_principal(
             content_type=_guess_content_type(normalized_audio_ref, fallback="audio/mpeg"),
         )
     else:
+        if not _telegram_remote_ref_reachable(normalized_audio_ref):
+            raise RuntimeError("telegram_audio_unreachable")
         result = _telegram_send_json(
             token=token,
             method="sendAudio",
@@ -466,6 +530,8 @@ def send_telegram_document_for_principal(
             content_type=_guess_content_type(normalized_document_ref),
         )
     else:
+        if not _telegram_remote_ref_reachable(normalized_document_ref):
+            raise RuntimeError("telegram_document_unreachable")
         result = _telegram_send_json(
             token=token,
             method="sendDocument",
