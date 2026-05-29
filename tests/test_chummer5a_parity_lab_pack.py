@@ -1470,6 +1470,8 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     ea_workspace_sync_subject = "ea: harden telegram, property scoring, and preference lanes"
     absolute_finish_commit = "0f0679e"
     absolute_finish_subject = "ea: finalize telegram session transport and harden media flows"
+    telegram_media_hardening_commit = "030940e"
+    telegram_media_hardening_subject = "ea: harden telegram media delivery and refresh proof artifacts"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1513,6 +1515,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == absolute_finish_commit:
             assert subject == absolute_finish_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if commit == telegram_media_hardening_commit:
+            assert subject == telegram_media_hardening_subject, (commit, subject, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue
         assert all(
@@ -1765,6 +1771,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue
+        if commit == telegram_media_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == telegram_media_hardening_subject, (commit, subject, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -1920,6 +1937,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == absolute_finish_subject, (commit, subject, sorted(paths))
             assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if commit == telegram_media_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == telegram_media_hardening_subject, (commit, subject, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:

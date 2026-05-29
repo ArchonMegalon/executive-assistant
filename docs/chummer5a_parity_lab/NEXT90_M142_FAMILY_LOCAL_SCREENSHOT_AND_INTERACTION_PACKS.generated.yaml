@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-05-29T08:15:31Z'
+generated_at: '2026-05-29T09:27:36Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -20,7 +20,7 @@ summary:
   fleet_m142_gate_status: pass
   fleet_m142_route_local_status: pass
   desktop_client_status: missing
-  desktop_client_reason_count: 2
+  desktop_client_reason_count: 7
 source_inputs:
   ea_compare_packs:
     path: /docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml
@@ -77,7 +77,7 @@ source_inputs:
     generated_at: '2026-05-29T08:09:41.212009Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-28T18:28:51.833487Z'
+    generated_at: '2026-05-29T08:28:11.372428Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
     generated_at: '2026-05-28T18:08:23.788010Z'
@@ -101,16 +101,16 @@ source_inputs:
     coverage_key: desktop_client
     status: missing
     summary: Desktop flagship proof is still incomplete.
-    reason_count: 2
+    reason_count: 7
     source_status: missing
     source_summary: Desktop flagship proof is still incomplete.
-    source_reason_count: 2
+    source_reason_count: 7
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: a1bda09f22d69d9c86395bc4f00e8c86943c8b049fd74329eb75d84c89bd5ae6
+    row_fingerprint: d158c5aced0afb117d4ffd39019028eca5ab7817ae324ab56ad7ed46a2c8ed04
 canonical_monitors:
   guide_markers:
     wave: true
@@ -151,10 +151,21 @@ desktop_client_readiness:
   coverage_key: desktop_client
   status: missing
   summary: Desktop flagship proof is still incomplete.
-  reason_count: 2
+  reason_count: 7
   reasons:
-  - Release channel receipt is stale (252787s old; max 86400s).
-  - Release channel is not simultaneously published, release-proven, and Avalonia-desktop-backed.
+  - Executable desktop workflow execution gate proof is missing or not passed. Catalog
+    parity without click-through receipts does not pass.
+  - Chummer5a desktop workflow parity proof is missing or not passed. Representative
+    shell parity is not enough.
+  - SR4 desktop workflow parity proof is missing or not passed. Chummer4 parity must
+    remain open until a real desktop parity gate lands.
+  - SR6 desktop workflow parity proof is missing or not passed. Cumulative carry-forward
+    workflows are not complete yet.
+  - SR4/SR6 desktop parity frontier receipt is missing or not passed. Cross-edition
+    completion cannot close on isolated family proofs alone.
+  - Release channel does not publish any promoted Windows installer media.
+  - 'Release channel is missing required desktop platform/head installer tuple pair(s):
+    avalonia:macos, avalonia:windows.'
 family_local_packs:
 - family_id: dense_builder_and_career_workflows
   label: Dense builder and career workflows
@@ -192,7 +203,11 @@ family_local_packs:
     coverage_key: desktop_client
     coverage_status: missing
     coverage_summary: Desktop flagship proof is still incomplete.
-    relevant_reasons: []
+    relevant_reasons:
+    - Executable desktop workflow execution gate proof is missing or not passed. Catalog
+      parity without click-through receipts does not pass.
+    - Chummer5a desktop workflow parity proof is missing or not passed. Representative
+      shell parity is not enough.
   screenshot_receipts:
   - route_id: screenshot:dense_workbench_light
     source_key: screenshot_gate
@@ -285,7 +300,9 @@ family_local_packs:
     coverage_key: desktop_client
     coverage_status: missing
     coverage_summary: Desktop flagship proof is still incomplete.
-    relevant_reasons: []
+    relevant_reasons:
+    - Executable desktop workflow execution gate proof is missing or not passed. Catalog
+      parity without click-through receipts does not pass.
   screenshot_receipts:
   - route_id: screenshot:menu_open
     source_key: visual_gate

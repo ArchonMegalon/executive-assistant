@@ -1,5 +1,5 @@
 contract_name: ea.next90_m141_route_local_screenshot_packs
-generated_at: '2026-05-29T08:15:32Z'
+generated_at: '2026-05-29T09:27:37Z'
 package_id: next90-m141-ea-compile-route-local-screenshot-packs-and-compare-packets-for-translator-x
 title: Compile route-local screenshot packs and compare packets for translator, XML
   amendment, Hero Lab, and import-oracle proof without inventing parity.
@@ -101,13 +101,13 @@ source_inputs:
     generated_at: '2026-05-29T08:09:41.212009Z'
   desktop_workflow_execution_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-28T18:28:51.833487Z'
+    generated_at: '2026-05-29T08:28:11.372428Z'
   veteran_task_time_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
     generated_at: '2026-05-28T18:08:23.829590Z'
   ui_direct_import_route_proof:
     path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
-    generated_at: '2026-05-28T18:28:51Z'
+    generated_at: '2026-05-29T08:28:11Z'
   import_parity_certification:
     path: /docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json
     generated_at: '2026-05-22T17:00:28Z'
@@ -125,8 +125,8 @@ source_inputs:
     coverage_key: desktop_client
     status: missing
     summary: Desktop flagship proof is still incomplete.
-    reason_count: 2
-    row_fingerprint: 006d0451fe3208f49eda0406327c52ea323070f4c25c5fab4d2dfcc8a9ae18d8
+    reason_count: 7
+    row_fingerprint: d7bc04dcc99e689b0dd45d334f37fb0a12c1a50d56e6583e9df9b3f5378ae69f
 canonical_monitors:
   guide_markers:
     wave: true
@@ -173,10 +173,21 @@ desktop_client_readiness:
   coverage_key: desktop_client
   status: missing
   summary: Desktop flagship proof is still incomplete.
-  reason_count: 2
+  reason_count: 7
   reasons:
-  - Release channel receipt is stale (252787s old; max 86400s).
-  - Release channel is not simultaneously published, release-proven, and Avalonia-desktop-backed.
+  - Executable desktop workflow execution gate proof is missing or not passed. Catalog
+    parity without click-through receipts does not pass.
+  - Chummer5a desktop workflow parity proof is missing or not passed. Representative
+    shell parity is not enough.
+  - SR4 desktop workflow parity proof is missing or not passed. Chummer4 parity must
+    remain open until a real desktop parity gate lands.
+  - SR6 desktop workflow parity proof is missing or not passed. Cumulative carry-forward
+    workflows are not complete yet.
+  - SR4/SR6 desktop parity frontier receipt is missing or not passed. Cross-edition
+    completion cannot close on isolated family proofs alone.
+  - Release channel does not publish any promoted Windows installer media.
+  - 'Release channel is missing required desktop platform/head installer tuple pair(s):
+    avalonia:macos, avalonia:windows.'
 route_local_screenshot_packs:
 - route_id: menu:translator
   label: Translator route
