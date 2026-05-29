@@ -22,7 +22,12 @@ from app.services.tool_execution_magixai_module import MagixaiToolExecutionModul
 from app.services.tool_execution_onemin_module import OneminToolExecutionModule
 from app.services.tool_execution_comfyui_module import ComfyUIToolExecutionModule
 from app.services.tool_execution_teable_module import TeableToolExecutionModule
-from app.services.telegram_delivery import resolve_primary_telegram_binding, send_telegram_video_for_principal
+from app.services.telegram_delivery import (
+    resolve_primary_telegram_binding,
+    send_telegram_audio_for_principal,
+    send_telegram_document_for_principal,
+    send_telegram_video_for_principal,
+)
 from app.services.tool_runtime import ToolRuntimeService
 
 ToolExecutionHandler = Callable[[ToolInvocationRequest, ToolDefinition], ToolInvocationResult]
@@ -162,6 +167,51 @@ class ToolExecutionService:
                 return True
         return False
 
+    @staticmethod
+    def _looks_like_successful_audio_output(output_json: dict[str, object]) -> bool:
+        normalized_mime = str(output_json.get("mime_type") or "").strip().lower()
+        if normalized_mime.startswith("audio/"):
+            return True
+        structured = dict(output_json.get("structured_output_json") or {})
+        for value in (
+            output_json.get("asset_url"),
+            output_json.get("download_url"),
+            output_json.get("audio_url"),
+            structured.get("asset_url"),
+            structured.get("download_url"),
+            structured.get("audio_url"),
+        ):
+            normalized = str(value or "").strip().lower().split("?", 1)[0]
+            if normalized.endswith((".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus")):
+                return True
+        return False
+
+    @staticmethod
+    def _looks_like_successful_document_output(output_json: dict[str, object]) -> bool:
+        normalized_mime = str(output_json.get("mime_type") or "").strip().lower()
+        if normalized_mime in {
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+            "application/json",
+            "text/csv",
+            "application/rtf",
+        }:
+            return True
+        structured = dict(output_json.get("structured_output_json") or {})
+        for value in (
+            output_json.get("asset_url"),
+            output_json.get("download_url"),
+            output_json.get("document_url"),
+            structured.get("asset_url"),
+            structured.get("download_url"),
+            structured.get("document_url"),
+        ):
+            normalized = str(value or "").strip().lower().split("?", 1)[0]
+            if normalized.endswith((".pdf", ".txt", ".md", ".json", ".csv", ".rtf", ".doc", ".docx")):
+                return True
+        return False
+
     def _maybe_send_generated_video_to_telegram(
         self,
         *,
@@ -169,8 +219,6 @@ class ToolExecutionService:
         result: ToolInvocationResult,
     ) -> ToolInvocationResult:
         output_json = dict(result.output_json or {})
-        if not self._looks_like_successful_video_output(output_json):
-            return result
         principal_id = (
             str((request.context_json or {}).get("principal_id") or "").strip()
             or str((request.payload_json or {}).get("principal_id") or "").strip()
@@ -182,10 +230,20 @@ class ToolExecutionService:
         render_status = str(output_json.get("render_status") or dict(output_json.get("structured_output_json") or {}).get("render_status") or "").strip().lower()
         if render_status and render_status not in {"completed", "rendered", "ready", "success", "succeeded"}:
             return result
-        from app.services.telegram_delivery import _extract_video_ref
+        from app.services.telegram_delivery import _extract_audio_ref, _extract_document_ref, _extract_video_ref
 
-        video_ref = _extract_video_ref(output_json=output_json)
-        if not video_ref:
+        media_kind = ""
+        media_ref = ""
+        if self._looks_like_successful_video_output(output_json):
+            media_kind = "video"
+            media_ref = _extract_video_ref(output_json=output_json)
+        elif self._looks_like_successful_audio_output(output_json):
+            media_kind = "audio"
+            media_ref = _extract_audio_ref(output_json=output_json)
+        elif self._looks_like_successful_document_output(output_json):
+            media_kind = "document"
+            media_ref = _extract_document_ref(output_json=output_json)
+        if not media_kind or not media_ref:
             return result
         caption = "\n".join(
             part
@@ -197,26 +255,43 @@ class ToolExecutionService:
         )
         delivery_json = dict(output_json.get("telegram_delivery_json") or {})
         try:
-            receipt = send_telegram_video_for_principal(
-                self._tool_runtime,
-                principal_id=principal_id,
-                video_ref=video_ref,
-                caption=caption,
-            )
+            if media_kind == "video":
+                receipt = send_telegram_video_for_principal(
+                    self._tool_runtime,
+                    principal_id=principal_id,
+                    video_ref=media_ref,
+                    caption=caption,
+                )
+            elif media_kind == "audio":
+                receipt = send_telegram_audio_for_principal(
+                    self._tool_runtime,
+                    principal_id=principal_id,
+                    audio_ref=media_ref,
+                    caption=caption,
+                )
+            else:
+                receipt = send_telegram_document_for_principal(
+                    self._tool_runtime,
+                    principal_id=principal_id,
+                    document_ref=media_ref,
+                    caption=caption,
+                )
             delivery_json.update(
                 {
                     "status": "sent",
+                    "kind": media_kind,
                     "chat_id": receipt.chat_id,
                     "message_ids": list(receipt.message_ids),
-                    "video_ref": video_ref,
+                    "media_ref": media_ref,
                 }
             )
         except Exception as exc:
             delivery_json.update(
                 {
                     "status": "failed",
+                    "kind": media_kind,
                     "error": str(exc or "").strip() or "telegram_video_delivery_failed",
-                    "video_ref": video_ref,
+                    "media_ref": media_ref,
                 }
             )
         output_json["telegram_delivery_json"] = delivery_json

@@ -4,7 +4,13 @@ import json
 
 from app.repositories.connector_bindings import InMemoryConnectorBindingRepository
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
-from app.services.telegram_delivery import _chunk_telegram_text, send_telegram_message_for_principal, send_telegram_video_for_principal
+from app.services.telegram_delivery import (
+    _chunk_telegram_text,
+    send_telegram_audio_for_principal,
+    send_telegram_document_for_principal,
+    send_telegram_message_for_principal,
+    send_telegram_video_for_principal,
+)
 from app.services.tool_runtime import ToolRuntimeService
 
 
@@ -245,3 +251,102 @@ def test_send_telegram_video_for_principal_rejects_video_without_audio(monkeypat
         assert str(exc) == "telegram_video_audio_missing"
     else:
         raise AssertionError("expected telegram_video_audio_missing")
+
+
+def test_send_telegram_audio_for_principal_uploads_local_file(monkeypatch, tmp_path) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-audio-local",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    audio_path = tmp_path / "meeting.mp3"
+    audio_path.write_bytes(b"fake-audio-bytes")
+    seen: dict[str, object] = {}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 13}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        seen["url"] = request.full_url
+        seen["content_type"] = request.headers.get("Content-type") or request.headers.get("Content-Type")
+        seen["body"] = request.data
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    receipt = send_telegram_audio_for_principal(
+        runtime,
+        principal_id="exec-telegram-audio-local",
+        audio_ref=str(audio_path),
+        caption="Meeting audio",
+    )
+    assert receipt.message_ids == ("13",)
+    assert seen["url"] == "https://api.telegram.org/bottelegram-token/sendAudio"
+    assert "multipart/form-data" in str(seen["content_type"])
+    assert b'filename="meeting.mp3"' in bytes(seen["body"])
+    assert b"Content-Type: audio/mpeg" in bytes(seen["body"])
+    assert b"Meeting audio" in bytes(seen["body"])
+
+
+def test_send_telegram_document_for_principal_uses_bound_chat(monkeypatch) -> None:
+    runtime = _tool_runtime()
+    runtime.upsert_connector_binding(
+        principal_id="exec-telegram-document",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 14}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    receipt = send_telegram_document_for_principal(
+        runtime,
+        principal_id="exec-telegram-document",
+        document_ref="https://cdn.example/documents/report.pdf",
+        caption="Hospital report",
+    )
+    assert receipt.chat_id == "42"
+    assert receipt.message_ids == ("14",)
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendDocument"
+    assert sent[0]["payload"]["document"] == "https://cdn.example/documents/report.pdf"
+    assert sent[0]["payload"]["caption"] == "Hospital report"

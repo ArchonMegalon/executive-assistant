@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-05-28T08:59:27Z'
+generated_at: '2026-05-29T08:15:31Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -19,8 +19,8 @@ summary:
   family_pass_count: 2
   fleet_m142_gate_status: pass
   fleet_m142_route_local_status: pass
-  desktop_client_status: ready
-  desktop_client_reason_count: 0
+  desktop_client_status: missing
+  desktop_client_reason_count: 2
 source_inputs:
   ea_compare_packs:
     path: /docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml
@@ -71,25 +71,25 @@ source_inputs:
     generated_at: '2026-05-07T23:31:39.358211Z'
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-28T07:30:15.992203Z'
+    generated_at: '2026-05-29T08:09:43.480386Z'
   visual_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-28T07:30:13.629235Z'
+    generated_at: '2026-05-29T08:09:41.212009Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-28T07:47:06.213114Z'
+    generated_at: '2026-05-28T18:28:51.833487Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    generated_at: '2026-05-28T07:26:48.495959Z'
+    generated_at: '2026-05-28T18:08:23.788010Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    generated_at: '2026-05-28T07:22:35.657243Z'
+    generated_at: '2026-05-28T18:04:02.236919Z'
   generated_dialog_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    generated_at: '2026-05-28T07:22:03.461580Z'
+    generated_at: '2026-05-28T18:03:26.291868Z'
   gm_runboard_route:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
-    generated_at: '2026-05-27T20:42:38Z'
+    generated_at: '2026-05-28T18:32:52Z'
   core_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
     generated_at: '2026-05-22T15:24:31Z'
@@ -99,19 +99,18 @@ source_inputs:
   flagship_readiness:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
-    status: ready
-    summary: Desktop install, release-channel, and flagship workbench proof are current.
-    reason_count: 0
-    source_status: ready
-    source_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
-    source_reason_count: 0
+    status: missing
+    summary: Desktop flagship proof is still incomplete.
+    reason_count: 2
+    source_status: missing
+    source_summary: Desktop flagship proof is still incomplete.
+    source_reason_count: 2
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: d5edc9364de3c1713e5f1465e3b35c1af931e6fc753c2962cc0e37447a1cbfa3
+    row_fingerprint: a1bda09f22d69d9c86395bc4f00e8c86943c8b049fd74329eb75d84c89bd5ae6
 canonical_monitors:
   guide_markers:
     wave: true
@@ -150,10 +149,12 @@ canonical_monitors:
     ready_to_mark_complete: false
 desktop_client_readiness:
   coverage_key: desktop_client
-  status: ready
-  summary: Desktop install, release-channel, and flagship workbench proof are current.
-  reason_count: 0
-  reasons: []
+  status: missing
+  summary: Desktop flagship proof is still incomplete.
+  reason_count: 2
+  reasons:
+  - Release channel receipt is stale (252787s old; max 86400s).
+  - Release channel is not simultaneously published, release-proven, and Avalonia-desktop-backed.
 family_local_packs:
 - family_id: dense_builder_and_career_workflows
   label: Dense builder and career workflows
@@ -189,9 +190,8 @@ family_local_packs:
     - /docker/chummercomplete/chummer6-ui/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
   desktop_client_dependency:
     coverage_key: desktop_client
-    coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_status: missing
+    coverage_summary: Desktop flagship proof is still incomplete.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:dense_workbench_light
@@ -283,9 +283,8 @@ family_local_packs:
     - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
   desktop_client_dependency:
     coverage_key: desktop_client
-    coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_status: missing
+    coverage_summary: Desktop flagship proof is still incomplete.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:menu_open
@@ -369,9 +368,8 @@ family_local_packs:
     - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M142_UI_DIRECT_WORKFLOW_PROOF.generated.json
   desktop_client_dependency:
     coverage_key: desktop_client
-    coverage_status: ready
-    coverage_summary: Desktop install, release-channel, and flagship workbench proof
-      are current.
+    coverage_status: missing
+    coverage_summary: Desktop flagship proof is still incomplete.
     relevant_reasons: []
   screenshot_receipts:
   - route_id: screenshot:contacts_section
@@ -424,6 +422,8 @@ closeout:
   ready: false
   blockers:
   - 'dice_initiative_and_table_utilities: missing interaction receipts: workflow:initiative'
+  - 'published readiness still reports desktop_client as missing: Desktop flagship
+    proof is still incomplete.'
   - canonical design/queue rows are not marked complete yet
   notes:
   - This EA packet compiles family-local screenshot and interaction proof for milestone

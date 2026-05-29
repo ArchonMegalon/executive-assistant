@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import subprocess
 import uuid
@@ -15,6 +16,8 @@ from app.services.tool_runtime import ToolRuntimeService
 _TELEGRAM_MESSAGE_LIMIT = 4000
 _TELEGRAM_CAPTION_LIMIT = 1024
 _VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")
+_AUDIO_SUFFIXES = (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus")
+_DOCUMENT_SUFFIXES = (".pdf", ".txt", ".md", ".json", ".csv", ".rtf", ".doc", ".docx")
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,7 @@ def _telegram_send_multipart(
     fields: dict[str, str],
     file_field: str,
     file_path: str,
+    content_type: str = "application/octet-stream",
     timeout: int = 120,
 ) -> dict[str, object]:
     boundary = f"----ea-telegram-{uuid.uuid4().hex}"
@@ -135,7 +139,7 @@ def _telegram_send_multipart(
             f"--{boundary}\r\n".encode("utf-8"),
             (
                 f'Content-Disposition: form-data; name="{file_field}"; filename="{upload_name}"\r\n'
-                "Content-Type: video/mp4\r\n\r\n"
+                f"Content-Type: {content_type}\r\n\r\n"
             ).encode("utf-8"),
             Path(file_path).read_bytes(),
             b"\r\n",
@@ -209,6 +213,46 @@ def _extract_video_ref(*, output_json: dict[str, object]) -> str:
         if normalized and normalized.lower().split("?", 1)[0].endswith(_VIDEO_SUFFIXES):
             return normalized
     return ""
+
+
+def _extract_audio_ref(*, output_json: dict[str, object]) -> str:
+    for key in ("asset_url", "download_url", "audio_url"):
+        value = str(output_json.get(key) or "").strip()
+        if value and value.lower().split("?", 1)[0].endswith(_AUDIO_SUFFIXES):
+            return value
+    structured = dict(output_json.get("structured_output_json") or {})
+    for key in ("asset_url", "download_url", "audio_url"):
+        value = str(structured.get(key) or "").strip()
+        if value and value.lower().split("?", 1)[0].endswith(_AUDIO_SUFFIXES):
+            return value
+    for value in list(output_json.get("asset_urls") or []) + list(structured.get("asset_urls") or []):
+        normalized = str(value or "").strip()
+        if normalized and normalized.lower().split("?", 1)[0].endswith(_AUDIO_SUFFIXES):
+            return normalized
+    return ""
+
+
+def _extract_document_ref(*, output_json: dict[str, object]) -> str:
+    for key in ("asset_url", "download_url", "document_url"):
+        value = str(output_json.get(key) or "").strip()
+        if value and value.lower().split("?", 1)[0].endswith(_DOCUMENT_SUFFIXES):
+            return value
+    structured = dict(output_json.get("structured_output_json") or {})
+    for key in ("asset_url", "download_url", "document_url"):
+        value = str(structured.get(key) or "").strip()
+        if value and value.lower().split("?", 1)[0].endswith(_DOCUMENT_SUFFIXES):
+            return value
+    for value in list(output_json.get("asset_urls") or []) + list(structured.get("asset_urls") or []):
+        normalized = str(value or "").strip()
+        if normalized and normalized.lower().split("?", 1)[0].endswith(_DOCUMENT_SUFFIXES):
+            return normalized
+    return ""
+
+
+def _guess_content_type(file_ref: str, *, fallback: str = "application/octet-stream") -> str:
+    normalized = str(file_ref or "").strip()
+    guessed, _ = mimetypes.guess_type(normalized)
+    return str(guessed or fallback).strip() or fallback
 
 
 def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, principal_id: str) -> ConnectorBinding | None:
@@ -314,6 +358,7 @@ def send_telegram_video_for_principal(
             },
             file_field=file_field,
             file_path=normalized_video_ref,
+            content_type=_guess_content_type(normalized_video_ref, fallback="video/mp4"),
         )
     else:
         if not has_audio:
@@ -327,6 +372,104 @@ def send_telegram_video_for_principal(
                 "caption": _telegram_caption(caption),
                 "supports_streaming": True,
             },
+        )
+    return TelegramDeliveryReceipt(
+        principal_id=str(principal_id or "").strip(),
+        chat_id=chat_id,
+        bot_key=bot_key,
+        bot_handle=bot_handle,
+        message_ids=tuple(value for value in (str(result.get("message_id") or ""),) if value),
+    )
+
+
+def send_telegram_audio_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    audio_ref: str,
+    caption: str = "",
+) -> TelegramDeliveryReceipt:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        raise RuntimeError("telegram_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    bot_handle = str(metadata.get("bot_handle") or "").strip()
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    if not chat_id:
+        raise RuntimeError("telegram_chat_ref_missing")
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("telegram_bot_token_missing")
+    if not bot_handle:
+        bot_handle = str(config.get("handle") or "").strip()
+    normalized_audio_ref = str(audio_ref or "").strip()
+    if not normalized_audio_ref:
+        raise RuntimeError("telegram_audio_ref_missing")
+    if Path(normalized_audio_ref).is_file():
+        result = _telegram_send_multipart(
+            token=token,
+            method="sendAudio",
+            fields={"chat_id": chat_id, "caption": _telegram_caption(caption)},
+            file_field="audio",
+            file_path=normalized_audio_ref,
+            content_type=_guess_content_type(normalized_audio_ref, fallback="audio/mpeg"),
+        )
+    else:
+        result = _telegram_send_json(
+            token=token,
+            method="sendAudio",
+            payload={"chat_id": chat_id, "audio": normalized_audio_ref, "caption": _telegram_caption(caption)},
+        )
+    return TelegramDeliveryReceipt(
+        principal_id=str(principal_id or "").strip(),
+        chat_id=chat_id,
+        bot_key=bot_key,
+        bot_handle=bot_handle,
+        message_ids=tuple(value for value in (str(result.get("message_id") or ""),) if value),
+    )
+
+
+def send_telegram_document_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    document_ref: str,
+    caption: str = "",
+) -> TelegramDeliveryReceipt:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        raise RuntimeError("telegram_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    bot_handle = str(metadata.get("bot_handle") or "").strip()
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    if not chat_id:
+        raise RuntimeError("telegram_chat_ref_missing")
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("telegram_bot_token_missing")
+    if not bot_handle:
+        bot_handle = str(config.get("handle") or "").strip()
+    normalized_document_ref = str(document_ref or "").strip()
+    if not normalized_document_ref:
+        raise RuntimeError("telegram_document_ref_missing")
+    if Path(normalized_document_ref).is_file():
+        result = _telegram_send_multipart(
+            token=token,
+            method="sendDocument",
+            fields={"chat_id": chat_id, "caption": _telegram_caption(caption)},
+            file_field="document",
+            file_path=normalized_document_ref,
+            content_type=_guess_content_type(normalized_document_ref),
+        )
+    else:
+        result = _telegram_send_json(
+            token=token,
+            method="sendDocument",
+            payload={"chat_id": chat_id, "document": normalized_document_ref, "caption": _telegram_caption(caption)},
         )
     return TelegramDeliveryReceipt(
         principal_id=str(principal_id or "").strip(),

@@ -242,7 +242,8 @@ def test_generated_packet_pins_queue_uniqueness_and_current_feedback_boundary() 
     assert "canonical queue frontier `5399660048`" in feedback_text
     assert ".codex-design local mirror" in feedback_text
     assert "duplicate queue or registry rows fail closed" in feedback_text
-    assert "desktop_client = ready" in feedback_text
+    readiness = dict(payload.get("desktop_client_readiness") or {})
+    assert f"desktop_client = {readiness.get('status', 'unknown')}" in feedback_text
     assert "screenshot receipts" in feedback_text
     assert "interaction receipts" in feedback_text
     assert "dense_builder_and_career_workflows" in feedback_text

@@ -231,6 +231,88 @@ def test_tool_execution_service_blocks_rendered_video_telegram_send_without_audi
     assert result.output_json["telegram_delivery_json"]["error"] == "telegram_video_audio_missing"
 
 
+def test_tool_execution_service_auto_sends_audio_outputs_to_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-audio-send",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token"}}),
+    )
+    tool_runtime.upsert_tool(
+        tool_name="test.audio.render",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind=str(request.action_kind or "audio.render") or "audio.render",
+            target_ref="pocket:test",
+            output_json={
+                "result_title": "Hospital conversation",
+                "asset_url": "https://cdn.example/audio/hospital-conversation.mp3",
+                "mime_type": "audio/mpeg",
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("test.audio.render", _fake_handler)
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 21}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram_delivery.urllib.request.urlopen", _fake_urlopen)
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-audio-send-1",
+            step_id="step-audio-send-1",
+            tool_name="test.audio.render",
+            action_kind="audio.render",
+            payload_json={"title": "Hospital conversation"},
+            context_json={"principal_id": "exec-audio-send"},
+        )
+    )
+
+    assert sent and sent[0]["url"] == "https://api.telegram.org/bottelegram-token/sendAudio"
+    assert sent[0]["payload"]["audio"] == "https://cdn.example/audio/hospital-conversation.mp3"
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["kind"] == "audio"
+    assert result.output_json["telegram_delivery_json"]["message_ids"] == ["21"]
+
+
 def test_tool_execution_service_rejects_non_executable_provider_tool_route() -> None:
     provider_registry = ProviderRegistryService()
     provider_registry._bindings = tuple(provider_registry.list_bindings()) + (
