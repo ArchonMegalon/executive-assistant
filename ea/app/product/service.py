@@ -6112,6 +6112,7 @@ class ProductService:
                 requested_model="gpt-5-mini",
                 max_output_tokens=220,
                 chatplayground_audit_principal_id=principal_id,
+                request_deadline_monotonic=time.monotonic() + 8.0,
             )
             parsed = json.loads(str(result.text or "").strip())
             if isinstance(parsed, dict):
