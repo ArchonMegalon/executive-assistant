@@ -34,7 +34,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     assert "test_draft_and_commitment_workflows_in_real_browser" in evidence_index["tests/e2e/test_product_workflows.py"]
 
     conditions = gate["release_claim"]["required_conditions"]
-    assert any("EA product canon exists" in condition for condition in conditions)
+    assert any("EA product surface canon exists" in condition for condition in conditions)
     assert any("browser workflow proof" in condition for condition in conditions)
     assert any("release asset verification" in condition for condition in conditions)
     assert any("MILESTONE green" in condition or "MILESTONE" in condition for condition in conditions)
@@ -49,6 +49,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
 
     canon = gate["ea_product_canon"]
     assert canon["source_root"] == ".codex-design/ea"
+    assert canon["scope_label"] == "EA product surface canon"
     assert ".codex-design/ea/START_HERE.md" in canon["required_docs"]
     assert ".codex-design/ea/SURFACE_DESIGN_SYSTEM.md" in canon["required_docs"]
     assert ".codex-design/ea/LTD_INTEGRATION_MAP.md" in canon["required_docs"]
@@ -66,7 +67,7 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
     assert ".codex-design/ea/START_HERE.md" in truth_plane
     assert "MILESTONE.json" in truth_plane
     assert ".codex-design/ea/*" in implementation_scope
-    assert "EA owns its own executive-assistant product canon" in implementation_scope
+    assert "EA product surface canon under `.codex-design/ea/*`" in implementation_scope
     assert "EA_FLAGSHIP_RELEASE_GATE.json" in release_checklist
     assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in release_checklist
     assert ".codex-design/ea/START_HERE.md" in release_checklist

@@ -261,20 +261,38 @@ def build_pulse(
         },
         {
             "decision_id": "2026-04-10-freeze-launch-expansion",
-            "action": "freeze_launch",
+            "action": (
+                "freeze_launch"
+                if release_truth_state != "pass" or journey_state == "blocked"
+                else "hold_truth_line"
+            ),
             "reason": (
-                "Freeze launch expansion until the blocked journey tuples are cleared."
-                if release_truth_state == "pass"
-                else "Freeze launch expansion until browser execution proof is published and the blocked journey tuples are cleared."
+                "Freeze launch expansion until browser execution proof is published and the blocked journey tuples are cleared."
+                if release_truth_state != "pass"
+                else "Freeze launch expansion until the blocked journey tuples are cleared."
+                if journey_state == "blocked"
+                else "Launch expansion can proceed because browser proof is published and blocked journey tuples are cleared."
             ),
             "cited_signals": [
                 f"flagship_receipt_status={release_truth_state}",
                 f"browser_execution_receipt_present={receipt_info['browser_present']}",
                 f"journey_gate_blocked_count={blocked_count}",
-                "cross_host_tuple_coverage=blocked",
+                (
+                    "cross_host_tuple_coverage=blocked"
+                    if journey_state == "blocked"
+                    else "cross_host_tuple_coverage=ready"
+                ),
             ],
         },
     ]
+
+    fleet_cluster_summary = (
+        "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, "
+        "so wider publish claims should stay constrained."
+        if journey_state == "blocked"
+        else "Fleet journey gates are ready across the install/claim/restore/continue story, "
+        "so wider publish claims can follow the current release truth."
+    )
 
     blocked_reason = journey_info["recommended_action"] or "Resolve the blocking journey gaps before widening publish claims."
     pulse: dict[str, Any] = {
@@ -347,10 +365,7 @@ def build_pulse(
             },
             {
                 "cluster_id": "fleet_journey_coverage",
-                "summary": (
-                    "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, "
-                    "so wider publish claims should stay constrained."
-                ),
+                "summary": fleet_cluster_summary,
                 "source_paths": [
                     journey_gates_path.as_posix(),
                     "scripts/verify_release_assets.sh",
@@ -451,10 +466,7 @@ def build_pulse(
                 },
                 {
                     "cluster_id": "fleet_journey_coverage",
-                    "summary": (
-                        "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, "
-                        "so wider publish claims should stay constrained."
-                    ),
+                    "summary": fleet_cluster_summary,
                     "source_paths": [
                         journey_gates_path.as_posix(),
                         "scripts/verify_release_assets.sh",
@@ -478,7 +490,9 @@ def build_pulse(
             "public_promise_drift_count": 0,
             "governor_decisions": governor_decisions,
             "next_checkpoint_question": (
-                "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
+                "What is the next meaningful release or journey-truth change that should trigger pulse re-materialization?"
+                if release_truth_state == "pass" and journey_state != "blocked"
+                else "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
                 if release_truth_state == "pass"
                 else "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the EA flagship receipt from preview_only to pass?"
             ),

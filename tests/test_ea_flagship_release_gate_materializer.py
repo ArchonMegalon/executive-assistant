@@ -49,16 +49,17 @@ def _write_minimal_flagship_tree(
         "release_claim": {
             "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
             "required_conditions": [
-                "EA product canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
+                "EA product surface canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
                 "browser workflow proof renders seeded browser workspace pages with durable product objects",
                 "browser workflow proof shows browser actions updating the live workspace without stale narration",
                 "real browser E2E covers activation and the memo-to-queue loop",
-                "release asset verification knows the EA flagship truth plane and gate seed",
-                "release checklists cite the EA truth plane instead of using MILESTONE green as the oracle",
+                "release asset verification knows the EA flagship truth plane, the EA product surface canon, and the gate seed",
+                "release checklists cite the EA truth plane and the EA product surface canon instead of using MILESTONE green as the oracle",
             ],
         },
         "ea_product_canon": {
             "source_root": ".codex-design/ea",
+            "scope_label": "EA product surface canon",
             "required_docs": [path.as_posix() for path in PRODUCT_CANON_DOCS],
         },
         "browser_workflow_proof": {
@@ -133,6 +134,7 @@ def test_materializer_writes_preview_only_receipt_without_browser_execution_rece
     assert receipt["status"] == "preview_only"
     assert receipt["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
     assert receipt["ea_product_canon"]["source_root"] == ".codex-design/ea"
+    assert receipt["ea_product_canon"]["scope_label"] == "EA product surface canon"
     assert receipt["ea_product_canon"]["all_required_docs_present"] is True
     assert receipt["browser_workflow_proof"]["published_receipt_present"] is False
     assert receipt["browser_workflow_proof"]["source_files_present"][0]["present"] is True

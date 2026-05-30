@@ -123,6 +123,7 @@ fi
 
 if python3 - <<'PY'
 import json
+import subprocess
 from pathlib import Path
 
 gate = json.loads(Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8"))
@@ -155,12 +156,51 @@ assert supporting.get("journey_gate_source") == "/docker/fleet/.codex-studio/pub
 assert supporting.get("flagship_release_receipt_source") == ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
 assert release_truth_provenance.get("present") is True
 assert release_truth_provenance.get("sha256")
+assert release_truth_provenance.get("git_head")
 assert journey_gate_provenance.get("present") is True
 assert journey_gate_provenance.get("sha256")
 assert journey_gate_provenance.get("git_head")
 assert supporting.get("journey_gate_git_head") == journey_gate_provenance.get("git_head")
 assert supporting.get("launch_readiness")
 assert pulse["governor_decisions"]
+
+current_head = subprocess.run(
+    ["git", "rev-parse", "HEAD"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout.strip()
+release_truth_head = str(release_truth_provenance.get("git_head") or "").strip()
+if release_truth_head and current_head and release_truth_head != current_head:
+    changed_since_receipt = [
+        line.strip()
+        for line in subprocess.run(
+            ["git", "diff", "--name-only", f"{release_truth_head}..{current_head}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        if line.strip()
+    ]
+    allowed_prefixes = (
+        ".codex-design/product/",
+        ".codex-studio/published/",
+        ".codex-design/repo/",
+    )
+    allowed_exact = {
+        "README.md",
+        "RUNBOOK.md",
+        "RELEASE_CHECKLIST.md",
+        "PRODUCT_RELEASE_CHECKLIST.md",
+    }
+    disallowed = [
+        path for path in changed_since_receipt
+        if path not in allowed_exact and not any(path.startswith(prefix) for prefix in allowed_prefixes)
+    ]
+    assert not disallowed, (
+        "weekly pulse release provenance is stale relative to current HEAD and "
+        f"non-doc/runtime changes landed after receipt materialization: {disallowed}"
+    )
 PY
 then
   echo "ok: EA flagship truth plane gate seed"

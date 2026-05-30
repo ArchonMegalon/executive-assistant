@@ -70,6 +70,7 @@ def _build_doc_checks(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
 def _build_product_canon(root: Path, seed: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     canon = dict(seed.get("ea_product_canon") or {})
     source_root = str(canon.get("source_root") or "").strip()
+    scope_label = str(canon.get("scope_label") or "EA product canon").strip() or "EA product canon"
     required_docs = [str(item) for item in list(canon.get("required_docs") or []) if str(item).strip()]
     docs_present: list[dict[str, Any]] = []
     missing_docs: list[str] = []
@@ -81,6 +82,7 @@ def _build_product_canon(root: Path, seed: dict[str, Any]) -> tuple[dict[str, An
             missing_docs.append(rel.as_posix())
     return {
         "source_root": source_root,
+        "scope_label": scope_label,
         "required_docs": required_docs,
         "docs_present": docs_present,
         "all_required_docs_present": not missing_docs,
