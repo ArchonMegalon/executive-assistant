@@ -1008,6 +1008,123 @@ def test_list_recent_workspace_signals_filters_to_requested_account_and_forwards
     assert gmail_calls[0]["gmail_query"] == "from:(agent.willhaben.at OR no-reply@agent.willhaben.at)"
 
 
+def test_list_recent_workspace_signals_falls_back_to_local_user_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain.models import ProviderBindingRecord
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    class _Registry:
+        def __init__(self) -> None:
+            self.rows: dict[str, ProviderBindingRecord] = {
+                "local-user:google_gmail": ProviderBindingRecord(
+                    binding_id="local-user:google_gmail",
+                    principal_id="local-user",
+                    provider_key="google_gmail",
+                    status="enabled",
+                    priority=80,
+                    probe_state="ready",
+                    probe_details_json={},
+                    scope_json={"bundle": "core"},
+                    auth_metadata_json={
+                        "google_subject": "google-sub-local",
+                        "google_email": "elisabeth.girschele@gmail.com",
+                        "granted_scopes": [google_service.GOOGLE_SCOPE_METADATA],
+                        "refresh_token_ref": "refresh-local",
+                        "token_status": "active",
+                    },
+                    created_at="2026-05-30T00:00:00Z",
+                    updated_at="2026-05-30T00:00:00Z",
+                ),
+            }
+
+        def list_persisted_binding_records(self, *, principal_id: str, limit: int = 100):
+            return tuple(row for row in self.rows.values() if row.principal_id == principal_id)[:limit]
+
+        def get_persisted_binding_record(self, *, binding_id: str, principal_id: str | None = None):
+            row = self.rows.get(binding_id)
+            if row is None:
+                return None
+            if principal_id and row.principal_id != principal_id:
+                return None
+            return row
+
+        def upsert_binding_record(
+            self,
+            *,
+            binding_id: str,
+            principal_id: str,
+            provider_key: str,
+            status: str = "enabled",
+            priority: int = 100,
+            probe_state: str = "unknown",
+            probe_details_json: dict[str, object] | None = None,
+            scope_json: dict[str, object] | None = None,
+            auth_metadata_json: dict[str, object] | None = None,
+        ):
+            updated = ProviderBindingRecord(
+                binding_id=binding_id,
+                principal_id=principal_id,
+                provider_key=provider_key,
+                status=status,
+                priority=priority,
+                probe_state=probe_state,
+                probe_details_json=dict(probe_details_json or {}),
+                scope_json=dict(scope_json or {}),
+                auth_metadata_json=dict(auth_metadata_json or {}),
+                created_at=self.rows[binding_id].created_at,
+                updated_at="2026-05-30T00:05:00Z",
+            )
+            self.rows[binding_id] = updated
+            return updated
+
+    monkeypatch.setattr(google_service, "_decrypt_secret", lambda value, key: str(value))
+    monkeypatch.setattr(
+        google_service,
+        "_refresh_google_access_token",
+        lambda **kwargs: {"access_token": f"token-{kwargs['refresh_token']}", "expires_in": 3600},
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_list_recent_gmail_signals",
+        lambda **kwargs: [
+            google_service.GoogleWorkspaceSignal(
+                signal_type="email_thread",
+                channel="gmail",
+                title="Mail for Elisabeth",
+                summary="",
+                text="",
+                source_ref="gmail-thread:elisabeth.girschele@gmail.com:thread-1",
+                external_id="gmail-message:elisabeth.girschele@gmail.com:msg-1",
+                counterparty="Counterparty",
+                due_at=None,
+                payload={"account_email": kwargs["account_email"]},
+            )
+        ],
+    )
+    monkeypatch.setattr(google_service, "_list_recent_calendar_signals", lambda **kwargs: [])
+
+    packet = google_service.list_recent_workspace_signals(
+        container=SimpleNamespace(provider_registry=_Registry()),
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        email_limit=5,
+        calendar_limit=0,
+        account_email_filter="elisabeth.girschele@gmail.com",
+    )
+
+    assert packet.account_email == "elisabeth.girschele@gmail.com"
+    assert packet.account_emails == ("elisabeth.girschele@gmail.com",)
+    assert [row.source_ref for row in packet.signals] == [
+        "gmail-thread:elisabeth.girschele@gmail.com:thread-1",
+    ]
+
+
 def test_list_recent_workspace_signals_marks_binding_reauth_required_on_invalid_grant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

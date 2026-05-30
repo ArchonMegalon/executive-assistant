@@ -252,17 +252,32 @@ def _google_connector_lookup_keys(*, google_email: str, google_hosted_domain: st
     return tuple(values)
 
 
+def _google_binding_principal_ids(principal_id: str) -> tuple[str, ...]:
+    ordered: list[str] = []
+    for raw in (
+        principal_id,
+        os.environ.get("EA_GOOGLE_DEFAULT_PRINCIPAL_ID", ""),
+        os.environ.get("EA_DEFAULT_PRINCIPAL_ID", ""),
+        "local-user",
+    ):
+        normalized = str(raw or "").strip()
+        if normalized and normalized not in ordered:
+            ordered.append(normalized)
+    return tuple(ordered)
+
+
 def _list_google_binding_records(*, container: AppContainer, principal_id: str) -> list[ProviderBindingRecord]:
-    primary_binding_id = _primary_google_binding_id(principal_id)
     primary: list[ProviderBindingRecord] = []
     others: list[ProviderBindingRecord] = []
-    for row in container.provider_registry.list_persisted_binding_records(principal_id=principal_id, limit=100):
-        if row.provider_key != GOOGLE_PROVIDER_KEY:
-            continue
-        if row.binding_id == primary_binding_id:
-            primary.append(row)
-        else:
-            others.append(row)
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        primary_binding_id = _primary_google_binding_id(binding_principal_id)
+        for row in container.provider_registry.list_persisted_binding_records(principal_id=binding_principal_id, limit=100):
+            if row.provider_key != GOOGLE_PROVIDER_KEY:
+                continue
+            if row.binding_id == primary_binding_id:
+                primary.append(row)
+            else:
+                others.append(row)
     primary.sort(key=lambda row: (str(row.updated_at or ""), row.binding_id), reverse=True)
     others.sort(key=lambda row: (str(row.updated_at or ""), row.binding_id), reverse=True)
     seen: set[str] = set()
@@ -838,16 +853,17 @@ def send_google_gmail_message(
 
 def list_google_accounts(*, container: AppContainer, principal_id: str) -> list[GoogleOAuthAccount]:
     connector_by_ref: dict[str, ConnectorBinding] = {}
-    for connector in container.tool_runtime.list_connector_bindings(principal_id=principal_id, limit=100):
-        if connector.connector_name == GOOGLE_CONNECTOR_NAME:
-            metadata = dict(connector.auth_metadata_json or {})
-            for key in (
-                str(connector.external_account_ref or "").strip().lower(),
-                str(metadata.get("google_email") or "").strip().lower(),
-                str(metadata.get("google_hosted_domain") or "").strip().lower(),
-            ):
-                if key:
-                    connector_by_ref[key] = connector
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        for connector in container.tool_runtime.list_connector_bindings(principal_id=binding_principal_id, limit=100):
+            if connector.connector_name == GOOGLE_CONNECTOR_NAME:
+                metadata = dict(connector.auth_metadata_json or {})
+                for key in (
+                    str(connector.external_account_ref or "").strip().lower(),
+                    str(metadata.get("google_email") or "").strip().lower(),
+                    str(metadata.get("google_hosted_domain") or "").strip().lower(),
+                ):
+                    if key:
+                        connector_by_ref[key] = connector
     accounts: list[GoogleOAuthAccount] = []
     for binding in _list_google_binding_records(container=container, principal_id=principal_id):
         metadata = dict(binding.auth_metadata_json or {})
@@ -926,10 +942,11 @@ def list_recent_workspace_signals(
             )
         except Exception as exc:
             reason = _google_refresh_error_reason(exc)
+            binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
             _mark_google_binding_reauth_required(
                 container=container,
                 binding=binding,
-                principal_id=principal_id,
+                principal_id=binding_principal_id,
                 reason=reason,
             )
             first_error = first_error or reason
@@ -972,9 +989,10 @@ def list_recent_workspace_signals(
         if len(signals) > prior_signal_count:
             updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
         updated_metadata["token_status"] = "active"
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
         container.provider_registry.upsert_binding_record(
             binding_id=binding.binding_id,
-            principal_id=principal_id,
+            principal_id=binding_principal_id,
             provider_key=GOOGLE_PROVIDER_KEY,
             status=binding.status,
             priority=binding.priority,
@@ -1213,10 +1231,11 @@ def _resolve_google_binding_access_token(
             )
         except Exception as exc:
             reason = _google_refresh_error_reason(exc)
+            binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
             _mark_google_binding_reauth_required(
                 container=container,
                 binding=binding,
-                principal_id=principal_id,
+                principal_id=binding_principal_id,
                 reason=reason,
             )
             first_error = first_error or reason
@@ -1230,9 +1249,10 @@ def _resolve_google_binding_access_token(
         updated_metadata["last_refresh_at"] = _utc_iso_now()
         updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
         updated_metadata["token_status"] = "active"
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
         container.provider_registry.upsert_binding_record(
             binding_id=binding.binding_id,
-            principal_id=principal_id,
+            principal_id=binding_principal_id,
             provider_key=GOOGLE_PROVIDER_KEY,
             status=binding.status,
             priority=binding.priority,
@@ -2222,11 +2242,16 @@ def _load_google_send_context(
     binding_id: str = "",
 ) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str, str]:
     config = load_google_oauth_config()
-    resolved_binding_id = str(binding_id or "").strip() or _primary_google_binding_id(principal_id)
-    binding = container.provider_registry.get_persisted_binding_record(
-        binding_id=resolved_binding_id,
-        principal_id=principal_id,
-    )
+    resolved_binding_id = str(binding_id or "").strip()
+    binding = None
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        candidate_binding_id = resolved_binding_id or _primary_google_binding_id(binding_principal_id)
+        binding = container.provider_registry.get_persisted_binding_record(
+            binding_id=candidate_binding_id,
+            principal_id=binding_principal_id,
+        )
+        if binding is not None:
+            break
     if binding is None:
         raise RuntimeError("google_oauth_binding_not_found")
     metadata = dict(binding.auth_metadata_json or {})
@@ -2248,10 +2273,11 @@ def _load_google_send_context(
             client_secret=config.client_secret,
         )
     except Exception as exc:
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
         _mark_google_binding_reauth_required(
             container=container,
             binding=binding,
-            principal_id=principal_id,
+            principal_id=binding_principal_id,
             reason=_google_refresh_error_reason(exc),
         )
         raise
