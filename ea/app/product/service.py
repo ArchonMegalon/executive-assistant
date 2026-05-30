@@ -139,11 +139,182 @@ _POCKET_API_MAX_RETRY_BACKOFF_SECONDS = 5.0
 _POCKET_SYNC_EVENT_LOOKBACK = 200
 _POCKET_SIGNAL_DEDUPE_LOOKBACK = 2000
 _POCKET_SYNC_MAX_SCAN_PAGES = 12
+_PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
+_PROPERTY_SCOUT_LISTING_HOSTS = (
+    "willhaben.at",
+    "immmo.at",
+    "immoscout24.at",
+    "immoscout24.com",
+    "immobilienscout24.at",
+    "immobilienscout24.de",
+)
 
 
 def _property_alert_gmail_query() -> str:
     configured = str(os.getenv("EA_PROPERTY_ALERT_GMAIL_QUERY") or "").strip()
     return configured or _PROPERTY_ALERT_GMAIL_QUERY
+
+
+def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
+    raw = str(os.getenv("EA_PROPERTY_SCOUT_URLS_JSON") or "").strip()
+    if not raw:
+        return ()
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return ()
+    if not isinstance(payload, list):
+        return ()
+    specs: list[dict[str, object]] = []
+    for item in payload:
+        row = {"url": item} if isinstance(item, str) else dict(item or {}) if isinstance(item, dict) else {}
+        url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
+        if not url:
+            continue
+        specs.append(
+            {
+                "url": url,
+                "label": compact_text(str(row.get("label") or "").strip(), fallback="", limit=120),
+                "principal_id": str(row.get("principal_id") or "").strip(),
+                "preference_person_id": str(
+                    row.get("preference_person_id")
+                    or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
+                    or "self"
+                ).strip()
+                or "self",
+                "account_email": str(row.get("account_email") or "").strip().lower(),
+                "notify_telegram": bool(row.get("notify_telegram", True)),
+                "max_results": max(1, min(int(row.get("max_results") or 3), 10)),
+            }
+        )
+    return tuple(specs)
+
+
+def _property_scout_fetch_html(url: str) -> str:
+    request = urllib.request.Request(
+        str(url or "").strip(),
+        headers={
+            "User-Agent": _PROPERTY_SCOUT_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        content = response.read()
+    return content.decode("utf-8", "ignore")
+
+
+def _property_scout_is_supported_listing_url(url: str) -> bool:
+    normalized = urllib.parse.urldefrag(str(url or "").strip())[0]
+    if not normalized:
+        return False
+    if _is_willhaben_property_url(normalized):
+        return True
+    parsed = urllib.parse.urlparse(normalized)
+    host = parsed.netloc.lower()
+    if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
+        return False
+    path = parsed.path.lower()
+    return any(
+        marker in path
+        for marker in ("/expose/", "/objekt/", "/immobilien/", "/detail/", "/d/", "/angebote/")
+    )
+
+
+def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    normalized_html = (
+        str(html or "")
+        .replace("\\u002F", "/")
+        .replace("\\/", "/")
+        .replace("&amp;", "&")
+    )
+    raw_urls = list(_extract_urls_from_text(normalized_html))
+    raw_urls.extend(
+        urllib.parse.urljoin(source_url, match.group(1).strip())
+        for match in re.finditer(r"""href=["']([^"']+)["']""", normalized_html, re.IGNORECASE)
+    )
+    for raw_url in raw_urls:
+        normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
+        if not normalized or normalized in seen:
+            continue
+        if not _property_scout_is_supported_listing_url(normalized):
+            continue
+        seen.add(normalized)
+        candidates.append(normalized)
+    return tuple(candidates)
+
+
+def _property_scout_extract_meta_content(html: str, property_name: str) -> str:
+    pattern = re.compile(
+        r'<meta[^>]+(?:property|name)=["\']'
+        + re.escape(property_name)
+        + r'["\'][^>]+content=["\']([^"\']+)["\']',
+        re.IGNORECASE,
+    )
+    match = pattern.search(str(html or ""))
+    return compact_text(match.group(1), fallback="", limit=400) if match else ""
+
+
+def _property_scout_page_preview(property_url: str) -> dict[str, object]:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized:
+        return {}
+    if _is_willhaben_property_url(normalized):
+        packet = _load_willhaben_property_packet(normalized)
+        property_facts = dict(packet.get("property_facts_json") or {})
+        description = compact_text(
+            " | ".join(f"{key}: {value}" for key, value in property_facts.items() if str(value or "").strip()),
+            fallback="",
+            limit=300,
+        )
+        return {
+            "listing_id": str(packet.get("listing_id") or "").strip(),
+            "title": compact_text(str(packet.get("title") or "").strip(), fallback=normalized, limit=160),
+            "summary": description,
+            "property_facts_json": property_facts,
+        }
+    html = _property_scout_fetch_html(normalized)
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+    title = compact_text(title_match.group(1) if title_match else "", fallback="", limit=160)
+    og_title = _property_scout_extract_meta_content(html, "og:title")
+    og_description = _property_scout_extract_meta_content(html, "og:description")
+    meta_description = _property_scout_extract_meta_content(html, "description")
+    return {
+        "listing_id": normalized,
+        "title": og_title or title or normalized,
+        "summary": og_description or meta_description,
+        "property_facts_json": {},
+    }
+
+
+def _property_scout_rank_score(
+    *,
+    property_url: str,
+    assessment: dict[str, object] | None,
+    preview: dict[str, object],
+    ordinal: int,
+) -> float:
+    fit_score = _property_alert_fit_score(assessment)
+    if fit_score > 0.0:
+        return fit_score
+    text = " ".join(
+        part
+        for part in (
+            str(preview.get("title") or "").lower(),
+            str(preview.get("summary") or "").lower(),
+            str(property_url or "").lower(),
+        )
+        if part
+    )
+    heuristic = 55.0 - min(float(ordinal) * 3.0, 18.0)
+    if any(token in text for token in ("360", "panorama", "photosphere")):
+        heuristic += 10.0
+    if any(token in text for token in ("grundriss", "floorplan", "lageplan")):
+        heuristic += 8.0
+    if any(token in text for token in ("lift", "aufzug", "terrasse", "balkon")):
+        heuristic += 4.0
+    return max(0.0, min(100.0, heuristic))
 
 
 _ATTACHMENT_FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -986,6 +1157,7 @@ def _property_alert_personal_fit_assessment(
     *,
     preference_profiles: object,
     principal_id: str,
+    person_id: str = "self",
     property_url: str,
 ) -> dict[str, object] | None:
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
@@ -1006,7 +1178,7 @@ def _property_alert_personal_fit_assessment(
             return None
         assessment = assess_candidate(
             principal_id=principal_id,
-            person_id="self",
+            person_id=str(person_id or "").strip() or "self",
             domain="willhaben",
             object_type="listing",
             object_id=listing_id,
@@ -8259,6 +8431,164 @@ class ProductService:
             event_type="google_willhaben_signal_sync_completed",
             dedupe_key_prefix="google-willhaben-signal-sync",
         )
+
+    def sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+    ) -> dict[str, object]:
+        specs = [
+            dict(spec)
+            for spec in _property_scout_source_specs()
+            if not str(spec.get("principal_id") or "").strip()
+            or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip()
+        ]
+        if not specs:
+            return {
+                "generated_at": _now_iso(),
+                "status": "noop",
+                "sources_total": 0,
+                "listing_total": 0,
+                "review_created_total": 0,
+                "review_existing_total": 0,
+                "failed_total": 0,
+            }
+        listing_total = 0
+        review_created_total = 0
+        review_existing_total = 0
+        failed_total = 0
+        source_summaries: list[dict[str, object]] = []
+        for source_spec in specs:
+            source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
+            source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            max_results = max(1, min(int(source_spec.get("max_results") or 3), 10))
+            notify_telegram = bool(source_spec.get("notify_telegram", True))
+            account_email = str(source_spec.get("account_email") or "").strip().lower()
+            preference_person_id = str(source_spec.get("preference_person_id") or "self").strip() or "self"
+            try:
+                html = _property_scout_fetch_html(source_url)
+                listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=html)
+            except Exception as exc:
+                failed_total += 1
+                source_summaries.append(
+                    {
+                        "source_url": source_url,
+                        "source_label": source_label,
+                        "preference_person_id": preference_person_id,
+                        "listing_total": 0,
+                        "review_created_total": 0,
+                        "review_existing_total": 0,
+                        "error": compact_text(str(exc or ""), fallback="property_scout_fetch_failed", limit=200),
+                    }
+                )
+                continue
+            listing_urls = listing_urls[: max_results * 4]
+            ranked_rows: list[dict[str, object]] = []
+            for ordinal, property_url in enumerate(listing_urls, start=1):
+                preview: dict[str, object]
+                try:
+                    preview = _property_scout_page_preview(property_url)
+                except Exception:
+                    preview = {
+                        "listing_id": property_url,
+                        "title": property_url,
+                        "summary": "",
+                        "property_facts_json": {},
+                    }
+                assessment = _property_alert_personal_fit_assessment(
+                    preference_profiles=self._preference_profiles,
+                    principal_id=principal_id,
+                    person_id=preference_person_id,
+                    property_url=property_url,
+                )
+                ranked_rows.append(
+                    {
+                        "property_url": property_url,
+                        "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
+                        "title": compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160),
+                        "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
+                        "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+                        "fit_score": _property_scout_rank_score(
+                            property_url=property_url,
+                            assessment=assessment,
+                            preview=preview,
+                            ordinal=ordinal,
+                        ),
+                    }
+                )
+            ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            ranked_rows = ranked_rows[:max_results]
+            listing_total += len(ranked_rows)
+            candidate_properties = tuple(
+                {
+                    "property_url": str(row.get("property_url") or "").strip(),
+                    "listing_title": str(row.get("title") or "").strip(),
+                    "fit_score": float(row.get("fit_score") or 0.0),
+                    "recommendation": str(dict(row.get("assessment") or {}).get("recommendation") or "").strip(),
+                    "fit_summary": _property_alert_fit_summary(dict(row.get("assessment") or {})),
+                    "assessment": dict(row.get("assessment") or {}),
+                }
+                for row in ranked_rows[:3]
+            )
+            created_for_source = 0
+            existing_for_source = 0
+            for row in ranked_rows:
+                property_url = str(row.get("property_url") or "").strip()
+                listing_id = str(row.get("listing_id") or "").strip() or property_url
+                title = str(row.get("title") or "").strip() or property_url
+                summary = str(row.get("summary") or "").strip()
+                assessment = dict(row.get("assessment") or {})
+                source_ref = f"property-scout:{listing_id}"
+                opened = self._open_property_alert_review(
+                    principal_id=principal_id,
+                    title=title,
+                    summary=summary,
+                    source_ref=source_ref,
+                    external_id=property_url,
+                    counterparty=source_label,
+                    account_email=account_email,
+                    property_url=property_url,
+                    actor=actor,
+                    notify_telegram=notify_telegram and (
+                        _property_alert_is_good_fit(assessment) or created_for_source == 0
+                    ),
+                    candidate_properties=candidate_properties,
+                )
+                if str(opened.get("status") or "").strip() == "opened":
+                    created_for_source += 1
+                    review_created_total += 1
+                else:
+                    existing_for_source += 1
+                    review_existing_total += 1
+            source_summaries.append(
+                {
+                    "source_url": source_url,
+                    "source_label": source_label,
+                    "preference_person_id": preference_person_id,
+                    "listing_total": len(ranked_rows),
+                    "review_created_total": created_for_source,
+                    "review_existing_total": existing_for_source,
+                }
+            )
+        payload = {
+            "generated_at": _now_iso(),
+            "status": "processed",
+            "sources_total": len(specs),
+            "listing_total": listing_total,
+            "review_created_total": review_created_total,
+            "review_existing_total": review_existing_total,
+            "failed_total": failed_total,
+            "sources": source_summaries,
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_scout_sync_completed",
+            payload={**payload, "actor": str(actor or "").strip() or "property_scout"},
+            source_id=f"property-scout-sync:{principal_id}",
+            dedupe_key=f"{principal_id}|property-scout-sync|{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}",
+        )
+        return payload
 
     def create_google_photos_picker_session(
         self,

@@ -53,19 +53,46 @@ class PostgresProviderBindingRepository:
                 )
                 cur.execute(
                     """
-                    DROP INDEX IF EXISTS idx_provider_bindings_principal_provider
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_class c
+                            JOIN pg_namespace n ON n.oid = c.relnamespace
+                            WHERE c.relkind = 'i'
+                              AND c.relname = 'idx_provider_bindings_principal_provider'
+                              AND n.nspname = current_schema()
+                        ) THEN
+                            CREATE INDEX idx_provider_bindings_principal_provider
+                            ON provider_bindings(principal_id, provider_key, updated_at DESC);
+                        END IF;
+                    EXCEPTION
+                        WHEN duplicate_table THEN
+                            NULL;
+                    END
+                    $$;
                     """
                 )
                 cur.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_provider_bindings_principal_provider
-                    ON provider_bindings(principal_id, provider_key, updated_at DESC)
-                    """
-                )
-                cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_provider_bindings_principal_updated
-                    ON provider_bindings(principal_id, updated_at DESC)
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_class c
+                            JOIN pg_namespace n ON n.oid = c.relnamespace
+                            WHERE c.relkind = 'i'
+                              AND c.relname = 'idx_provider_bindings_principal_updated'
+                              AND n.nspname = current_schema()
+                        ) THEN
+                            CREATE INDEX idx_provider_bindings_principal_updated
+                            ON provider_bindings(principal_id, updated_at DESC);
+                        END IF;
+                    EXCEPTION
+                        WHEN duplicate_table THEN
+                            NULL;
+                    END
+                    $$;
                     """
                 )
 

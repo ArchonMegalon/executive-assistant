@@ -797,6 +797,54 @@ def test_signal_ingest_property_alert_queue_orders_higher_fit_first(monkeypatch)
     assert items[1]["rank_score"] == 61.0
 
 
+def test_property_scout_config_and_listing_extraction(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                "https://www.immmo.at/search/rent",
+                {
+                    "url": "https://www.immoscout24.at/suche#ignored",
+                    "label": "Scout",
+                    "principal_id": "principal-scout",
+                    "account_email": "Scout@Example.COM",
+                    "notify_telegram": False,
+                    "max_results": 99,
+                },
+            ]
+        ),
+    )
+
+    specs = product_service._property_scout_source_specs()
+
+    assert specs[0]["url"] == "https://www.immmo.at/search/rent"
+    assert specs[0]["notify_telegram"] is True
+    assert specs[0]["max_results"] == 3
+    assert specs[1]["url"] == "https://www.immoscout24.at/suche"
+    assert specs[1]["label"] == "Scout"
+    assert specs[1]["principal_id"] == "principal-scout"
+    assert specs[1]["account_email"] == "scout@example.com"
+    assert specs[1]["notify_telegram"] is False
+    assert specs[1]["max_results"] == 10
+
+    html = """
+    <a href="/expose/12345">supported relative</a>
+    <a href="https://www.immoscout24.at/expose/12345#gallery">duplicate fragment</a>
+    <a href="https://example.com/expose/999">unsupported host</a>
+    <script>{"url":"https:\\/\\/www.willhaben.at\\/iad\\/immobilien\\/d\\/mietwohnungen\\/wien\\/garden-789"}</script>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.immoscout24.at/suche",
+        html=html,
+    )
+
+    assert urls == (
+        "https://www.immoscout24.at/expose/12345",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/garden-789",
+    )
+
+
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:
     principal_id = "exec-product-property-fit-end-to-end"
     client = build_product_client(principal_id=principal_id)

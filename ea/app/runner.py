@@ -701,6 +701,63 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
     }
 
 
+def _scheduler_property_scout_enabled() -> bool:
+    normalized = str(os.environ.get("EA_SCHEDULER_PROPERTY_SCOUT_ENABLED") or "").strip().lower()
+    if not normalized:
+        return True
+    return normalized in {"1", "true", "yes", "on", "y"}
+
+
+def _scheduler_property_scout_interval_seconds() -> float:
+    try:
+        return max(300.0, float(os.environ.get("EA_SCHEDULER_PROPERTY_SCOUT_INTERVAL_SECONDS") or 1800.0))
+    except Exception:
+        return 1800.0
+
+
+def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+    raw = str(os.environ.get("EA_PROPERTY_SCOUT_PRINCIPAL_IDS") or "").strip()
+    if raw:
+        values = tuple(sorted({part.strip() for part in raw.split(",") if part.strip()}))
+        if values:
+            return values
+    principal_candidates = {
+        str(os.environ.get("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID") or "").strip(),
+        str(getattr(getattr(container.settings, "auth", None), "default_principal_id", "") or "").strip(),
+        str(os.environ.get("EA_DEFAULT_PRINCIPAL_ID") or "").strip(),
+    }
+    return tuple(sorted(value for value in principal_candidates if value))
+
+
+def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+
+    service = build_product_service(container)
+    attempted = 0
+    synced = 0
+    errors = 0
+    principals = _scheduler_property_scout_principal_ids(container)
+    for principal_id in principals:
+        attempted += 1
+        try:
+            summary = service.sync_direct_property_scout(
+                principal_id=principal_id,
+                actor="scheduler",
+            )
+            if str(summary.get("status") or "").strip() in {"processed", "noop"}:
+                synced += int(summary.get("review_created_total") or 0)
+        except Exception:
+            errors += 1
+            log.exception("scheduler property scout failed principal=%s", principal_id)
+    return {
+        "ran": True,
+        "attempted": attempted,
+        "synced": synced,
+        "errors": errors,
+        "principals": list(principals),
+    }
+
+
 def _run_scheduler_pocket_signal_sync(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
     from app.product.service import build_product_service
 
@@ -1037,6 +1094,7 @@ def _run_execution_worker(role: str) -> None:
     last_horizon_scan_at = 0.0
     last_onemin_refresh_at = 0.0
     last_google_signal_sync_at = 0.0
+    last_property_scout_at = 0.0
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
     log.info("role=%s started worker loop", role)
@@ -1112,6 +1170,23 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler google signal sync failed", role)
                     last_google_signal_sync_at = now
+            if _scheduler_property_scout_enabled() and (
+                now - last_property_scout_at >= _scheduler_property_scout_interval_seconds()
+            ):
+                try:
+                    scout_summary = _run_scheduler_property_scout(container, log)
+                    last_property_scout_at = now
+                    log.info(
+                        "role=%s scheduler property scout attempted=%s synced=%s errors=%s principals=%s",
+                        role,
+                        scout_summary.get("attempted"),
+                        scout_summary.get("synced"),
+                        scout_summary.get("errors"),
+                        ",".join(list(scout_summary.get("principals") or [])),
+                    )
+                except Exception:
+                    log.exception("role=%s scheduler property scout failed", role)
+                    last_property_scout_at = now
             if _scheduler_pocket_signal_sync_enabled() and (
                 now - last_pocket_signal_sync_at >= _scheduler_pocket_signal_sync_interval_seconds()
             ):

@@ -395,6 +395,38 @@ def test_scheduler_pocket_signal_sync_runs_for_default_principal(
     assert calls == ["local-user|scheduler|7"]
 
 
+def test_scheduler_property_scout_runs_for_configured_principals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_PROPERTY_SCOUT_PRINCIPAL_IDS", "principal-b, principal-a, principal-a")
+
+    calls: list[str] = []
+
+    class _FakeService:
+        def sync_direct_property_scout(self, *, principal_id: str, actor: str):
+            calls.append(f"{principal_id}|{actor}")
+            return {"status": "processed", "review_created_total": 2}
+
+    container = SimpleNamespace(settings=SimpleNamespace(auth=SimpleNamespace(default_principal_id="fallback")))
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_property_scout(container, logging.getLogger("test.runner"))
+
+    assert summary == {
+        "ran": True,
+        "attempted": 2,
+        "synced": 4,
+        "errors": 0,
+        "principals": ["principal-a", "principal-b"],
+    }
+    assert calls == ["principal-a|scheduler", "principal-b|scheduler"]
+
+
 def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
 
