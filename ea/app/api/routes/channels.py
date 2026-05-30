@@ -1117,6 +1117,8 @@ def _telegram_answerly_scope_for_text(text: str) -> str:
     normalized = " ".join(str(text or "").strip().lower().split())
     if not normalized:
         return ""
+    if "onewife" in normalized:
+        return "onedrive"
     if "shareone" in normalized or "share one" in normalized:
         return "shareone"
     if "onedrive" in normalized or "one drive" in normalized:
@@ -1141,8 +1143,19 @@ def _telegram_answerly_scope_for_text(text: str) -> str:
     return ""
 
 
+def _telegram_answerly_document_send_request(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    send_markers = ("send me", "schick mir", "schicke mir", "sende mir", "send the", "send that")
+    document_markers = ("pdf", "document", "scan", "scanned", "letter", "report", "birth certificate", "certificate")
+    return any(marker in normalized for marker in send_markers) and any(marker in normalized for marker in document_markers)
+
+
 def _telegram_answerly_document_reply_text(
     *,
+    container: AppContainer,
+    principal_id: str,
     text: str,
 ) -> str:
     normalized = str(text or "").strip()
@@ -1203,6 +1216,20 @@ def _telegram_answerly_document_reply_text(
         for row in list(source_rows or [])
         if isinstance(row, dict) and str(row.get("dataItemId") or "").strip()
     ]
+    if source_ids and _telegram_answerly_document_send_request(normalized):
+        service = build_product_service(container)
+        try:
+            delivered = service.deliver_onedrive_document_search_to_telegram(
+                principal_id=principal_id,
+                actor="telegram_local_assistant",
+                query=normalized,
+                answerly_source_ids=tuple(source_ids),
+                limit=10,
+            )
+            filename = str(delivered.get("filename") or "document").strip()
+            answer += f" Sent {filename} on Telegram."
+        except RuntimeError as exc:
+            answer += f" I matched the document, but Telegram delivery failed: {str(exc or '').strip() or 'onedrive_document_delivery_failed'}."
     if source_ids:
         answer += f" Matched {config['label']} Answerly items: {', '.join(source_ids[:3])}."
     return answer
@@ -1752,7 +1779,14 @@ def _telegram_local_resolvers(
                 alpha_words=alpha_words,
             ),
         ),
-        TelegramLocalResolver(name="answerly_documents", resolve=lambda: _telegram_answerly_document_reply_text(text=normalized)),
+        TelegramLocalResolver(
+            name="answerly_documents",
+            resolve=lambda: _telegram_answerly_document_reply_text(
+                container=container,
+                principal_id=principal_id,
+                text=normalized,
+            ),
+        ),
         TelegramLocalResolver(
             name="ltd_runtime",
             resolve=lambda: _telegram_ltd_reply_text(

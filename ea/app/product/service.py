@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 import time
@@ -71,6 +72,7 @@ from app.services.teable_projection_adapter import build_teable_projection_recor
 from app.services.telegram_delivery import (
     resolve_primary_telegram_binding,
     send_telegram_audio_for_principal,
+    send_telegram_document_for_principal,
     send_telegram_message_for_principal,
     send_telegram_video_for_principal,
 )
@@ -114,6 +116,52 @@ _EA_DELIVERY_TEXT_MARKERS = (
     "google is connected after sign-up as a workspace data source",
 )
 _WILLHABEN_HOST_MARKERS = ("willhaben.at",)
+_ONEDRIVE_DOCUMENT_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "auf",
+    "aus",
+    "bei",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "document",
+    "dokument",
+    "ein",
+    "eine",
+    "einem",
+    "einen",
+    "einer",
+    "fuer",
+    "für",
+    "handwritten",
+    "handschriftlich",
+    "i",
+    "im",
+    "in",
+    "is",
+    "me",
+    "mir",
+    "mit",
+    "on",
+    "our",
+    "pdf",
+    "scan",
+    "scanned",
+    "schick",
+    "schicke",
+    "send",
+    "sende",
+    "the",
+    "unsere",
+    "unseren",
+    "von",
+    "wife",
+    "wir",
+}
 _WILLHABEN_GMAIL_QUERY = "from:(agent.willhaben.at OR no-reply@agent.willhaben.at)"
 _PROPERTY_ALERT_GMAIL_QUERY = (
     "from:("
@@ -141,6 +189,11 @@ _POCKET_SIGNAL_DEDUPE_LOOKBACK = 2000
 _POCKET_SYNC_MAX_SCAN_PAGES = 12
 _POCKET_RECORDING_INDEX_LOOKBACK = 5000
 _GOOGLE_LOCATION_HISTORY_LOOKBACK = 5000
+_GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY = "google_dataportability_maps"
+_GOOGLE_LOCATION_PORTABILITY_SCOPE = "https://www.googleapis.com/auth/dataportability.myactivity.maps"
+_GOOGLE_LOCATION_PORTABILITY_RESOURCE = "myactivity.maps"
+_GOOGLE_LOCATION_PORTABILITY_AUTH_SCOPES = (_GOOGLE_LOCATION_PORTABILITY_SCOPE,)
+_GOOGLE_LOCATION_PORTABILITY_API_BASE = "https://dataportability.googleapis.com/v1"
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 _PROPERTY_SCOUT_LISTING_HOSTS = (
     "willhaben.at",
@@ -634,6 +687,22 @@ def _google_location_history_match_max_gap_seconds() -> float:
     return max(0.0, configured if configured is not None else 6 * 3600.0)
 
 
+def _google_location_history_export_window_days() -> int:
+    configured = os.getenv("EA_GOOGLE_LOCATION_HISTORY_EXPORT_WINDOW_DAYS")
+    try:
+        return max(1, min(int(configured or "30"), 365))
+    except ValueError:
+        return 30
+
+
+def _google_location_history_sync_cooldown_seconds() -> int:
+    configured = os.getenv("EA_GOOGLE_LOCATION_HISTORY_SYNC_COOLDOWN_SECONDS")
+    try:
+        return max(300, min(int(configured or "21600"), 7 * 24 * 3600))
+    except ValueError:
+        return 21600
+
+
 def _google_location_history_window_payloads(payload: object, *, source_path: str) -> list[dict[str, object]]:
     source_label = Path(source_path).name or "google-location-history"
     rows: list[dict[str, object]] = []
@@ -671,6 +740,89 @@ def _google_location_history_window_payloads(payload: object, *, source_path: st
                 "activity_type": compact_text(str(activity_type or "").strip(), fallback="", limit=80),
             }
         )
+
+    def _extract_map_coordinates(*, text: object = "", url: object = "") -> tuple[float | None, float | None]:
+        candidates = [str(url or "").strip(), str(text or "").strip()]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            parsed = urllib.parse.urlparse(candidate)
+            query = urllib.parse.parse_qs(parsed.query)
+            center = ""
+            if query.get("center"):
+                center = str(query.get("center", [""])[0] or "").strip()
+            if center:
+                try:
+                    lat_text, lon_text = [part.strip() for part in center.split(",", 1)]
+                    return float(lat_text), float(lon_text)
+                except Exception:
+                    pass
+            match = re.search(r"@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)", candidate)
+            if match:
+                try:
+                    return float(match.group(1)), float(match.group(2))
+                except ValueError:
+                    pass
+        return None, None
+
+    def _normalize_my_activity_title(title: object) -> tuple[str, str]:
+        raw_title = compact_text(str(title or "").strip(), fallback="", limit=260)
+        if not raw_title:
+            return "", ""
+        lowered = raw_title.lower()
+        for prefix in ("directions to ", "searched for "):
+            if lowered.startswith(prefix):
+                remainder = raw_title[len(prefix):].strip()
+                if "," in remainder:
+                    location_name, _, location_address = remainder.partition(",")
+                    return location_name.strip(), remainder.strip()
+                return remainder, remainder
+        return raw_title, raw_title
+
+    def _from_my_activity_entry(entry: dict[str, object]) -> None:
+        if str(entry.get("header") or "").strip().lower() != "maps":
+            return
+        timestamp = entry.get("time") or entry.get("timeStamp") or entry.get("timestamp")
+        if not timestamp:
+            return
+        location_infos = [dict(item) for item in list(entry.get("locationInfos") or []) if isinstance(item, dict)]
+        title = str(entry.get("title") or "").strip()
+        title_url = str(entry.get("titleUrl") or "").strip()
+        description = compact_text(str(entry.get("description") or "").strip(), fallback="", limit=260)
+        default_name, default_address = _normalize_my_activity_title(title)
+        if description.lower().startswith("current location"):
+            lines = [line.strip() for line in description.splitlines() if line.strip()]
+            if len(lines) >= 2:
+                default_address = compact_text(lines[-1], fallback=default_address, limit=260)
+        if not location_infos:
+            lat_value, lon_value = _extract_map_coordinates(text=description or title, url=title_url)
+            if lat_value is None or lon_value is None:
+                return
+            _append_window(
+                source_type="maps_my_activity",
+                start_at=timestamp,
+                end_at=timestamp,
+                latitude=lat_value,
+                longitude=lon_value,
+                name=default_name,
+                address=default_address,
+                activity_type=entry.get("header") or "Maps",
+            )
+            return
+        for info in location_infos:
+            lat_value, lon_value = _extract_map_coordinates(text=info.get("url") or description, url=title_url)
+            if lat_value is None or lon_value is None:
+                continue
+            _append_window(
+                source_type="maps_my_activity",
+                start_at=timestamp,
+                end_at=timestamp,
+                latitude=lat_value,
+                longitude=lon_value,
+                name=default_name or info.get("name") or title,
+                address=default_address or info.get("name") or description,
+                activity_type=info.get("source") or entry.get("header") or "Maps",
+            )
 
     def _from_place_visit(place_visit: dict[str, object]) -> None:
         location = dict(place_visit.get("location") or {})
@@ -725,6 +877,8 @@ def _google_location_history_window_payloads(payload: object, *, source_path: st
                 _from_activity_segment(dict(node.get("activitySegment") or {}))
             elif any(key in node for key in ("latitudeE7", "latitude", "longitudeE7", "longitude")):
                 _from_point(node)
+            elif str(node.get("header") or "").strip().lower() == "maps":
+                _from_my_activity_entry(node)
             for key in ("timelineObjects", "locations", "semanticSegments", "records", "data"):
                 child = node.get(key)
                 if isinstance(child, list):
@@ -4731,6 +4885,228 @@ class ProductService:
         raw = str(os.getenv("EA_ONEDRIVE_ATTACHMENT_ROOT") or "/data/onedrive_attachments").strip()
         return Path(raw).expanduser()
 
+    def _onedrive_scanned_document_roots(self) -> tuple[Path, ...]:
+        configured: list[Path] = []
+        for raw in (
+            str(os.getenv("EA_ONEDRIVE_SCANNED_DOCUMENT_ROOT") or "").strip(),
+            "/mnt/onedrive/Documents/Scanned Documents",
+            "/mnt/onedrive/Scanned Documents",
+        ):
+            if not raw:
+                continue
+            path = Path(raw).expanduser()
+            if path not in configured:
+                configured.append(path)
+        attachment_root = self._onedrive_attachment_root()
+        if attachment_root not in configured:
+            configured.append(attachment_root)
+        return tuple(configured)
+
+    def _normalize_onedrive_document_text(self, value: str) -> str:
+        normalized = (
+            str(value or "")
+            .strip()
+            .lower()
+            .replace("ä", "ae")
+            .replace("ö", "oe")
+            .replace("ü", "ue")
+            .replace("ß", "ss")
+        )
+        return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+
+    def _onedrive_document_query_tokens(self, query: str) -> tuple[str, ...]:
+        tokens: list[str] = []
+        for token in self._normalize_onedrive_document_text(query).split():
+            if len(token) < 2 or token in _ONEDRIVE_DOCUMENT_QUERY_STOPWORDS:
+                continue
+            if token not in tokens:
+                tokens.append(token)
+        return tuple(tokens)
+
+    def _search_recent_onedrive_document_candidates(
+        self,
+        *,
+        principal_id: str,
+        answerly_source_ids: tuple[str, ...],
+        query: str,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        tokens = self._onedrive_document_query_tokens(query)
+        wanted_ids = {str(value or "").strip() for value in answerly_source_ids if str(value or "").strip()}
+        candidates: list[dict[str, object]] = []
+        seen_keys: set[str] = set()
+        for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id):
+            payload = dict(row.payload or {})
+            path = str(payload.get("path") or "").strip()
+            download_url = str(payload.get("download_url") or "").strip()
+            filename = str(payload.get("filename") or "").strip()
+            answerly_id = str(payload.get("answerly_data_item_id") or "").strip()
+            if not filename and path:
+                filename = Path(path).name
+            if not filename:
+                continue
+            if not filename.lower().endswith(".pdf"):
+                continue
+            blob = self._normalize_onedrive_document_text(
+                " ".join(
+                    [
+                        filename,
+                        str(payload.get("relpath") or ""),
+                        path,
+                        str(payload.get("source_ref") or ""),
+                        str(payload.get("external_id") or ""),
+                    ]
+                )
+            )
+            score = 0.0
+            if answerly_id and answerly_id in wanted_ids:
+                score += 100.0
+            for token in tokens:
+                if token in self._normalize_onedrive_document_text(filename):
+                    score += 8.0
+                elif token in blob:
+                    score += 3.0
+            if tokens and score <= 0 and not (answerly_id and answerly_id in wanted_ids):
+                continue
+            key = path or download_url or filename
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            candidates.append(
+                {
+                    "source": "observation",
+                    "score": score,
+                    "filename": filename,
+                    "path": path,
+                    "download_url": download_url,
+                    "answerly_data_item_id": answerly_id,
+                    "created_at": str(row.created_at or ""),
+                }
+            )
+        candidates.sort(
+            key=lambda item: (
+                -float(item.get("score") or 0.0),
+                str(item.get("created_at") or ""),
+                str(item.get("filename") or ""),
+            )
+        )
+        return candidates[: max(1, int(limit or 10))]
+
+    def _search_scanned_onedrive_filesystem_candidates(
+        self,
+        *,
+        query: str,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        tokens = self._onedrive_document_query_tokens(query)
+        if not tokens:
+            return []
+        candidates: list[dict[str, object]] = []
+        seen_paths: set[str] = set()
+        for root in self._onedrive_scanned_document_roots():
+            if not root.is_dir():
+                continue
+            try:
+                iterator = root.rglob("*.pdf")
+            except Exception:
+                continue
+            for path in iterator:
+                normalized_path = str(path.resolve())
+                if normalized_path in seen_paths:
+                    continue
+                blob = self._normalize_onedrive_document_text(normalized_path)
+                score = 0.0
+                for token in tokens:
+                    if token in self._normalize_onedrive_document_text(path.name):
+                        score += 8.0
+                    elif token in blob:
+                        score += 3.0
+                if score <= 0:
+                    continue
+                seen_paths.add(normalized_path)
+                candidates.append(
+                    {
+                        "source": "filesystem",
+                        "score": score,
+                        "filename": path.name,
+                        "path": normalized_path,
+                        "download_url": "",
+                        "answerly_data_item_id": "",
+                        "created_at": "",
+                    }
+                )
+                if len(candidates) >= max(int(limit or 10) * 10, 100):
+                    break
+            if len(candidates) >= max(int(limit or 10) * 10, 100):
+                break
+        candidates.sort(key=lambda item: (-float(item.get("score") or 0.0), str(item.get("filename") or "")))
+        return candidates[: max(1, int(limit or 10))]
+
+    def deliver_onedrive_document_search_to_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        query: str,
+        answerly_source_ids: tuple[str, ...] = (),
+        limit: int = 10,
+    ) -> dict[str, object]:
+        normalized_query = str(query or "").strip()
+        if not normalized_query:
+            raise RuntimeError("onedrive_document_query_missing")
+        binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
+        if binding is None:
+            raise RuntimeError("telegram_binding_not_found")
+        candidates = self._search_recent_onedrive_document_candidates(
+            principal_id=principal_id,
+            answerly_source_ids=answerly_source_ids,
+            query=normalized_query,
+            limit=limit,
+        )
+        if not candidates:
+            candidates = self._search_scanned_onedrive_filesystem_candidates(query=normalized_query, limit=limit)
+        if not candidates:
+            raise RuntimeError("onedrive_document_search_match_not_found")
+        selected = dict(candidates[0])
+        document_ref = str(selected.get("path") or selected.get("download_url") or "").strip()
+        if not document_ref:
+            raise RuntimeError("onedrive_document_ref_missing")
+        receipt = send_telegram_document_for_principal(
+            self._container.tool_runtime,
+            principal_id=principal_id,
+            document_ref=document_ref,
+            caption=str(selected.get("filename") or "").strip(),
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="onedrive_document_telegram_sent",
+            payload={
+                "query": normalized_query,
+                "filename": str(selected.get("filename") or ""),
+                "path": str(selected.get("path") or ""),
+                "download_url": str(selected.get("download_url") or ""),
+                "answerly_data_item_id": str(selected.get("answerly_data_item_id") or ""),
+                "telegram_chat_ref": str(receipt.chat_id or ""),
+                "telegram_message_ids": [str(item or "") for item in receipt.message_ids],
+                "matched_total": len(candidates),
+            },
+            source_id=str(selected.get("answerly_data_item_id") or ""),
+            external_id=str(selected.get("path") or selected.get("download_url") or ""),
+            dedupe_key="",
+        )
+        return {
+            "query": normalized_query,
+            "matched_total": len(candidates),
+            "filename": str(selected.get("filename") or ""),
+            "document_path": str(selected.get("path") or ""),
+            "document_download_url": str(selected.get("download_url") or ""),
+            "answerly_data_item_id": str(selected.get("answerly_data_item_id") or ""),
+            "telegram_delivery_status": "sent",
+            "telegram_delivery_error": "",
+            "telegram_message_ids": [str(item or "") for item in receipt.message_ids],
+            "telegram_chat_ref": str(receipt.chat_id or ""),
+        }
+
     def _onedrive_document_public_base_url(self) -> str:
         return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
 
@@ -5061,6 +5437,243 @@ class ProductService:
             raise RuntimeError("google_location_history_import_path_not_found")
         return candidate
 
+    def _google_location_portability_principal_ids(self, principal_id: str) -> tuple[str, ...]:
+        ordered: list[str] = []
+        for raw in (
+            principal_id,
+            os.environ.get("EA_GOOGLE_DEFAULT_PRINCIPAL_ID", ""),
+            os.environ.get("EA_DEFAULT_PRINCIPAL_ID", ""),
+            "local-user",
+        ):
+            normalized = str(raw or "").strip()
+            if normalized and normalized not in ordered:
+                ordered.append(normalized)
+        return tuple(ordered)
+
+    def _google_location_portability_primary_binding_id(self, principal_id: str) -> str:
+        return f"{str(principal_id or '').strip()}:{_GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY}"
+
+    def _list_google_location_portability_binding_records(self, *, principal_id: str) -> list[object]:
+        rows: list[object] = []
+        seen: set[str] = set()
+        for binding_principal_id in self._google_location_portability_principal_ids(principal_id):
+            for row in self._container.provider_registry.list_persisted_binding_records(principal_id=binding_principal_id, limit=100):
+                if str(getattr(row, "provider_key", "") or "").strip() != _GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY:
+                    continue
+                binding_id = str(getattr(row, "binding_id", "") or "").strip()
+                if binding_id and binding_id not in seen:
+                    seen.add(binding_id)
+                    rows.append(row)
+        rows.sort(key=lambda row: (str(getattr(row, "updated_at", "") or ""), str(getattr(row, "binding_id", "") or "")), reverse=True)
+        return rows
+
+    def _resolve_google_location_portability_access_token(self, *, principal_id: str) -> tuple[object, str, dict[str, object]]:
+        config = google_oauth_service.load_google_oauth_config()
+        for binding in self._list_google_location_portability_binding_records(principal_id=principal_id):
+            metadata = dict(getattr(binding, "auth_metadata_json", {}) or {})
+            granted_scopes = {
+                str(scope or "").strip()
+                for scope in list(metadata.get("granted_scopes") or [])
+                if str(scope or "").strip()
+            }
+            if _GOOGLE_LOCATION_PORTABILITY_SCOPE not in granted_scopes:
+                continue
+            refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+            if not refresh_token_ref:
+                continue
+            refresh_token = google_oauth_service._decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+            token_payload = google_oauth_service._refresh_google_access_token(
+                refresh_token=refresh_token,
+                client_id=config.client_id,
+                client_secret=config.client_secret,
+            )
+            access_token = str(token_payload.get("access_token") or "").strip()
+            if not access_token:
+                continue
+            updated_metadata = dict(metadata)
+            updated_metadata["access_token_expires_at"] = google_oauth_service._utc_iso_after_seconds(
+                google_oauth_service._safe_int(token_payload.get("expires_in"), default=0)
+            )
+            updated_metadata["last_refresh_at"] = google_oauth_service._utc_iso_now()
+            updated_metadata["last_successful_api_call_at"] = google_oauth_service._utc_iso_now()
+            updated_metadata["token_status"] = "active"
+            binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+            self._container.provider_registry.upsert_binding_record(
+                binding_id=str(getattr(binding, "binding_id", "") or "").strip(),
+                principal_id=binding_principal_id,
+                provider_key=_GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY,
+                status=str(getattr(binding, "status", "") or "enabled").strip() or "enabled",
+                priority=int(getattr(binding, "priority", 70) or 70),
+                probe_state="ready",
+                probe_details_json=dict(getattr(binding, "probe_details_json", {}) or {}),
+                scope_json=dict(getattr(binding, "scope_json", {}) or {}),
+                auth_metadata_json=updated_metadata,
+            )
+            return binding, access_token, updated_metadata
+        raise RuntimeError("google_location_history_binding_not_found")
+
+    def _google_location_portability_http_json(
+        self,
+        *,
+        access_token: str,
+        method: str,
+        url: str,
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        headers = {
+            "Authorization": f"Bearer {str(access_token or '').strip()}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "ignore")
+            raise RuntimeError(f"google_location_history_api_http_{exc.code}:{detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"google_location_history_api_unreachable:{exc}") from exc
+        return json.loads(raw) if raw.strip() else {}
+
+    def start_google_location_history_connect(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        redirect_uri_override: str = "",
+    ) -> dict[str, object]:
+        config = google_oauth_service.load_google_oauth_config()
+        redirect_uri = str(redirect_uri_override or config.redirect_uri).strip() or config.redirect_uri
+        state_payload = {
+            "principal_id": principal_id,
+            "oauth_lane": "google_location_history",
+            "redirect_uri": redirect_uri,
+            "issued_at": int(time.time()),
+            "nonce": secrets.token_urlsafe(12),
+        }
+        state = google_oauth_service._encode_signed_state(state_payload, secret=config.state_secret)
+        query = urllib.parse.urlencode(
+            {
+                "response_type": "code",
+                "client_id": config.client_id,
+                "redirect_uri": redirect_uri,
+                "scope": " ".join(_GOOGLE_LOCATION_PORTABILITY_AUTH_SCOPES),
+                "access_type": "offline",
+                "include_granted_scopes": "false",
+                "prompt": "consent",
+                "state": state,
+            }
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_location_history_connect_started",
+            payload={
+                "actor": str(actor or "").strip() or "office_api",
+                "redirect_uri": redirect_uri,
+            },
+            source_id="google-location-history",
+            dedupe_key=f"{principal_id}|google-location-history-connect-started|{state}",
+        )
+        return {
+            "provider_key": _GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY,
+            "principal_id": principal_id,
+            "requested_scopes": list(_GOOGLE_LOCATION_PORTABILITY_AUTH_SCOPES),
+            "auth_url": f"{google_oauth_service.GOOGLE_AUTH_ENDPOINT}?{query}",
+            "state": state,
+        }
+
+    def complete_google_location_history_connect(
+        self,
+        *,
+        code: str,
+        state: str,
+    ) -> dict[str, object]:
+        config = google_oauth_service.load_google_oauth_config()
+        state_payload = google_oauth_service._decode_signed_state(state, secret=config.state_secret)
+        if str(state_payload.get("oauth_lane") or "").strip() != "google_location_history":
+            raise RuntimeError("google_location_history_state_invalid")
+        principal_id = str(state_payload.get("principal_id") or "").strip()
+        if not principal_id:
+            raise RuntimeError("google_location_history_principal_missing")
+        redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
+        token_payload = google_oauth_service._exchange_google_code_for_tokens(
+            code=code,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+            redirect_uri=redirect_uri,
+        )
+        existing_google_accounts = google_oauth_service.list_google_accounts(
+            container=self._container,
+            principal_id=principal_id,
+        )
+        google_email = str(existing_google_accounts[0].google_email or "").strip().lower() if existing_google_accounts else ""
+        google_subject = (
+            str(existing_google_accounts[0].google_subject or "").strip()
+            if existing_google_accounts
+            else f"dataportability:{principal_id}"
+        )
+        granted_scopes = tuple(
+            sorted(
+                {
+                    scope.strip()
+                    for scope in str(token_payload.get("scope") or "").split(" ")
+                    if scope.strip()
+                }
+            )
+        ) or _GOOGLE_LOCATION_PORTABILITY_AUTH_SCOPES
+        refresh_token = str(token_payload.get("refresh_token") or "").strip()
+        if not refresh_token:
+            raise RuntimeError("google_location_history_refresh_token_missing")
+        refresh_token_ref = google_oauth_service._encrypt_secret(refresh_token, key=config.provider_secret_key)
+        binding_id = self._google_location_portability_primary_binding_id(principal_id)
+        auth_metadata_json = {
+            "google_subject": google_subject,
+            "google_email": google_email,
+            "google_hosted_domain": "",
+            "granted_scopes": list(granted_scopes),
+            "refresh_token_ref": refresh_token_ref,
+            "token_status": "active",
+            "last_successful_api_call_at": google_oauth_service._utc_iso_now(),
+            "last_refresh_at": google_oauth_service._utc_iso_now(),
+            "reauth_required_reason": "",
+        }
+        binding = self._container.provider_registry.upsert_binding_record(
+            binding_id=binding_id,
+            principal_id=principal_id,
+            provider_key=_GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY,
+            status="enabled",
+            priority=70,
+            probe_state="ready",
+            probe_details_json={
+                "google_email": google_email,
+                "google_subject": google_subject,
+                "oauth_lane": "google_location_history",
+            },
+            scope_json={"scopes": list(granted_scopes), "bundle": "dataportability_maps"},
+            auth_metadata_json=auth_metadata_json,
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_location_history_connected",
+            payload={
+                "binding_id": binding.binding_id,
+                "google_email": google_email,
+                "google_subject": google_subject,
+            },
+            source_id="google-location-history",
+            dedupe_key=f"{principal_id}|google-location-history-connected|{google_subject}",
+        )
+        return {
+            "provider_key": _GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY,
+            "principal_id": principal_id,
+            "binding_id": binding.binding_id,
+            "google_email": google_email,
+            "google_subject": google_subject,
+            "granted_scopes": list(granted_scopes),
+            "token_status": "active",
+        }
+
     def _load_google_location_history_payload(self, source_path: Path) -> tuple[object, list[str]]:
         if source_path.suffix.lower() == ".zip":
             with zipfile.ZipFile(source_path) as archive:
@@ -5074,6 +5687,8 @@ class ProductService:
                     ),
                     "",
                 )
+                if not candidate_name:
+                    candidate_name = next((name for name in names if name.lower().endswith(".json")), "")
                 if not candidate_name:
                     raise RuntimeError("google_location_history_import_payload_not_found")
                 with archive.open(candidate_name) as handle:
@@ -5202,12 +5817,15 @@ class ProductService:
             **_google_location_match_projection(location_match),
         }
         dedupe_material = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        dedupe_key = f"{principal_id}|pocket-recording-archive-indexed|{hashlib.sha256(dedupe_material.encode('utf-8')).hexdigest()}"
+        if self._container.channel_runtime.find_observation_by_dedupe(dedupe_key, principal_id=principal_id) is not None:
+            return
         self._record_product_event(
             principal_id=principal_id,
             event_type="pocket_recording_archive_indexed",
             payload=payload,
             source_id=f"pocket-recording:{recording_id}",
-            dedupe_key=f"{principal_id}|pocket-recording-archive-indexed|{hashlib.sha256(dedupe_material.encode('utf-8')).hexdigest()}",
+            dedupe_key=dedupe_key,
         )
 
     def _reindex_pocket_archive_locations(self, *, principal_id: str) -> dict[str, int]:
@@ -5333,9 +5951,140 @@ class ProductService:
             **reindexed,
         }
 
+    def _latest_google_location_history_portability_job(self, *, principal_id: str) -> dict[str, object]:
+        event = self._latest_product_event(
+            principal_id=principal_id,
+            event_type="google_location_history_portability_job_state",
+        )
+        return dict(getattr(event, "payload", {}) or {}) if event is not None else {}
+
+    def sync_google_location_history_portability(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        force: bool = False,
+    ) -> dict[str, object]:
+        binding, access_token, metadata = self._resolve_google_location_portability_access_token(principal_id=principal_id)
+        current_job = self._latest_google_location_history_portability_job(principal_id=principal_id)
+        current_state = str(current_job.get("state") or "").strip().upper()
+        archive_job_id = str(current_job.get("archive_job_id") or "").strip()
+        imported_total = 0
+        matched_recording_total = 0
+        unmatched_recording_total = 0
+        indexed_recording_total = 0
+        updated_metadata_total = 0
+        urls: list[str] = []
+
+        latest_import = self._latest_product_event(
+            principal_id=principal_id,
+            event_type="google_location_history_import_completed",
+        )
+        if archive_job_id and current_state in {"IN_PROGRESS", "PENDING", "COMPLETE"}:
+            if current_state == "COMPLETE":
+                urls = [str(value).strip() for value in list(current_job.get("urls") or []) if str(value).strip()]
+            if current_state in {"IN_PROGRESS", "PENDING"} or not urls:
+                state_payload = self._google_location_portability_http_json(
+                    access_token=access_token,
+                    method="GET",
+                    url=f"{_GOOGLE_LOCATION_PORTABILITY_API_BASE}/archiveJobs/{archive_job_id}/portabilityArchiveState",
+                )
+                current_state = str(state_payload.get("state") or current_state or "UNKNOWN").strip().upper()
+                urls = [str(value).strip() for value in list(state_payload.get("urls") or []) if str(value).strip()]
+        else:
+            if not force and latest_import is not None:
+                imported_at = _parse_utcish(str(getattr(latest_import, "created_at", "") or "").strip())
+                if imported_at is not None and (_utcnow() - imported_at).total_seconds() < _google_location_history_sync_cooldown_seconds():
+                    payload = dict(getattr(latest_import, "payload", {}) or {})
+                    return {
+                        "generated_at": _now_iso(),
+                        "provider_key": _GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY,
+                        "google_email": str(metadata.get("google_email") or "").strip().lower(),
+                        "state": "COOLDOWN",
+                        "archive_job_id": archive_job_id,
+                        "imported_total": int(payload.get("imported_total") or 0),
+                        "matched_recording_total": int(payload.get("matched_recording_total") or 0),
+                        "unmatched_recording_total": int(payload.get("unmatched_recording_total") or 0),
+                        "indexed_recording_total": int(payload.get("indexed_recording_total") or 0),
+                        "updated_metadata_total": int(payload.get("updated_metadata_total") or 0),
+                    }
+            window_start = (_utcnow() - timedelta(days=_google_location_history_export_window_days())).replace(microsecond=0).isoformat()
+            initiate_payload = self._google_location_portability_http_json(
+                access_token=access_token,
+                method="POST",
+                url=f"{_GOOGLE_LOCATION_PORTABILITY_API_BASE}/portabilityArchive:initiate",
+                payload={
+                    "resources": [_GOOGLE_LOCATION_PORTABILITY_RESOURCE],
+                    "startTime": window_start,
+                },
+            )
+            archive_job_id = str(initiate_payload.get("archiveJobId") or initiate_payload.get("archive_job_id") or "").strip()
+            current_state = "IN_PROGRESS"
+
+        if current_state == "COMPLETE" and urls:
+            for signed_url in urls:
+                with tempfile.NamedTemporaryFile(prefix="ea-location-history-", suffix=".zip", delete=False) as handle:
+                    with urllib.request.urlopen(signed_url, timeout=300) as response:
+                        handle.write(response.read())
+                    temp_path = handle.name
+                try:
+                    imported = self.import_google_location_history(
+                        principal_id=principal_id,
+                        actor=actor,
+                        path=temp_path,
+                    )
+                finally:
+                    try:
+                        Path(temp_path).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                imported_total += int(imported.get("imported_total") or 0)
+                matched_recording_total = max(matched_recording_total, int(imported.get("matched_recording_total") or 0))
+                unmatched_recording_total = max(unmatched_recording_total, int(imported.get("unmatched_recording_total") or 0))
+                indexed_recording_total = max(indexed_recording_total, int(imported.get("indexed_recording_total") or 0))
+                updated_metadata_total += int(imported.get("updated_metadata_total") or 0)
+
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_location_history_portability_job_state",
+            payload={
+                "actor": str(actor or "").strip() or "office_api",
+                "archive_job_id": archive_job_id,
+                "state": current_state,
+                "google_email": str(metadata.get("google_email") or "").strip().lower(),
+                "urls": urls,
+                "imported_total": imported_total,
+                "matched_recording_total": matched_recording_total,
+                "unmatched_recording_total": unmatched_recording_total,
+                "indexed_recording_total": indexed_recording_total,
+                "updated_metadata_total": updated_metadata_total,
+            },
+            source_id="google-location-history",
+            dedupe_key=f"{principal_id}|google-location-history-portability-job|{archive_job_id}|{current_state}|{imported_total}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "provider_key": _GOOGLE_LOCATION_PORTABILITY_PROVIDER_KEY,
+            "google_email": str(metadata.get("google_email") or "").strip().lower(),
+            "state": current_state,
+            "archive_job_id": archive_job_id,
+            "imported_total": imported_total,
+            "matched_recording_total": matched_recording_total,
+            "unmatched_recording_total": unmatched_recording_total,
+            "indexed_recording_total": indexed_recording_total,
+            "updated_metadata_total": updated_metadata_total,
+        }
+
     def _maybe_auto_import_google_location_history(self, *, principal_id: str, actor: str) -> None:
         source_path = _google_location_history_auto_import_path()
         if not source_path:
+            try:
+                self.sync_google_location_history_portability(
+                    principal_id=principal_id,
+                    actor=actor,
+                )
+            except RuntimeError:
+                return
             return
         try:
             self.import_google_location_history(
@@ -5344,7 +6093,13 @@ class ProductService:
                 path=source_path,
             )
         except RuntimeError:
-            return
+            try:
+                self.sync_google_location_history_portability(
+                    principal_id=principal_id,
+                    actor=actor,
+                )
+            except RuntimeError:
+                return
 
     def _stakeholder_lookup(self, principal_id: str) -> dict[str, Stakeholder]:
         rows = self._container.memory_runtime.list_stakeholders(principal_id=principal_id, limit=200)
@@ -11074,6 +11829,45 @@ class ProductService:
         )
         return response
 
+    def deliver_pocket_recording_search_to_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        query: str = "",
+        before: str = "",
+        after: str = "",
+        limit: int = 10,
+    ) -> dict[str, object]:
+        search = self.search_pocket_recordings(
+            principal_id=principal_id,
+            actor=actor,
+            query=query,
+            before=before,
+            after=after,
+            limit=limit,
+        )
+        items = list(search.get("items") or [])
+        if not items:
+            raise RuntimeError("pocket_recording_search_match_not_found")
+        best_match = dict(items[0] or {})
+        delivered = self.deliver_pocket_recording_to_telegram(
+            principal_id=principal_id,
+            actor=actor,
+            recording_id=str(best_match.get("recording_id") or "").strip(),
+        )
+        return {
+            **delivered,
+            "query": str(search.get("query") or "").strip(),
+            "before": str(search.get("before") or "").strip(),
+            "after": str(search.get("after") or "").strip(),
+            "matched_total": int(search.get("total") or 0),
+            "location_name": str(best_match.get("location_name") or "").strip(),
+            "location_address": str(best_match.get("location_address") or "").strip(),
+            "location_match_status": str(best_match.get("location_match_status") or "").strip(),
+            "location_confidence": float(best_match.get("location_confidence") or 0.0),
+        }
+
     def _archive_pocket_recording_audio(
         self,
         *,
@@ -11809,6 +12603,7 @@ class ProductService:
         items.sort(
             key=lambda item: (
                 float(item.get("match_score") or 0.0),
+                float(item.get("location_confidence") or 0.0),
                 str(item.get("recording_at") or ""),
                 str(item.get("recording_id") or ""),
             ),

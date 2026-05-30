@@ -11,8 +11,11 @@ from app.api.routes.product_api_contracts import (
     ChannelDigestDeliveryCreateIn,
     ChannelDigestDeliveryOut,
     ChannelLoopOut,
+    GoogleLocationHistoryConnectCallbackOut,
+    GoogleLocationHistoryConnectStartOut,
     GoogleLocationHistoryImportIn,
     GoogleLocationHistoryImportOut,
+    GoogleLocationHistorySyncOut,
     GooglePhotosPickerSessionIn,
     GooglePhotosPickerSessionOut,
     GooglePhotosSignalSyncIn,
@@ -21,6 +24,7 @@ from app.api.routes.product_api_contracts import (
     GoogleSignalSyncStatusOut,
     NoneverbiaSignalImportIn,
     NoneverbiaSignalImportOut,
+    OneDriveDocumentQueryTelegramDeliveryOut,
     OfficeEventOut,
     OfficeEventResponse,
     OfficeSignalIn,
@@ -30,6 +34,7 @@ from app.api.routes.product_api_contracts import (
     PocketRecordingDetailOut,
     PocketRecordingSearchOut,
     PocketRecordingTelegramDeliveryOut,
+    PocketRecordingQueryTelegramDeliveryOut,
     PocketSignalImportIn,
     PocketSignalImportOut,
     PocketSignalSyncOut,
@@ -225,6 +230,60 @@ def import_google_location_history(
     return GoogleLocationHistoryImportOut(**payload)
 
 
+@router.post("/signals/google/location-history/connect-start", response_model=GoogleLocationHistoryConnectStartOut)
+def start_google_location_history_connect(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleLocationHistoryConnectStartOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    payload = service.start_google_location_history_connect(
+        principal_id=context.principal_id,
+        actor=actor,
+        redirect_uri_override=f"{_public_base_url(request)}/google/callback",
+    )
+    return GoogleLocationHistoryConnectStartOut(**payload)
+
+
+@router.get("/signals/google/location-history/callback", response_model=GoogleLocationHistoryConnectCallbackOut)
+def complete_google_location_history_connect(
+    code: str = Query(..., min_length=1),
+    state: str = Query(..., min_length=1),
+    container: AppContainer = Depends(get_container),
+) -> GoogleLocationHistoryConnectCallbackOut:
+    service = build_product_service(container)
+    try:
+        payload = service.complete_google_location_history_connect(
+            code=code,
+            state=state,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return GoogleLocationHistoryConnectCallbackOut(**payload)
+
+
+@router.post("/signals/google/location-history/sync", response_model=GoogleLocationHistorySyncOut)
+def sync_google_location_history_portability(
+    force: bool = Query(default=False),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleLocationHistorySyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.sync_google_location_history_portability(
+            principal_id=context.principal_id,
+            actor=actor,
+            force=force,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 409 if detail == "google_location_history_binding_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return GoogleLocationHistorySyncOut(**payload)
+
+
 @router.post("/signals/pocket/sync", response_model=PocketSignalSyncOut)
 def sync_pocket_recordings(
     limit: int = Query(default=5, ge=1, le=100),
@@ -383,6 +442,68 @@ def deliver_pocket_recording_to_telegram(
             status_code = 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return PocketRecordingTelegramDeliveryOut(**payload)
+
+
+@router.post("/signals/pocket/recordings/deliver-telegram", response_model=PocketRecordingQueryTelegramDeliveryOut)
+def deliver_pocket_recording_search_to_telegram(
+    q: str = Query(default=""),
+    before: str = Query(default=""),
+    after: str = Query(default=""),
+    limit: int = Query(default=10, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketRecordingQueryTelegramDeliveryOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.deliver_pocket_recording_search_to_telegram(
+            principal_id=context.principal_id,
+            actor=actor,
+            query=q,
+            before=before,
+            after=after,
+            limit=limit,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "pocket_recording_search_match_not_found":
+            status_code = 404
+        elif detail.startswith("pocket_api_http_429:"):
+            status_code = 429
+        elif detail in {"telegram_binding_not_found", "pocket_recording_audio_unavailable"}:
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketRecordingQueryTelegramDeliveryOut(**payload)
+
+
+@router.post("/signals/onedrive/documents/deliver-telegram", response_model=OneDriveDocumentQueryTelegramDeliveryOut)
+def deliver_onedrive_document_search_to_telegram(
+    q: str = Query(default=""),
+    limit: int = Query(default=10, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> OneDriveDocumentQueryTelegramDeliveryOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.deliver_onedrive_document_search_to_telegram(
+            principal_id=context.principal_id,
+            actor=actor,
+            query=q,
+            limit=limit,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "onedrive_document_search_match_not_found":
+            status_code = 404
+        elif detail == "telegram_binding_not_found":
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return OneDriveDocumentQueryTelegramDeliveryOut(**payload)
 
 
 @router.post("/signals/google/sync", response_model=GoogleSignalSyncOut)

@@ -2232,6 +2232,58 @@ def test_telegram_local_assistant_routes_medication_whereabouts_request_to_onedr
     assert answerly_calls[-1]["config"]["scope"] == "onedrive"
 
 
+def test_telegram_local_assistant_sends_onedrive_pdf_match_via_telegram(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_API_KEY", "onedrive-key")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_AGENT_ID", "agent-123")
+    monkeypatch.setenv("EA_ANSWERLY_ONEDRIVE_LABEL", "Scanned OneDrive documents")
+    monkeypatch.setattr(
+        channels_route,
+        "_answerly_chat",
+        lambda **kwargs: {
+            "status": True,
+            "data": {
+                "messages": [
+                    "I found the scanned birthday and Christmas measurements PDF in the OneDrive scans."
+                ],
+                "actionResponse": {"name": "conversational"},
+                "meta": {"source": [{"dataItemId": "onedrive-birthday-scan-1"}]},
+            },
+        },
+    )
+    captured_delivery: dict[str, object] = {}
+
+    class _FakeProductService:
+        def deliver_onedrive_document_search_to_telegram(self, **kwargs):  # type: ignore[no-untyped-def]
+            captured_delivery.update(kwargs)
+            return {
+                "query": kwargs["query"],
+                "matched_total": 1,
+                "filename": "Geburtstags-und-Weihnachtsgroessen.pdf",
+                "document_path": "/mnt/onedrive/Documents/Scanned Documents/Geburtstags-und-Weihnachtsgroessen.pdf",
+                "document_download_url": "",
+                "answerly_data_item_id": "onedrive-birthday-scan-1",
+                "telegram_delivery_status": "sent",
+                "telegram_delivery_error": "",
+                "telegram_message_ids": ["42"],
+                "telegram_chat_ref": "1354554303",
+            }
+
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    reply = channels_route._telegram_local_assistant_reply_text(
+        _client(principal_id="exec-telegram-answerly-send-pdf", operator=False).app.state.container,
+        principal_id="exec-telegram-answerly-send-pdf",
+        text="Schick mir das PDF mit unseren handschriftlichen Geburtstags- und Weihnachtsgrößen aus OneDrive.",
+    )
+    assert "I found the scanned birthday and Christmas measurements PDF" in reply
+    assert "Sent Geburtstags-und-Weihnachtsgroessen.pdf on Telegram." in reply
+    assert "Matched Scanned OneDrive documents Answerly items: onedrive-birthday-scan-1." in reply
+    assert captured_delivery["answerly_source_ids"] == ("onedrive-birthday-scan-1",)
+
+
 def test_telegram_local_assistant_reports_unconfigured_answerly_when_named(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import channels as channels_route
 

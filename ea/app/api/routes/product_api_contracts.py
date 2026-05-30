@@ -1027,6 +1027,37 @@ class GoogleLocationHistoryImportOut(BaseModel):
     updated_metadata_total: int = 0
 
 
+class GoogleLocationHistoryConnectStartOut(BaseModel):
+    provider_key: str
+    principal_id: str
+    requested_scopes: list[str] = Field(default_factory=list)
+    auth_url: str
+    state: str
+
+
+class GoogleLocationHistoryConnectCallbackOut(BaseModel):
+    provider_key: str
+    principal_id: str
+    binding_id: str
+    google_email: str = ""
+    google_subject: str = ""
+    granted_scopes: list[str] = Field(default_factory=list)
+    token_status: str = ""
+
+
+class GoogleLocationHistorySyncOut(BaseModel):
+    generated_at: str
+    provider_key: str
+    google_email: str = ""
+    state: str = ""
+    archive_job_id: str = ""
+    imported_total: int = 0
+    matched_recording_total: int = 0
+    unmatched_recording_total: int = 0
+    indexed_recording_total: int = 0
+    updated_metadata_total: int = 0
+
+
 class NoneverbiaSignalImportIn(BaseModel):
     path: str = Field(min_length=1)
     counterparty: str = "Noneverbia"
@@ -1168,6 +1199,30 @@ class PocketRecordingTelegramDeliveryOut(BaseModel):
     telegram_chat_ref: str = ""
     audio_download_url: str = ""
     audio_expires_at: str = ""
+
+
+class PocketRecordingQueryTelegramDeliveryOut(PocketRecordingTelegramDeliveryOut):
+    query: str = ""
+    before: str = ""
+    after: str = ""
+    matched_total: int = 0
+    location_name: str = ""
+    location_address: str = ""
+    location_match_status: str = ""
+    location_confidence: float = 0.0
+
+
+class OneDriveDocumentQueryTelegramDeliveryOut(BaseModel):
+    query: str = ""
+    matched_total: int = 0
+    filename: str = ""
+    document_path: str = ""
+    document_download_url: str = ""
+    answerly_data_item_id: str = ""
+    telegram_delivery_status: str = ""
+    telegram_delivery_error: str = ""
+    telegram_message_ids: list[str] = Field(default_factory=list)
+    telegram_chat_ref: str = ""
 
 
 class GoogleSignalSyncOut(BaseModel):
