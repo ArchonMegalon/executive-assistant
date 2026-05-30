@@ -55,7 +55,7 @@ waves:
       - 110
   - id: W11
     name: Make campaign operations indispensable
-    status: in_progress
+    status: complete
     milestone_ids:
       - 112
       - 113
@@ -1906,6 +1906,24 @@ milestones:
       - id: 113.4
         owner: chummer6-media-factory
         title: Render opposition and prep packets into governed packet, preview, and optional briefing artifacts.
+        status: complete
+        landed_commit: 7d5a0167
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M113 chummer6-media-factory GM prep packet bundles are complete; future shards must verify the GM prep render service, contract lane, smoke proof, generated media proof, canonical registry row, and queue mirrors instead of reopening the governed packet bundle package.
+        evidence:
+          - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Factory.Runtime/Assets/GmPrepPacketBundleService.cs renders governed opposition, scene, and prep-library entries into packet, preview, and optional briefing artifacts through media-factory job execution only
+          - /docker/fleet/repos/chummer-media-factory/src/Chummer.Media.Contracts/Compatibility/RunServices/MediaFactoryContracts.cs defines GmPrepPacketRenderRequest, GmPrepPacketBundleReceipt, GmPrepPacketEntryReceipt, GmPrepPacketSubjectReceiptGroup, and GmPrepPacketArtifactReceipt
+          - /docker/fleet/repos/chummer-media-factory/tests/GmPrepPacketSmoke/Program.cs proves opposition entries stay mandatory, packet refs stay unique, governed source-pack plus sibling packet/source-entry scope stays enforced, optional briefings stay bounded per entry, and delimiter-heavy variants cannot collapse dedupe or receipt ids
+          - /docker/fleet/repos/chummer-media-factory/tests/test_gm_prep_packet_rendering.py, /docker/fleet/repos/chummer-media-factory/tests/test_m113_gm_prep_packet_proof.py, and /docker/fleet/repos/chummer-media-factory/tests/test_m113_successor_package_authority.py fail-close contract drift, repo-local proof drift, queue and registry closure drift, and do-not-reopen proof drift
+          - /docker/fleet/repos/chummer-media-factory/docs/NEXT90_M113_GM_PREP_PACKET_PROOF_FLOOR.md records the repo-local M113 proof floor
+          - /docker/fleet/repos/chummer-media-factory/scripts/ai/materialize_media_release_proof.py emits the M113 package into /docker/fleet/repos/chummer-media-factory/.codex-studio/published/MEDIA_LOCAL_RELEASE_PROOF.generated.json and /docker/fleet/repos/chummer-media-factory/.codex-studio/published/ARTIFACT_PUBLICATION_CERTIFICATION.generated.json with the current complete status
+          - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m113_gm_prep_packets.sh gives the package one repo-local verifier entrypoint
+          - /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh calls the dedicated M113 verifier as part of the standard media-factory verify lane
+          - python3 -m unittest tests.test_m113_successor_package_authority tests.test_m113_gm_prep_packet_proof tests.test_gm_prep_packet_rendering exits 0.
+          - dotnet run --project tests/GmPrepPacketSmoke/Chummer.Media.Factory.GmPrepPacketSmoke.csproj --configuration Release --nologo --verbosity quiet exits 0.
+          - ./scripts/ai/verify_m113_gm_prep_packets.sh exits 0.
+          - bash /docker/fleet/repos/chummer-media-factory/scripts/ai/verify_m113_gm_prep_packets.sh exits 0.
+          - bash /docker/fleet/repos/chummer-media-factory/scripts/ai/verify.sh exits 0.
       - id: 113.5
         owner: executive-assistant
         title: Produce operator-safe GM prep and roster movement packets from governed campaign truth.
@@ -1995,7 +2013,7 @@ milestones:
       - chummer6-ui
       - chummer6-media-factory
       - chummer6-design
-    status: in_progress
+    status: complete
     dependencies:
       - 107
       - 115
@@ -2007,6 +2025,15 @@ milestones:
       - id: 116.1
         owner: chummer6-hub
         title: Build creator publication discovery, moderation, and submission orchestration from approved artifact manifests.
+        status: complete
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M116 chummer6-hub creator publication discovery and moderation orchestration is complete; future shards must verify approved-manifest authority discovery, correction, moderation, public artifact shelf contracts, and registry-facing proof evidence from this package instead of reopening this slice.
+        evidence:
+          - PublicLandingController.cs and /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/PublicCreatorPublicationDiscoveryService.cs now keep governed public discovery and detail routes restricted to approved-manifest-backed creator publications while preserving sibling packet navigation and the public artifact shelf contracts.
+          - AccountsController.cs, /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Views/Accounts/Account.cshtml, and /docker/chummercomplete/chummer.run-services/Chummer.Run.Api/Services/Community/CreatorPublicationRegistryBridge.cs now keep submission, rejection, correction resubmission, approval, and publication on one approved-manifest moderation lane and fail closed without approved audit authority.
+          - tests/RunServicesSmoke/Program.cs proves correction-pass resubmission notes, fail-closed public detail routes for rejected packets, and governed public shelf/detail contracts on discoverable creator publications.
+          - scripts/verify_next90_m116_hub_creator_publication.py, /docker/chummercomplete/chummer.run-services/tests/test_next90_m116_hub_creator_publication.py, and /docker/chummercomplete/chummer.run-services/.codex-studio/published/NEXT90_M116_HUB_CREATOR_PUBLICATION.generated.json keep the closed-package queue, registry, generated-proof, and source-marker receipt executable inside the repo.
+          - python3 scripts/verify_next90_m116_hub_creator_publication.py exits 0, python3 -m unittest tests/test_next90_m116_hub_creator_publication.py exits 0, and bash scripts/ai/verify.sh keeps the dedicated M116 verifier in the shared verify lane.
       - id: 116.2
         owner: chummer6-hub-registry
         title: Publish lineage, moderation, ranking, compatibility, and revocation facts for creator artifacts.
@@ -2079,6 +2106,16 @@ milestones:
       - id: 118.1
         owner: chummer6-hub
         title: Land organizer, league, convention, and season operation contracts with roles, rosters, events, and audit receipts.
+        status: complete
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M118 chummer6-hub organizer, league, convention, and season contracts are complete; future shards must verify the organizer operations release-proof receipts, canonical registry row, Fleet queue row, and design queue row instead of reopening this governed community-operations slice.
+        evidence:
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Contracts/OrganizerOpsContracts.cs and /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Controllers/CampaignSpineController.cs now publish one governed organizer-operations dashboard contract and API route for organizer, league, convention, and season work.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Services/Community/CampaignSpineService.cs now composes organizer roles, permissions, roster movement, season lanes, artifact publication posture, and support-escalation posture from the shared campaign/community truth instead of separate operator notes.
+          - /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/Accounts/Account.cshtml and /docker/chummercomplete/chummer6-hub/Chummer.Run.Api/Views/PublicLanding/Home.cshtml now keep organizer publication and support posture visible on the signed-in work rails without splitting it away from the governed operations card.
+          - /docker/chummercomplete/chummer6-hub/tests/RunServicesSmoke/Program.cs proves organizer role assignments, permissions, roster movement, season lanes, artifact publication posture, and tracked support escalation survive the shared hub API and signed-in surfaces.
+          - /docker/chummercomplete/chummer6-hub/scripts/materialize_hub_local_release_proof.py, /docker/chummercomplete/chummer6-hub/scripts/verify_next90_m118_hub_organizer_ops.py, and /docker/chummercomplete/chummer6-hub/tests/test_next90_m118_hub_organizer_ops.py keep the closed-package queue, registry, and release-proof receipts executable inside the repo.
+          - python3 scripts/verify_next90_m118_hub_organizer_ops.py exits 0, python3 -m unittest tests/test_next90_m118_hub_organizer_ops.py exits 0, and bash scripts/ai/verify.sh keeps the dedicated M118 verifier in the shared verify lane.
       - id: 118.2
         owner: chummer6-ui
         title: Surface organizer operations on desktop without confusing GM, player, creator, and operator roles.
@@ -2088,6 +2125,16 @@ milestones:
       - id: 118.4
         owner: fleet
         title: Add operator-loop checks for organizer health, support risk, and publication readiness.
+        status: complete
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M118 Fleet organizer operator packets are complete; future shards must verify the organizer operator packet receipt, standalone verifier, registry row, queue row, and design queue row instead of reopening the organizer health and publication readiness packet slice.
+        evidence:
+          - /docker/fleet/scripts/materialize_next90_m118_fleet_ea_organizer_packets.py
+          - /docker/fleet/scripts/verify_next90_m118_fleet_ea_organizer_packets.py
+          - /docker/fleet/tests/test_materialize_next90_m118_fleet_ea_organizer_packets.py
+          - /docker/fleet/tests/test_verify_next90_m118_fleet_ea_organizer_packets.py
+          - /docker/fleet/.codex-studio/published/NEXT90_M118_FLEET_EA_ORGANIZER_PACKETS.generated.json
+          - /docker/fleet/feedback/2026-05-05-next90-m118-fleet-ea-organizer-packets-closeout.md
       - id: 118.5
         owner: chummer6-design
         title: Define role and audit boundaries for community-scale operations.
@@ -2173,6 +2220,18 @@ milestones:
       - id: 120.3
         owner: fleet
         title: Compile launch pulse, adoption health, support risk, and proof freshness into governor-ready public status packets.
+        status: complete
+        landed_commit: '19878082'
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M120 Fleet package 'Compile launch pulse and adoption health into governor packets' is complete; future shards must verify the repo-local materializer/verifier, generated proof artifacts, and canonical queue/registry mirrors instead of reopening this closure slice by prose alone.
+        evidence:
+          - /docker/fleet/scripts/materialize_next90_m120_fleet_launch_pulse.py
+          - /docker/fleet/scripts/verify_next90_m120_fleet_launch_pulse.py
+          - /docker/fleet/tests/test_materialize_next90_m120_fleet_launch_pulse.py
+          - /docker/fleet/tests/test_verify_next90_m120_fleet_launch_pulse.py
+          - /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.json
+          - /docker/fleet/.codex-studio/published/NEXT90_M120_FLEET_LAUNCH_PULSE.generated.md
+          - /docker/fleet/feedback/2026-05-05-next90-m120-fleet-launch-pulse-closeout.md
       - id: 120.4
         owner: executive-assistant
         title: Draft reporter, operator, and public followthrough from launch-pulse truth without inventing release claims.
