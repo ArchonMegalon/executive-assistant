@@ -3531,6 +3531,7 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
     monkeypatch.setenv("EA_POCKET_AUDIO_ARCHIVE_ENABLED", "1")
+    captured_rows: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         product_service,
@@ -3588,15 +3589,19 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
             "title": "Pocket meeting",
         },
     )
-    monkeypatch.setattr(
-        product_service.ProductService,
-        "_sync_pocket_audio_archive_index_to_teable",
-        lambda self, *, principal_id, rows: {
+    def _capture_teable_rows(self, *, principal_id, rows):
+        captured_rows[:] = [dict(row) for row in rows]
+        return {
             "status": "synced",
             "sync_attempted": True,
             "row_total": len(rows),
             "blocked_reason": "",
-        },
+        }
+
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        _capture_teable_rows,
     )
     synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
     assert synced.status_code == 200
@@ -3618,6 +3623,8 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     assert body["items"][0]["channel"] == "pocket"
     assert body["items"][0]["event_type"] == "office_signal_audio_recording"
     assert body["items"][0]["source_id"] == "pocket-recording:done-1"
+    assert captured_rows[0]["audio_download_url"] == ""
+    assert "audio_download_url_host" not in captured_rows[0]
 
     events = client.get("/app/api/events", params={"channel": "pocket"})
     assert events.status_code == 200

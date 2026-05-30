@@ -10594,7 +10594,7 @@ class ProductService:
                     "tags_csv": ", ".join(tags),
                     "summary_markdown": summary_markdown,
                     "transcript_excerpt": compact_text(transcript_text, fallback="", limit=1200),
-                    "audio_download_url_host": urllib.parse.urlparse(str(detail.get("audio_download_url") or "").strip()).netloc,
+                    "audio_download_url": "",
                     "audio_expires_at": str(detail.get("audio_expires_at") or "").strip(),
                     "updated_at": _now_iso(),
                 }
