@@ -207,13 +207,15 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     normalized = urllib.parse.urldefrag(str(url or "").strip())[0]
     if not normalized:
         return False
-    if _is_willhaben_property_url(normalized):
-        return True
     parsed = urllib.parse.urlparse(normalized)
     host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".css", ".js", ".json")):
+        return False
+    if _is_willhaben_property_url(normalized):
+        return "/iad/immobilien/d/" in path
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
-    path = parsed.path.lower()
     return any(
         marker in path
         for marker in ("/expose/", "/objekt/", "/immobilien/", "/detail/", "/d/", "/angebote/")
