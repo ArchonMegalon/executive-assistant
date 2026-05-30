@@ -56,6 +56,10 @@ GOOGLE_SCOPE_VERIFY = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_METADATA,
 )
 
+GOOGLE_SCOPE_KEEP_ONLY = GOOGLE_SCOPE_IDENTITY + (
+    GOOGLE_SCOPE_KEEP,
+)
+
 GOOGLE_SCOPE_CORE = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_SEND,
     GOOGLE_SCOPE_METADATA,
@@ -68,7 +72,6 @@ GOOGLE_SCOPE_FULL_WORKSPACE = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_METADATA,
     GOOGLE_SCOPE_GMAIL_MODIFY,
     GOOGLE_SCOPE_CALENDAR,
-    GOOGLE_SCOPE_KEEP,
     GOOGLE_SCOPE_CONTACTS_READONLY,
     GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
 )
@@ -88,6 +91,7 @@ GOOGLE_SCOPE_FULL_WORKSPACE_AND_PHOTOS = GOOGLE_SCOPE_FULL_WORKSPACE + (
 SCOPE_BUNDLES: dict[str, tuple[str, ...]] = {
     "send": GOOGLE_SCOPE_SEND_ONLY,
     "verify": GOOGLE_SCOPE_VERIFY,
+    "keep": GOOGLE_SCOPE_KEEP_ONLY,
     "core": GOOGLE_SCOPE_CORE,
     "photos": GOOGLE_SCOPE_PHOTOS,
     "core_photos": GOOGLE_SCOPE_CORE_AND_PHOTOS,
@@ -121,6 +125,19 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
             "No calendar context",
             "No contacts context",
             "No inbox modification",
+        ),
+    },
+    "keep": {
+        "label": "Google Keep",
+        "summary": "Authorize EA to create Google Keep notes and checklists for assistant-triggered actions.",
+        "capabilities": (
+            "Google Keep note creation",
+            "Google Keep checklist creation",
+        ),
+        "limitations": (
+            "No Gmail access",
+            "No calendar access",
+            "No Drive file index context",
         ),
     },
     "core": {
@@ -166,11 +183,10 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
     },
     "full_workspace": {
         "label": "Google Full Workspace",
-        "summary": "Broader assistant context: inbox actions plus richer calendar, Google Keep, and Drive index context.",
+        "summary": "Broader assistant context: inbox actions plus richer calendar and Drive index context.",
         "capabilities": (
             "Inbox understanding and modification",
             "Richer calendar actions",
-            "Google Keep note creation",
             "Drive file index context",
         ),
         "limitations": (
@@ -183,7 +199,6 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         "capabilities": (
             "Inbox understanding and modification",
             "Richer calendar actions",
-            "Google Keep note creation",
             "Drive file index context",
             "Google Photos picker sessions",
         ),
@@ -198,7 +213,6 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         "capabilities": (
             "Inbox understanding and modification",
             "Richer calendar actions",
-            "Google Keep note creation",
             "Drive file index context",
         ),
         "limitations": (

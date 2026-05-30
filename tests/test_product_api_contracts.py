@@ -4046,6 +4046,105 @@ def test_pocket_api_sync_executes_assistant_keep_note_trigger(monkeypatch) -> No
     assert executed["payload"]["classification_reason"] == "spoken_request_to_save_keep_note"
 
 
+def test_pocket_api_sync_routes_keep_trigger_to_manual_followup_when_keep_scope_missing(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-keep-followup"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "trigger-keep-fallback-1", "title": "Pocket keep fallback command", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket keep fallback command",
+                "state": "completed",
+                "duration": 88.0,
+                "language": "de",
+                "recording_at": "2026-05-30T09:30:00Z",
+                "created_at": "2026-05-30T09:30:10Z",
+                "updated_at": "2026-05-30T09:30:20Z",
+                "tags": ["memo"],
+                "transcript": {
+                    "text": "Assistent: setz Toilettenpapier auf meine Einkaufsliste.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Assistent: setz Toilettenpapier auf meine Einkaufsliste."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.responses_upstream,
+        "generate_text",
+        lambda **kwargs: type(
+            "UpstreamResultStub",
+            (),
+            {
+                "text": json.dumps(
+                    {
+                        "action": "shopping_list_add",
+                        "confidence": 0.93,
+                        "reason": "spoken_request_to_add_item_to_shopping_list",
+                        "params": {"item_text": "toilettenpapier"},
+                    }
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        google_oauth_service,
+        "create_google_keep_note",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("google_keep_scope_missing")),
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_open_pocket_assistant_followup",
+        lambda self, **kwargs: type("FollowupStub", (), {"task_id": "task-keep-1", "session_id": "sess-keep-1"})(),
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["assistant_trigger_total"] == 1
+    assert body["assistant_trigger_executed_total"] == 1
+    assert body["assistant_trigger_blocked_total"] == 0
+
+    product_events = client.get("/app/api/events", params={"channel": "product"})
+    assert product_events.status_code == 200
+    executed = next(
+        item
+        for item in product_events.json()["items"]
+        if item["event_type"] == "pocket_assistant_command_executed"
+        and item["payload"]["recording_id"] == "trigger-keep-fallback-1"
+    )
+    assert executed["payload"]["delivery_backend"] == "human_followup"
+    assert executed["payload"]["delivery_status"] == "queued"
+    assert executed["payload"]["delivery_result"]["reason"] == "google_keep_reconnect_required"
+
+
 def test_pocket_api_sync_routes_gmail_trigger_to_manual_followup_by_default(monkeypatch) -> None:
     principal_id = "exec-product-pocket-sync-gmail-followup"
     client = build_product_client(principal_id=principal_id)

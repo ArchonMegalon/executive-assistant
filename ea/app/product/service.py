@@ -5964,19 +5964,50 @@ class ProductService:
         trigger_text: str,
         item_text: str,
     ) -> dict[str, object]:
-        receipt = google_oauth_service.create_google_keep_note(
-            container=self._container,
+        try:
+            receipt = google_oauth_service.create_google_keep_note(
+                container=self._container,
+                principal_id=principal_id,
+                title="Shopping list",
+                list_item_texts=(item_text,),
+            )
+            return {
+                "status": "created",
+                "backend": "google_keep",
+                "note_name": receipt.note_name,
+                "note_title": receipt.title,
+                "list_item_texts": list(receipt.list_item_texts),
+                "created_at": receipt.created_at,
+            }
+        except RuntimeError as exc:
+            if str(exc or "").strip() not in {
+                "google_keep_scope_missing",
+                "google_oauth_binding_not_found",
+                "google_keep_refresh_token_missing",
+                "google_keep_access_token_missing",
+            }:
+                raise
+        followup = self._open_pocket_assistant_followup(
             principal_id=principal_id,
-            title="Shopping list",
-            list_item_texts=(item_text,),
+            recording_id=recording_id,
+            title=title,
+            recording_at=recording_at,
+            trigger_text=trigger_text,
+            action="manual_followup",
+            reason="google_keep_reconnect_required",
+            params={
+                "brief": f"Complete Google Keep reconnect for shopping list item: {item_text}",
+                "why": "Google Keep authorization is not available for this principal, so EA cannot safely write the note automatically.",
+                "requested_action": "shopping_list_add",
+                "item_text": item_text,
+            },
         )
         return {
-            "status": "created",
-            "backend": "google_keep",
-            "note_name": receipt.note_name,
-            "note_title": receipt.title,
-            "list_item_texts": list(receipt.list_item_texts),
-            "created_at": receipt.created_at,
+            "status": "queued",
+            "backend": "human_followup",
+            "reason": "google_keep_reconnect_required",
+            "task_id": str(getattr(followup, "task_id", "") or ""),
+            "session_id": str(getattr(followup, "session_id", "") or ""),
         }
 
     def _deliver_google_keep_note_append(
@@ -5991,19 +6022,51 @@ class ProductService:
         note_title: str,
         note_text: str,
     ) -> dict[str, object]:
-        receipt = google_oauth_service.create_google_keep_note(
-            container=self._container,
+        try:
+            receipt = google_oauth_service.create_google_keep_note(
+                container=self._container,
+                principal_id=principal_id,
+                title=str(note_title or "").strip() or "EA note",
+                text_content=str(note_text or "").strip(),
+            )
+            return {
+                "status": "created",
+                "backend": "google_keep",
+                "note_name": receipt.note_name,
+                "note_title": receipt.title,
+                "text_content": receipt.text_content,
+                "created_at": receipt.created_at,
+            }
+        except RuntimeError as exc:
+            if str(exc or "").strip() not in {
+                "google_keep_scope_missing",
+                "google_oauth_binding_not_found",
+                "google_keep_refresh_token_missing",
+                "google_keep_access_token_missing",
+            }:
+                raise
+        followup = self._open_pocket_assistant_followup(
             principal_id=principal_id,
-            title=str(note_title or "").strip() or "EA note",
-            text_content=str(note_text or "").strip(),
+            recording_id=recording_id,
+            title=title,
+            recording_at=recording_at,
+            trigger_text=trigger_text,
+            action="manual_followup",
+            reason="google_keep_reconnect_required",
+            params={
+                "brief": f"Complete Google Keep reconnect for note: {note_title or 'EA note'}",
+                "why": "Google Keep authorization is not available for this principal, so EA cannot safely create the note automatically.",
+                "requested_action": "keep_note_append",
+                "note_title": note_title,
+                "note_text": note_text,
+            },
         )
         return {
-            "status": "created",
-            "backend": "google_keep",
-            "note_name": receipt.note_name,
-            "note_title": receipt.title,
-            "text_content": receipt.text_content,
-            "created_at": receipt.created_at,
+            "status": "queued",
+            "backend": "human_followup",
+            "reason": "google_keep_reconnect_required",
+            "task_id": str(getattr(followup, "task_id", "") or ""),
+            "session_id": str(getattr(followup, "session_id", "") or ""),
         }
 
     def _classify_pocket_assistant_command(
@@ -6309,6 +6372,8 @@ class ProductService:
                     dedupe_key=f"{dedupe_prefix}|blocked:{str(exc or 'command_execution_failed').strip()}",
                 )
                 continue
+            delivery_backend = str(delivery.get("backend") or delivery_backend or "").strip()
+            delivery_status = str(delivery.get("status") or "sent").strip() or "sent"
             executed_total += 1
             self._record_product_event(
                 principal_id=principal_id,
@@ -6317,7 +6382,7 @@ class ProductService:
                     **command_payload,
                     "params": params,
                     "delivery_backend": delivery_backend,
-                    "delivery_status": "sent",
+                    "delivery_status": delivery_status,
                     "delivery_result": delivery,
                 },
                 source_id=f"pocket-recording:{recording_id}",
