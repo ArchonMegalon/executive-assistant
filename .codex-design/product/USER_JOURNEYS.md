@@ -16,6 +16,18 @@ This file keeps the center of gravity legible as one product story for the expla
 `FLAGSHIP_PRODUCT_BAR.md` defines the craftsmanship bar for those journeys.
 `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` defines the release-ready proof that the journeys feel flagship grade rather than merely mapped.
 
+## Flagship UX principle map
+
+This is the cross-surface handoff contract for desktop, hub, and mobile.
+Every promoted path must stay legible across four product promises:
+
+| Principle | Product promise | Desktop/UI handoff | Hub/public handoff | Mobile/live handoff |
+|---|---|---|---|---|
+| Onboarding | The first real action is obvious, and fallback paths never masquerade as the default. | Install or open the workbench, then build or restore without browser ritual. | Downloads, account, status, and support all point at the same next safe action. | Join, rejoin, or resume starts from the live table state instead of a shrunk desktop ritual. |
+| Safety | Users see rule, state, and consequence posture before they commit live work. | Ruleset, legality, explain, import drift, and publish-preview cues are visible before commit. | Community-rule preflight, release posture, and support boundaries stay explicit before users trust hosted copy. | Live, stale, offline, pending, and conflict posture are visible before a player or GM acts. |
+| Closure | A finished action produces visible state change, receipt, or trustworthy completion copy. | Save, export, publish, and feedback flows end with a durable result instead of disappearing into silent success. | Public status, support follow-up, and publication truth describe the same closed-or-open state. | Session closeout, accepted roster changes, and recap-ready updates visibly land in campaign truth. |
+| Recovery | Failure states always expose one next safe action and one bounded fallback. | Crash, update, restore, import, and sync-repair flows tell the user how to continue without guesswork. | Help, relinking, download, and support routes explain recovery without implying hidden operator magic. | Reconnect, replay, and conflict repair protect table continuity and explain what changed. |
+
 ## Build
 
 Goal: create or refine a runner without mystery math.
@@ -35,6 +47,12 @@ Canonical detail:
 * `CAMPAIGN_ADOPTION_WIZARD.md`
 * `RUNNER_RESUME_AND_GOAL_PINS.md`
 
+Journey handoff:
+
+* Desktop/UI: land in the real builder with the active rule environment visible, then keep compare, explain, and save inside one dense workbench path.
+* Hub/public: account, downloads, and support copy may point users into Build, but they must not invent a second builder truth or contradict the active install path.
+* Mobile/live: quick edits stay bounded; when dense authoring is required, the mobile shell must hand back to the canonical builder without hiding what will change.
+
 ## Explain
 
 Goal: understand why a number, legality result, or tradeoff changed.
@@ -52,6 +70,12 @@ Canonical detail:
 * `BUILD_LAB_PRODUCT_MODEL.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * `SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md`
+
+Journey handoff:
+
+* Desktop/UI: explain opens where the user questions trust, with source anchors, active environment posture, and packet-backed deltas.
+* Hub/public: hosted dossier, support, and publication surfaces may summarize explain truth, but they must point back to the same provenance-bearing packet.
+* Mobile/live: quick explain stays lightweight, but warnings, stale state, and rule-environment drift must remain visible before a player or GM acts on it.
 
 ## Run
 
@@ -86,6 +110,12 @@ Canonical detail:
 * `CREW_AND_MISSION_FIT_MODEL.md`
 * `BLACK_LEDGER_MVP_001.md`
 
+Journey handoff:
+
+* Desktop/UI: campaign prep, GM operations, and ledger-facing actions must preserve the same campaign memory and rule-environment truth that live play consumes.
+* Hub/public: find, join, schedule, account, and campaign surfaces must hand into the active session without losing roster, rule, or entitlement posture.
+* Mobile/live: reconnect, replay, and conflict repair are first-class run paths, not exception copy around a happy path that only works on desktop.
+
 ## Publish
 
 Goal: turn grounded dossiers, packets, and recaps into finished artifacts without losing provenance.
@@ -102,6 +132,12 @@ Canonical detail:
 * `journeys/publish-a-grounded-artifact.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * `WORLD_STATE_AND_MISSION_MARKET_MODEL.md`
+
+Journey handoff:
+
+* Desktop/UI: publish starts from grounded product truth and keeps preview, compatibility, and provenance visible before release.
+* Hub/public: hosted publication, shelf, and follow-up routes must describe the same artifact state, preview posture, and compatibility story.
+* Mobile/live: recap, dossier, and field-share moments can trigger Publish, but they must not bypass preview-first or provenance requirements.
 
 ## Join
 
@@ -125,6 +161,12 @@ Canonical detail:
 * `SEATTLE_OPEN_RUN_001_VERTICAL_SLICE.md`
 * `CREW_AND_MISSION_FIT_MODEL.md`
 
+Journey handoff:
+
+* Desktop/UI: full runner prep and preflight remediation stay available when a player needs to resolve fit before the table starts.
+* Hub/public: discovery, community-rule preflight, scheduling, and account posture must flow into the session without hidden moderator-only steps.
+* Mobile/live: accepted players can arrive, confirm expectations, and recover access from the device already at the table.
+
 ## Improve
 
 Goal: report pain, follow closure, and trust whether the product actually got better.
@@ -143,6 +185,12 @@ Canonical detail:
 * `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md`
 * `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
 * `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+
+Journey handoff:
+
+* Desktop/UI: crash, bug, update, and support entry points must preserve the context needed for closure without forcing users to retell the problem.
+* Hub/public: status, support, known-issue, and fix messaging must describe one release truth and one next safe action.
+* Mobile/live: interruption, reconnect failure, and table-impacting defects must route into support and recovery without losing the active campaign context.
 
 ## Rule
 

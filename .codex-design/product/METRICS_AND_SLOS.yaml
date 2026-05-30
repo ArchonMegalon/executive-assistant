@@ -295,10 +295,10 @@ scorecards:
     metrics:
       - name: public_to_product_coherence_breaks
         target: 0
-        measurement: Public shelf, help, support status, and promoted in-product UX must not contradict each other about availability, preview posture, or next safe action.
+        measurement: Public shelf, help, support status, and promoted in-product UX must not contradict the onboarding, safety, closure, and recovery handoff map published in USER_JOURNEYS.md and JOURNEY_GATES.generated.json.
       - name: flagship_acceptance_failures_open
         target: 0
-        measurement: Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml may not remain open without a bounded preview explanation and owner.
+        measurement: Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml may not remain open without a bounded preview explanation, owner, and explicit cross-surface handoff alignment to USER_JOURNEYS.md and JOURNEY_GATES.generated.json.
 
 release_gates:
   - id: public_surface_honesty

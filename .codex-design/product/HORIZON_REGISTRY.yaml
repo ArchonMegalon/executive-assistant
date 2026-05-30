@@ -214,12 +214,19 @@ horizons:
   table_scene: After a run, the GM exports a dossier-plus-recap packet with narration, evidence rooms, and share-safe previews.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
-    next_state: bounded_coaching_expansion
+    current_state: horizon
+    next_state: bounded_research
   owning_repos:
   - chummer6-hub
   - chummer6-hub-registry
   - chummer6-media-factory
+  allowed_surfaces:
+  - signed_in_jackpoint_preview
+  - artifact_dossier_preview
+  - narrated_briefing_preview
+  proof_gate: jackpoint packets must carry registry manifests, media receipts, source provenance, audience scope, and revocation posture before any public claim widens.
+  public_claim_posture: Public copy may describe JACKPOINT as a bounded horizon and preview lane only; it must not claim autonomous dossier truth or complete publishing authority.
+  stop_condition: Stop promotion if provenance, revocation, source anchors, or audience-safe preview receipts are missing or stale.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -342,8 +349,8 @@ horizons:
   table_scene: A player finds a beginner-friendly run, applies with a legal runner or quickstart decker, gets scheduled, and the finished session changes the city.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
-    next_state: bounded_coaching_expansion
+    current_state: horizon
+    next_state: bounded_research
   owning_repos:
   - chummer6-hub
   - chummer6-ui
@@ -351,6 +358,14 @@ horizons:
   - fleet
   - executive-assistant
   - chummer6-media-factory
+  allowed_surfaces:
+  - open_run_preview
+  - roster_intake_projection
+  - meeting_handoff_projection
+  - organizer_closeout_preview
+  proof_gate: Community Hub packets must prove Chummer-owned roster, meeting handoff, observer consent, closeout, and moderation receipts before any network claim widens.
+  public_claim_posture: Public copy may describe Community Hub as a bounded horizon and curated preview only; third-party scheduling or meeting tools remain projection helpers.
+  stop_condition: Stop promotion if accepted-roster truth, consent truth, moderation receipts, or meeting-handoff ownership drift away from Chummer-owned services.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -409,11 +424,18 @@ horizons:
   table_scene: A GM sends an explorable safehouse pack with hotspots, floor plans, route overlays, and optional narration before the session.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
-    next_state: bounded_coaching_expansion
+    current_state: horizon
+    next_state: bounded_research
   owning_repos:
   - chummer6-hub
   - chummer6-media-factory
+  allowed_surfaces:
+  - runsite_pack_preview
+  - route_overlay_preview
+  - orientation_host_clip
+  proof_gate: Runsite packets must prove approved pack truth, route-summary siblings, inspection links, permissions, and media provenance before any explorable surface widens.
+  public_claim_posture: Public copy may show runsite as a preview artifact lane only; it must not claim live map, combat, or tactical authority.
+  stop_condition: Stop promotion if media becomes the only inspectable route surface or if route, tour, and approved pack truth are not visible before playback.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -458,6 +480,13 @@ horizons:
   - chummer6-hub
   - chummer6-hub-registry
   - chummer6-media-factory
+  allowed_surfaces:
+  - creator_press_preview
+  - long_form_source_pack
+  - publication_manifest_preview
+  proof_gate: Runbook Press packets must prove source-pack approval, editorial review, compatibility metadata, publication manifests, and revocation before any publishing claim widens.
+  public_claim_posture: Public copy may describe Runbook Press as a bounded horizon for long-form publishing support only; it must not claim finished marketplace or license authority.
+  stop_condition: Stop promotion if source packs, compatibility metadata, editorial approval, or publication manifests are missing or stale.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -508,6 +537,13 @@ horizons:
   - chummer6-mobile
   - chummer6-hub
   - chummer6-media-factory
+  allowed_surfaces:
+  - replay_timeline_preview
+  - after_action_receipt_packet
+  - forensics_report_preview
+  proof_gate: Ghostwire packets must prove append-only ledger inputs, reducer-safe reconstruction, receipt anchors, and non-mutating replay output before any replay claim widens.
+  public_claim_posture: Public copy may describe Ghostwire as a receipt-backed replay and forensics horizon only; it must not claim canonical session mutation or retrospective rule authority.
+  stop_condition: Stop promotion if replay output can mutate canonical state, lacks receipt anchors, or reconstructs facts not present in approved session truth.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -547,11 +583,18 @@ horizons:
   table_scene: During a run, heat crosses a threshold and the GM receives a governed reaction packet; after the run, the GM can later open a private aftermath packet for pacing, spotlight, and confusion follow-through.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
-    next_state: bounded_coaching_expansion
+    current_state: horizon
+    next_state: bounded_research
   owning_repos:
   - chummer6-hub
   - chummer6-media-factory
+  allowed_surfaces:
+  - gm_live_heat_packet
+  - remote_reaction_receipt
+  - private_aftermath_coaching_packet
+  proof_gate: Table Pulse packets must prove live/aftermath separation, GM authority, opt-out handling, privacy posture, suppression receipts, and non-authoritative media output before any coaching claim widens.
+  public_claim_posture: Public copy may describe Table Pulse as a bounded GM-governed live heat and private aftermath horizon only; it must not claim surveillance, player scoring, or automatic world mutation.
+  stop_condition: Stop promotion if live pressure and aftermath coaching blur together, opt-out is bypassed, or media/provider output becomes authority over GM or campaign truth.
   milestone_family: H5
   release_blocking: false
   foundations:

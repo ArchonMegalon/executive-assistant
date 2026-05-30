@@ -3834,6 +3834,121 @@ def test_pocket_api_sync_dismisses_subminute_recordings_from_continuous_archive(
     assert body["teable_index_row_total"] == 1
 
 
+def test_google_location_history_import_enriches_pocket_archive_search(monkeypatch, tmp_path) -> None:
+    principal_id = "exec-product-pocket-location"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_POCKET_AUDIO_ARCHIVE_ENABLED", "1")
+
+    timeline_path = tmp_path / "Records.json"
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "timelineObjects": [
+                    {
+                        "placeVisit": {
+                            "location": {
+                                "name": "Hanusch Krankenhaus",
+                                "address": "Heinrich Collin-Strasse 30, Wien",
+                                "latitudeE7": 481900000,
+                                "longitudeE7": 163150000,
+                            },
+                            "duration": {
+                                "startTimestamp": "2026-05-20T10:00:00Z",
+                                "endTimestamp": "2026-05-20T11:30:00Z",
+                            },
+                        }
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [{"id": "hospital-1", "title": "Talk with father", "state": "completed"}],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Talk with father",
+                "state": "completed",
+                "duration": 420.0,
+                "language": "de",
+                "recording_at": "2026-05-20T10:45:00Z",
+                "created_at": "2026-05-20T10:45:10Z",
+                "updated_at": "2026-05-20T10:46:10Z",
+                "tags": ["hospital", "family"],
+                "transcript": {
+                    "text": "Mein Vater spricht über seinen Zustand und die Familie.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Mein Vater spricht ueber seinen Zustand."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-1": {
+                        "id": "summary-1",
+                        "v2": {"summary": {"markdown": "Gespräch mit dem Vater im Krankenhaus."}},
+                    }
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_archive_pocket_recording_audio",
+        lambda self, *, principal_id, actor, payload: {
+            "archive_status": "archived",
+            "archive_reason": "",
+            "archive_root": "/mnt/pcloud/EA/pocket-ai-audio",
+            "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/exec-product-pocket-location/2026/05/2026-05-20__hospital-1__talk-with-father.mp3",
+            "archive_sha256": "abc123",
+            "duration_seconds": 420.0,
+            "min_duration_seconds": 60.0,
+            "recording_id": "hospital-1",
+            "title": "Talk with father",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    imported = client.post("/app/api/signals/google/location-history/import", json={"path": str(timeline_path)})
+    assert imported.status_code == 200
+    assert imported.json()["imported_total"] == 1
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    assert synced.json()["location_matched_total"] == 1
+
+    searched = client.get(
+        "/app/api/signals/pocket/recordings/search",
+        params={"q": "Hanusch Krankenhaus Vater", "before": "2026-05-21", "limit": 5},
+    )
+    assert searched.status_code == 200
+    body = searched.json()
+    assert body["total"] == 1
+    assert body["items"][0]["recording_id"] == "hospital-1"
+    assert body["items"][0]["location_name"] == "Hanusch Krankenhaus"
+    assert body["items"][0]["archive_path"].endswith("talk-with-father.mp3")
+
+
 def test_pocket_api_sync_uses_cursor_and_suppresses_non_actionable_audio_candidates(monkeypatch) -> None:
     principal_id = "exec-product-pocket-sync-cursor"
     client = build_product_client(principal_id=principal_id)

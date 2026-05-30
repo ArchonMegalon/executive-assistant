@@ -219,6 +219,10 @@ Exit: guide, help, FAQ, public parts, media briefs, metadata, schema, sitemap, v
 Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `fleet`, `chummer6-design`
 Exit: deterministic horizons move from public storytelling to bounded implementation only through owner handoff gates and executable proof, without assistant-side rules invention.
 
+### 133. Media and social horizon implementation tranche: JACKPOINT, RUNBOOK PRESS, GHOSTWIRE, RUNSITE, TABLE PULSE, and Community Hub
+Owners: `fleet`, `chummer6-design`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`
+Exit: media/social horizons become bounded implementation lanes with first-party manifests, consent, provenance, publication, revocation, inspectable artifacts, and unsupported-claim guards.
+
 ### 134. Source anchors, local rulebook binding, house-rule discovery, and amend-package marketplace completion
 Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `executive-assistant`, `chummer6-design`
 Exit: source anchors, rulebook binding, house-rule demand, amend-package promotion, marketplace/publication, rollback, compatibility, and explain receipts operate as one governed rule-environment lane.

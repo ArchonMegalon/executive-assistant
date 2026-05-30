@@ -5051,6 +5051,301 @@ class ProductService:
                 source_id=str(source_id or event.observation_id or "").strip(),
             )
 
+    def _resolve_google_location_history_import_path(self, path: str) -> Path:
+        raw = str(path or "").strip()
+        if not raw:
+            raise RuntimeError("google_location_history_import_path_not_found")
+        candidate = Path(raw).expanduser()
+        candidate = candidate.resolve() if candidate.is_absolute() else (_repo_root() / candidate).resolve()
+        if not candidate.exists() or not candidate.is_file():
+            raise RuntimeError("google_location_history_import_path_not_found")
+        return candidate
+
+    def _load_google_location_history_payload(self, source_path: Path) -> tuple[object, list[str]]:
+        if source_path.suffix.lower() == ".zip":
+            with zipfile.ZipFile(source_path) as archive:
+                names = archive.namelist()
+                candidate_name = next(
+                    (
+                        name
+                        for name in names
+                        if name.lower().endswith(".json")
+                        and any(marker in name.lower() for marker in ("records.json", "timeline", "location history"))
+                    ),
+                    "",
+                )
+                if not candidate_name:
+                    raise RuntimeError("google_location_history_import_payload_not_found")
+                with archive.open(candidate_name) as handle:
+                    return json.loads(handle.read().decode("utf-8")), ["zip", Path(candidate_name).name]
+        return json.loads(source_path.read_text(encoding="utf-8")), ["json", source_path.name]
+
+    def _google_location_history_windows(self, *, principal_id: str) -> list[dict[str, object]]:
+        windows: list[dict[str, object]] = []
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_GOOGLE_LOCATION_HISTORY_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "google_location_history_window_imported":
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            if str(payload.get("location_start_at") or "").strip():
+                windows.append(payload)
+        return windows
+
+    def _match_google_location_window(self, *, principal_id: str, recording_at: str) -> dict[str, object]:
+        when = _parse_utcish(recording_at)
+        if when is None:
+            return {
+                "location_match_status": "unmatched",
+                "location_match_reason": "recording_time_missing",
+                "location_name": "",
+                "location_address": "",
+                "location_latitude": None,
+                "location_longitude": None,
+                "location_start_at": "",
+                "location_end_at": "",
+                "location_source": "",
+                "location_confidence": 0.0,
+            }
+        containing_match: dict[str, object] | None = None
+        containing_duration: float | None = None
+        nearest_match: dict[str, object] | None = None
+        nearest_gap: float | None = None
+        for payload in self._google_location_history_windows(principal_id=principal_id):
+            start_at = _parse_utcish(str(payload.get("location_start_at") or "").strip())
+            end_at = _parse_utcish(str(payload.get("location_end_at") or payload.get("location_start_at") or "").strip())
+            if start_at is None or end_at is None:
+                continue
+            if start_at <= when <= end_at:
+                duration_seconds = max(0.0, (end_at - start_at).total_seconds())
+                if containing_duration is None or duration_seconds < containing_duration:
+                    containing_duration = duration_seconds
+                    containing_match = payload
+                continue
+            gap_seconds = min(abs((when - start_at).total_seconds()), abs((when - end_at).total_seconds()))
+            if nearest_gap is None or gap_seconds < nearest_gap:
+                nearest_gap = gap_seconds
+                nearest_match = payload
+        if containing_match is not None:
+            return {
+                **_google_location_match_projection(containing_match),
+                "location_match_status": "matched",
+                "location_match_reason": "timeline_window_contains_recording",
+                "location_source": str(containing_match.get("source_format") or "").strip(),
+                "location_confidence": 1.0,
+            }
+        max_gap_seconds = _google_location_history_match_max_gap_seconds()
+        if nearest_match is not None and nearest_gap is not None and nearest_gap <= max_gap_seconds:
+            confidence = max(0.1, 1.0 - (nearest_gap / max(max_gap_seconds, 1.0)))
+            return {
+                **_google_location_match_projection(nearest_match),
+                "location_match_status": "nearest",
+                "location_match_reason": "nearest_timeline_window",
+                "location_source": str(nearest_match.get("source_format") or "").strip(),
+                "location_confidence": round(confidence, 4),
+            }
+        return {
+            "location_match_status": "unmatched",
+            "location_match_reason": "no_timeline_window_match",
+            "location_name": "",
+            "location_address": "",
+            "location_latitude": None,
+            "location_longitude": None,
+            "location_start_at": "",
+            "location_end_at": "",
+            "location_source": "",
+            "location_confidence": 0.0,
+        }
+
+    def _pocket_recording_signal_projection_map(self, *, principal_id: str) -> dict[str, dict[str, object]]:
+        projection: dict[str, dict[str, object]] = {}
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_RECORDING_INDEX_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            source_id = str(getattr(row, "source_id", "") or "").strip()
+            if not source_id.startswith("pocket-recording:"):
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            recording_id = str(payload.get("recording_id") or source_id.removeprefix("pocket-recording:")).strip()
+            if not recording_id or recording_id in projection:
+                continue
+            projection[recording_id] = payload
+        return projection
+
+    def _record_pocket_archive_index(
+        self,
+        *,
+        principal_id: str,
+        recording_id: str,
+        title: str,
+        recording_at: str,
+        archive_result: dict[str, object],
+        summary_markdown: str,
+        transcript_excerpt: str,
+        location_match: dict[str, object],
+        tags: Sequence[str] | None = None,
+    ) -> None:
+        payload = {
+            "recording_id": recording_id,
+            "title": title,
+            "recording_at": recording_at,
+            "archive_status": str(archive_result.get("archive_status") or "").strip(),
+            "archive_path": str(archive_result.get("archive_path") or "").strip(),
+            "archive_sha256": str(archive_result.get("archive_sha256") or "").strip(),
+            "summary_markdown": summary_markdown,
+            "transcript_excerpt": transcript_excerpt,
+            "tags_csv": ", ".join(str(item).strip() for item in list(tags or []) if str(item).strip()),
+            **_google_location_match_projection(location_match),
+        }
+        dedupe_material = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_archive_indexed",
+            payload=payload,
+            source_id=f"pocket-recording:{recording_id}",
+            dedupe_key=f"{principal_id}|pocket-recording-archive-indexed|{hashlib.sha256(dedupe_material.encode('utf-8')).hexdigest()}",
+        )
+
+    def _reindex_pocket_archive_locations(self, *, principal_id: str) -> dict[str, int]:
+        archive_root = _pocket_audio_archive_root()
+        principal_token = _pocket_archive_safe_token(principal_id, fallback="local-user", limit=64)
+        archive_dir = archive_root / principal_token
+        if not archive_dir.exists():
+            return {
+                "matched_recording_total": 0,
+                "unmatched_recording_total": 0,
+                "indexed_recording_total": 0,
+                "updated_metadata_total": 0,
+            }
+        signal_payloads = self._pocket_recording_signal_projection_map(principal_id=principal_id)
+        matched_total = 0
+        unmatched_total = 0
+        indexed_total = 0
+        updated_total = 0
+        for metadata_path in archive_dir.rglob("*.json"):
+            try:
+                payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            recording_id = str(payload.get("recording_id") or "").strip()
+            if not recording_id:
+                continue
+            title = str(payload.get("title") or "").strip() or f"Pocket recording {recording_id}"
+            recording_at = str(payload.get("recording_at") or "").strip()
+            location_match = self._match_google_location_window(principal_id=principal_id, recording_at=recording_at)
+            next_location_payload = _google_location_match_projection(location_match)
+            if dict(payload.get("location_match") or {}) != next_location_payload:
+                payload["location_match"] = next_location_payload
+                try:
+                    metadata_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                except OSError:
+                    pass
+                else:
+                    updated_total += 1
+            signal_payload = dict(signal_payloads.get(recording_id) or {})
+            self._record_pocket_archive_index(
+                principal_id=principal_id,
+                recording_id=recording_id,
+                title=title,
+                recording_at=recording_at,
+                archive_result={
+                    "archive_status": "already_archived",
+                    "archive_path": str(payload.get("archive_path") or "").strip(),
+                    "archive_sha256": str(payload.get("archive_sha256") or "").strip(),
+                },
+                summary_markdown=str(signal_payload.get("summary_markdown") or "").strip(),
+                transcript_excerpt=str(signal_payload.get("transcript_excerpt") or "").strip(),
+                location_match=location_match,
+                tags=[item.strip() for item in str(signal_payload.get("tags_csv") or "").split(",") if item.strip()],
+            )
+            indexed_total += 1
+            if str(location_match.get("location_match_status") or "").strip() in {"matched", "nearest"}:
+                matched_total += 1
+            else:
+                unmatched_total += 1
+        return {
+            "matched_recording_total": matched_total,
+            "unmatched_recording_total": unmatched_total,
+            "indexed_recording_total": indexed_total,
+            "updated_metadata_total": updated_total,
+        }
+
+    def import_google_location_history(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        path: str,
+    ) -> dict[str, object]:
+        source_path = self._resolve_google_location_history_import_path(path)
+        payload, source_formats = self._load_google_location_history_payload(source_path)
+        windows = _google_location_history_window_payloads(payload, source_path=str(source_path))
+        imported_total = 0
+        deduplicated_total = 0
+        for window in windows:
+            dedupe_key = (
+                f"{principal_id}|google-location-history|"
+                f"{str(window.get('location_start_at') or '').strip()}|"
+                f"{str(window.get('location_end_at') or '').strip()}|"
+                f"{str(window.get('location_latitude') or '').strip()}|"
+                f"{str(window.get('location_longitude') or '').strip()}|"
+                f"{str(window.get('location_name') or '').strip()}"
+            )
+            if self._container.channel_runtime.find_observation_by_dedupe(dedupe_key, principal_id=principal_id) is not None:
+                deduplicated_total += 1
+                continue
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="google_location_history_window_imported",
+                payload={
+                    **window,
+                    "source_path": str(source_path),
+                    "actor": str(actor or "").strip() or "office_api",
+                },
+                source_id=f"google-location-history:{Path(source_path).name}",
+                dedupe_key=dedupe_key,
+            )
+            imported_total += 1
+        reindexed = self._reindex_pocket_archive_locations(principal_id=principal_id)
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="google_location_history_import_completed",
+            payload={
+                "source_path": str(source_path),
+                "source_formats": list(source_formats),
+                "imported_total": imported_total,
+                "deduplicated_total": deduplicated_total,
+                **reindexed,
+            },
+            source_id=f"google-location-history:{Path(source_path).name}",
+            dedupe_key=f"{principal_id}|google-location-history-import|{str(source_path)}|{os.path.getmtime(source_path)}",
+        )
+        return {
+            "generated_at": _now_iso(),
+            "source_path": str(source_path),
+            "source_formats": list(source_formats),
+            "imported_total": imported_total,
+            "deduplicated_total": deduplicated_total,
+            **reindexed,
+        }
+
+    def _maybe_auto_import_google_location_history(self, *, principal_id: str, actor: str) -> None:
+        source_path = _google_location_history_auto_import_path()
+        if not source_path:
+            return
+        try:
+            self.import_google_location_history(
+                principal_id=principal_id,
+                actor=actor,
+                path=source_path,
+            )
+        except RuntimeError:
+            return
+
     def _stakeholder_lookup(self, principal_id: str) -> dict[str, Stakeholder]:
         rows = self._container.memory_runtime.list_stakeholders(principal_id=principal_id, limit=200)
         return {row.stakeholder_id: row for row in rows}
@@ -10624,6 +10919,30 @@ class ProductService:
                     f"{retranscription_status}|{str(prefer_audio_fallback).lower()}"
                 ),
             )
+        if str(principal_id or "").strip():
+            archive_root = _pocket_audio_archive_root()
+            principal_token = _pocket_archive_safe_token(principal_id, fallback="local-user", limit=64)
+            recording_day = _pocket_archive_recording_day(projection)
+            metadata_dir = archive_root / principal_token / recording_day[:4] / recording_day[5:7]
+            title_token = _pocket_archive_safe_token(str(projection.get("title") or "").strip(), fallback="recording", limit=80)
+            metadata_path = metadata_dir / f"{recording_day}__{recording_id}__{title_token}.json"
+            if metadata_path.is_file():
+                try:
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    metadata = {}
+                projection["archive_path"] = str(metadata.get("archive_path") or "").strip()
+                projection["archive_sha256"] = str(metadata.get("archive_sha256") or "").strip()
+                projection.update(_google_location_match_projection(dict(metadata.get("location_match") or {})))
+            if not str(projection.get("location_match_status") or "").strip():
+                projection.update(
+                    _google_location_match_projection(
+                        self._match_google_location_window(
+                            principal_id=principal_id,
+                            recording_at=str(projection.get("recording_at") or "").strip(),
+                        )
+                    )
+                )
         return projection
 
     def retranscribe_pocket_recording(
@@ -10853,6 +11172,7 @@ class ProductService:
             "archive_path": str(archive_path),
             "archive_sha256": archive_sha256,
             "archived_at": _now_iso(),
+            "location_match": _google_location_match_projection(dict(payload.get("location_match") or {})),
         }
         metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         self._record_product_event(
@@ -11070,6 +11390,7 @@ class ProductService:
     ) -> dict[str, object]:
         max_limit = 250 if not use_cursor else 100
         bounded_limit = max(1, min(int(limit or 5), max_limit))
+        self._maybe_auto_import_google_location_history(principal_id=principal_id, actor=actor)
         previous_cursor = self._pocket_sync_cursor(principal_id=principal_id)
         previous_cursor_updated_at = str(previous_cursor.get("updated_at") or "").strip()
         previous_cursor_recording_id = str(previous_cursor.get("recording_id") or "").strip()
@@ -11120,6 +11441,8 @@ class ProductService:
         archived_total = 0
         archive_dismissed_total = 0
         archive_failed_total = 0
+        location_matched_total = 0
+        location_unmatched_total = 0
         teable_index_rows: list[dict[str, object]] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -11152,6 +11475,15 @@ class ProductService:
             summary_markdown = str(detail.get("summary_markdown") or "").strip()
             title = str(detail.get("title") or "").strip() or f"Pocket recording {recording_id}"
             tags = [str(value).strip() for value in list(detail.get("tags") or []) if str(value).strip()]
+            location_match = self._match_google_location_window(
+                principal_id=principal_id,
+                recording_at=str(detail.get("recording_at") or "").strip(),
+            )
+            if str(location_match.get("location_match_status") or "").strip() in {"matched", "nearest"}:
+                location_matched_total += 1
+            else:
+                location_unmatched_total += 1
+            detail["location_match"] = dict(location_match)
             archive_result: dict[str, object] = {
                 "archive_status": "disabled" if not _pocket_audio_archive_enabled() else "",
                 "archive_reason": "",
@@ -11214,7 +11546,19 @@ class ProductService:
                     "audio_download_url": "",
                     "audio_expires_at": str(detail.get("audio_expires_at") or "").strip(),
                     "updated_at": _now_iso(),
+                    **_google_location_match_projection(location_match),
                 }
+            )
+            self._record_pocket_archive_index(
+                principal_id=principal_id,
+                recording_id=recording_id,
+                title=title,
+                recording_at=str(detail.get("recording_at") or "").strip(),
+                archive_result=archive_result,
+                summary_markdown=summary_markdown,
+                transcript_excerpt=compact_text(transcript_text, fallback="", limit=1200),
+                location_match=location_match,
+                tags=tags,
             )
             summary = compact_text(summary_markdown or transcript_text or title, fallback=title, limit=280)
             text = _pocket_signal_text(title, summary_markdown=summary_markdown, transcript_text=transcript_text)
@@ -11261,6 +11605,7 @@ class ProductService:
                         "audio_archive_reason": str(archive_result.get("archive_reason") or "").strip(),
                         "audio_archive_path": str(archive_result.get("archive_path") or "").strip(),
                         "audio_archive_sha256": str(archive_result.get("archive_sha256") or "").strip(),
+                        **_google_location_match_projection(location_match),
                         "suppress_candidate_staging": suppress_candidate_staging,
                         "staging_suppression_reason": staging_suppression_reason if suppress_candidate_staging else "",
                     },
@@ -11323,6 +11668,8 @@ class ProductService:
                 "previous_cursor_recording_id": previous_cursor_recording_id,
                 "scan_truncated": scan_truncated,
                 "pages_scanned": pages_scanned,
+                "location_matched_total": location_matched_total,
+                "location_unmatched_total": location_unmatched_total,
             },
             source_id="pocket",
             dedupe_key=f"{principal_id}|pocket-sync|{int(limit or 5)}|{_now_iso()}",
@@ -11353,6 +11700,8 @@ class ProductService:
             "cursor_recording_id": cursor_recording_id,
             "cursor_advanced": cursor_advanced,
             "scan_truncated": scan_truncated,
+            "location_matched_total": location_matched_total,
+            "location_unmatched_total": location_unmatched_total,
         }
 
     def sync_pocket_recordings(
@@ -11388,6 +11737,92 @@ class ProductService:
             mode="backfill",
             completion_event_type="pocket_recording_backfill_completed",
         )
+
+    def search_pocket_recordings(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        query: str = "",
+        before: str = "",
+        after: str = "",
+        limit: int = 10,
+    ) -> dict[str, object]:
+        normalized_query = compact_text(str(query or "").strip(), fallback="", limit=240)
+        query_tokens = _google_location_query_tokens(normalized_query)
+        before_at = _parse_utcish(before)
+        after_at = _parse_utcish(after)
+        latest_by_recording: dict[str, dict[str, object]] = {}
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_RECORDING_INDEX_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "pocket_recording_archive_indexed":
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            recording_id = str(payload.get("recording_id") or "").strip()
+            if recording_id and recording_id not in latest_by_recording:
+                latest_by_recording[recording_id] = payload
+        items: list[dict[str, object]] = []
+        for payload in latest_by_recording.values():
+            recording_at = _parse_utcish(str(payload.get("recording_at") or "").strip())
+            if before_at is not None and recording_at is not None and recording_at >= before_at:
+                continue
+            if after_at is not None and recording_at is not None and recording_at <= after_at:
+                continue
+            haystack = " ".join(
+                part
+                for part in (
+                    str(payload.get("title") or "").strip(),
+                    str(payload.get("summary_markdown") or "").strip(),
+                    str(payload.get("transcript_excerpt") or "").strip(),
+                    str(payload.get("location_name") or "").strip(),
+                    str(payload.get("location_address") or "").strip(),
+                    str(payload.get("tags_csv") or "").strip(),
+                )
+                if part
+            ).lower()
+            match_score = 0.0
+            if normalized_query:
+                if normalized_query.lower() in haystack:
+                    match_score += 2.0
+                token_hits = sum(1 for token in query_tokens if token in haystack)
+                if token_hits == 0 and match_score <= 0.0:
+                    continue
+                match_score += float(token_hits)
+            items.append(
+                {
+                    "recording_id": str(payload.get("recording_id") or "").strip(),
+                    "title": str(payload.get("title") or "").strip(),
+                    "recording_at": str(payload.get("recording_at") or "").strip(),
+                    "archive_status": str(payload.get("archive_status") or "").strip(),
+                    "archive_path": str(payload.get("archive_path") or "").strip(),
+                    "archive_sha256": str(payload.get("archive_sha256") or "").strip(),
+                    "summary_markdown": str(payload.get("summary_markdown") or "").strip(),
+                    "transcript_excerpt": str(payload.get("transcript_excerpt") or "").strip(),
+                    **_google_location_match_projection(payload),
+                    "match_score": match_score,
+                }
+            )
+        items.sort(
+            key=lambda item: (
+                float(item.get("match_score") or 0.0),
+                str(item.get("recording_at") or ""),
+                str(item.get("recording_id") or ""),
+            ),
+            reverse=True,
+        )
+        bounded_limit = max(1, min(int(limit or 10), 100))
+        return {
+            "generated_at": _now_iso(),
+            "query": normalized_query,
+            "before": str(before or "").strip(),
+            "after": str(after or "").strip(),
+            "total": len(items[:bounded_limit]),
+            "items": items[:bounded_limit],
+        }
 
     def list_workspace_invitations(
         self,
