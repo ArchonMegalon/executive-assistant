@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-05-30T07:55:45Z",
+  "generated_at": "2026-05-30T08:13:14Z",
   "as_of": "2026-05-30",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
@@ -84,15 +84,15 @@
     },
     {
       "decision_id": "2026-05-30-launch-governance",
-      "action": "freeze_launch",
-      "reason": "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating).",
+      "action": "launch_expand",
+      "reason": "Launch expansion is approved for the next bounded window while canaries and support closure remain clear.",
       "cited_signals": [
         "journey_gate_state=ready",
         "journey_gate_blocked_count=0",
         "local_release_proof_status=passed",
         "flagship_readiness_state=ready",
         "flagship_readiness_proof_status=pass",
-        "provider_canary_status=Canary evidence is still accumulating",
+        "provider_canary_status=Canary green on all active lanes",
         "closure_health_state=clear",
         "successor_dependency_state=ready",
         "successor_open_dependency_ids=",
@@ -178,15 +178,15 @@
       },
       {
         "decision_id": "2026-05-30-launch-governance",
-        "action": "freeze_launch",
-        "reason": "Freeze launch expansion until provider-route canaries return to green (current: Canary evidence is still accumulating).",
+        "action": "launch_expand",
+        "reason": "Launch expansion is approved for the next bounded window while canaries and support closure remain clear.",
         "cited_signals": [
           "journey_gate_state=ready",
           "journey_gate_blocked_count=0",
           "local_release_proof_status=passed",
           "flagship_readiness_state=ready",
           "flagship_readiness_proof_status=pass",
-          "provider_canary_status=Canary evidence is still accumulating",
+          "provider_canary_status=Canary green on all active lanes",
           "closure_health_state=clear",
           "successor_dependency_state=ready",
           "successor_open_dependency_ids=",
@@ -203,12 +203,12 @@
     "phase_label": "Public-fit polish",
     "history_snapshot_count": 20,
     "longest_pole": "Core Engine",
-    "launch_readiness": "Launch posture is still waiting on provider-route evidence.",
+    "launch_readiness": "Route-canary validation is green; widen launch only while support fallout remains stable.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
-      "canary_status": "Canary evidence is still accumulating",
+      "canary_status": "Canary green on all active lanes",
       "review_due": "2026-06-13",
-      "next_decision": "Hold broad promotion until public route canary coverage exists."
+      "next_decision": "Promote once canaries stay green and support fallout remains clear through the next route review."
     },
     "successor_dependency_posture": {
       "state": "ready",
