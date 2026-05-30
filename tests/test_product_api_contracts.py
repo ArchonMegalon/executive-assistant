@@ -3837,8 +3837,7 @@ def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -
     principal_id = "exec-product-pocket-sync-trigger"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
-    monkeypatch.setenv("EA_GOOGLE_KEEP_SHOPPING_LIST_WEBHOOK_URL", "https://keep.example.test/shopping")
-    captured_requests: list[dict[str, object]] = []
+    captured_keep_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         product_service,
@@ -3886,25 +3885,6 @@ def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -
         },
     )
 
-    class _FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self) -> bytes:
-            return json.dumps({"ok": True, "id": "keep-op-1"}).encode("utf-8")
-
-    def _fake_urlopen(request, timeout=30):
-        captured_requests.append(
-            {
-                "url": request.full_url,
-                "payload": json.loads(request.data.decode("utf-8")),
-            }
-        )
-        return _FakeResponse()
-
     monkeypatch.setattr(
         product_service.responses_upstream,
         "generate_text",
@@ -3923,7 +3903,21 @@ def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -
             },
         )(),
     )
-    monkeypatch.setattr(product_service.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(
+        google_oauth_service,
+        "create_google_keep_note",
+        lambda **kwargs: (
+            captured_keep_calls.append(dict(kwargs))
+            or google_oauth_service.GoogleKeepNoteCreateResult(
+                binding=object(),  # type: ignore[arg-type]
+                note_name="notes/keep-op-1",
+                title=str(kwargs.get("title") or ""),
+                text_content=str(kwargs.get("text_content") or ""),
+                list_item_texts=tuple(kwargs.get("list_item_texts") or ()),
+                created_at="2026-05-30T08:00:30Z",
+            )
+        ),
+    )
 
     synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
     assert synced.status_code == 200
@@ -3931,9 +3925,8 @@ def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -
     assert body["assistant_trigger_total"] == 1
     assert body["assistant_trigger_executed_total"] == 1
     assert body["assistant_trigger_blocked_total"] == 0
-    assert captured_requests[0]["url"] == "https://keep.example.test/shopping"
-    assert captured_requests[0]["payload"]["backend"] == "google_keep"
-    assert captured_requests[0]["payload"]["item_text"] == "toilet paper"
+    assert captured_keep_calls[0]["title"] == "Shopping list"
+    assert tuple(captured_keep_calls[0]["list_item_texts"]) == ("toilet paper",)
 
     product_events = client.get("/app/api/events", params={"channel": "product"})
     assert product_events.status_code == 200
@@ -3943,6 +3936,114 @@ def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -
     assert executed["payload"]["classification_reason"] == "spoken_request_to_add_item_to_shopping_list"
     assert body["teable_index_status"] == "synced"
     assert body["teable_index_row_total"] == 1
+
+
+def test_pocket_api_sync_executes_assistant_keep_note_trigger(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-keep-note"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    captured_keep_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "trigger-keep-note-1", "title": "Pocket note command", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket note command",
+                "state": "completed",
+                "duration": 91.0,
+                "language": "de",
+                "recording_at": "2026-05-30T09:00:00Z",
+                "created_at": "2026-05-30T09:00:10Z",
+                "updated_at": "2026-05-30T09:00:20Z",
+                "tags": ["memo"],
+                "transcript": {
+                    "text": "Assistent: speichere eine Keep-Notiz mit dem Titel Geschenkideen und dem Text neue Winterjacke fuer Noah.",
+                    "segments": [{"start": 0.0, "end": 6.0, "text": "Assistent: speichere eine Keep-Notiz mit dem Titel Geschenkideen und dem Text neue Winterjacke fuer Noah."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.responses_upstream,
+        "generate_text",
+        lambda **kwargs: type(
+            "UpstreamResultStub",
+            (),
+            {
+                "text": json.dumps(
+                    {
+                        "action": "keep_note_append",
+                        "confidence": 0.91,
+                        "reason": "spoken_request_to_save_keep_note",
+                        "params": {
+                            "note_title": "Geschenkideen",
+                            "note_text": "Neue Winterjacke fuer Noah",
+                        },
+                    }
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        google_oauth_service,
+        "create_google_keep_note",
+        lambda **kwargs: (
+            captured_keep_calls.append(dict(kwargs))
+            or google_oauth_service.GoogleKeepNoteCreateResult(
+                binding=object(),  # type: ignore[arg-type]
+                note_name="notes/keep-note-op-1",
+                title=str(kwargs.get("title") or ""),
+                text_content=str(kwargs.get("text_content") or ""),
+                list_item_texts=tuple(kwargs.get("list_item_texts") or ()),
+                created_at="2026-05-30T09:00:30Z",
+            )
+        ),
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["assistant_trigger_total"] == 1
+    assert body["assistant_trigger_executed_total"] == 1
+    assert body["assistant_trigger_blocked_total"] == 0
+    assert captured_keep_calls[0]["title"] == "Geschenkideen"
+    assert captured_keep_calls[0]["text_content"] == "Neue Winterjacke fuer Noah"
+
+    product_events = client.get("/app/api/events", params={"channel": "product"})
+    assert product_events.status_code == 200
+    executed = next(
+        item
+        for item in product_events.json()["items"]
+        if item["event_type"] == "pocket_assistant_command_executed"
+        and item["payload"]["recording_id"] == "trigger-keep-note-1"
+    )
+    assert executed["payload"]["classification_reason"] == "spoken_request_to_save_keep_note"
 
 
 def test_google_location_history_import_enriches_pocket_archive_search(monkeypatch, tmp_path) -> None:

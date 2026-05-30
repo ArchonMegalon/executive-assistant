@@ -42,6 +42,7 @@ GOOGLE_SCOPE_METADATA = "https://www.googleapis.com/auth/gmail.metadata"
 GOOGLE_SCOPE_GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify"
 GOOGLE_SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar"
 GOOGLE_SCOPE_CALENDAR_READONLY = "https://www.googleapis.com/auth/calendar.readonly"
+GOOGLE_SCOPE_KEEP = "https://www.googleapis.com/auth/keep"
 GOOGLE_SCOPE_CONTACTS_READONLY = "https://www.googleapis.com/auth/contacts.readonly"
 GOOGLE_SCOPE_DRIVE_METADATA_READONLY = "https://www.googleapis.com/auth/drive.metadata.readonly"
 GOOGLE_SCOPE_PHOTOS_PICKER = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly"
@@ -67,6 +68,7 @@ GOOGLE_SCOPE_FULL_WORKSPACE = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_METADATA,
     GOOGLE_SCOPE_GMAIL_MODIFY,
     GOOGLE_SCOPE_CALENDAR,
+    GOOGLE_SCOPE_KEEP,
     GOOGLE_SCOPE_CONTACTS_READONLY,
     GOOGLE_SCOPE_DRIVE_METADATA_READONLY,
 )
@@ -164,10 +166,11 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
     },
     "full_workspace": {
         "label": "Google Full Workspace",
-        "summary": "Broader assistant context: inbox actions plus richer calendar and Drive index context.",
+        "summary": "Broader assistant context: inbox actions plus richer calendar, Google Keep, and Drive index context.",
         "capabilities": (
             "Inbox understanding and modification",
             "Richer calendar actions",
+            "Google Keep note creation",
             "Drive file index context",
         ),
         "limitations": (
@@ -180,6 +183,7 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         "capabilities": (
             "Inbox understanding and modification",
             "Richer calendar actions",
+            "Google Keep note creation",
             "Drive file index context",
             "Google Photos picker sessions",
         ),
@@ -194,6 +198,7 @@ SCOPE_BUNDLE_METADATA: dict[str, dict[str, object]] = {
         "capabilities": (
             "Inbox understanding and modification",
             "Richer calendar actions",
+            "Google Keep note creation",
             "Drive file index context",
         ),
         "limitations": (
@@ -356,6 +361,16 @@ class GoogleCalendarCreateResult:
     summary: str
     start_at: str
     end_at: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class GoogleKeepNoteCreateResult:
+    binding: ProviderBindingRecord
+    note_name: str
+    title: str
+    text_content: str
+    list_item_texts: tuple[str, ...]
     created_at: str
 
 
@@ -2417,6 +2432,58 @@ def _load_google_calendar_context(
     return binding, metadata, token_payload, access_token
 
 
+def _load_google_keep_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str]:
+    config = load_google_oauth_config()
+    resolved_binding_id = str(binding_id or "").strip()
+    binding = None
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        candidate_binding_id = resolved_binding_id or _primary_google_binding_id(binding_principal_id)
+        binding = container.provider_registry.get_persisted_binding_record(
+            binding_id=candidate_binding_id,
+            principal_id=binding_principal_id,
+        )
+        if binding is not None:
+            break
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = {
+        str(scope or "").strip()
+        for scope in (metadata.get("granted_scopes") or [])
+        if str(scope or "").strip()
+    }
+    if GOOGLE_SCOPE_KEEP not in granted_scopes:
+        raise RuntimeError("google_keep_scope_missing")
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_keep_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    try:
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+    except Exception as exc:
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        _mark_google_binding_reauth_required(
+            container=container,
+            binding=binding,
+            principal_id=binding_principal_id,
+            reason=_google_refresh_error_reason(exc),
+        )
+        raise
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_keep_access_token_missing")
+    return binding, metadata, token_payload, access_token
+
+
 def create_google_calendar_event(
     *,
     container: AppContainer,
@@ -2484,5 +2551,85 @@ def create_google_calendar_event(
         summary=normalized_summary,
         start_at=normalized_start,
         end_at=normalized_end,
+        created_at=updated_metadata["last_successful_api_call_at"],
+    )
+
+
+def create_google_keep_note(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    title: str,
+    text_content: str = "",
+    list_item_texts: tuple[str, ...] = (),
+    binding_id: str = "",
+) -> GoogleKeepNoteCreateResult:
+    binding, metadata, token_payload, access_token = _load_google_keep_context(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+    )
+    normalized_title = str(title or "").strip() or "EA note"
+    normalized_text = str(text_content or "").strip()
+    normalized_items = tuple(
+        str(item or "").strip()
+        for item in list_item_texts
+        if str(item or "").strip()
+    )
+    body: dict[str, Any] = {"title": normalized_title}
+    if normalized_items:
+        body["body"] = {
+            "list": {
+                "listItems": [
+                    {
+                        "text": {"textContent": item},
+                        "checked": False,
+                    }
+                    for item in normalized_items
+                ]
+            }
+        }
+    else:
+        body["body"] = {
+            "text": {
+                "textContent": normalized_text,
+            }
+        }
+    request = urllib.request.Request(
+        "https://keep.googleapis.com/v1/notes",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        response_payload = json.loads(response.read().decode("utf-8"))
+    note_name = str(response_payload.get("name") or "").strip()
+    if not note_name:
+        raise RuntimeError("google_keep_note_name_missing")
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleKeepNoteCreateResult(
+        binding=updated,
+        note_name=note_name,
+        title=normalized_title,
+        text_content=normalized_text,
+        list_item_texts=normalized_items,
         created_at=updated_metadata["last_successful_api_call_at"],
     )

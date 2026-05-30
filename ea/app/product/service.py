@@ -2896,22 +2896,6 @@ _POCKET_ASSISTANT_TRIGGER_RE = re.compile(
 )
 
 
-def _google_keep_shopping_list_webhook_url() -> str:
-    return str(
-        os.getenv("EA_GOOGLE_KEEP_SHOPPING_LIST_WEBHOOK_URL")
-        or os.getenv("EA_POCKET_TRIGGER_SHOPPING_LIST_WEBHOOK_URL")
-        or ""
-    ).strip()
-
-
-def _google_keep_shopping_list_webhook_secret() -> str:
-    return str(
-        os.getenv("EA_GOOGLE_KEEP_SHOPPING_LIST_WEBHOOK_SECRET")
-        or os.getenv("EA_POCKET_TRIGGER_SHOPPING_LIST_WEBHOOK_SECRET")
-        or ""
-    ).strip()
-
-
 def _normalize_pocket_assistant_command_text(text: str) -> str:
     normalized = " ".join(str(text or "").strip().split())
     normalized = normalized.strip(" \t\r\n\"'“”„,;:-")
@@ -5947,63 +5931,20 @@ class ProductService:
         trigger_text: str,
         item_text: str,
     ) -> dict[str, object]:
-        webhook_url = _google_keep_shopping_list_webhook_url()
-        if not webhook_url:
-            raise RuntimeError("google_keep_shopping_list_webhook_missing")
-        payload = {
-            "action": "shopping_list_add",
-            "backend": "google_keep",
-            "target_list": "shopping",
-            "principal_id": principal_id,
-            "actor": str(actor or "").strip() or "office_api",
-            "source": "pocket_recording_trigger",
-            "recording_id": recording_id,
-            "title": title,
-            "recording_at": recording_at,
-            "trigger_text": trigger_text,
-            "item_text": item_text,
-        }
-        request = urllib.request.Request(
-            webhook_url,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                **(
-                    {"X-EA-Webhook-Secret": _google_keep_shopping_list_webhook_secret()}
-                    if _google_keep_shopping_list_webhook_secret()
-                    else {}
-                ),
-            },
-            method="POST",
+        receipt = google_oauth_service.create_google_keep_note(
+            container=self._container,
+            principal_id=principal_id,
+            title="Shopping list",
+            list_item_texts=(item_text,),
         )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                body = response.read().decode("utf-8", errors="ignore").strip()
-                parsed = json.loads(body) if body else {}
-        except urllib.error.HTTPError as exc:
-            detail = ""
-            try:
-                detail = exc.read().decode("utf-8", errors="ignore").strip()
-            except Exception:
-                detail = ""
-            raise RuntimeError(
-                compact_text(
-                    f"google_keep_shopping_list_http_{int(getattr(exc, 'code', 0) or 0)} {detail}",
-                    fallback="google_keep_shopping_list_request_failed",
-                    limit=240,
-                )
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"google_keep_shopping_list_unreachable:{str(exc.reason or exc).strip()}") from exc
-        if isinstance(parsed, dict) and parsed.get("ok") is False:
-            raise RuntimeError(
-                compact_text(
-                    str(parsed.get("error") or "google_keep_shopping_list_request_failed"),
-                    fallback="google_keep_shopping_list_request_failed",
-                    limit=240,
-                )
-            )
-        return parsed if isinstance(parsed, dict) else {}
+        return {
+            "status": "created",
+            "backend": "google_keep",
+            "note_name": receipt.note_name,
+            "note_title": receipt.title,
+            "list_item_texts": list(receipt.list_item_texts),
+            "created_at": receipt.created_at,
+        }
 
     def _deliver_google_keep_note_append(
         self,
@@ -6017,47 +5958,20 @@ class ProductService:
         note_title: str,
         note_text: str,
     ) -> dict[str, object]:
-        webhook_url = _google_keep_shopping_list_webhook_url()
-        if not webhook_url:
-            raise RuntimeError("google_keep_note_webhook_missing")
-        payload = {
-            "action": "note_append",
-            "backend": "google_keep",
-            "principal_id": principal_id,
-            "actor": str(actor or "").strip() or "office_api",
-            "source": "pocket_recording_trigger",
-            "recording_id": recording_id,
-            "title": title,
-            "recording_at": recording_at,
-            "trigger_text": trigger_text,
-            "note_title": str(note_title or "").strip(),
-            "note_text": str(note_text or "").strip(),
-        }
-        request = urllib.request.Request(
-            webhook_url,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                **(
-                    {"X-EA-Webhook-Secret": _google_keep_shopping_list_webhook_secret()}
-                    if _google_keep_shopping_list_webhook_secret()
-                    else {}
-                ),
-            },
-            method="POST",
+        receipt = google_oauth_service.create_google_keep_note(
+            container=self._container,
+            principal_id=principal_id,
+            title=str(note_title or "").strip() or "EA note",
+            text_content=str(note_text or "").strip(),
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read().decode("utf-8", errors="ignore").strip()
-            parsed = json.loads(body) if body else {}
-        if isinstance(parsed, dict) and parsed.get("ok") is False:
-            raise RuntimeError(
-                compact_text(
-                    str(parsed.get("error") or "google_keep_note_request_failed"),
-                    fallback="google_keep_note_request_failed",
-                    limit=240,
-                )
-            )
-        return parsed if isinstance(parsed, dict) else {}
+        return {
+            "status": "created",
+            "backend": "google_keep",
+            "note_name": receipt.note_name,
+            "note_title": receipt.title,
+            "text_content": receipt.text_content,
+            "created_at": receipt.created_at,
+        }
 
     def _classify_pocket_assistant_command(
         self,
