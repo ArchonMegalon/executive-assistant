@@ -11,6 +11,8 @@ from app.api.routes.product_api_contracts import (
     ChannelDigestDeliveryCreateIn,
     ChannelDigestDeliveryOut,
     ChannelLoopOut,
+    GoogleLocationHistoryImportIn,
+    GoogleLocationHistoryImportOut,
     GooglePhotosPickerSessionIn,
     GooglePhotosPickerSessionOut,
     GooglePhotosSignalSyncIn,
@@ -26,6 +28,7 @@ from app.api.routes.product_api_contracts import (
     PocketSignalCursorResetIn,
     PocketSignalCursorResetOut,
     PocketRecordingDetailOut,
+    PocketRecordingSearchOut,
     PocketRecordingTelegramDeliveryOut,
     PocketSignalImportIn,
     PocketSignalImportOut,
@@ -201,6 +204,27 @@ def import_noneverbia_meetings_from_local_path(
     return NoneverbiaSignalImportOut(**payload)
 
 
+@router.post("/signals/google/location-history/import", response_model=GoogleLocationHistoryImportOut)
+def import_google_location_history(
+    body: GoogleLocationHistoryImportIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> GoogleLocationHistoryImportOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.import_google_location_history(
+            principal_id=context.principal_id,
+            actor=actor,
+            path=body.path,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        status_code = 404 if detail == "google_location_history_import_path_not_found" else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return GoogleLocationHistoryImportOut(**payload)
+
+
 @router.post("/signals/pocket/sync", response_model=PocketSignalSyncOut)
 def sync_pocket_recordings(
     limit: int = Query(default=5, ge=1, le=100),
@@ -257,6 +281,27 @@ def reset_pocket_recording_sync_cursor(
         reason=str((body.reason if body is not None else "") or "").strip(),
     )
     return PocketSignalCursorResetOut(**payload)
+
+
+@router.get("/signals/pocket/recordings/search", response_model=PocketRecordingSearchOut)
+def search_pocket_recordings(
+    q: str = Query(default=""),
+    before: str = Query(default=""),
+    after: str = Query(default=""),
+    limit: int = Query(default=10, ge=1, le=100),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketRecordingSearchOut:
+    service = build_product_service(container)
+    payload = service.search_pocket_recordings(
+        principal_id=context.principal_id,
+        actor=str(context.operator_id or context.access_email or context.principal_id or "office_api").strip(),
+        query=q,
+        before=before,
+        after=after,
+        limit=limit,
+    )
+    return PocketRecordingSearchOut(**payload)
 
 
 @router.get("/signals/pocket/recordings/{recording_id}", response_model=PocketRecordingDetailOut)

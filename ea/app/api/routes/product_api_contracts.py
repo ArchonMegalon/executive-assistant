@@ -1011,6 +1011,22 @@ class PocketSignalImportOut(BaseModel):
     parsed_entry_total: int = 0
 
 
+class GoogleLocationHistoryImportIn(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class GoogleLocationHistoryImportOut(BaseModel):
+    generated_at: str
+    source_path: str
+    source_formats: list[str] = Field(default_factory=list)
+    imported_total: int = 0
+    deduplicated_total: int = 0
+    matched_recording_total: int = 0
+    unmatched_recording_total: int = 0
+    indexed_recording_total: int = 0
+    updated_metadata_total: int = 0
+
+
 class NoneverbiaSignalImportIn(BaseModel):
     path: str = Field(min_length=1)
     counterparty: str = "Noneverbia"
@@ -1056,6 +1072,8 @@ class PocketSignalSyncOut(BaseModel):
     cursor_recording_id: str = ""
     cursor_advanced: bool = False
     scan_truncated: bool = False
+    location_matched_total: int = 0
+    location_unmatched_total: int = 0
 
 
 class PocketSignalCursorResetIn(BaseModel):
@@ -1096,6 +1114,49 @@ class PocketRecordingDetailOut(BaseModel):
     retranscription_status: str = ""
     preference_evidence_recorded: bool = False
     preference_evidence_applied_total: int = 0
+    archive_path: str = ""
+    archive_sha256: str = ""
+    location_match_status: str = ""
+    location_match_reason: str = ""
+    location_name: str = ""
+    location_address: str = ""
+    location_latitude: float | None = None
+    location_longitude: float | None = None
+    location_start_at: str = ""
+    location_end_at: str = ""
+    location_source: str = ""
+    location_confidence: float = 0.0
+
+
+class PocketRecordingSearchItemOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    recording_at: str = ""
+    archive_status: str = ""
+    archive_path: str = ""
+    archive_sha256: str = ""
+    summary_markdown: str = ""
+    transcript_excerpt: str = ""
+    location_match_status: str = ""
+    location_match_reason: str = ""
+    location_name: str = ""
+    location_address: str = ""
+    location_latitude: float | None = None
+    location_longitude: float | None = None
+    location_start_at: str = ""
+    location_end_at: str = ""
+    location_source: str = ""
+    location_confidence: float = 0.0
+    match_score: float = 0.0
+
+
+class PocketRecordingSearchOut(BaseModel):
+    generated_at: str
+    query: str = ""
+    before: str = ""
+    after: str = ""
+    total: int = 0
+    items: list[PocketRecordingSearchItemOut] = Field(default_factory=list)
 
 
 class PocketRecordingTelegramDeliveryOut(BaseModel):

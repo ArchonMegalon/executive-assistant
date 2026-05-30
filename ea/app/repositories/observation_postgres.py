@@ -181,7 +181,7 @@ class PostgresObservationEventRepository:
         return row
 
     def list_recent(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
-        n = max(1, min(500, int(limit or 50)))
+        n = max(1, min(5000, int(limit or 50)))
         normalized_principal = str(principal_id or "").strip()
         query = """
             SELECT observation_id, principal_id, channel, event_type, payload_json, created_at,

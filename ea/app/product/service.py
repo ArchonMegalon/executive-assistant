@@ -139,6 +139,8 @@ _POCKET_API_MAX_RETRY_BACKOFF_SECONDS = 5.0
 _POCKET_SYNC_EVENT_LOOKBACK = 200
 _POCKET_SIGNAL_DEDUPE_LOOKBACK = 2000
 _POCKET_SYNC_MAX_SCAN_PAGES = 12
+_POCKET_RECORDING_INDEX_LOOKBACK = 5000
+_GOOGLE_LOCATION_HISTORY_LOOKBACK = 5000
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 _PROPERTY_SCOUT_LISTING_HOSTS = (
     "willhaben.at",
@@ -570,6 +572,186 @@ def _parse_iso(value: str | None) -> datetime | None:
         return datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _parse_utcish(value: str | None) -> datetime | None:
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _float_or_none(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _google_coordinate(value: object) -> float | None:
+    candidate = _float_or_none(value)
+    if candidate is None:
+        return None
+    if abs(candidate) > 180.0:
+        candidate = candidate / 10000000.0
+    return candidate
+
+
+def _google_timestamp(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc).isoformat()
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.isdigit():
+        return datetime.fromtimestamp(int(normalized) / 1000.0, tz=timezone.utc).isoformat()
+    parsed = _parse_utcish(normalized)
+    return parsed.isoformat() if parsed is not None else ""
+
+
+def _google_location_query_tokens(text: str) -> tuple[str, ...]:
+    return tuple(token for token in re.findall(r"[0-9A-Za-zÄÖÜäöüß]+", str(text or "").lower()) if token)
+
+
+def _google_location_duration_seconds(*, start_at: str, end_at: str) -> float:
+    start = _parse_utcish(start_at)
+    end = _parse_utcish(end_at)
+    if start is None or end is None:
+        return 0.0
+    return max(0.0, (end - start).total_seconds())
+
+
+def _google_location_history_auto_import_path() -> str:
+    return str(os.getenv("EA_GOOGLE_LOCATION_HISTORY_PATH") or "").strip()
+
+
+def _google_location_history_match_max_gap_seconds() -> float:
+    configured = _float_or_none(os.getenv("EA_GOOGLE_LOCATION_MATCH_MAX_GAP_SECONDS"))
+    return max(0.0, configured if configured is not None else 6 * 3600.0)
+
+
+def _google_location_history_window_payloads(payload: object, *, source_path: str) -> list[dict[str, object]]:
+    source_label = Path(source_path).name or "google-location-history"
+    rows: list[dict[str, object]] = []
+
+    def _append_window(
+        *,
+        source_type: str,
+        start_at: object,
+        end_at: object,
+        latitude: object,
+        longitude: object,
+        name: object = "",
+        address: object = "",
+        activity_type: object = "",
+    ) -> None:
+        start_value = _google_timestamp(start_at)
+        end_value = _google_timestamp(end_at) or start_value
+        lat_value = _google_coordinate(latitude)
+        lon_value = _google_coordinate(longitude)
+        if not start_value and not end_value:
+            return
+        if lat_value is None or lon_value is None:
+            return
+        rows.append(
+            {
+                "source_format": source_label,
+                "source_type": str(source_type or "").strip() or "point",
+                "location_name": compact_text(str(name or "").strip(), fallback="", limit=200),
+                "location_address": compact_text(str(address or "").strip(), fallback="", limit=260),
+                "location_latitude": lat_value,
+                "location_longitude": lon_value,
+                "location_start_at": start_value,
+                "location_end_at": end_value,
+                "location_duration_seconds": _google_location_duration_seconds(start_at=start_value, end_at=end_value),
+                "activity_type": compact_text(str(activity_type or "").strip(), fallback="", limit=80),
+            }
+        )
+
+    def _from_place_visit(place_visit: dict[str, object]) -> None:
+        location = dict(place_visit.get("location") or {})
+        duration = dict(place_visit.get("duration") or {})
+        _append_window(
+            source_type="place_visit",
+            start_at=duration.get("startTimestamp") or duration.get("startTimestampMs") or place_visit.get("startTime"),
+            end_at=duration.get("endTimestamp") or duration.get("endTimestampMs") or place_visit.get("endTime"),
+            latitude=location.get("latitudeE7") or location.get("latitude"),
+            longitude=location.get("longitudeE7") or location.get("longitude"),
+            name=location.get("name") or location.get("placeName") or location.get("address"),
+            address=location.get("address") or location.get("semanticType"),
+            activity_type=place_visit.get("visitConfidence"),
+        )
+
+    def _from_activity_segment(segment: dict[str, object]) -> None:
+        start_location = dict(segment.get("startLocation") or {})
+        end_location = dict(segment.get("endLocation") or {})
+        latitude = start_location.get("latitudeE7") or start_location.get("latitude")
+        longitude = start_location.get("longitudeE7") or start_location.get("longitude")
+        if latitude in (None, ""):
+            latitude = end_location.get("latitudeE7") or end_location.get("latitude")
+        if longitude in (None, ""):
+            longitude = end_location.get("longitudeE7") or end_location.get("longitude")
+        _append_window(
+            source_type="activity_segment",
+            start_at=segment.get("startTime") or segment.get("durationStartTimestamp"),
+            end_at=segment.get("endTime") or segment.get("durationEndTimestamp"),
+            latitude=latitude,
+            longitude=longitude,
+            name=segment.get("activityType") or segment.get("transitPath"),
+            address=segment.get("distance"),
+            activity_type=segment.get("activityType"),
+        )
+
+    def _from_point(entry: dict[str, object]) -> None:
+        _append_window(
+            source_type="point",
+            start_at=entry.get("timestamp") or entry.get("timestampMs") or entry.get("time"),
+            end_at=entry.get("timestamp") or entry.get("timestampMs") or entry.get("time"),
+            latitude=entry.get("latitudeE7") or entry.get("latitude"),
+            longitude=entry.get("longitudeE7") or entry.get("longitude"),
+            name=entry.get("name") or entry.get("address"),
+            address=entry.get("address"),
+        )
+
+    def _walk(node: object) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("placeVisit"), dict):
+                _from_place_visit(dict(node.get("placeVisit") or {}))
+            elif isinstance(node.get("activitySegment"), dict):
+                _from_activity_segment(dict(node.get("activitySegment") or {}))
+            elif any(key in node for key in ("latitudeE7", "latitude", "longitudeE7", "longitude")):
+                _from_point(node)
+            for key in ("timelineObjects", "locations", "semanticSegments", "records", "data"):
+                child = node.get(key)
+                if isinstance(child, list):
+                    for item in child:
+                        _walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(payload)
+    return rows
+
+
+def _google_location_match_projection(match: dict[str, object] | None) -> dict[str, object]:
+    payload = dict(match or {})
+    return {
+        "location_match_status": str(payload.get("location_match_status") or "").strip(),
+        "location_match_reason": str(payload.get("location_match_reason") or "").strip(),
+        "location_name": str(payload.get("location_name") or "").strip(),
+        "location_address": str(payload.get("location_address") or "").strip(),
+        "location_latitude": _float_or_none(payload.get("location_latitude")),
+        "location_longitude": _float_or_none(payload.get("location_longitude")),
+        "location_start_at": str(payload.get("location_start_at") or "").strip(),
+        "location_end_at": str(payload.get("location_end_at") or "").strip(),
+        "location_source": str(payload.get("location_source") or "").strip(),
+        "location_confidence": float(payload.get("location_confidence") or 0.0),
+    }
 
 
 def _is_past_due(value: str | None) -> bool:

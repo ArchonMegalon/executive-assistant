@@ -77,7 +77,7 @@ class InMemoryObservationEventRepository:
         return row
 
     def list_recent(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
-        n = max(1, min(500, int(limit or 50)))
+        n = max(1, min(5000, int(limit or 50)))
         principal = str(principal_id or "").strip()
         ids = list(reversed(self._order[-n:]))
         return [self._rows[i] for i in ids if i in self._rows and (not principal or self._rows[i].principal_id == principal)]
