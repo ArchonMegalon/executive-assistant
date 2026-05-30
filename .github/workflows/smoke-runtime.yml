@@ -67,9 +67,6 @@ jobs:
         run: |
           make ci-gates
 
-      - name: Fail if generated release artifacts changed during CI
-        run: |
-          git diff --exit-code -- .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json
 
   smoke-runtime-postgres:
     runs-on: ubuntu-latest

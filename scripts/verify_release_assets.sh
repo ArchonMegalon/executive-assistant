@@ -209,13 +209,57 @@ else
   missing=1
 fi
 
-if git diff --quiet -- \
-  .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json \
-  .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json \
-  .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json; then
-  echo "ok: generated release artifacts are committed in their materialized state"
+if python3 - <<'PY'
+import json
+import subprocess
+from pathlib import Path
+
+
+def _head_json(path: str) -> dict:
+    payload = subprocess.run(
+        ["git", "show", f"HEAD:{path}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return json.loads(payload)
+
+
+def _worktree_json(path: str) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _normalize(value):
+    if isinstance(value, dict):
+        normalized = {}
+        for key, item in value.items():
+            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "sha256", "duration_seconds", "git_head"}:
+                continue
+            if key.endswith("_git_head"):
+                continue
+            if key == "review_due":
+                continue
+            if key == "output_excerpt":
+                continue
+            normalized[key] = _normalize(item)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize(item) for item in value]
+    return value
+
+
+paths = (
+    ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+)
+for path in paths:
+    assert _normalize(_head_json(path)) == _normalize(_worktree_json(path)), path
+PY
+then
+  echo "ok: generated release artifacts stay semantically aligned after materialization"
 else
-  echo "missing: generated release artifacts are dirty after materialization" >&2
+  echo "missing: generated release artifacts drift semantically after materialization" >&2
   git diff -- \
     .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json \
     .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json \

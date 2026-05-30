@@ -105,6 +105,9 @@ for _ in $(seq 1 60); do
   done
 
   if [[ "${topology_ready}" == "1" ]] && curl -fsS "http://localhost:${HOST_PORT}/health" >/dev/null 2>&1; then
+    python3 "${EA_ROOT}/scripts/materialize_ea_browser_workflow_proof.py" >/dev/null
+    python3 "${EA_ROOT}/scripts/materialize_ea_flagship_release_gate.py" >/dev/null
+    python3 "${EA_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null
     echo "EA rewrite baseline healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
     exit 0
   fi
