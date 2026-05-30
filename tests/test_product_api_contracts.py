@@ -4046,6 +4046,107 @@ def test_pocket_api_sync_executes_assistant_keep_note_trigger(monkeypatch) -> No
     assert executed["payload"]["classification_reason"] == "spoken_request_to_save_keep_note"
 
 
+def test_pocket_api_sync_routes_gmail_trigger_to_manual_followup_by_default(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-gmail-followup"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    gmail_send_called = False
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "trigger-gmail-1", "title": "Pocket gmail command", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket gmail command",
+                "state": "completed",
+                "duration": 93.0,
+                "language": "de",
+                "recording_at": "2026-05-30T10:00:00Z",
+                "created_at": "2026-05-30T10:00:10Z",
+                "updated_at": "2026-05-30T10:00:20Z",
+                "tags": ["memo"],
+                "transcript": {
+                    "text": "Assistent: sende eine E-Mail an max@example.com mit dem Betreff Termin und dem Text ich komme spaeter.",
+                    "segments": [{"start": 0.0, "end": 6.0, "text": "Assistent: sende eine E-Mail an max@example.com mit dem Betreff Termin und dem Text ich komme spaeter."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.responses_upstream,
+        "generate_text",
+        lambda **kwargs: type(
+            "UpstreamResultStub",
+            (),
+            {
+                "text": json.dumps(
+                    {
+                        "action": "gmail_send",
+                        "confidence": 0.98,
+                        "reason": "spoken_request_to_send_email",
+                        "params": {
+                            "recipient_email": "max@example.com",
+                            "subject": "Termin",
+                            "body_text": "Ich komme spaeter.",
+                        },
+                    }
+                )
+            },
+        )(),
+    )
+
+    def _fake_send(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal gmail_send_called
+        gmail_send_called = True
+        raise AssertionError("gmail send should not auto-execute by default")
+
+    monkeypatch.setattr(google_oauth_service, "send_google_gmail_message", _fake_send)
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["assistant_trigger_total"] == 1
+    assert body["assistant_trigger_executed_total"] == 1
+    assert body["assistant_trigger_blocked_total"] == 0
+    assert gmail_send_called is False
+
+    product_events = client.get("/app/api/events", params={"channel": "product"})
+    assert product_events.status_code == 200
+    executed = next(
+        item
+        for item in product_events.json()["items"]
+        if item["event_type"] == "pocket_assistant_command_executed"
+        and item["payload"]["recording_id"] == "trigger-gmail-1"
+    )
+    assert executed["payload"]["delivery_backend"] == "human_followup"
+    assert executed["payload"]["policy_reason"] == "action_policy_requires_manual_followup"
+
+
 def test_google_location_history_import_enriches_pocket_archive_search(monkeypatch, tmp_path) -> None:
     principal_id = "exec-product-pocket-location"
     client = build_product_client(principal_id=principal_id)

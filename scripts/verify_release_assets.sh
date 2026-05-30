@@ -209,6 +209,20 @@ else
   missing=1
 fi
 
+if git diff --quiet -- \
+  .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json \
+  .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json \
+  .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json; then
+  echo "ok: generated release artifacts are committed in their materialized state"
+else
+  echo "missing: generated release artifacts are dirty after materialization" >&2
+  git diff -- \
+    .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json \
+    .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json \
+    .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json >&2 || true
+  missing=1
+fi
+
 echo "== verify release docs linkage =="
 if grep -Fq "make operator-help" "README.md"; then
   echo "ok: README operator-help reference"

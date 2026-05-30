@@ -2902,6 +2902,39 @@ def _normalize_pocket_assistant_command_text(text: str) -> str:
     return normalized
 
 
+def _pocket_assistant_auto_action_allowlist() -> set[str]:
+    configured = str(os.getenv("EA_POCKET_ASSISTANT_AUTO_ACTIONS") or "").strip()
+    if configured:
+        return {
+            str(item or "").strip()
+            for item in configured.split(",")
+            if str(item or "").strip()
+        }
+    return {
+        "shopping_list_add",
+        "keep_note_append",
+        "pocket_recording_send",
+        "onedrive_document_send",
+        "manual_followup",
+        "none",
+    }
+
+
+def _pocket_assistant_min_confidence_for_action(action: str) -> float:
+    normalized = str(action or "").strip().lower()
+    if normalized in {"shopping_list_add", "keep_note_append"}:
+        return 0.5
+    if normalized in {"pocket_recording_send", "onedrive_document_send"}:
+        return 0.75
+    if normalized in {"gmail_send", "calendar_create"}:
+        return 0.95
+    return 0.0
+
+
+def _pocket_assistant_manual_only_actions() -> set[str]:
+    return {"gmail_send", "calendar_create"}
+
+
 def _extract_pocket_assistant_commands(transcript_text: str) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     for match in _POCKET_ASSISTANT_TRIGGER_RE.finditer(str(transcript_text or "")):
@@ -6119,23 +6152,43 @@ class ProductService:
         for index, command in enumerate(_extract_pocket_assistant_commands(transcript_text), start=1):
             command_total += 1
             dedupe_prefix = f"{principal_id}|pocket-assistant-command|{recording_id}|{index}"
+            trigger_text = str(command.get("trigger_text") or "").strip()
             classified = self._classify_pocket_assistant_command(
                 principal_id=principal_id,
-                trigger_text=str(command.get("trigger_text") or "").strip(),
+                trigger_text=trigger_text,
             )
             action = str(classified.get("action") or "").strip()
+            confidence = float(classified.get("confidence") or 0.0)
             params = dict(classified.get("params") or {}) if isinstance(classified.get("params"), dict) else {}
             item_text = _normalize_pocket_assistant_command_text(str(params.get("item_text") or ""))
+            policy_reason = ""
+            if action and action not in {"manual_followup", "none"}:
+                allowed_actions = _pocket_assistant_auto_action_allowlist()
+                min_confidence = _pocket_assistant_min_confidence_for_action(action)
+                if action in _pocket_assistant_manual_only_actions() and action not in allowed_actions:
+                    policy_reason = "action_policy_requires_manual_followup"
+                elif action not in allowed_actions:
+                    policy_reason = "action_not_in_auto_allowlist"
+                elif confidence < min_confidence:
+                    policy_reason = f"confidence_below_threshold:{min_confidence:.2f}"
+                if policy_reason:
+                    params = {
+                        **params,
+                        "brief": str(params.get("brief") or trigger_text).strip(),
+                        "why": str(params.get("why") or policy_reason).strip(),
+                    }
+                    action = "manual_followup"
             command_payload = {
                 "recording_id": recording_id,
                 "title": title,
                 "recording_at": recording_at,
                 "command_index": index,
-                "trigger_text": str(command.get("trigger_text") or "").strip(),
+                "trigger_text": trigger_text,
                 "action": action,
                 "item_text": item_text,
-                "classification_confidence": float(classified.get("confidence") or 0.0),
+                "classification_confidence": confidence,
                 "classification_reason": str(classified.get("reason") or "").strip(),
+                "policy_reason": policy_reason,
             }
             self._record_product_event(
                 principal_id=principal_id,
@@ -6150,7 +6203,6 @@ class ProductService:
             ) is not None:
                 executed_total += 1
                 continue
-            trigger_text = str(command.get("trigger_text") or "").strip()
             params = dict(classified.get("params") or {}) if isinstance(classified.get("params"), dict) else {}
             try:
                 delivery_backend = ""
