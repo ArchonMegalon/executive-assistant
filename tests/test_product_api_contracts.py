@@ -3530,6 +3530,7 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     principal_id = "exec-product-pocket-sync"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_POCKET_AUDIO_ARCHIVE_ENABLED", "1")
 
     monkeypatch.setattr(
         product_service,
@@ -3572,6 +3573,31 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
             },
         },
     )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_archive_pocket_recording_audio",
+        lambda self, *, principal_id, actor, payload: {
+            "archive_status": "archived",
+            "archive_reason": "",
+            "archive_root": "/mnt/pcloud/EA/pocket-ai-audio",
+            "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/exec-product-pocket-sync/2026/05/2026-05-01__done-1__pocket-meeting.mp3",
+            "archive_sha256": "abc123",
+            "duration_seconds": 62.0,
+            "min_duration_seconds": 60.0,
+            "recording_id": "done-1",
+            "title": "Pocket meeting",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
     synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
     assert synced.status_code == 200
     body = synced.json()
@@ -3581,6 +3607,11 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     assert body["deduplicated_total"] == 0
     assert body["suppressed_total"] == 1
     assert body["failed_total"] == 0
+    assert body["archived_total"] == 1
+    assert body["archive_dismissed_total"] == 0
+    assert body["archive_failed_total"] == 0
+    assert body["teable_index_status"] == "synced"
+    assert body["teable_index_row_total"] == 1
     assert body["cursor_recording_id"] == "pending-1"
     assert body["cursor_updated_at"] == ""
     assert body["cursor_advanced"] is True
@@ -3594,6 +3625,88 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     assert event["payload"]["summary_markdown"] == "Send the revised board packet to Sofia today."
     assert event["payload"]["transcript_excerpt"] == "Discuss the board packet and send the revised version to Sofia."
     assert "audio_download_url" not in event["payload"]
+    assert event["payload"]["audio_archive_status"] == "archived"
+    assert event["payload"]["audio_archive_path"].endswith("__done-1__pocket-meeting.mp3")
+
+
+def test_pocket_api_sync_dismisses_subminute_recordings_from_continuous_archive(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-short"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_POCKET_AUDIO_ARCHIVE_ENABLED", "1")
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "short-1", "title": "Pocket note", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket note",
+                "state": "completed",
+                "duration": 42.0,
+                "language": "en",
+                "recording_at": "2026-05-01T09:00:00Z",
+                "created_at": "2026-05-01T09:00:10Z",
+                "updated_at": "2026-05-01T09:00:20Z",
+                "tags": ["memo"],
+                "transcript": {
+                    "text": "Remember the charger.",
+                    "segments": [{"start": 0.0, "end": 2.0, "text": "Remember the charger."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_archive_pocket_recording_audio",
+        lambda self, *, principal_id, actor, payload: {
+            "archive_status": "dismissed",
+            "archive_reason": "duration_below_minimum",
+            "archive_root": "/mnt/pcloud/EA/pocket-ai-audio",
+            "archive_path": "",
+            "archive_sha256": "",
+            "duration_seconds": 42.0,
+            "min_duration_seconds": 60.0,
+            "recording_id": "short-1",
+            "title": "Pocket note",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["total"] == 0
+    assert body["synced_total"] == 0
+    assert body["suppressed_total"] == 1
+    assert body["archived_total"] == 0
+    assert body["archive_dismissed_total"] == 1
+    assert body["archive_failed_total"] == 0
+    assert body["teable_index_status"] == "synced"
+    assert body["teable_index_row_total"] == 1
 
 
 def test_pocket_api_sync_uses_cursor_and_suppresses_non_actionable_audio_candidates(monkeypatch) -> None:

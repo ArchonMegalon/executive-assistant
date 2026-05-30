@@ -1988,6 +1988,61 @@ def _pocket_retranscribe_from_audio_url(
     }
 
 
+def _pocket_audio_archive_enabled() -> bool:
+    raw = str(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ENABLED") or "").strip().lower()
+    if not raw:
+        return True
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _pocket_audio_archive_root() -> Path:
+    raw = str(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path("/mnt/pcloud/EA/pocket-ai-audio")
+
+
+def _pocket_audio_archive_min_duration_seconds() -> float:
+    raw = str(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_MIN_DURATION_SECONDS") or "").strip()
+    if not raw:
+        return 60.0
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return 60.0
+
+
+def _pocket_duration_seconds(value: object) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(float(value), 0.0)
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        return max(float(raw), 0.0)
+    except ValueError:
+        return 0.0
+
+
+def _pocket_archive_safe_token(value: object, *, fallback: str, limit: int = 80) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    if not normalized:
+        normalized = fallback
+    return normalized[:limit].strip("-") or fallback
+
+
+def _pocket_archive_recording_day(payload: dict[str, object]) -> str:
+    for key in ("recording_at", "created_at", "updated_at"):
+        raw = str(payload.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
+        except ValueError:
+            continue
+    return _utcnow().date().isoformat()
+
+
 def _pocket_recording_effective_updated_at(payload: dict[str, object]) -> str:
     return _first_non_empty_text(payload.get("updated_at"), payload.get("recording_at"), payload.get("created_at"))
 
@@ -10003,7 +10058,28 @@ class ProductService:
         audio_download_url = str(payload.get("audio_download_url") or "").strip()
         if not audio_download_url:
             raise RuntimeError("pocket_recording_audio_unavailable")
+        archive: dict[str, object] = {
+            "archive_status": "disabled" if not _pocket_audio_archive_enabled() else "not_attempted",
+            "archive_reason": "",
+            "archive_path": "",
+            "archive_sha256": "",
+        }
+        if _pocket_audio_archive_enabled():
+            try:
+                archive = self._archive_pocket_recording_audio(
+                    principal_id=principal_id,
+                    actor=actor,
+                    payload=payload,
+                )
+            except RuntimeError as exc:
+                archive = {
+                    **archive,
+                    "archive_status": "failed",
+                    "archive_reason": str(exc or "unknown_error"),
+                }
         audio_ref = audio_download_url
+        if str(archive.get("archive_status") or "") in {"archived", "already_archived"} and str(archive.get("archive_path") or "").strip():
+            audio_ref = str(archive.get("archive_path") or "").strip()
         try:
             receipt = send_telegram_audio_for_principal(
                 self._container.tool_runtime,
@@ -10041,6 +10117,7 @@ class ProductService:
             "telegram_chat_ref": receipt.chat_id,
             "audio_download_url": audio_download_url,
             "audio_expires_at": str(payload.get("audio_expires_at") or "").strip(),
+            "audio_archive": archive,
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -10053,11 +10130,237 @@ class ProductService:
                 "telegram_message_ids": list(receipt.message_ids),
                 "audio_download_url": audio_download_url,
                 "audio_expires_at": str(payload.get("audio_expires_at") or "").strip(),
+                "audio_archive_status": str(archive.get("archive_status") or "").strip(),
+                "audio_archive_path": str(archive.get("archive_path") or "").strip(),
             },
             source_id=f"pocket-recording:{recording_id}",
             dedupe_key=f"{principal_id}|pocket-recording-telegram-sent|{recording_id}|{receipt.chat_id}",
         )
         return response
+
+    def _archive_pocket_recording_audio(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        recording_id = str(payload.get("recording_id") or "").strip()
+        title = str(payload.get("title") or "").strip()
+        duration_seconds = _pocket_duration_seconds(payload.get("duration"))
+        min_duration_seconds = _pocket_audio_archive_min_duration_seconds()
+        archive_root = _pocket_audio_archive_root()
+        if duration_seconds > 0.0 and duration_seconds < min_duration_seconds:
+            result = {
+                "archive_status": "dismissed",
+                "archive_reason": "duration_below_minimum",
+                "archive_root": str(archive_root),
+                "archive_path": "",
+                "archive_sha256": "",
+                "duration_seconds": duration_seconds,
+                "min_duration_seconds": min_duration_seconds,
+                "recording_id": recording_id,
+                "title": title,
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="pocket_recording_audio_archive_dismissed",
+                payload={
+                    "recording_id": recording_id,
+                    "title": title,
+                    "actor": str(actor or "").strip() or "office_api",
+                    "reason": "duration_below_minimum",
+                    "duration_seconds": duration_seconds,
+                    "min_duration_seconds": min_duration_seconds,
+                    "archive_root": str(archive_root),
+                },
+                source_id=f"pocket-recording:{recording_id}",
+                dedupe_key=f"{principal_id}|pocket-recording-audio-dismissed|{recording_id}|duration_below_minimum",
+            )
+            return result
+
+        audio_download_url = str(payload.get("audio_download_url") or "").strip()
+        if not audio_download_url:
+            raise RuntimeError("pocket_recording_audio_unavailable")
+        principal_token = _pocket_archive_safe_token(principal_id, fallback="local-user", limit=64)
+        recording_day = _pocket_archive_recording_day(payload)
+        year, month = recording_day[:4], recording_day[5:7]
+        title_token = _pocket_archive_safe_token(title, fallback="recording", limit=80)
+        stem = f"{recording_day}__{recording_id}__{title_token}"
+        archive_dir = archive_root / principal_token / year / month
+        metadata_path = archive_dir / f"{stem}.json"
+        if metadata_path.is_file():
+            try:
+                existing_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing_metadata = {}
+            archive_path = Path(str(existing_metadata.get("archive_path") or "").strip())
+            if archive_path.is_file():
+                return {
+                    "archive_status": "already_archived",
+                    "archive_reason": "",
+                    "archive_root": str(archive_root),
+                    "archive_path": str(archive_path),
+                    "archive_sha256": str(existing_metadata.get("archive_sha256") or "").strip(),
+                    "duration_seconds": duration_seconds,
+                    "min_duration_seconds": min_duration_seconds,
+                    "recording_id": recording_id,
+                    "title": title,
+                }
+
+        audio_blob, content_type, final_url = _pocket_download_audio_blob(audio_download_url=audio_download_url)
+        guessed_name = _pocket_guess_audio_filename(
+            recording_id=recording_id,
+            audio_download_url=final_url or audio_download_url,
+            content_type=content_type,
+        )
+        suffix = Path(guessed_name).suffix or ".mp3"
+        archive_path = archive_dir / f"{stem}{suffix}"
+        archive_sha256 = hashlib.sha256(audio_blob).hexdigest()
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path.write_bytes(audio_blob)
+        metadata = {
+            "recording_id": recording_id,
+            "title": title,
+            "principal_id": principal_id,
+            "actor": str(actor or "").strip() or "office_api",
+            "duration_seconds": duration_seconds,
+            "min_duration_seconds": min_duration_seconds,
+            "language": str(payload.get("language") or "").strip(),
+            "recording_at": str(payload.get("recording_at") or "").strip(),
+            "created_at": str(payload.get("created_at") or "").strip(),
+            "updated_at": str(payload.get("updated_at") or "").strip(),
+            "audio_download_url_host": urllib.parse.urlparse(audio_download_url).netloc,
+            "audio_final_url_host": urllib.parse.urlparse(final_url).netloc,
+            "audio_content_type": content_type,
+            "archive_path": str(archive_path),
+            "archive_sha256": archive_sha256,
+            "archived_at": _now_iso(),
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_audio_archived",
+            payload=metadata,
+            source_id=f"pocket-recording:{recording_id}",
+            dedupe_key=f"{principal_id}|pocket-recording-audio-archived|{recording_id}|{archive_sha256}",
+        )
+        return {
+            "archive_status": "archived",
+            "archive_reason": "",
+            "archive_root": str(archive_root),
+            "archive_path": str(archive_path),
+            "archive_sha256": archive_sha256,
+            "duration_seconds": duration_seconds,
+            "min_duration_seconds": min_duration_seconds,
+            "recording_id": recording_id,
+            "title": title,
+        }
+
+    def _pocket_audio_archive_teable_preview(
+        self,
+        *,
+        principal_id: str,
+        rows: list[dict[str, object]],
+    ) -> dict[str, object]:
+        provider_state = self._container.provider_registry.binding_state("teable", principal_id=principal_id)
+        teable_base_url = str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/")
+        table_sync_config_raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        parsed_table_sync: dict[str, object] = {}
+        if table_sync_config_raw:
+            try:
+                loaded = json.loads(table_sync_config_raw)
+            except Exception:
+                loaded = {}
+            if isinstance(loaded, dict):
+                parsed_table_sync = dict(loaded)
+        table_name = "pocket_audio_archive_index"
+        table_sync_configured = table_name in parsed_table_sync
+        candidate_routes = tuple(
+            route
+            for route in self._container.provider_registry.candidate_routes_by_capability_with_context(
+                capability_key="table_sync",
+                principal_id=principal_id,
+                require_executable=False,
+            )
+            if str(route.provider_key or "").strip().lower() == "teable"
+        )
+        provider_state_value = str(getattr(provider_state, "state", "") or "catalog_only").strip().lower() or "catalog_only"
+        provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
+        runtime_reachable = False
+        runtime_blocked_reason = ""
+        if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+        executable_route = next(
+            (
+                route
+                for route in candidate_routes
+                if bool(route.executable) and provider_routable and table_sync_configured and runtime_reachable
+            ),
+            None,
+        )
+        return {
+            "status": "ready" if executable_route is not None else "blocked",
+            "blocked_reason": (
+                ""
+                if executable_route is not None
+                else (
+                    "teable_table_sync_config_missing"
+                    if not table_sync_configured
+                    else (runtime_blocked_reason or "teable_table_sync_unavailable")
+                )
+            ),
+            "route_tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
+            "table_name": table_name,
+            "rows": [dict(row) for row in rows],
+        }
+
+    def _sync_pocket_audio_archive_index_to_teable(
+        self,
+        *,
+        principal_id: str,
+        rows: list[dict[str, object]],
+    ) -> dict[str, object]:
+        if not rows:
+            return {"status": "noop", "sync_attempted": False, "row_total": 0, "blocked_reason": ""}
+        preview = self._pocket_audio_archive_teable_preview(
+            principal_id=principal_id,
+            rows=rows,
+        )
+        if str(preview.get("status") or "").strip().lower() != "ready":
+            return {
+                "status": "blocked",
+                "sync_attempted": False,
+                "row_total": len(rows),
+                "blocked_reason": str(preview.get("blocked_reason") or "").strip(),
+            }
+        invocation = ToolInvocationRequest(
+            session_id=f"pocket-audio-teable-sync:{uuid4()}",
+            step_id=f"pocket-audio-teable-sync-step:{uuid4()}",
+            tool_name=str(preview.get("route_tool_name") or "provider.teable.table_sync").strip(),
+            action_kind="table.sync",
+            payload_json={
+                "projection_scope": "pocket_audio_archive",
+                "tables_json": {
+                    str(preview.get("table_name") or "pocket_audio_archive_index"): [dict(row) for row in rows],
+                },
+            },
+            context_json={"principal_id": principal_id},
+        )
+        result = self._container.tool_execution.execute_invocation(invocation)
+        return {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+            "tool_execution": {
+                "tool_name": result.tool_name,
+                "action_kind": result.action_kind,
+                "target_ref": result.target_ref,
+                "output_json": dict(result.output_json or {}),
+                "receipt_json": dict(result.receipt_json or {}),
+            },
+        }
 
     def reset_pocket_recording_sync_cursor(
         self,
@@ -10197,6 +10500,10 @@ class ProductService:
         staging_suppressed_total = 0
         preference_evidence_total = 0
         preference_evidence_applied_total = 0
+        archived_total = 0
+        archive_dismissed_total = 0
+        archive_failed_total = 0
+        teable_index_rows: list[dict[str, object]] = []
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -10228,6 +10535,70 @@ class ProductService:
             summary_markdown = str(detail.get("summary_markdown") or "").strip()
             title = str(detail.get("title") or "").strip() or f"Pocket recording {recording_id}"
             tags = [str(value).strip() for value in list(detail.get("tags") or []) if str(value).strip()]
+            archive_result: dict[str, object] = {
+                "archive_status": "disabled" if not _pocket_audio_archive_enabled() else "",
+                "archive_reason": "",
+                "archive_root": str(_pocket_audio_archive_root()),
+                "archive_path": "",
+                "archive_sha256": "",
+                "duration_seconds": _pocket_duration_seconds(detail.get("duration")),
+                "min_duration_seconds": _pocket_audio_archive_min_duration_seconds(),
+                "recording_id": recording_id,
+                "title": title,
+            }
+            if _pocket_audio_archive_enabled():
+                try:
+                    archive_result = self._archive_pocket_recording_audio(
+                        principal_id=principal_id,
+                        actor=actor,
+                        payload=detail,
+                    )
+                except RuntimeError as exc:
+                    archive_failed_total += 1
+                    archive_result = {
+                        **archive_result,
+                        "archive_status": "failed",
+                        "archive_reason": str(exc or "unknown_error"),
+                    }
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="pocket_recording_audio_archive_failed",
+                        payload={
+                            "recording_id": recording_id,
+                            "title": title,
+                            "actor": str(actor or "").strip() or "office_api",
+                            "error": str(exc or "unknown_error"),
+                        },
+                        source_id=f"pocket-recording:{recording_id}",
+                    )
+                else:
+                    if str(archive_result.get("archive_status") or "").strip() in {"archived", "already_archived"}:
+                        archived_total += 1
+                    elif str(archive_result.get("archive_status") or "").strip() == "dismissed":
+                        archive_dismissed_total += 1
+            teable_index_rows.append(
+                {
+                    "projection_key": f"{principal_id}:{recording_id}",
+                    "principal_id": principal_id,
+                    "recording_id": recording_id,
+                    "title": title,
+                    "archive_status": str(archive_result.get("archive_status") or "").strip(),
+                    "archive_reason": str(archive_result.get("archive_reason") or "").strip(),
+                    "archive_path": str(archive_result.get("archive_path") or "").strip(),
+                    "archive_sha256": str(archive_result.get("archive_sha256") or "").strip(),
+                    "duration_seconds": float(archive_result.get("duration_seconds") or _pocket_duration_seconds(detail.get("duration"))),
+                    "min_duration_seconds": float(archive_result.get("min_duration_seconds") or _pocket_audio_archive_min_duration_seconds()),
+                    "language": str(detail.get("language") or "").strip(),
+                    "recording_at": str(detail.get("recording_at") or "").strip(),
+                    "recording_updated_at": str(detail.get("updated_at") or _pocket_recording_effective_updated_at(row)).strip(),
+                    "tags_csv": ", ".join(tags),
+                    "summary_markdown": summary_markdown,
+                    "transcript_excerpt": compact_text(transcript_text, fallback="", limit=1200),
+                    "audio_download_url_host": urllib.parse.urlparse(str(detail.get("audio_download_url") or "").strip()).netloc,
+                    "audio_expires_at": str(detail.get("audio_expires_at") or "").strip(),
+                    "updated_at": _now_iso(),
+                }
+            )
             summary = compact_text(summary_markdown or transcript_text or title, fallback=title, limit=280)
             text = _pocket_signal_text(title, summary_markdown=summary_markdown, transcript_text=transcript_text)
             should_stage_commitments, staging_suppression_reason = _pocket_should_stage_commitments(
@@ -10236,6 +10607,10 @@ class ProductService:
                 transcript_text=transcript_text,
                 tags=tags,
             )
+            archive_status = str(archive_result.get("archive_status") or "").strip()
+            if archive_status == "dismissed" and not should_stage_commitments:
+                suppressed_total += 1
+                continue
             suppress_candidate_staging = not should_stage_commitments
             if suppress_candidate_staging:
                 staging_suppressed_total += 1
@@ -10265,6 +10640,10 @@ class ProductService:
                         "transcript_segment_count": int(detail.get("transcript_segment_count") or 0),
                         "transcript_quality_status": str(detail.get("transcript_quality_status") or "").strip(),
                         "retranscription_status": str(detail.get("retranscription_status") or "").strip(),
+                        "audio_archive_status": str(archive_result.get("archive_status") or "").strip(),
+                        "audio_archive_reason": str(archive_result.get("archive_reason") or "").strip(),
+                        "audio_archive_path": str(archive_result.get("archive_path") or "").strip(),
+                        "audio_archive_sha256": str(archive_result.get("archive_sha256") or "").strip(),
                         "suppress_candidate_staging": suppress_candidate_staging,
                         "staging_suppression_reason": staging_suppression_reason if suppress_candidate_staging else "",
                     },
@@ -10282,6 +10661,10 @@ class ProductService:
             if preference_evidence is not None:
                 preference_evidence_total += 1
                 preference_evidence_applied_total += len(list(preference_evidence.get("applied_nodes") or []))
+        teable_index_result = self._sync_pocket_audio_archive_index_to_teable(
+            principal_id=principal_id,
+            rows=teable_index_rows,
+        )
         deduplicated_total = sum(1 for item in items if bool(item.get("deduplicated")))
         synced_total = len(items) - deduplicated_total
         cursor_updated_at = previous_cursor_updated_at
@@ -10305,6 +10688,13 @@ class ProductService:
                 "failed_total": failed_total,
                 "failed_recording_ids": failed_recording_ids[:10],
                 "staging_suppressed_total": staging_suppressed_total,
+                "archived_total": archived_total,
+                "archive_dismissed_total": archive_dismissed_total,
+                "archive_failed_total": archive_failed_total,
+                "teable_index_status": str(teable_index_result.get("status") or "").strip(),
+                "teable_index_blocked_reason": str(teable_index_result.get("blocked_reason") or "").strip(),
+                "teable_index_row_total": int(teable_index_result.get("row_total") or 0),
+                "teable_index_sync_attempted": bool(teable_index_result.get("sync_attempted")),
                 "preference_evidence_total": preference_evidence_total,
                 "preference_evidence_applied_total": preference_evidence_applied_total,
                 "cursor_used": use_cursor,
@@ -10331,6 +10721,13 @@ class ProductService:
             "failed_total": failed_total,
             "recording_total": len(rows),
             "staging_suppressed_total": staging_suppressed_total,
+            "archived_total": archived_total,
+            "archive_dismissed_total": archive_dismissed_total,
+            "archive_failed_total": archive_failed_total,
+            "teable_index_status": str(teable_index_result.get("status") or "").strip(),
+            "teable_index_blocked_reason": str(teable_index_result.get("blocked_reason") or "").strip(),
+            "teable_index_row_total": int(teable_index_result.get("row_total") or 0),
+            "teable_index_sync_attempted": bool(teable_index_result.get("sync_attempted")),
             "preference_evidence_total": preference_evidence_total,
             "preference_evidence_applied_total": preference_evidence_applied_total,
             "cursor_used": use_cursor,

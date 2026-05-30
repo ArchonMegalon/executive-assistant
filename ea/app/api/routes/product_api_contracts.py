@@ -1041,6 +1041,13 @@ class PocketSignalSyncOut(BaseModel):
     failed_total: int = 0
     recording_total: int = 0
     staging_suppressed_total: int = 0
+    archived_total: int = 0
+    archive_dismissed_total: int = 0
+    archive_failed_total: int = 0
+    teable_index_status: str = ""
+    teable_index_blocked_reason: str = ""
+    teable_index_row_total: int = 0
+    teable_index_sync_attempted: bool = False
     preference_evidence_total: int = 0
     preference_evidence_applied_total: int = 0
     cursor_used: bool = True
