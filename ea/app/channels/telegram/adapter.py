@@ -42,6 +42,31 @@ class TelegramObservationAdapter:
         return "", "unknown", metadata
 
     def to_observation_fields(self, update: dict[str, object]) -> dict[str, object]:
+        callback = update.get("callback_query") if isinstance(update, dict) else None
+        if isinstance(callback, dict):
+            message = dict(callback.get("message") or {}) if isinstance(callback.get("message"), dict) else {}
+            chat = dict(message.get("chat") or {}) if isinstance(message.get("chat"), dict) else {}
+            chat_id = str(chat.get("id") or "")
+            callback_id = str(callback.get("id") or "").strip()
+            callback_data = str(callback.get("data") or "").strip()
+            message_id = str(message.get("message_id") or "").strip()
+            message_text = str(message.get("text") or message.get("caption") or "").strip()
+            return {
+                "chat_id": chat_id,
+                "event_type": "telegram.callback_query",
+                "source_id": f"telegram:{chat_id}" if chat_id else "telegram",
+                "external_id": callback_id or message_id,
+                "dedupe_key": f"telegram:{chat_id}:callback:{callback_id}" if chat_id and callback_id else "",
+                "payload": {
+                    "text": message_text or callback_data,
+                    "kind": "callback_query",
+                    "callback_query_id": callback_id,
+                    "callback_data": callback_data,
+                    "message_id": message.get("message_id"),
+                    "message_text": message_text,
+                    "raw": update,
+                },
+            }
         msg = update.get("message") if isinstance(update, dict) else None
         if not isinstance(msg, dict):
             return {

@@ -467,3 +467,228 @@ def test_telegram_bot_workflow_answers_focus_on_tomorrow_from_calendar_signal(mo
     assert reply["reply_sent"] is True
     assert "Tomorrow, focus first on Strategy Review at 09:30." in reply["reply_text"]
     assert "Location: HQ." in reply["reply_text"]
+
+
+def test_telegram_codex_human_audit_simulation_checks_calendar_pocket_semantic_fallback_and_async(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-codex-audit")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-codex-audit")
+    from app.api.routes import channels as channels_route
+
+    sent_payloads: list[dict[str, object]] = []
+
+    class _InlineExecutor:
+        def submit(self, fn, *args, **kwargs):  # noqa: ANN001
+            fn(*args, **kwargs)
+            return SimpleNamespace()
+
+    class _FakeResponse:
+        def __init__(self, message_id: int) -> None:
+            self._message_id = message_id
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": self._message_id}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        payload = json.loads(request.data.decode("utf-8"))
+        sent_payloads.append(payload)
+        return _FakeResponse(12000 + len(sent_payloads))
+
+    class _FakeResult:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class _FakeProductService:
+        def search_pocket_recordings(
+            self,
+            *,
+            principal_id: str,
+            actor: str,
+            query: str = "",
+            before: str = "",
+            after: str = "",
+            limit: int = 10,
+        ) -> dict[str, object]:
+            exact_hit = {
+                "recording_id": "rec-hanusch-1",
+                "title": "Hospital medical discussion and care",
+                "recording_at": "2026-05-22T15:28:13Z",
+                "archive_status": "archived",
+                "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/hanusch.mp3",
+                "archive_sha256": "abc123",
+                "summary_markdown": "Conversation with father in hospital about his condition.",
+                "transcript_text": "We are in Hanusch hospital and he talks about his condition and the family.",
+                "transcript_excerpt": "Hanusch hospital conversation with father about his condition.",
+                "location_name": "Hanusch Spital",
+                "location_address": "Hanusch Krankenhaus, Wien",
+                "location_match_status": "nearest",
+                "location_confidence": 0.95,
+            }
+            semantic_candidates = [
+                {
+                    "recording_id": "rec-hanusch-2",
+                    "title": "Hospital call about emergency admission",
+                    "recording_at": "2026-05-22T10:11:00Z",
+                    "archive_status": "archived",
+                    "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/hanusch-2.mp3",
+                    "archive_sha256": "def456",
+                    "summary_markdown": "Hospital conversation with father and family context.",
+                    "transcript_text": "He talks about his chessboard staying in the family and his mother being a power person.",
+                    "transcript_excerpt": "chessboard staying in the family",
+                    "location_name": "Hanusch Spital",
+                    "location_address": "Hanusch Krankenhaus, Wien",
+                    "location_match_status": "matched",
+                    "location_confidence": 0.91,
+                },
+                {
+                    "recording_id": "rec-hanusch-3",
+                    "title": "Noah medication and feeding",
+                    "recording_at": "2026-05-22T18:05:40Z",
+                    "archive_status": "archived",
+                    "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/hanusch-3.mp3",
+                    "archive_sha256": "ghi789",
+                    "summary_markdown": "Hospital bedside conversation with family context.",
+                    "transcript_text": "His brother and mother are mentioned in the hospital discussion.",
+                    "transcript_excerpt": "brother and mother in the hospital discussion",
+                    "location_name": "Hanusch Spital",
+                    "location_address": "Hanusch Krankenhaus, Wien",
+                    "location_match_status": "matched",
+                    "location_confidence": 0.89,
+                },
+            ]
+            normalized_query = str(query or "").strip().lower()
+            if actor == "telegram-semantic-fallback":
+                items = semantic_candidates[:limit]
+            elif "hanusch" in normalized_query:
+                items = [exact_hit][:limit]
+            elif "chessboard" in normalized_query or "power person" in normalized_query:
+                items = []
+            else:
+                items = []
+            return {
+                "generated_at": "2026-05-30T00:00:00Z",
+                "query": str(query or "").strip(),
+                "before": before,
+                "after": after,
+                "total": len(items),
+                "items": items,
+            }
+
+        def deliver_pocket_recording_to_telegram(self, *, principal_id: str, actor: str, recording_id: str) -> dict[str, object]:
+            return {
+                "recording_id": recording_id,
+                "title": "Hospital call about emergency admission" if recording_id == "rec-hanusch-2" else "Hospital medical discussion and care",
+                "telegram_delivery_status": "sent",
+                "telegram_message_ids": ["tg-msg-pocket-1"],
+                "telegram_chat_ref": "1354554303",
+            }
+
+        def list_brief_items(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return []
+
+        def list_queue(self, *, principal_id: str, limit: int = 8, **kwargs):
+            return []
+
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"preference_nodes": []}
+
+        def list_office_events(self, *, principal_id: str, limit: int = 12, **kwargs):
+            return []
+
+    def _fake_generate_upstream_text(**kwargs):
+        payload = json.loads(str(kwargs["messages"][-1]["content"]))
+        candidates = list(payload.get("candidates") or [])
+        chosen = []
+        for item in candidates[:2]:
+            chosen.append(
+                {
+                    "recording_id": item["recording_id"],
+                    "reason": "Mentions the chessboard staying in the family and the mother as a power person.",
+                }
+            )
+        return _FakeResult(json.dumps({"candidates": chosen}))
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_TELEGRAM_ASYNC_EXECUTOR", _InlineExecutor())
+    monkeypatch.setattr(channels_route, "build_product_service", lambda container: _FakeProductService())
+    monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _fake_generate_upstream_text)
+    monkeypatch.setattr(
+        channels_route,
+        "_telegram_real_ea_reply_text",
+        lambda **kwargs: "Short audit result: next check the appointment timing and then send the selected hospital recording.",
+    )
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+
+    next_vienna = (datetime.now(ZoneInfo("Europe/Vienna")) + timedelta(hours=2)).replace(second=0, microsecond=0)
+    client.app.state.container.channel_runtime.ingest_observation(
+        principal_id="exec-telegram-e2e-codex-audit",
+        channel="calendar",
+        event_type="office_signal_calendar_note",
+        payload={
+            "title": "BIP appointment",
+            "summary": "BIP appointment",
+            "start_at": next_vienna.isoformat(),
+            "location": "Hanusch",
+        },
+        source_id="calendar-event:e2e-codex-audit-1",
+        external_id="calendar-event:e2e-codex-audit-1",
+        dedupe_key="calendar-event:e2e-codex-audit-1",
+    )
+
+    appointment = agent.ask("What is my next appointment?")
+    assert appointment["reply_sent"] is True
+    assert "BIP appointment" in appointment["reply_text"]
+
+    exact_pocket = agent.ask("Please summarize the best Hanusch hospital Pocket audio before May 23 and tell me why it matches.")
+    assert exact_pocket["reply_sent"] is True
+    assert "Hospital medical discussion and care" in exact_pocket["reply_text"]
+    assert "Hanusch Spital" in exact_pocket["reply_text"]
+
+    vague_memory = agent.ask(
+        "I am looking for the conversation with my father in the hospital where he talked about his chessboard and his mother being a power person before May 23."
+    )
+    assert vague_memory["reply_sent"] is True
+    assert "I found these likely Pocket candidates:" in vague_memory["reply_text"]
+    assert "send 1" in vague_memory["reply_text"]
+
+    send_selected = agent.ask("send 1")
+    assert send_selected["reply_sent"] is True
+    assert "Sent: Hospital call about emergency admission." in send_selected["reply_text"]
+
+    async_audit = agent.ask("Bip, bip, bip. Give me a short audit plan for today.")
+    assert async_audit["reply_sent"] is False
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-e2e-codex-audit",
+        bot_config={"handle": "tibor_concierge_bot", "token": "telegram-token-e2e-codex-audit"},
+        chat_id=str(agent.chat_id),
+        text="Bip, bip, bip. Give me a short audit plan for today.",
+        current_message_id=str(agent._message_id),
+    )
+    observations = list(
+        client.app.state.container.channel_runtime.list_recent_observations(
+            limit=40,
+            principal_id="exec-telegram-e2e-codex-audit",
+        )
+    )
+    assert any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
+    assert any(str(row.event_type) == "telegram.reply_async_sent" for row in observations)
+    assert any(str(row.event_type) == "telegram.pocket_candidate_suggestions_sent" for row in observations)
+    assert any(
+        "processing this asynchronously now" in str(payload.get("text") or "")
+        or "processing it asynchronously" in str(payload.get("text") or "")
+        for payload in sent_payloads
+        if isinstance(payload, dict)
+    )

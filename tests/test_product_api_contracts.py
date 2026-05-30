@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -3947,6 +3948,188 @@ def test_google_location_history_import_enriches_pocket_archive_search(monkeypat
     assert body["items"][0]["recording_id"] == "hospital-1"
     assert body["items"][0]["location_name"] == "Hanusch Krankenhaus"
     assert body["items"][0]["archive_path"].endswith("talk-with-father.mp3")
+
+
+def test_google_location_history_import_supports_maps_myactivity_zip(monkeypatch, tmp_path) -> None:
+    principal_id = "exec-product-pocket-location-myactivity"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_POCKET_AUDIO_ARCHIVE_ENABLED", "1")
+
+    archive_path = tmp_path / "google-maps-myactivity.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr(
+            "Portability/My Activity/Maps/MyActivity.json",
+            json.dumps(
+                [
+                    {
+                        "header": "Maps",
+                        "title": "Directions to Hanusch Spital, Heinrich-Collin-Straße, Vienna",
+                        "titleUrl": "https://www.google.at/maps/dir//Klinik,+Heinrich-Collin-Stra%C3%9Fe+30,+1140+Wien/@48.1991917,16.3060776,14z/data=!3m1!4b1!4m7!4m6!1m0!1m2!1m1!1s0x476da739f700908b:0x4ad30a7262ba5eef!2m1!7e2",
+                        "description": "Current location\nKlinik, Heinrich-Collin-Straße 30, 1140 Wien",
+                        "time": "2026-05-22T15:11:05.637Z",
+                        "products": ["Maps"],
+                        "activityControls": ["Web & App Activity"],
+                        "locationInfos": [
+                            {
+                                "name": "At this general area",
+                                "url": "https://www.google.com/maps/@?api=1&map_action=map&center=48.205655,16.333764&zoom=12",
+                                "source": "From your device",
+                            }
+                        ],
+                    }
+                ]
+            ),
+        )
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [{"id": "hospital-2", "title": "Talk with father", "state": "completed"}],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Talk with father",
+                "state": "completed",
+                "duration": 420.0,
+                "language": "de",
+                "recording_at": "2026-05-22T15:28:13Z",
+                "created_at": "2026-05-22T15:28:20Z",
+                "updated_at": "2026-05-22T15:29:20Z",
+                "tags": ["hospital", "family"],
+                "transcript": {
+                    "text": "Mein Vater spricht über seinen Zustand und die Familie.",
+                    "segments": [{"start": 0.0, "end": 5.0, "text": "Mein Vater spricht ueber seinen Zustand."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    "summary-1": {
+                        "id": "summary-1",
+                        "v2": {"summary": {"markdown": "Gespräch mit dem Vater im Hanusch Spital."}},
+                    }
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_archive_pocket_recording_audio",
+        lambda self, *, principal_id, actor, payload: {
+            "archive_status": "archived",
+            "archive_reason": "",
+            "archive_root": "/mnt/pcloud/EA/pocket-ai-audio",
+            "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/exec-product-pocket-location-myactivity/2026/05/2026-05-22__hospital-2__talk-with-father.mp3",
+            "archive_sha256": "def456",
+            "duration_seconds": 420.0,
+            "min_duration_seconds": 60.0,
+            "recording_id": "hospital-2",
+            "title": "Talk with father",
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    imported = client.post("/app/api/signals/google/location-history/import", json={"path": str(archive_path)})
+    assert imported.status_code == 200
+    assert imported.json()["imported_total"] == 1
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    assert synced.json()["location_matched_total"] == 1
+
+    searched = client.get(
+        "/app/api/signals/pocket/recordings/search",
+        params={"q": "Hanusch Vater", "before": "2026-05-23", "limit": 5},
+    )
+    assert searched.status_code == 200
+    body = searched.json()
+    assert body["total"] == 1
+    assert body["items"][0]["recording_id"] == "hospital-2"
+    assert body["items"][0]["location_name"] == "Hanusch Spital"
+    assert body["items"][0]["location_match_status"] in {"matched", "nearest"}
+
+
+def test_pocket_recording_search_deliver_telegram_route_sends_best_match(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-search-telegram"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+
+    monkeypatch.setattr(
+        ProductService,
+        "search_pocket_recordings",
+        lambda self, *, principal_id, actor, query="", before="", after="", limit=10: {
+            "generated_at": "2026-05-30T00:00:00Z",
+            "query": query,
+            "before": before,
+            "after": after,
+            "total": 2,
+            "items": [
+                {
+                    "recording_id": "rec-hanusch",
+                    "title": "Hospital medical discussion and care",
+                    "recording_at": "2026-05-22T15:28:13Z",
+                    "archive_status": "already_archived",
+                    "archive_path": "/mnt/pcloud/EA/pocket-ai-audio/x.mp3",
+                    "archive_sha256": "abc",
+                    "summary_markdown": "",
+                    "transcript_excerpt": "",
+                    "location_match_status": "nearest",
+                    "location_match_reason": "nearest_timeline_window",
+                    "location_name": "Hanusch Spital",
+                    "location_address": "Hanusch Spital, Heinrich-Collin-Straße, Vienna",
+                    "location_latitude": 48.1991917,
+                    "location_longitude": 16.3060776,
+                    "location_start_at": "2026-05-22T15:11:05.637000+00:00",
+                    "location_end_at": "2026-05-22T15:11:05.637000+00:00",
+                    "location_source": "google-location-history-export.zip",
+                    "location_confidence": 0.9524,
+                    "match_score": 3.0,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "deliver_pocket_recording_to_telegram",
+        lambda self, *, principal_id, actor, recording_id: {
+            "recording_id": recording_id,
+            "title": "Hospital medical discussion and care",
+            "telegram_delivery_status": "sent",
+            "telegram_delivery_error": "",
+            "telegram_message_ids": ["1315"],
+            "telegram_chat_ref": "1354554303",
+            "audio_download_url": "https://example.invalid/audio.mp3",
+            "audio_expires_at": "2026-05-30T01:00:00Z",
+        },
+    )
+
+    delivered = client.post(
+        "/app/api/signals/pocket/recordings/deliver-telegram",
+        params={"q": "Hanusch Vater", "before": "2026-05-23"},
+    )
+    assert delivered.status_code == 200
+    body = delivered.json()
+    assert body["recording_id"] == "rec-hanusch"
+    assert body["matched_total"] == 2
+    assert body["location_name"] == "Hanusch Spital"
+    assert body["telegram_message_ids"] == ["1315"]
 
 
 def test_pocket_api_sync_uses_cursor_and_suppresses_non_actionable_audio_candidates(monkeypatch) -> None:

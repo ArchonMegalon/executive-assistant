@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import hashlib
 import hmac
 import json
 import os
 import re
 import time
 import threading
+import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timedelta
@@ -58,6 +60,45 @@ _MATH_WORD_NUMBERS = {
     "ten": "10",
     "eleven": "11",
     "twelve": "12",
+}
+_TELEGRAM_MONTH_ALIASES = {
+    "jan": 1,
+    "january": 1,
+    "jänner": 1,
+    "jaenner": 1,
+    "januar": 1,
+    "feb": 2,
+    "february": 2,
+    "februar": 2,
+    "mar": 3,
+    "march": 3,
+    "märz": 3,
+    "maerz": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "mai": 5,
+    "jun": 6,
+    "june": 6,
+    "juni": 6,
+    "jul": 7,
+    "july": 7,
+    "juli": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "okt": 10,
+    "october": 10,
+    "oktober": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "dez": 12,
+    "december": 12,
+    "dezember": 12,
 }
 
 def _telegram_bot_registry() -> dict[str, dict[str, object]]:
@@ -191,6 +232,11 @@ def _telegram_auto_bind_unknown_chat_enabled() -> bool:
     return normalized in {"1", "true", "yes", "on"}
 
 
+def _telegram_inline_async_accelerator_enabled() -> bool:
+    normalized = str(os.getenv("EA_TELEGRAM_INLINE_ASYNC_ACCELERATOR") or "").strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
 def _auto_bind_telegram_chat(container: AppContainer, chat_id: str, *, config: dict[str, object]) -> str:
     normalized_chat_id = str(chat_id or "").strip()
     principal_id = str(config.get("default_principal_id") or _telegram_default_principal_id() or "").strip()
@@ -220,13 +266,135 @@ def _auto_bind_telegram_chat(container: AppContainer, chat_id: str, *, config: d
     return str(connector.principal_id or "").strip()
 
 
-def _telegram_send_message(*, bot_token: str, chat_id: str, text: str) -> dict[str, object]:
+def _telegram_inline_keyboard(button_rows: list[list[tuple[str, str]]]) -> dict[str, object]:
+    return {
+        "inline_keyboard": [
+            [{"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()} for label, callback_data in row if str(label or "").strip() and str(callback_data or "").strip()]
+            for row in button_rows
+            if row
+        ]
+    }
+
+
+def _telegram_callback_secret(*, bot_config: dict[str, object]) -> str:
+    return (
+        str(os.getenv("EA_TELEGRAM_CALLBACK_SECRET") or "").strip()
+        or str(bot_config.get("secret") or "").strip()
+        or str(bot_config.get("token") or "").strip()
+    )
+
+
+def _telegram_callback_ttl_seconds() -> int:
+    raw = str(os.getenv("EA_TELEGRAM_CALLBACK_TTL_SECONDS") or "3600").strip()
+    try:
+        return max(int(float(raw or "3600")), 60)
+    except Exception:
+        return 3600
+
+
+def _telegram_callback_signature(
+    *,
+    secret: str,
+    action: str,
+    current_message_id: str,
+    chat_id: str,
+    expires_at: int,
+) -> str:
+    payload = "|".join(
+        (
+            str(action or "").strip(),
+            str(current_message_id or "").strip(),
+            str(chat_id or "").strip(),
+            str(int(expires_at)),
+        )
+    )
+    return hmac.new(
+        str(secret or "").encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:12]
+
+
+def _telegram_encode_callback_data(
+    *,
+    bot_config: dict[str, object],
+    action: str,
+    current_message_id: str,
+    chat_id: str,
+) -> str:
+    secret = _telegram_callback_secret(bot_config=bot_config)
+    normalized_action = str(action or "").strip().lower()
+    normalized_message_id = str(current_message_id or "").strip()
+    normalized_chat_id = str(chat_id or "").strip()
+    if not secret or not normalized_action or not normalized_message_id or not normalized_chat_id:
+        return ""
+    expires_at = int(time.time()) + _telegram_callback_ttl_seconds()
+    signature = _telegram_callback_signature(
+        secret=secret,
+        action=normalized_action,
+        current_message_id=normalized_message_id,
+        chat_id=normalized_chat_id,
+        expires_at=expires_at,
+    )
+    return f"ea|{normalized_action}|{normalized_message_id}|{normalized_chat_id}|{expires_at}|{signature}"
+
+
+def _telegram_decode_callback_data(
+    *,
+    bot_config: dict[str, object],
+    callback_data: str,
+    chat_id: str,
+) -> dict[str, object]:
+    normalized = str(callback_data or "").strip()
+    parts = normalized.split("|")
+    if len(parts) != 6 or parts[0] != "ea":
+        return {"ok": False, "reason": "invalid_format"}
+    _, action, current_message_id, encoded_chat_id, expires_at_raw, signature = parts
+    if str(encoded_chat_id or "").strip() != str(chat_id or "").strip():
+        return {"ok": False, "reason": "chat_mismatch"}
+    try:
+        expires_at = int(str(expires_at_raw or "").strip())
+    except Exception:
+        return {"ok": False, "reason": "invalid_expiry"}
+    if expires_at < int(time.time()):
+        return {"ok": False, "reason": "expired", "action": str(action or "").strip().lower()}
+    secret = _telegram_callback_secret(bot_config=bot_config)
+    if not secret:
+        return {"ok": False, "reason": "missing_secret"}
+    expected_signature = _telegram_callback_signature(
+        secret=secret,
+        action=str(action or "").strip().lower(),
+        current_message_id=str(current_message_id or "").strip(),
+        chat_id=str(chat_id or "").strip(),
+        expires_at=expires_at,
+    )
+    if not hmac.compare_digest(str(signature or "").strip(), expected_signature):
+        return {"ok": False, "reason": "invalid_signature"}
+    return {
+        "ok": True,
+        "action": str(action or "").strip().lower(),
+        "current_message_id": str(current_message_id or "").strip(),
+        "chat_id": str(chat_id or "").strip(),
+        "expires_at": expires_at,
+    }
+
+
+def _telegram_send_message(
+    *,
+    bot_token: str,
+    chat_id: str,
+    text: str,
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+) -> dict[str, object]:
     normalized_token = str(bot_token or "").strip()
     normalized_chat_id = str(chat_id or "").strip()
     normalized_text = str(text or "").strip()
     if not normalized_token or not normalized_chat_id or not normalized_text:
         return {}
-    payload = json.dumps({"chat_id": normalized_chat_id, "text": normalized_text}).encode("utf-8")
+    payload_dict: dict[str, object] = {"chat_id": normalized_chat_id, "text": normalized_text}
+    if inline_buttons:
+        payload_dict["reply_markup"] = _telegram_inline_keyboard(inline_buttons)
+    payload = json.dumps(payload_dict).encode("utf-8")
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{normalized_token}/sendMessage",
         data=payload,
@@ -237,8 +405,83 @@ def _telegram_send_message(*, bot_token: str, chat_id: str, text: str) -> dict[s
         timeout_seconds = max(float(str(os.getenv("EA_TELEGRAM_SEND_TIMEOUT_SECONDS") or "10").strip() or "10"), 1.0)
     except Exception:
         timeout_seconds = 10.0
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return _telegram_post_json_with_retries(request=request, timeout_seconds=timeout_seconds)
+
+
+def _telegram_answer_callback_query(*, bot_token: str, callback_query_id: str, text: str = "") -> None:
+    normalized_token = str(bot_token or "").strip()
+    normalized_query_id = str(callback_query_id or "").strip()
+    if not normalized_token or not normalized_query_id:
+        return
+    payload = json.dumps(
+        {
+            "callback_query_id": normalized_query_id,
+            "text": str(text or "").strip()[:180],
+            "show_alert": False,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{normalized_token}/answerCallbackQuery",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        timeout_seconds = max(float(str(os.getenv("EA_TELEGRAM_SEND_TIMEOUT_SECONDS") or "10").strip() or "10"), 1.0)
+    except Exception:
+        timeout_seconds = 10.0
+    _telegram_post_json_with_retries(request=request, timeout_seconds=timeout_seconds, expect_json=False)
+    return
+
+
+def _telegram_transport_retry_attempts() -> int:
+    raw = str(os.getenv("EA_TELEGRAM_TRANSPORT_RETRY_ATTEMPTS") or "3").strip()
+    try:
+        return max(int(float(raw or "3")), 1)
+    except Exception:
+        return 3
+
+
+def _telegram_transport_retry_backoff_seconds() -> float:
+    raw = str(os.getenv("EA_TELEGRAM_TRANSPORT_RETRY_BACKOFF_SECONDS") or "1.0").strip()
+    try:
+        return max(float(raw or "1.0"), 0.0)
+    except Exception:
+        return 1.0
+
+
+def _telegram_post_json_with_retries(
+    *,
+    request: urllib.request.Request,
+    timeout_seconds: float,
+    expect_json: bool = True,
+) -> dict[str, object]:
+    attempts = _telegram_transport_retry_attempts()
+    backoff_seconds = _telegram_transport_retry_backoff_seconds()
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                if not expect_json:
+                    return {}
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {408, 409, 425, 429, 500, 502, 503, 504} or attempt >= attempts:
+                raise
+            last_error = exc
+        except urllib.error.URLError as exc:
+            if attempt >= attempts:
+                raise
+            last_error = exc
+        except Exception as exc:
+            if attempt >= attempts:
+                raise
+            last_error = exc
+        if backoff_seconds > 0:
+            time.sleep(backoff_seconds * attempt)
+    if last_error is not None:
+        raise last_error
+    return {}
 
 
 def _safe_math_answer(text: str) -> str:
@@ -485,6 +728,9 @@ def _record_telegram_async_started(
     chat_id: str,
     dedupe_key: str,
     prompt_text: str,
+    current_message_id: str = "",
+    bot_key: str = "",
+    bot_handle: str = "",
 ) -> None:
     marker = _telegram_async_marker_dedupe_key(dedupe_key)
     if not marker:
@@ -497,10 +743,41 @@ def _record_telegram_async_started(
             "chat_id": chat_id,
             "prompt_text": prompt_text,
             "dedupe_key": dedupe_key,
+            "current_message_id": str(current_message_id or "").strip(),
+            "bot_key": str(bot_key or "").strip(),
+            "bot_handle": str(bot_handle or "").strip(),
+            "turn_state": "queued",
+            "delivery_mode": "durable_observation_outbox",
         },
         source_id=f"telegram:{chat_id}" if chat_id else "telegram",
         external_id=str(dedupe_key or "").strip(),
         dedupe_key=marker,
+    )
+
+
+def _record_telegram_async_processing(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    current_message_id: str,
+    prompt_text: str,
+) -> None:
+    external_id = str(current_message_id or "").strip()
+    if not external_id:
+        return
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.reply_async_processing",
+        payload={
+            "chat_id": str(chat_id or "").strip(),
+            "prompt_text": str(prompt_text or "").strip(),
+            "turn_state": "processing",
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=external_id,
+        dedupe_key=f"{external_id}:assistant_async_processing",
     )
 
 
@@ -524,6 +801,7 @@ def _record_telegram_async_failed(
             "prompt_text": str(prompt_text or "").strip(),
             "stage": str(stage or "").strip(),
             "error": str(error or "").strip(),
+            "turn_state": "failed",
         },
         source_id=f"telegram:{chat_id}" if chat_id else "telegram",
         external_id=external_id,
@@ -644,6 +922,371 @@ def _telegram_weather_reply_text(*, text: str) -> str:
     if rain is not None:
         parts.append(f"and up to {int(round(rain))}% precipitation probability")
     return " ".join(parts) + "."
+
+
+def _telegram_pocket_audio_query_candidate(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    direct_markers = (
+        "pocket",
+        "audio",
+        "recording",
+        "aufnahme",
+        "file",
+        "datei",
+        "hanusch",
+        "hospital",
+        "krankenhaus",
+        "spital",
+        "conversation",
+        "gespräch",
+        "gespraech",
+        "transcript",
+    )
+    if any(marker in normalized for marker in direct_markers):
+        return True
+    if ("before " in normalized or "after " in normalized) and any(
+        marker in normalized
+        for marker in ("father", "vater", "mother", "mutter", "brother", "bruder", "family", "familie")
+    ):
+        return True
+    return False
+
+
+def _telegram_parse_relative_date_filter(text: str, *, keyword: str) -> str:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    month_names = "|".join(sorted((re.escape(name) for name in _TELEGRAM_MONTH_ALIASES.keys()), key=len, reverse=True))
+    patterns = (
+        rf"\b{re.escape(keyword)}\s+(\d{{4}}-\d{{2}}-\d{{2}})\b",
+        rf"\b{re.escape(keyword)}\s+({month_names})\s+(\d{{1,2}})(?:,?\s+(\d{{4}}))?\b",
+        rf"\b{re.escape(keyword)}\s+(\d{{1,2}})\.(\d{{1,2}})\.(\d{{4}})?\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        groups = [str(group or "").strip() for group in match.groups()]
+        if len(groups) >= 1 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", groups[0]):
+            return groups[0]
+        if len(groups) >= 2 and groups[0].lower() in _TELEGRAM_MONTH_ALIASES:
+            month = _TELEGRAM_MONTH_ALIASES[groups[0].lower()]
+            day = int(groups[1])
+            year = int(groups[2]) if len(groups) >= 3 and groups[2] else datetime.now(ZoneInfo("Europe/Vienna")).year
+            try:
+                return datetime(year, month, day, tzinfo=ZoneInfo("UTC")).date().isoformat()
+            except Exception:
+                return ""
+        if len(groups) >= 2 and groups[0].isdigit() and groups[1].isdigit():
+            day = int(groups[0])
+            month = int(groups[1])
+            year = int(groups[2]) if len(groups) >= 3 and groups[2] else datetime.now(ZoneInfo("Europe/Vienna")).year
+            try:
+                return datetime(year, month, day, tzinfo=ZoneInfo("UTC")).date().isoformat()
+            except Exception:
+                return ""
+    return ""
+
+
+def _telegram_pocket_audio_query_text(text: str) -> str:
+    normalized = " ".join(str(text or "").strip().split())
+    if not normalized:
+        return ""
+    stripped = re.sub(
+        r"\b(before|after)\s+([A-Za-zÄÖÜäöüß]+|\d{1,2}\.\d{1,2}\.?\d{0,4}|\d{4}-\d{2}-\d{2})(?:\s+\d{1,4})?\b",
+        " ",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    fillers = (
+        "please",
+        "summarize",
+        "summary",
+        "tell me",
+        "why it matches",
+        "send me",
+        "show me",
+        "best",
+        "pocket audio",
+        "pocket recording",
+        "audio file",
+        "audio",
+        "recording",
+        "file",
+    )
+    lowered = " ".join(stripped.lower().split())
+    for filler in fillers:
+        lowered = lowered.replace(filler, " ")
+    cleaned = re.sub(r"[^a-z0-9äöüß\s\-]", " ", lowered, flags=re.IGNORECASE)
+    return " ".join(cleaned.split())
+
+
+def _telegram_format_pocket_audio_match(item: dict[str, object], *, before: str = "", after: str = "") -> str:
+    title = str(item.get("title") or "").strip() or "Pocket recording"
+    recorded = str(item.get("recording_at") or "").strip()
+    location = str(item.get("location_name") or "").strip() or str(item.get("location_address") or "").strip() or "location unknown"
+    summary = str(item.get("summary_markdown") or "").strip() or str(item.get("transcript_excerpt") or "").strip()
+    summary = re.sub(r"\s+", " ", summary).strip()
+    confidence = float(item.get("location_confidence") or 0.0)
+    lines = [f"Best match: {title}."]
+    if recorded:
+        lines.append(f"Recorded: {recorded}.")
+    if before or after:
+        window_bits = []
+        if before:
+            window_bits.append(f"before {before}")
+        if after:
+            window_bits.append(f"after {after}")
+        lines.append(f"Date filter: {' and '.join(window_bits)}.")
+    lines.append(f"Place match: {location} (confidence {confidence:.2f}).")
+    if summary:
+        lines.append(f"Why it matches: {summary[:280]}.")
+    return " ".join(lines)
+
+
+def _telegram_extract_json_object(text: str) -> dict[str, object]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return {}
+    try:
+        parsed = json.loads(normalized)
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        return parsed
+    start = normalized.find("{")
+    end = normalized.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        parsed = json.loads(normalized[start : end + 1])
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _telegram_recent_pocket_candidate_suggestions(
+    container: AppContainer,
+    *,
+    principal_id: str,
+) -> dict[str, object] | None:
+    for row in container.channel_runtime.list_recent_observations(limit=60, principal_id=principal_id):
+        if str(row.channel or "").strip() != "telegram":
+            continue
+        if str(row.event_type or "").strip() != "telegram.pocket_candidate_suggestions_sent":
+            continue
+        return dict(row.payload or {})
+    return None
+
+
+def _telegram_pocket_candidate_selection(text: str) -> int:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    match = re.fullmatch(r"(?:send|schick|sende|deliver|open|play)\s+(?:candidate\s+|kandidat\s+)?([1-3])", normalized)
+    if match is None:
+        return 0
+    try:
+        return int(match.group(1))
+    except Exception:
+        return 0
+
+
+def _telegram_record_pocket_candidate_suggestions(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    query: str,
+    before: str,
+    after: str,
+    candidates: list[dict[str, object]],
+) -> None:
+    if not candidates:
+        return
+    payload = {
+        "query": str(query or "").strip(),
+        "before": str(before or "").strip(),
+        "after": str(after or "").strip(),
+        "candidates": [
+            {
+                "index": index + 1,
+                "recording_id": str(item.get("recording_id") or "").strip(),
+                "title": str(item.get("title") or "").strip(),
+                "recording_at": str(item.get("recording_at") or "").strip(),
+                "location_name": str(item.get("location_name") or "").strip(),
+                "reason": str(item.get("reason") or "").strip(),
+            }
+            for index, item in enumerate(candidates[:3])
+        ],
+    }
+    dedupe_material = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.pocket_candidate_suggestions_sent",
+        payload=payload,
+        source_id="telegram-pocket-semantic-fallback",
+        dedupe_key=f"{principal_id}|telegram-pocket-candidates|{hashlib.sha256(dedupe_material.encode('utf-8')).hexdigest()}",
+    )
+
+
+def _telegram_pocket_audio_semantic_candidates(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    query: str,
+    before: str,
+    after: str,
+) -> list[dict[str, object]]:
+    service = build_product_service(container)
+    search = service.search_pocket_recordings(
+        principal_id=principal_id,
+        actor="telegram-semantic-fallback",
+        query="",
+        before=before,
+        after=after,
+        limit=18,
+    )
+    items = list(search.get("items") or [])
+    if not items:
+        return []
+    candidates = [
+        {
+            "recording_id": str(item.get("recording_id") or "").strip(),
+            "title": str(item.get("title") or "").strip(),
+            "recording_at": str(item.get("recording_at") or "").strip(),
+            "location_name": str(item.get("location_name") or "").strip(),
+            "location_address": str(item.get("location_address") or "").strip(),
+            "summary_markdown": str(item.get("summary_markdown") or "").strip(),
+            "transcript_text": str(item.get("transcript_text") or "").strip(),
+            "transcript_excerpt": str(item.get("transcript_excerpt") or "").strip(),
+        }
+        for item in items[:12]
+    ]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Choose the most likely Pocket audio recordings for the user's memory query. "
+                "Use only the provided candidates. "
+                "Return strict JSON: {\"candidates\":[{\"recording_id\":\"...\",\"reason\":\"...\"}]}. "
+                "Prefer up to 3 candidates. Respect place/date hints in the query."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "query": str(query or "").strip(),
+                    "before": str(before or "").strip(),
+                    "after": str(after or "").strip(),
+                    "candidates": candidates,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    try:
+        result = responses_route._generate_upstream_text(
+            prompt=str(query or "").strip(),
+            messages=messages,
+            requested_model=str(os.getenv("EA_TELEGRAM_RESPONSES_MODEL") or "ea-coder-fast").strip() or "ea-coder-fast",
+            max_output_tokens=220,
+            chatplayground_audit_callback=None,
+            chatplayground_audit_callback_only=False,
+            chatplayground_audit_principal_id=principal_id,
+            preferred_onemin_labels=(),
+            request_deadline_monotonic=time.monotonic() + 8.0,
+        )
+    except Exception:
+        return []
+    payload = _telegram_extract_json_object(str(getattr(result, "text", "") or ""))
+    raw_candidates = list(payload.get("candidates") or []) if isinstance(payload.get("candidates"), list) else []
+    candidate_by_id = {str(item.get("recording_id") or "").strip(): item for item in candidates if str(item.get("recording_id") or "").strip()}
+    verified: list[dict[str, object]] = []
+    for row in raw_candidates:
+        if not isinstance(row, dict):
+            continue
+        recording_id = str(row.get("recording_id") or "").strip()
+        if not recording_id or recording_id not in candidate_by_id:
+            continue
+        verified.append(
+            {
+                **candidate_by_id[recording_id],
+                "reason": str(row.get("reason") or "").strip(),
+            }
+        )
+        if len(verified) >= 3:
+            break
+    return verified
+
+
+def _telegram_pocket_audio_reply_text(*, container: AppContainer, principal_id: str, text: str) -> str:
+    selection = _telegram_pocket_candidate_selection(text)
+    if selection > 0:
+        suggestions = _telegram_recent_pocket_candidate_suggestions(container, principal_id=principal_id)
+        if not suggestions:
+            return "I do not have a recent Pocket candidate list to pick from yet."
+        candidates = list(suggestions.get("candidates") or [])
+        if selection > len(candidates):
+            return f"I only have {len(candidates)} recent Pocket candidates to choose from."
+        selected = dict(candidates[selection - 1] or {})
+        recording_id = str(selected.get("recording_id") or "").strip()
+        if not recording_id:
+            return "That Pocket candidate is missing a recording id."
+        service = build_product_service(container)
+        delivered = service.deliver_pocket_recording_to_telegram(
+            principal_id=principal_id,
+            actor="telegram",
+            recording_id=recording_id,
+        )
+        return f"Sent: {str(delivered.get('title') or 'Pocket recording').strip()}."
+    if not _telegram_pocket_audio_query_candidate(text):
+        return ""
+    service = build_product_service(container)
+    before = _telegram_parse_relative_date_filter(text, keyword="before")
+    after = _telegram_parse_relative_date_filter(text, keyword="after")
+    query = _telegram_pocket_audio_query_text(text) or str(text or "").strip()
+    search = service.search_pocket_recordings(
+        principal_id=principal_id,
+        actor="telegram",
+        query=query,
+        before=before,
+        after=after,
+        limit=3,
+    )
+    items = list(search.get("items") or [])
+    if not items:
+        semantic_candidates = _telegram_pocket_audio_semantic_candidates(
+            container=container,
+            principal_id=principal_id,
+            query=query,
+            before=before,
+            after=after,
+        )
+        if not semantic_candidates:
+            return "I could not find a matching Pocket recording for that place/date query."
+        if len(semantic_candidates) == 1:
+            return _telegram_format_pocket_audio_match(dict(semantic_candidates[0] or {}), before=before, after=after)
+        _telegram_record_pocket_candidate_suggestions(
+            container,
+            principal_id=principal_id,
+            query=query,
+            before=before,
+            after=after,
+            candidates=semantic_candidates,
+        )
+        lines = ["I found these likely Pocket candidates:"]
+        for index, item in enumerate(semantic_candidates[:3], start=1):
+            detail = f"{index}. {str(item.get('title') or '').strip()} | {str(item.get('recording_at') or '').strip()}"
+            location = str(item.get("location_name") or "").strip()
+            if location:
+                detail += f" | {location}"
+            reason = str(item.get("reason") or "").strip()
+            if reason:
+                detail += f" | {reason}"
+            lines.append(detail)
+        lines.append("Reply with `send 1`, `send 2`, or `send 3` to get one on Telegram.")
+        return "\n".join(lines)
+    return _telegram_format_pocket_audio_match(dict(items[0] or {}), before=before, after=after)
 
 
 def _telegram_probe_reply_text(text: str) -> str:
@@ -3652,6 +4295,7 @@ def _telegram_send_and_record_reply(
                 "active_object_map": memory_state.active_object_map,
                 "intent_state": memory_state.intent_state,
                 "comparison_state": memory_state.comparison_state,
+                "turn_state": "sent",
             },
             source_id=f"telegram:{chat_id}" if chat_id else "telegram",
             external_id=str(current_message_id or "").strip(),
@@ -3730,6 +4374,64 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
     return TelegramTurnDecision()
 
 
+def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    if str(ctx.payload.get("kind") or "").strip().lower() != "callback_query":
+        return TelegramTurnDecision()
+    callback_packet = _telegram_decode_callback_data(
+        bot_config=dict(ctx.payload.get("_bot_config") or {}),
+        callback_data=str(ctx.payload.get("callback_data") or ""),
+        chat_id=ctx.chat_id,
+    )
+    if not bool(callback_packet.get("ok")):
+        reason = str(callback_packet.get("reason") or "").strip().lower()
+        if reason == "expired":
+            return TelegramTurnDecision(reply_text="That button expired. Send the request again if you still want EA to work on it.")
+        return TelegramTurnDecision(reply_text="That Telegram action is no longer valid. Send the request again if needed.")
+    action = str(callback_packet.get("action") or "").strip().lower()
+    current_message_id = str(callback_packet.get("current_message_id") or "").strip()
+    snapshot = _telegram_async_turn_snapshot(
+        ctx.container,
+        principal_id=ctx.principal_id,
+        current_message_id=current_message_id,
+        chat_id=ctx.chat_id,
+    )
+    if action == "status":
+        status = str(snapshot.get("status") or "").strip().lower()
+        if status == "sent":
+            return TelegramTurnDecision(reply_text="EA already finished that request and sent the reply here.")
+        if status == "failed":
+            return TelegramTurnDecision(reply_text="That request failed after processing. Tap Retry to run it again.")
+        return TelegramTurnDecision(
+            reply_text=(
+                "EA is still processing that request.\n"
+                "The message is persisted, deduped, and running off the webhook path."
+            )
+        )
+    if action == "help":
+        return TelegramTurnDecision(
+            reply_text=(
+                "Use plain language here.\n"
+                "For deterministic things EA answers directly.\n"
+                "For heavier requests EA acknowledges first and finishes the work asynchronously."
+            )
+        )
+    if action == "retry":
+        status = str(snapshot.get("status") or "").strip().lower()
+        if status in {"queued", "processing"}:
+            return TelegramTurnDecision(reply_text="EA is already working on that request.")
+        if status == "sent":
+            return TelegramTurnDecision(reply_text="EA already answered that request here. Send a new message if you want a fresh run.")
+        if not str(snapshot.get("prompt_text") or "").strip():
+            return TelegramTurnDecision(reply_text="EA could not recover the original request text for that button. Send the request again.")
+        retry_message_id = f"{current_message_id}:retry:{int(time.time())}" if current_message_id else f"retry:{int(time.time())}"
+        return TelegramTurnDecision(
+            schedule_async=True,
+            async_text=str(snapshot.get("prompt_text") or "").strip(),
+            async_message_id=retry_message_id,
+        )
+    return TelegramTurnDecision()
+
+
 def _telegram_link_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
     if "http://" not in ctx.normalized and "https://" not in ctx.normalized:
         return TelegramTurnDecision()
@@ -3750,6 +4452,10 @@ def _telegram_local_tool_priority(ctx: TelegramTurnContext) -> bool:
         ctx.container,
         principal_id=ctx.principal_id,
     )
+    if _telegram_pocket_candidate_selection(ctx.normalized) > 0:
+        return True
+    if _telegram_pocket_audio_query_candidate(ctx.normalized):
+        return True
     if _telegram_answerly_document_query_candidate(ctx.normalized):
         return True
     if any(marker in ctx.lower for marker in ("google photos", "photo picker", "picture", "photo")):
@@ -3757,6 +4463,12 @@ def _telegram_local_tool_priority(ctx: TelegramTurnContext) -> bool:
     if any(
         phrase in ctx.lower
         for phrase in (
+            "next appointment",
+            "next meeting",
+            "next calendar",
+            "my calendar",
+            "what is my next appointment",
+            "what's my next appointment",
             "focus on tomorrow",
             "what should i focus on tomorrow",
             "what should i focus on",
@@ -3768,6 +4480,82 @@ def _telegram_local_tool_priority(ctx: TelegramTurnContext) -> bool:
     if ctx.alpha_words and all(word in {"voice", "message", "done", "finished", "complete", "completed", "ok", "okay"} for word in ctx.alpha_words):
         return True
     return str(persisted_intent_state.get("active_intent") or "").strip().lower() == "admin_followup"
+
+
+def _telegram_force_async_path(ctx: TelegramTurnContext) -> bool:
+    if str(os.getenv("EA_TELEGRAM_STRICT_DECOUPLED_MODE") or "1").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    if str(ctx.payload.get("kind") or "").strip().lower() == "callback_query":
+        return False
+    if not ctx.normalized:
+        return False
+    if ctx.normalized.startswith("/"):
+        return False
+    if "http://" in ctx.lower or "https://" in ctx.lower:
+        return False
+    if _telegram_answerly_document_query_candidate(ctx.normalized):
+        return False
+    if _safe_math_answer(ctx.normalized):
+        return False
+    if len(ctx.alpha_words) <= 2 and not any(marker in ctx.lower for marker in ("?", "why", "what", "when", "where", "how", "which")):
+        return False
+    return True
+
+
+def _telegram_async_turn_snapshot(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    current_message_id: str,
+    chat_id: str,
+) -> dict[str, str]:
+    normalized_message_id = str(current_message_id or "").strip()
+    normalized_chat_id = str(chat_id or "").strip()
+    if not normalized_message_id:
+        return {"status": "unknown", "prompt_text": ""}
+    if container.channel_runtime.find_observation_by_dedupe(
+        f"{normalized_message_id}:assistant_async_sent",
+        principal_id=principal_id,
+    ) is not None:
+        return {"status": "sent", "prompt_text": ""}
+    if container.channel_runtime.find_observation_by_dedupe(
+        f"{normalized_message_id}:assistant_async_failed",
+        principal_id=principal_id,
+    ) is not None:
+        for row in container.channel_runtime.list_recent_observations(limit=200, principal_id=principal_id):
+            if str(row.channel or "").strip() != "telegram":
+                continue
+            if str(row.event_type or "").strip() != "telegram.reply_async_failed":
+                continue
+            if str(getattr(row, "external_id", "") or "").strip() != normalized_message_id:
+                continue
+            payload = dict(row.payload or {})
+            if normalized_chat_id and str(payload.get("chat_id") or "").strip() != normalized_chat_id:
+                continue
+            return {"status": "failed", "prompt_text": str(payload.get("prompt_text") or "").strip()}
+        return {"status": "failed", "prompt_text": ""}
+    processing = container.channel_runtime.find_observation_by_dedupe(
+        f"{normalized_message_id}:assistant_async_processing",
+        principal_id=principal_id,
+    )
+    if processing is not None:
+        payload = dict(processing.payload or {})
+        return {"status": "processing", "prompt_text": str(payload.get("prompt_text") or "").strip()}
+    for row in container.channel_runtime.list_recent_observations(limit=400, principal_id=principal_id):
+        if str(row.channel or "").strip() != "telegram":
+            continue
+        if str(row.event_type or "").strip() != "telegram.reply_async_started":
+            continue
+        payload = dict(row.payload or {})
+        message_id = str(payload.get("current_message_id") or "").strip()
+        if not message_id:
+            message_id = str(payload.get("dedupe_key") or "").strip().split(":")[-1].strip()
+        if message_id != normalized_message_id:
+            continue
+        if normalized_chat_id and str(payload.get("chat_id") or "").strip() != normalized_chat_id:
+            continue
+        return {"status": "queued", "prompt_text": str(payload.get("prompt_text") or "").strip()}
+    return {"status": "unknown", "prompt_text": ""}
 
 
 def _telegram_local_reply_allowed(ctx: TelegramTurnContext, reply_text: str) -> bool:
@@ -3800,6 +4588,13 @@ def _telegram_local_reply_allowed(ctx: TelegramTurnContext, reply_text: str) -> 
 
 
 def _telegram_local_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    pocket_audio_reply = _telegram_pocket_audio_reply_text(
+        container=ctx.container,
+        principal_id=ctx.principal_id,
+        text=ctx.normalized,
+    )
+    if pocket_audio_reply:
+        return TelegramTurnDecision(reply_text=pocket_audio_reply)
     local_assistant_reply = _telegram_local_assistant_reply_text(
         ctx.container,
         principal_id=ctx.principal_id,
@@ -3826,11 +4621,22 @@ def _telegram_async_assistant_reply_worker(
     text: str,
     current_message_id: str,
 ) -> None:
+    _record_telegram_async_processing(
+        container,
+        principal_id=principal_id,
+        chat_id=chat_id,
+        current_message_id=current_message_id,
+        prompt_text=text,
+    )
     probe_reply = _telegram_probe_reply_text(text)
     last_resort_reply = _telegram_last_resort_reply_text(text)
-    reply_text = ""
+    reply_text = _telegram_pocket_audio_reply_text(
+        container=container,
+        principal_id=principal_id,
+        text=text,
+    ).strip()
     used_fallback_only = False
-    if not probe_reply:
+    if not reply_text and not probe_reply:
         try:
             async_timeout = None
             try:
@@ -3899,6 +4705,112 @@ def _telegram_async_assistant_reply_worker(
     )
 
 
+def _telegram_processing_ack_buttons(
+    *,
+    bot_config: dict[str, object],
+    current_message_id: str,
+    chat_id: str,
+) -> list[list[tuple[str, str]]]:
+    status_packet = _telegram_encode_callback_data(
+        bot_config=bot_config,
+        action="status",
+        current_message_id=current_message_id,
+        chat_id=chat_id,
+    )
+    retry_packet = _telegram_encode_callback_data(
+        bot_config=bot_config,
+        action="retry",
+        current_message_id=current_message_id,
+        chat_id=chat_id,
+    )
+    help_packet = _telegram_encode_callback_data(
+        bot_config=bot_config,
+        action="help",
+        current_message_id=current_message_id,
+        chat_id=chat_id,
+    )
+    buttons: list[list[tuple[str, str]]] = []
+    first_row = [(label, value) for label, value in (("Status", status_packet), ("Retry", retry_packet)) if value]
+    second_row = [(label, value) for label, value in (("Help", help_packet),) if value]
+    if first_row:
+        buttons.append(first_row)
+    if second_row:
+        buttons.append(second_row)
+    return buttons
+
+
+def _telegram_processing_ack_buttons_payload(
+    *,
+    bot_config: dict[str, object],
+    current_message_id: str,
+    chat_id: str,
+) -> list[list[str]]:
+    return [
+        [value for _, value in row]
+        for row in _telegram_processing_ack_buttons(
+            bot_config=bot_config,
+            current_message_id=current_message_id,
+            chat_id=chat_id,
+        )
+    ]
+
+
+def _telegram_processing_ack_text(text: str) -> str:
+    normalized = str(text or "").strip()
+    if "?" in normalized or any(marker in normalized.lower() for marker in ("what", "why", "how", "where", "when", "which")):
+        return "Working on it. EA saved your request and is processing it asynchronously."
+    return "Saved. EA is processing this asynchronously now."
+
+
+def _telegram_send_processing_ack(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    bot_config: dict[str, object],
+    chat_id: str,
+    dedupe_key: str,
+    source_text: str,
+    current_message_id: str,
+) -> bool:
+    marker = f"{str(dedupe_key or '').strip()}:processing_ack_sent" if str(dedupe_key or '').strip() else ""
+    if marker and container.channel_runtime.find_observation_by_dedupe(marker, principal_id=principal_id) is not None:
+        return False
+    buttons = _telegram_processing_ack_buttons(
+        bot_config=bot_config,
+        current_message_id=current_message_id,
+        chat_id=chat_id,
+    )
+    receipt = _telegram_send_message(
+        bot_token=str(bot_config.get("token") or "").strip(),
+        chat_id=chat_id,
+        text=_telegram_processing_ack_text(source_text),
+        inline_buttons=buttons,
+    )
+    if not bool(receipt.get("ok")):
+        return False
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.processing_ack_sent",
+        payload={
+            "chat_id": chat_id,
+            "reply_text": _telegram_processing_ack_text(source_text),
+            "source_text": source_text,
+            "buttons": _telegram_processing_ack_buttons_payload(
+                bot_config=bot_config,
+                current_message_id=current_message_id,
+                chat_id=chat_id,
+            ),
+            "message_id": str(dict(receipt.get("result") or {}).get("message_id") or "").strip(),
+            "current_message_id": str(current_message_id or "").strip(),
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=str(dict(receipt.get("result") or {}).get("message_id") or "").strip(),
+        dedupe_key=marker,
+    )
+    return True
+
+
 def _telegram_schedule_async_assistant_reply(
     *,
     container: AppContainer,
@@ -3919,16 +4831,20 @@ def _telegram_schedule_async_assistant_reply(
         chat_id=chat_id,
         dedupe_key=dedupe_key,
         prompt_text=text,
-    )
-    _TELEGRAM_ASYNC_EXECUTOR.submit(
-        _telegram_async_assistant_reply_worker,
-        container=container,
-        principal_id=principal_id,
-        bot_config=dict(bot_config),
-        chat_id=chat_id,
-        text=text,
         current_message_id=current_message_id,
+        bot_key=str(bot_config.get("bot_key") or "").strip(),
+        bot_handle=str(bot_config.get("handle") or "").strip(),
     )
+    if _telegram_inline_async_accelerator_enabled():
+        _TELEGRAM_ASYNC_EXECUTOR.submit(
+            _telegram_async_assistant_reply_worker,
+            container=container,
+            principal_id=principal_id,
+            bot_config=dict(bot_config),
+            chat_id=chat_id,
+            text=text,
+            current_message_id=current_message_id,
+        )
 
 
 def _telegram_command_reply_text(
@@ -3955,9 +4871,6 @@ def _telegram_command_reply_text(
     command_decision = _telegram_command_turn_decision(ctx)
     if command_decision.reply_text or command_decision.schedule_async:
         return command_decision.reply_text, command_decision.schedule_async
-    math_reply = _safe_math_answer(ctx.normalized)
-    if math_reply:
-        return math_reply, False
     link_decision = _telegram_link_turn_decision(ctx)
     if link_decision.reply_text or link_decision.schedule_async:
         return link_decision.reply_text, link_decision.schedule_async
@@ -3969,6 +4882,18 @@ def _telegram_command_reply_text(
             local_decision = _telegram_local_turn_decision(ctx)
             if local_decision.reply_text or local_decision.schedule_async:
                 return local_decision.reply_text, local_decision.schedule_async
+        math_reply = _safe_math_answer(ctx.normalized)
+        if math_reply:
+            return math_reply, False
+        if _telegram_force_async_path(ctx):
+            if _telegram_similar_async_prompt_pending(
+                container,
+                principal_id=principal_id,
+                chat_id=ctx.chat_id,
+                text=ctx.normalized,
+            ):
+                return "", False
+            return "", True
         general_reply = _telegram_general_reply_text(container=container, principal_id=principal_id, text=ctx.normalized)
         if (
             ctx.is_completion_cue
@@ -4071,6 +4996,20 @@ def _telegram_session_turn(
         current_message_id=current_message_id,
         chat_id=chat_id,
     )
+    ctx = build_turn_context(
+        container=container,
+        principal_id=principal_id,
+        text=text,
+        payload=dict(payload or {}),
+        bot_handle=bot_handle,
+        preferred_onemin_labels=preferred_onemin_labels,
+        current_message_id=current_message_id,
+        chat_id=chat_id,
+        completion_cue_predicate=_telegram_low_signal_followup_cue,
+    )
+    callback_decision = _telegram_callback_turn_decision(ctx)
+    if callback_decision.reply_text or callback_decision.schedule_async:
+        return callback_decision
     return TelegramTurnDecision(reply_text=reply_text, schedule_async=schedule_async)
 
 
@@ -4140,7 +5079,7 @@ def ingest_telegram(
         container=container,
         principal_id=principal_id,
         text=str(message_payload.get("text") or ""),
-        payload=message_payload,
+        payload={**message_payload, "_bot_config": dict(bot_config)},
         bot_handle=str(bot_config.get("handle") or "").strip(),
         preferred_onemin_labels=tuple(
             str(item or "").strip()
@@ -4150,8 +5089,19 @@ def ingest_telegram(
         current_message_id=str(message_payload.get("message_id") or ""),
         chat_id=chat_id,
     )
+    if str(message_payload.get("kind") or "").strip().lower() == "callback_query":
+        try:
+            _telegram_answer_callback_query(
+                bot_token=str(bot_config.get("token") or "").strip(),
+                callback_query_id=str(message_payload.get("callback_query_id") or ""),
+                text="Received",
+            )
+        except Exception:
+            pass
     reply_text = decision.reply_text
     schedule_async = decision.schedule_async
+    async_text = str(decision.async_text or "").strip() or str(message_payload.get("text") or "")
+    async_message_id = str(decision.async_message_id or "").strip() or str(message_payload.get("message_id") or "")
     reply_sent = False
     if reply_text and chat_id and not _telegram_reply_already_sent(container, principal_id=principal_id, dedupe_key=dedupe_key):
         reply_sent = _telegram_send_and_record_reply(
@@ -4164,14 +5114,23 @@ def ingest_telegram(
             source_text=str(message_payload.get("text") or ""),
         )
     if schedule_async and chat_id:
+        _telegram_send_processing_ack(
+            container=container,
+            principal_id=principal_id,
+            bot_config=bot_config,
+            chat_id=chat_id,
+            dedupe_key=dedupe_key,
+            source_text=async_text,
+            current_message_id=async_message_id,
+        )
         _telegram_schedule_async_assistant_reply(
             container=container,
             principal_id=principal_id,
             bot_config=bot_config,
             chat_id=chat_id,
             dedupe_key=dedupe_key,
-            text=str(message_payload.get("text") or ""),
-            current_message_id=str(message_payload.get("message_id") or ""),
+            text=async_text,
+            current_message_id=async_message_id,
         )
     return TelegramIngestOut(
         observation_id=event.observation_id,

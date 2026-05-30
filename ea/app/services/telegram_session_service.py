@@ -13,6 +13,8 @@ from app.product import service as product_service
 class TelegramTurnDecision:
     reply_text: str = ""
     schedule_async: bool = False
+    async_text: str = ""
+    async_message_id: str = ""
 
 
 @dataclasses.dataclass(frozen=True)

@@ -10,6 +10,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
 
+from app.api.routes.channels import (
+    _resolve_telegram_bot_config,
+    _telegram_async_assistant_reply_worker,
+)
 from app.container import build_container
 from app.logging_utils import configure_logging
 from app.settings import get_settings
@@ -22,6 +26,8 @@ _SCHEDULER_ONEMIN_REFRESH_INTERVAL_SECONDS = 86400.0
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
+_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS = 5.0
+_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
@@ -109,6 +115,24 @@ def _scheduler_morning_memo_interval_seconds() -> float:
 
 def _scheduler_morning_memo_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_MORNING_MEMO_ENABLED", True)
+
+
+def _scheduler_telegram_async_recovery_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS",
+        _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS,
+    )
+
+
+def _scheduler_telegram_async_recovery_min_age_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS",
+        _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS,
+    )
+
+
+def _scheduler_telegram_async_recovery_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_ENABLED", True)
 
 
 def _scheduler_public_base_url() -> str:
@@ -1074,6 +1098,102 @@ def _run_scheduler_morning_memo_delivery(
     }
 
 
+def _parse_runner_isoish_datetime(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _derive_telegram_async_message_id(dedupe_key: str, fallback_external_id: str) -> str:
+    normalized = str(dedupe_key or "").strip()
+    if normalized:
+        parts = [part for part in normalized.split(":") if part]
+        if len(parts) >= 3:
+            return str(parts[-1]).strip()
+    return str(fallback_external_id or "").strip()
+
+
+def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    drained = 0
+    pending = 0
+    skipped = 0
+    errors = 0
+    observed_at = datetime.now(timezone.utc)
+    min_age_seconds = max(_scheduler_telegram_async_recovery_min_age_seconds(), 5.0)
+    for row in container.channel_runtime.list_recent_observations(limit=400):
+        if str(getattr(row, "channel", "") or "").strip() != "telegram":
+            continue
+        if str(getattr(row, "event_type", "") or "").strip() != "telegram.reply_async_started":
+            continue
+        principal_id = str(getattr(row, "principal_id", "") or "").strip()
+        payload = dict(getattr(row, "payload", {}) or {})
+        chat_id = str(payload.get("chat_id") or "").strip()
+        prompt_text = str(payload.get("prompt_text") or "").strip()
+        dedupe_key = str(payload.get("dedupe_key") or getattr(row, "external_id", "") or "").strip()
+        current_message_id = _derive_telegram_async_message_id(
+            dedupe_key,
+            str(getattr(row, "external_id", "") or "").strip(),
+        )
+        created_at = _parse_runner_isoish_datetime(getattr(row, "created_at", "") or "")
+        if not principal_id or not chat_id or not prompt_text or not current_message_id or not created_at:
+            skipped += 1
+            continue
+        if max((observed_at - created_at).total_seconds(), 0.0) < min_age_seconds:
+            pending += 1
+            continue
+        sent_dedupe = f"{current_message_id}:assistant_async_sent"
+        failed_dedupe = f"{current_message_id}:assistant_async_failed"
+        if container.channel_runtime.find_observation_by_dedupe(sent_dedupe, principal_id=principal_id) is not None:
+            skipped += 1
+            continue
+        if container.channel_runtime.find_observation_by_dedupe(failed_dedupe, principal_id=principal_id) is not None:
+            skipped += 1
+            continue
+        bot_key = str(payload.get("bot_key") or "").strip()
+        bot_handle = str(payload.get("bot_handle") or "").strip()
+        try:
+            bot_config = _resolve_telegram_bot_config(bot_key=bot_key)
+            if not bot_config and bot_handle:
+                bot_config = _resolve_telegram_bot_config()
+                if str(bot_config.get("handle") or "").strip() != bot_handle:
+                    bot_config = {}
+            if not bot_config:
+                skipped += 1
+                continue
+            _telegram_async_assistant_reply_worker(
+                container=container,
+                principal_id=principal_id,
+                bot_config=dict(bot_config),
+                chat_id=chat_id,
+                text=prompt_text,
+                current_message_id=current_message_id,
+            )
+            drained += 1
+        except Exception:
+            errors += 1
+            log.exception(
+                "scheduler telegram async outbox drain failed principal=%s chat=%s message=%s",
+                principal_id,
+                chat_id,
+                current_message_id,
+            )
+    return {
+        "ran": True,
+        "drained": drained,
+        "pending": pending,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
 def _run_api() -> None:
     s = get_settings()
     uvicorn.run("app.main:app", host=s.host, port=s.port, log_level=s.log_level.lower())
@@ -1097,6 +1217,7 @@ def _run_execution_worker(role: str) -> None:
     last_property_scout_at = 0.0
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
+    last_telegram_async_recovery_at = 0.0
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
         if role == "scheduler":
@@ -1224,6 +1345,23 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler morning memo delivery failed", role)
                     last_morning_memo_at = now
+            if _scheduler_telegram_async_recovery_enabled() and (
+                now - last_telegram_async_recovery_at >= _scheduler_telegram_async_recovery_interval_seconds()
+            ):
+                try:
+                    recovery_summary = _run_scheduler_telegram_async_recovery(container, log)
+                    last_telegram_async_recovery_at = now
+                    log.info(
+                        "role=%s scheduler telegram async outbox drained=%s pending=%s skipped=%s errors=%s",
+                        role,
+                        recovery_summary.get("drained"),
+                        recovery_summary.get("pending"),
+                        recovery_summary.get("skipped"),
+                        recovery_summary.get("errors"),
+                    )
+                except Exception:
+                    log.exception("role=%s scheduler telegram async outbox failed", role)
+                    last_telegram_async_recovery_at = now
         try:
             artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
         except Exception:
