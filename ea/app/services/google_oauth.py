@@ -15,7 +15,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from email import policy
 from email.message import EmailMessage
+from email.parser import BytesParser
 from email.utils import parseaddr
 from typing import TYPE_CHECKING, Any
 
@@ -1523,6 +1525,14 @@ def _list_recent_gmail_signals(
             counterparty = (sender_name or sender_email).strip()
             snippet = str(details.get("snippet") or "").strip()
             body_text = _gmail_message_body_text(details)
+            body_source = "gmail_full" if body_text else "snippet"
+            if include_message_body and not body_text:
+                body_text = _gmail_message_body_text_from_raw(
+                    access_token=access_token,
+                    message_id=message_id,
+                )
+                if body_text:
+                    body_source = "gmail_raw"
             body_excerpt = body_text[:4000]
             attachments = (
                 _gmail_pdf_attachments(
@@ -1567,7 +1577,7 @@ def _list_recent_gmail_signals(
                         "labels": list(details.get("labelIds") or []),
                         "snippet": snippet,
                         "body_text_excerpt": body_excerpt,
-                        "body_source": "gmail_full" if body_excerpt else "snippet",
+                        "body_source": body_source if body_excerpt else "snippet",
                         "body_available": bool(body_excerpt),
                         "account_email": normalized_account_email,
                         "attachments": [
@@ -1747,6 +1757,17 @@ def _gmail_message_details(*, access_token: str, message_id: str, include_messag
         raise
 
 
+def _gmail_message_raw(*, access_token: str, message_id: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+        f"{urllib.parse.quote(message_id)}?format=raw",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def _gmail_pdf_attachments(
     *,
     access_token: str,
@@ -1843,6 +1864,48 @@ def _gmail_message_body_text(details: dict[str, Any]) -> str:
     plain_parts: list[str] = []
     html_parts: list[str] = []
     _collect_gmail_body_text(payload, plain_parts=plain_parts, html_parts=html_parts)
+    if plain_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in plain_parts if part))
+    if html_parts:
+        return _normalize_gmail_body_text("\n".join(part for part in html_parts if part))
+    return ""
+
+
+def _gmail_message_body_text_from_raw(*, access_token: str, message_id: str) -> str:
+    try:
+        payload = _gmail_message_raw(access_token=access_token, message_id=message_id)
+    except urllib.error.HTTPError:
+        return ""
+    raw_bytes = _decode_gmail_body_bytes(payload.get("raw"))
+    if not raw_bytes:
+        return ""
+    try:
+        message = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+    except Exception:
+        return ""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    for part in message.walk():
+        if part.is_multipart():
+            continue
+        mime_type = str(part.get_content_type() or "").strip().lower()
+        if mime_type not in {"text/plain", "text/html"}:
+            continue
+        try:
+            content = part.get_content()
+        except Exception:
+            try:
+                charset = part.get_content_charset() or "utf-8"
+                content = part.get_payload(decode=True).decode(charset, errors="replace")
+            except Exception:
+                continue
+        normalized = str(content or "")
+        if not normalized.strip():
+            continue
+        if mime_type == "text/plain":
+            plain_parts.append(normalized)
+        else:
+            html_parts.append(_html_to_text(normalized))
     if plain_parts:
         return _normalize_gmail_body_text("\n".join(part for part in plain_parts if part))
     if html_parts:
@@ -2119,7 +2182,8 @@ def _decode_signed_state(state: str, *, secret: str) -> dict[str, Any]:
         raise RuntimeError("google_oauth_state_signature_invalid")
     payload = json.loads(_b64url_decode(body_b64).decode("utf-8"))
     issued_at = _safe_int(payload.get("issued_at"), default=0)
-    if issued_at <= 0 or time.time() - issued_at > 900:
+    max_age_seconds = max(_safe_int(os.environ.get("EA_GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS"), default=3600), 300)
+    if issued_at <= 0 or time.time() - issued_at > max_age_seconds:
         raise RuntimeError("google_oauth_state_expired")
     return payload
 

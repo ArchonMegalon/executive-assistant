@@ -1,12 +1,12 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-05-30T08:15:01Z",
+  "generated_at": "2026-05-30T09:01:31Z",
   "as_of": "2026-05-30",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 12 Biggest Wins is materially closed as the latest recommended closeout wave; journey proof is ready; flagship replacement readiness is ready; overall progress is 99% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
+  "summary": "Next 12 Biggest Wins is materially closed as the latest recommended closeout wave; journey proof is ready; flagship replacement readiness is ready; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
   "active_wave": "Next 12 Biggest Wins",
   "active_wave_status": "complete",
   "release_health": {
@@ -72,10 +72,10 @@
     {
       "decision_id": "2026-05-30-focus-next-12-biggest-wins",
       "action": "focus_shift",
-      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 20 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
+      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 35 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
       "cited_signals": [
-        "overall_progress_percent=99",
-        "history_snapshot_count=20",
+        "overall_progress_percent=100",
+        "history_snapshot_count=35",
         "oldest_blocker_days=0",
         "phase_label=Public-fit polish",
         "longest_pole=Core Engine",
@@ -166,10 +166,10 @@
       {
         "decision_id": "2026-05-30-focus-next-12-biggest-wins",
         "action": "focus_shift",
-        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 20 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
+        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 35 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
         "cited_signals": [
-          "overall_progress_percent=99",
-          "history_snapshot_count=20",
+          "overall_progress_percent=100",
+          "history_snapshot_count=35",
           "oldest_blocker_days=0",
           "phase_label=Public-fit polish",
           "longest_pole=Core Engine",
@@ -199,9 +199,9 @@
   },
   "supporting_signals": {
     "current_recommended_wave": "Next 12 Biggest Wins",
-    "overall_progress_percent": 99,
+    "overall_progress_percent": 100,
     "phase_label": "Public-fit polish",
-    "history_snapshot_count": 20,
+    "history_snapshot_count": 35,
     "longest_pole": "Core Engine",
     "launch_readiness": "Route-canary validation is green; widen launch only while support fallout remains stable.",
     "provider_route_stewardship": {
@@ -255,49 +255,49 @@
       "local_release_proof_status": "passed",
       "proven_journey_count": 5,
       "proven_route_count": 10,
-      "history_snapshot_count": 20,
-      "summary": "Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 20 weekly snapshots are on record for the current public trust posture."
+      "history_snapshot_count": 35,
+      "summary": "Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 35 weekly snapshots are on record for the current public trust posture."
     },
     "progress_trend": {
-      "state": "moving",
-      "direction": "down",
-      "delta_percent": 1,
-      "from_as_of": "2026-04-26",
-      "to_as_of": "2026-05-01",
-      "summary": "Regression -1% from 2026-04-26 to 2026-05-01. Trend window: 2026-04-12 99% -> 2026-04-13 99% -> 2026-04-14 99% -> 2026-04-16 100% -> 2026-04-23 100% -> 2026-04-25 100% -> 2026-04-26 100% -> 2026-05-01 99%.",
+      "state": "steady",
+      "direction": "flat",
+      "delta_percent": 0,
+      "from_as_of": "2026-05-29",
+      "to_as_of": "2026-05-30",
+      "summary": "Flat trend 0% from 2026-05-29 to 2026-05-30. Trend window: 2026-05-11 99% -> 2026-05-13 100% -> 2026-05-16 100% -> 2026-05-19 100% -> 2026-05-21 100% -> 2026-05-22 100% -> 2026-05-29 100% -> 2026-05-30 100%.",
       "sample_count": 8,
       "samples": [
         {
-          "as_of": "2026-04-12",
+          "as_of": "2026-05-11",
           "overall_progress_percent": 99
         },
         {
-          "as_of": "2026-04-13",
-          "overall_progress_percent": 99
-        },
-        {
-          "as_of": "2026-04-14",
-          "overall_progress_percent": 99
-        },
-        {
-          "as_of": "2026-04-16",
+          "as_of": "2026-05-13",
           "overall_progress_percent": 100
         },
         {
-          "as_of": "2026-04-23",
+          "as_of": "2026-05-16",
           "overall_progress_percent": 100
         },
         {
-          "as_of": "2026-04-25",
+          "as_of": "2026-05-19",
           "overall_progress_percent": 100
         },
         {
-          "as_of": "2026-04-26",
+          "as_of": "2026-05-21",
           "overall_progress_percent": 100
         },
         {
-          "as_of": "2026-05-01",
-          "overall_progress_percent": 99
+          "as_of": "2026-05-22",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-05-29",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-05-30",
+          "overall_progress_percent": 100
         }
       ]
     }

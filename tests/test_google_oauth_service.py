@@ -365,6 +365,77 @@ def test_google_signal_loader_extracts_pdf_attachments_when_full_message_access_
     assert rows[0].payload["attachments"][0]["filename"] == "approval.pdf"
 
 
+def test_google_signal_loader_falls_back_to_raw_message_when_full_body_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import google_oauth as google_service
+
+    requests: list[str] = []
+
+    class _Response:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    raw_message = (
+        b"From: Willhaben <no-reply@agent.willhaben.at>\r\n"
+        b"Subject: Eigentumswohnungen Digest\r\n"
+        b"Content-Type: text/html; charset=utf-8\r\n"
+        b"\r\n"
+        b"<html><body><a href=\"https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-raw-1\">Top Fit</a></body></html>"
+    )
+    encoded_raw = base64.urlsafe_b64encode(raw_message).decode("ascii").rstrip("=")
+
+    def _fake_urlopen(request, timeout=30):  # type: ignore[no-untyped-def]
+        url = str(request.full_url)
+        requests.append(url)
+        if url.startswith("https://gmail.googleapis.com/gmail/v1/users/me/messages?"):
+            return _Response({"messages": [{"id": "msg-raw-1", "threadId": "thread-raw-1"}]})
+        if "/gmail/v1/users/me/messages/msg-raw-1?format=full" in url:
+            return _Response(
+                {
+                    "threadId": "thread-raw-1",
+                    "labelIds": ["INBOX"],
+                    "snippet": "",
+                    "payload": {
+                        "mimeType": "multipart/alternative",
+                        "headers": [
+                            {"name": "Subject", "value": "Eigentumswohnungen Digest"},
+                            {"name": "From", "value": "Willhaben <no-reply@agent.willhaben.at>"},
+                        ],
+                        "parts": [],
+                    },
+                }
+            )
+        if "/gmail/v1/users/me/messages/msg-raw-1?format=raw" in url:
+            return _Response({"raw": encoded_raw})
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(google_service.urllib.request, "urlopen", _fake_urlopen)
+
+    rows = google_service._list_recent_gmail_signals(
+        access_token="token-123",
+        max_results=5,
+        include_message_body=True,
+        account_email="elisabeth.girschele@gmail.com",
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-raw-1" in row.text
+    assert row.payload["body_available"] is True
+    assert row.payload["body_source"] == "gmail_raw"
+    assert any("format=raw" in url for url in requests)
+
+
 def test_google_signal_loader_falls_back_to_metadata_when_full_message_fetch_is_forbidden(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
