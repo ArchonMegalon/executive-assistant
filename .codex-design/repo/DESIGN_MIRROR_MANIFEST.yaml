@@ -1,0 +1,17 @@
+version: 1
+bindings:
+  - key: next_90_day_queue_staging
+    kind: file
+    local_path: .codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    source_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+    required: true
+  - key: next_90_day_product_advance_registry
+    kind: file
+    local_path: .codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    source_path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
+    required: true
+  - key: product_readme
+    kind: file
+    local_path: .codex-design/product/README.md
+    source_path: /docker/chummercomplete/chummer-design/products/chummer/README.md
+    required: true

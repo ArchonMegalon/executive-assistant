@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets verify-design-mirror-bundle repair-design-mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy verify-release-assets verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
@@ -107,6 +107,10 @@ materialize-release-assets:
 	$(PYTHON_BIN) scripts/materialize_ea_flagship_release_gate.py
 	$(PYTHON_BIN) scripts/materialize_weekly_product_pulse.py
 
+verify-generated-release-artifacts-clean:
+	$(MAKE) materialize-release-assets
+	git diff --exit-code -- .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json
+
 ci-local:
 	$(PYTHON_BIN) -m compileall -q ea/app
 	$(PYTHON_BIN) -m compileall -q tests
@@ -118,6 +122,7 @@ ci-gates:
 	$(MAKE) ci-local
 	$(MAKE) test-api
 	$(MAKE) verify-release-assets
+	$(MAKE) verify-generated-release-artifacts-clean
 
 ci-gates-postgres:
 	$(MAKE) ci-gates
@@ -133,6 +138,9 @@ verify-release-assets:
 
 verify-design-mirror-bundle:
 	$(PYTHON_BIN) scripts/verify_design_mirror_bundle.py
+
+verify-design-full-mirror-parity:
+	$(PYTHON_BIN) scripts/verify_full_design_mirror_parity.py
 
 repair-design-mirror-bundle:
 	bash scripts/repair_design_mirror_bundle.sh

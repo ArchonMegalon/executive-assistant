@@ -36,6 +36,38 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _normalize_release_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "sha256", "duration_seconds", "git_head"}:
+                continue
+            if key.endswith("_git_head"):
+                continue
+            if key == "review_due":
+                continue
+            if key == "output_excerpt":
+                normalized[key] = []
+                continue
+            normalized[key] = _normalize_release_value(item)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_release_value(item) for item in value]
+    return value
+
+
+def _write_json_stable(path: Path, payload: dict[str, Any]) -> None:
+    serialized = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = None
+        if isinstance(existing, dict) and _normalize_release_value(existing) == _normalize_release_value(payload):
+            return
+    path.write_text(serialized, encoding="utf-8")
+
+
 def _resolve_python_bin(root: Path) -> str:
     venv_python = root / ".venv" / "bin" / "python"
     if venv_python.exists():
@@ -206,7 +238,7 @@ def main() -> int:
     receipt = build_receipt(root, seed_path=args.seed)
     output_path = root / args.output
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_json_stable(output_path, receipt)
     if args.stdout:
         print(json.dumps(receipt, indent=2, ensure_ascii=False))
     else:

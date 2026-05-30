@@ -17,3 +17,4 @@ EOF
 fi
 
 python3 scripts/verify_design_mirror_bundle.py --repair "$@"
+python3 scripts/verify_full_design_mirror_parity.py --repair "$@"

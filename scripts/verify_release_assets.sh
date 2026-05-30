@@ -121,6 +121,15 @@ else
   missing=1
 fi
 
+if python3 scripts/verify_full_design_mirror_parity.py >/tmp/ea_design_mirror_full_verify.out 2>/tmp/ea_design_mirror_full_verify.err; then
+  echo "ok: full design mirror parity"
+else
+  cat /tmp/ea_design_mirror_full_verify.out
+  cat /tmp/ea_design_mirror_full_verify.err >&2
+  echo "missing: full design mirror parity" >&2
+  missing=1
+fi
+
 if python3 - <<'PY'
 import json
 import subprocess

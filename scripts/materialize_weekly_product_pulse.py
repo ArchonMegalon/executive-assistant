@@ -47,6 +47,35 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return dict(payload or {}) if isinstance(payload, dict) else {}
 
 
+def _normalize_release_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "sha256", "duration_seconds", "git_head"}:
+                continue
+            if key.endswith("_git_head"):
+                continue
+            if key == "review_due":
+                continue
+            normalized[key] = _normalize_release_value(item)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_release_value(item) for item in value]
+    return value
+
+
+def _write_json_stable(path: Path, payload: dict[str, Any]) -> None:
+    serialized = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = None
+        if isinstance(existing, dict) and _normalize_release_value(existing) == _normalize_release_value(payload):
+            return
+    path.write_text(serialized, encoding="utf-8")
+
+
 def _compact(value: object, *, fallback: str = "", limit: int = 220) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
@@ -545,7 +574,7 @@ def main() -> int:
 
     output_path = root / args.output
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(pulse, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_json_stable(output_path, pulse)
     if args.stdout:
         print(json.dumps(pulse, indent=2, ensure_ascii=False))
     else:
