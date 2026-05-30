@@ -6078,6 +6078,24 @@ class ProductService:
         normalized_trigger = _normalize_pocket_assistant_command_text(trigger_text)
         if not normalized_trigger:
             return {"action": "", "confidence": 0.0, "reason": "empty_trigger", "params": {}}
+        fallback_matchers = (
+            re.compile(r"(?is)\b(?:put|add)\s+(.+?)\s+(?:on|to)\s+(?:my\s+)?shopping\s+list\b"),
+            re.compile(r"(?is)\b(?:setze?|setz|stell(?:e|)?)\s+(.+?)\s+auf\s+(?:meine|die)\s+einkaufsliste\b"),
+            re.compile(r"(?is)\bfüge\s+(.+?)\s+(?:zu\s+)?(?:meiner|der)\s+einkaufsliste\s+hinzu\b"),
+            re.compile(r"(?is)\bpack(?:e)?\s+(.+?)\s+auf\s+(?:meine|die)\s+einkaufsliste\b"),
+        )
+        for pattern in fallback_matchers:
+            matched = pattern.search(normalized_trigger)
+            if matched is None:
+                continue
+            item_text = _normalize_pocket_assistant_command_text(re.sub(r"(?is)\b(?:please|bitte)\b", " ", matched.group(1) or ""))
+            if item_text:
+                return {
+                    "action": "shopping_list_add",
+                    "confidence": 0.89,
+                    "reason": "deterministic_shopping_list_pattern",
+                    "params": {"item_text": item_text},
+                }
         messages = [
             {
                 "role": "system",
@@ -6128,24 +6146,6 @@ class ProductService:
                 }
         except Exception:
             pass
-        fallback_matchers = (
-            re.compile(r"(?is)\b(?:put|add)\s+(.+?)\s+(?:on|to)\s+(?:my\s+)?shopping\s+list\b"),
-            re.compile(r"(?is)\b(?:setze?|setz|stell(?:e|)?)\s+(.+?)\s+auf\s+(?:meine|die)\s+einkaufsliste\b"),
-            re.compile(r"(?is)\bfüge\s+(.+?)\s+(?:zu\s+)?(?:meiner|der)\s+einkaufsliste\s+hinzu\b"),
-            re.compile(r"(?is)\bpack(?:e)?\s+(.+?)\s+auf\s+(?:meine|die)\s+einkaufsliste\b"),
-        )
-        for pattern in fallback_matchers:
-            matched = pattern.search(normalized_trigger)
-            if matched is None:
-                continue
-            item_text = _normalize_pocket_assistant_command_text(re.sub(r"(?is)\b(?:please|bitte)\b", " ", matched.group(1) or ""))
-            if item_text:
-                return {
-                    "action": "shopping_list_add",
-                    "confidence": 0.51,
-                    "reason": "fallback_shopping_list_pattern",
-                    "params": {"item_text": item_text},
-                }
         return {"action": "none", "confidence": 0.0, "reason": "no_supported_action", "params": {}}
 
     def _open_pocket_assistant_followup(
