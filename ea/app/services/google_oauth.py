@@ -502,7 +502,6 @@ def build_google_oauth_start(
     if normalized_browser_source:
         state_payload["browser_source"] = normalized_browser_source
     state = _encode_signed_state(state_payload, secret=config.state_secret)
-    include_granted_scopes = "false" if GOOGLE_SCOPE_KEEP in requested_scopes else "true"
     query = urllib.parse.urlencode(
         {
             "response_type": "code",
@@ -510,7 +509,7 @@ def build_google_oauth_start(
             "redirect_uri": redirect_uri,
             "scope": " ".join(requested_scopes),
             "access_type": "offline",
-            "include_granted_scopes": include_granted_scopes,
+            "include_granted_scopes": "false",
             "prompt": "consent",
             "state": state,
         }
