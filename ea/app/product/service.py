@@ -290,6 +290,31 @@ def _property_scout_page_preview(property_url: str) -> dict[str, object]:
     }
 
 
+def _property_scout_candidate_payload_from_preview(*, property_url: str, preview: dict[str, object]) -> dict[str, object]:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    property_facts = dict(preview.get("property_facts_json") or {})
+    title = str(preview.get("title") or "").strip()
+    summary = str(preview.get("summary") or "").strip()
+    text = " ".join(part for part in (title, summary, normalized) if part).lower()
+    if "district" not in property_facts:
+        for candidate in ("waehring", "währing", "doebling", "döbling", "1180", "1190"):
+            if candidate in text:
+                property_facts["district"] = candidate
+                break
+    if "has_360" not in property_facts:
+        property_facts["has_360"] = any(token in text for token in ("360", "panorama", "photosphere", "rundgang"))
+    if "has_floorplan" not in property_facts:
+        property_facts["has_floorplan"] = any(token in text for token in ("grundriss", "floorplan", "lageplan"))
+    if "lift" not in property_facts:
+        property_facts["lift"] = any(token in text for token in ("lift", "aufzug"))
+    if "heating_type" not in property_facts:
+        if "gas" in text or "gasheizung" in text:
+            property_facts["heating_type"] = "Gasheizung"
+        elif "fernwärme" in text or "fernwaerme" in text:
+            property_facts["heating_type"] = "Fernwaerme"
+    return property_facts
+
+
 def _property_scout_rank_score(
     *,
     property_url: str,
@@ -317,6 +342,16 @@ def _property_scout_rank_score(
     if any(token in text for token in ("lift", "aufzug", "terrasse", "balkon")):
         heuristic += 4.0
     return max(0.0, min(100.0, heuristic))
+
+
+def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    normalized_source_ref = str(source_ref or "").strip()
+    if normalized_source_ref.startswith("property-scout:"):
+        if not normalized_url:
+            return True
+        return not _property_scout_is_supported_listing_url(normalized_url)
+    return False
 
 
 _ATTACHMENT_FILENAME_SANITIZE_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -1163,18 +1198,26 @@ def _property_alert_personal_fit_assessment(
     property_url: str,
 ) -> dict[str, object] | None:
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-    if not normalized_url or not _is_willhaben_property_url(normalized_url):
+    if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
         return None
     try:
-        packet = _load_willhaben_property_packet(normalized_url)
-        property_facts_json = dict(packet.get("property_facts_json") or {})
-        property_facts_json.update(
-            {
-                "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
-                "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
-            }
-        )
-        listing_id = str(packet.get("listing_id") or "").strip() or normalized_url
+        if _is_willhaben_property_url(normalized_url):
+            packet = _load_willhaben_property_packet(normalized_url)
+            property_facts_json = dict(packet.get("property_facts_json") or {})
+            property_facts_json.update(
+                {
+                    "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
+                    "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
+                }
+            )
+            listing_id = str(packet.get("listing_id") or "").strip() or normalized_url
+        else:
+            preview = _property_scout_page_preview(normalized_url)
+            property_facts_json = _property_scout_candidate_payload_from_preview(
+                property_url=normalized_url,
+                preview=preview,
+            )
+            listing_id = str(preview.get("listing_id") or "").strip() or normalized_url
         assess_candidate = getattr(preference_profiles, "assess_candidate", None)
         if not callable(assess_candidate):
             return None
@@ -6642,6 +6685,23 @@ class ProductService:
         notify_telegram: bool = True,
         candidate_properties: tuple[dict[str, object], ...] = (),
     ) -> dict[str, object]:
+        if _is_invalid_property_scout_task_url(property_url, source_ref=source_ref):
+            payload = {
+                "status": "invalid",
+                "task_type": "property_alert_review",
+                "property_url": str(property_url or "").strip(),
+                "source_ref": str(source_ref or "").strip(),
+                "external_id": str(external_id or "").strip(),
+                "reason": "property_scout_invalid_listing_url",
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_alert_review_suppressed_invalid",
+                payload={**payload, "title": str(title or "").strip(), "actor": str(actor or "").strip() or "property_scout"},
+                source_id=str(source_ref or external_id or property_url).strip(),
+                dedupe_key=f"{principal_id}|{source_ref or external_id or property_url}|property-alert-review-invalid",
+            )
+            return payload
         personal_fit_assessment = _property_alert_personal_fit_assessment(
             preference_profiles=self._preference_profiles,
             principal_id=principal_id,
@@ -8591,6 +8651,49 @@ class ProductService:
             dedupe_key=f"{principal_id}|property-scout-sync|{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}",
         )
         return payload
+
+    def cleanup_invalid_property_scout_tasks(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+    ) -> dict[str, object]:
+        closed: list[str] = []
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+            if str(getattr(row, "task_type", "") or "").strip() != "property_alert_review":
+                continue
+            input_json = dict(getattr(row, "input_json", {}) or {})
+            property_url = str(input_json.get("property_url") or "").strip()
+            source_ref = str(input_json.get("source_ref") or "").strip()
+            if not _is_invalid_property_scout_task_url(property_url, source_ref=source_ref):
+                continue
+            handoff_ref = f"human_task:{row.human_task_id}"
+            completed = self.complete_handoff(
+                principal_id=principal_id,
+                handoff_ref=handoff_ref,
+                operator_id="",
+                actor=actor,
+                resolution="invalid_listing_url",
+            )
+            if completed is not None:
+                closed.append(handoff_ref)
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_alert_review_auto_closed_invalid",
+                    payload={
+                        "handoff_ref": handoff_ref,
+                        "property_url": property_url,
+                        "source_ref": source_ref,
+                        "actor": str(actor or "").strip() or "property_scout_cleanup",
+                    },
+                    source_id=handoff_ref,
+                    dedupe_key=f"{principal_id}|{handoff_ref}|property-alert-review-auto-closed-invalid",
+                )
+        return {
+            "generated_at": _now_iso(),
+            "closed_total": len(closed),
+            "closed_refs": closed,
+        }
 
     def create_google_photos_picker_session(
         self,

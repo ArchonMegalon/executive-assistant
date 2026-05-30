@@ -807,6 +807,7 @@ def test_property_scout_config_and_listing_extraction(monkeypatch) -> None:
                     "url": "https://www.immoscout24.at/suche#ignored",
                     "label": "Scout",
                     "principal_id": "principal-scout",
+                    "preference_person_id": "elisabeth",
                     "account_email": "Scout@Example.COM",
                     "notify_telegram": False,
                     "max_results": 99,
@@ -823,6 +824,7 @@ def test_property_scout_config_and_listing_extraction(monkeypatch) -> None:
     assert specs[1]["url"] == "https://www.immoscout24.at/suche"
     assert specs[1]["label"] == "Scout"
     assert specs[1]["principal_id"] == "principal-scout"
+    assert specs[1]["preference_person_id"] == "elisabeth"
     assert specs[1]["account_email"] == "scout@example.com"
     assert specs[1]["notify_telegram"] is False
     assert specs[1]["max_results"] == 10
@@ -832,6 +834,8 @@ def test_property_scout_config_and_listing_extraction(monkeypatch) -> None:
     <a href="https://www.immoscout24.at/expose/12345#gallery">duplicate fragment</a>
     <a href="https://example.com/expose/999">unsupported host</a>
     <script>{"url":"https:\\/\\/www.willhaben.at\\/iad\\/immobilien\\/d\\/mietwohnungen\\/wien\\/garden-789"}</script>
+    <a href="https://www.willhaben.at/iad/immobilien/mietwohnungen/wien">search page</a>
+    <a href="https://www.willhaben.at/bbx-search/_next/static/assets/facebook_placeholder.jpg">placeholder</a>
     """
 
     urls = product_service._property_scout_extract_listing_urls(
@@ -843,6 +847,72 @@ def test_property_scout_config_and_listing_extraction(monkeypatch) -> None:
         "https://www.immoscout24.at/expose/12345",
         "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/garden-789",
     )
+
+
+def test_property_scout_route_uses_explicit_preference_person_and_creates_reviews(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Office")
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.immmo.at/immo/Wohnung-mieten/Wien",
+                    "label": "IMMMO Wien rentals",
+                    "principal_id": principal_id,
+                    "preference_person_id": "elisabeth",
+                    "notify_telegram": False,
+                    "max_results": 2,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url: '<a href="https://www.immobilienscout24.at/expose/abc-1">One</a><a href="https://www.immobilienscout24.at/expose/abc-2">Two</a>',
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url: {
+            "listing_id": url.rsplit("/", 1)[-1],
+            "title": "Scout flat " + url.rsplit("/", 1)[-1],
+            "summary": "Waehring, lift, floorplan, 360 panorama",
+            "property_facts_json": {},
+        },
+    )
+    captured: list[dict[str, object]] = []
+
+    def _fake_assess_candidate(**kwargs):
+        captured.append(dict(kwargs))
+        score = 96.0 if str(kwargs["object_id"]).endswith("abc-1") else 72.0
+        return {
+            "fit_score": score,
+            "confidence": 0.9,
+            "predicted_reaction": "positive",
+            "recommendation": "shortlist" if score >= 90 else "view_if_compelling",
+            "match_reasons_json": ["Matches Elisabeth"],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+
+    response = client.post("/app/api/signals/property/scout")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "processed"
+    assert body["sources_total"] == 1
+    assert body["listing_total"] == 2
+    assert body["review_created_total"] == 2
+    assert body["sources"][0]["preference_person_id"] == "elisabeth"
+    assert captured[0]["person_id"] == "elisabeth"
+    assert captured[0]["object_payload"]["district"] == "waehring"
+    assert captured[0]["object_payload"]["has_360"] is True
+    assert captured[0]["object_payload"]["has_floorplan"] is True
 
 
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:

@@ -30,6 +30,7 @@ from app.api.routes.product_api_contracts import (
     PocketSignalImportIn,
     PocketSignalImportOut,
     PocketSignalSyncOut,
+    PropertyScoutSyncOut,
     SignalIngestEndpointCreateIn,
     SignalIngestEndpointOut,
     WillhabenPropertyTourIn,
@@ -380,6 +381,23 @@ def sync_google_willhaben_signals(
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return GoogleSignalSyncOut(**payload)
+
+
+@router.post("/signals/property/scout", response_model=PropertyScoutSyncOut)
+def sync_direct_property_scout(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyScoutSyncOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "property_scout").strip()
+    try:
+        payload = service.sync_direct_property_scout(
+            principal_id=context.principal_id,
+            actor=actor,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return PropertyScoutSyncOut(**payload)
 
 
 @router.post("/signals/google/photos/session", response_model=GooglePhotosPickerSessionOut)

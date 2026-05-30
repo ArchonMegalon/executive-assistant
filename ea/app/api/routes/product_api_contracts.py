@@ -1121,6 +1121,27 @@ class GoogleSignalSyncOut(BaseModel):
     suppressed_total: int = 0
 
 
+class PropertyScoutSourceOut(BaseModel):
+    source_url: str = ""
+    source_label: str = ""
+    preference_person_id: str = "self"
+    listing_total: int = 0
+    review_created_total: int = 0
+    review_existing_total: int = 0
+    error: str = ""
+
+
+class PropertyScoutSyncOut(BaseModel):
+    generated_at: str
+    status: str = "noop"
+    sources_total: int = 0
+    listing_total: int = 0
+    review_created_total: int = 0
+    review_existing_total: int = 0
+    failed_total: int = 0
+    sources: list[PropertyScoutSourceOut] = Field(default_factory=list)
+
+
 class GooglePhotosPickerSessionIn(BaseModel):
     account_email: str = ""
     binding_id: str = ""
