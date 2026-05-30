@@ -1097,6 +1097,9 @@ class PocketSignalSyncOut(BaseModel):
     teable_index_sync_attempted: bool = False
     preference_evidence_total: int = 0
     preference_evidence_applied_total: int = 0
+    assistant_trigger_total: int = 0
+    assistant_trigger_executed_total: int = 0
+    assistant_trigger_blocked_total: int = 0
     cursor_used: bool = True
     cursor_persisted: bool = True
     cursor_updated_at: str = ""

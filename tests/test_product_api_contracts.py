@@ -3831,6 +3831,116 @@ def test_pocket_api_sync_dismisses_subminute_recordings_from_continuous_archive(
     assert body["archived_total"] == 0
     assert body["archive_dismissed_total"] == 1
     assert body["archive_failed_total"] == 0
+
+
+def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-trigger"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_GOOGLE_KEEP_SHOPPING_LIST_WEBHOOK_URL", "https://keep.example.test/shopping")
+    captured_requests: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "trigger-1", "title": "Pocket command", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Pocket command",
+                "state": "completed",
+                "duration": 77.0,
+                "language": "de",
+                "recording_at": "2026-05-30T08:00:00Z",
+                "created_at": "2026-05-30T08:00:10Z",
+                "updated_at": "2026-05-30T08:00:20Z",
+                "tags": ["memo"],
+                "transcript": {
+                    "text": "Assistent: put toilet paper on my shopping list.",
+                    "segments": [{"start": 0.0, "end": 4.0, "text": "Assistent: put toilet paper on my shopping list."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "id": "keep-op-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        captured_requests.append(
+            {
+                "url": request.full_url,
+                "payload": json.loads(request.data.decode("utf-8")),
+            }
+        )
+        return _FakeResponse()
+
+    monkeypatch.setattr(
+        product_service.responses_upstream,
+        "generate_text",
+        lambda **kwargs: type(
+            "UpstreamResultStub",
+            (),
+            {
+                "text": json.dumps(
+                    {
+                        "action": "shopping_list_add",
+                        "confidence": 0.93,
+                        "reason": "spoken_request_to_add_item_to_shopping_list",
+                        "params": {"item_text": "toilet paper"},
+                    }
+                )
+            },
+        )(),
+    )
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", _fake_urlopen)
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["assistant_trigger_total"] == 1
+    assert body["assistant_trigger_executed_total"] == 1
+    assert body["assistant_trigger_blocked_total"] == 0
+    assert captured_requests[0]["url"] == "https://keep.example.test/shopping"
+    assert captured_requests[0]["payload"]["backend"] == "google_keep"
+    assert captured_requests[0]["payload"]["item_text"] == "toilet paper"
+
+    product_events = client.get("/app/api/events", params={"channel": "product"})
+    assert product_events.status_code == 200
+    executed = next(item for item in product_events.json()["items"] if item["event_type"] == "pocket_assistant_command_executed")
+    assert executed["payload"]["recording_id"] == "trigger-1"
+    assert executed["payload"]["item_text"] == "toilet paper"
+    assert executed["payload"]["classification_reason"] == "spoken_request_to_add_item_to_shopping_list"
     assert body["teable_index_status"] == "synced"
     assert body["teable_index_row_total"] == 1
 

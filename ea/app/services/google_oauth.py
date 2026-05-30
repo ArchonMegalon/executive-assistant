@@ -349,6 +349,17 @@ class GoogleGmailSendResult:
 
 
 @dataclass(frozen=True)
+class GoogleCalendarCreateResult:
+    binding: ProviderBindingRecord
+    event_id: str
+    html_link: str
+    summary: str
+    start_at: str
+    end_at: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class GoogleWorkspaceSignal:
     signal_type: str
     channel: str
@@ -2352,3 +2363,126 @@ def _load_google_send_context(
     if not sender_email:
         raise RuntimeError("google_gmail_sender_missing")
     return binding, metadata, token_payload, access_token, sender_email
+
+
+def _load_google_calendar_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    binding_id: str = "",
+) -> tuple[ProviderBindingRecord, dict[str, Any], dict[str, Any], str]:
+    config = load_google_oauth_config()
+    resolved_binding_id = str(binding_id or "").strip()
+    binding = None
+    for binding_principal_id in _google_binding_principal_ids(principal_id):
+        candidate_binding_id = resolved_binding_id or _primary_google_binding_id(binding_principal_id)
+        binding = container.provider_registry.get_persisted_binding_record(
+            binding_id=candidate_binding_id,
+            principal_id=binding_principal_id,
+        )
+        if binding is not None:
+            break
+    if binding is None:
+        raise RuntimeError("google_oauth_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    granted_scopes = {
+        str(scope or "").strip()
+        for scope in (metadata.get("granted_scopes") or [])
+        if str(scope or "").strip()
+    }
+    if GOOGLE_SCOPE_CALENDAR not in granted_scopes:
+        raise RuntimeError("google_calendar_write_scope_missing")
+    refresh_token_ref = str(metadata.get("refresh_token_ref") or "").strip()
+    if not refresh_token_ref:
+        raise RuntimeError("google_calendar_refresh_token_missing")
+    refresh_token = _decrypt_secret(refresh_token_ref, key=config.provider_secret_key)
+    try:
+        token_payload = _refresh_google_access_token(
+            refresh_token=refresh_token,
+            client_id=config.client_id,
+            client_secret=config.client_secret,
+        )
+    except Exception as exc:
+        binding_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip() or principal_id
+        _mark_google_binding_reauth_required(
+            container=container,
+            binding=binding,
+            principal_id=binding_principal_id,
+            reason=_google_refresh_error_reason(exc),
+        )
+        raise
+    access_token = str(token_payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("google_calendar_access_token_missing")
+    return binding, metadata, token_payload, access_token
+
+
+def create_google_calendar_event(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    summary: str,
+    start_at: str,
+    end_at: str,
+    description: str = "",
+    location: str = "",
+    binding_id: str = "",
+) -> GoogleCalendarCreateResult:
+    binding, metadata, token_payload, access_token = _load_google_calendar_context(
+        container=container,
+        principal_id=principal_id,
+        binding_id=binding_id,
+    )
+    normalized_summary = str(summary or "").strip() or "EA event"
+    normalized_start = str(start_at or "").strip()
+    normalized_end = str(end_at or "").strip()
+    if not normalized_start:
+        raise RuntimeError("google_calendar_start_missing")
+    if not normalized_end:
+        raise RuntimeError("google_calendar_end_missing")
+    payload = {
+        "summary": normalized_summary,
+        "description": str(description or "").strip(),
+        "location": str(location or "").strip(),
+        "start": {"dateTime": normalized_start},
+        "end": {"dateTime": normalized_end},
+    }
+    request = urllib.request.Request(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        response_payload = json.loads(response.read().decode("utf-8"))
+    event_id = str(response_payload.get("id") or "").strip()
+    if not event_id:
+        raise RuntimeError("google_calendar_event_id_missing")
+    updated_metadata = dict(metadata)
+    updated_metadata["access_token_expires_at"] = _utc_iso_after_seconds(_safe_int(token_payload.get("expires_in"), default=0))
+    updated_metadata["last_refresh_at"] = _utc_iso_now()
+    updated_metadata["last_successful_api_call_at"] = _utc_iso_now()
+    updated_metadata["token_status"] = "active"
+    updated = container.provider_registry.upsert_binding_record(
+        binding_id=binding.binding_id,
+        principal_id=principal_id,
+        provider_key=GOOGLE_PROVIDER_KEY,
+        status=binding.status,
+        priority=binding.priority,
+        probe_state="ready",
+        probe_details_json=dict(binding.probe_details_json or {}),
+        scope_json=dict(binding.scope_json or {}),
+        auth_metadata_json=updated_metadata,
+    )
+    return GoogleCalendarCreateResult(
+        binding=updated,
+        event_id=event_id,
+        html_link=str(response_payload.get("htmlLink") or "").strip(),
+        summary=normalized_summary,
+        start_at=normalized_start,
+        end_at=normalized_end,
+        created_at=updated_metadata["last_successful_api_call_at"],
+    )

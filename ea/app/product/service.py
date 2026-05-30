@@ -64,6 +64,7 @@ from app.product.projections import (
     thread_items_from_objects,
 )
 from app.services import photo_signal_analysis
+from app.services import responses_upstream
 from app.yaml_inputs import load_yaml_dict as load_design_yaml_dict
 from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
@@ -2888,6 +2889,47 @@ def _conversation_preference_hints(
                 }
             )
     return hints
+
+
+_POCKET_ASSISTANT_TRIGGER_RE = re.compile(
+    r"(?is)(?:^|[\s\"'“”„])(?:assistant|assistent)\s*[:,-]\s*(.+?)(?=(?:^|[\s\"'“”„])(?:assistant|assistent)\s*[:,-]|\Z)"
+)
+
+
+def _google_keep_shopping_list_webhook_url() -> str:
+    return str(
+        os.getenv("EA_GOOGLE_KEEP_SHOPPING_LIST_WEBHOOK_URL")
+        or os.getenv("EA_POCKET_TRIGGER_SHOPPING_LIST_WEBHOOK_URL")
+        or ""
+    ).strip()
+
+
+def _google_keep_shopping_list_webhook_secret() -> str:
+    return str(
+        os.getenv("EA_GOOGLE_KEEP_SHOPPING_LIST_WEBHOOK_SECRET")
+        or os.getenv("EA_POCKET_TRIGGER_SHOPPING_LIST_WEBHOOK_SECRET")
+        or ""
+    ).strip()
+
+
+def _normalize_pocket_assistant_command_text(text: str) -> str:
+    normalized = " ".join(str(text or "").strip().split())
+    normalized = normalized.strip(" \t\r\n\"'“”„,;:-")
+    return normalized
+
+
+def _extract_pocket_assistant_commands(transcript_text: str) -> list[dict[str, str]]:
+    commands: list[dict[str, str]] = []
+    for match in _POCKET_ASSISTANT_TRIGGER_RE.finditer(str(transcript_text or "")):
+        raw_command = _normalize_pocket_assistant_command_text(match.group(1) or "")
+        if not raw_command:
+            continue
+        commands.append(
+            {
+                "trigger_text": raw_command,
+            }
+        )
+    return commands
 
 
 def _repo_root() -> Path:
@@ -5892,6 +5934,433 @@ class ProductService:
             "unmatched_recording_total": unmatched_total,
             "indexed_recording_total": indexed_total,
             "updated_metadata_total": updated_total,
+        }
+
+    def _deliver_google_keep_shopping_list_item(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        recording_id: str,
+        title: str,
+        recording_at: str,
+        trigger_text: str,
+        item_text: str,
+    ) -> dict[str, object]:
+        webhook_url = _google_keep_shopping_list_webhook_url()
+        if not webhook_url:
+            raise RuntimeError("google_keep_shopping_list_webhook_missing")
+        payload = {
+            "action": "shopping_list_add",
+            "backend": "google_keep",
+            "target_list": "shopping",
+            "principal_id": principal_id,
+            "actor": str(actor or "").strip() or "office_api",
+            "source": "pocket_recording_trigger",
+            "recording_id": recording_id,
+            "title": title,
+            "recording_at": recording_at,
+            "trigger_text": trigger_text,
+            "item_text": item_text,
+        }
+        request = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                **(
+                    {"X-EA-Webhook-Secret": _google_keep_shopping_list_webhook_secret()}
+                    if _google_keep_shopping_list_webhook_secret()
+                    else {}
+                ),
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read().decode("utf-8", errors="ignore").strip()
+                parsed = json.loads(body) if body else {}
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8", errors="ignore").strip()
+            except Exception:
+                detail = ""
+            raise RuntimeError(
+                compact_text(
+                    f"google_keep_shopping_list_http_{int(getattr(exc, 'code', 0) or 0)} {detail}",
+                    fallback="google_keep_shopping_list_request_failed",
+                    limit=240,
+                )
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"google_keep_shopping_list_unreachable:{str(exc.reason or exc).strip()}") from exc
+        if isinstance(parsed, dict) and parsed.get("ok") is False:
+            raise RuntimeError(
+                compact_text(
+                    str(parsed.get("error") or "google_keep_shopping_list_request_failed"),
+                    fallback="google_keep_shopping_list_request_failed",
+                    limit=240,
+                )
+            )
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _deliver_google_keep_note_append(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        recording_id: str,
+        title: str,
+        recording_at: str,
+        trigger_text: str,
+        note_title: str,
+        note_text: str,
+    ) -> dict[str, object]:
+        webhook_url = _google_keep_shopping_list_webhook_url()
+        if not webhook_url:
+            raise RuntimeError("google_keep_note_webhook_missing")
+        payload = {
+            "action": "note_append",
+            "backend": "google_keep",
+            "principal_id": principal_id,
+            "actor": str(actor or "").strip() or "office_api",
+            "source": "pocket_recording_trigger",
+            "recording_id": recording_id,
+            "title": title,
+            "recording_at": recording_at,
+            "trigger_text": trigger_text,
+            "note_title": str(note_title or "").strip(),
+            "note_text": str(note_text or "").strip(),
+        }
+        request = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                **(
+                    {"X-EA-Webhook-Secret": _google_keep_shopping_list_webhook_secret()}
+                    if _google_keep_shopping_list_webhook_secret()
+                    else {}
+                ),
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read().decode("utf-8", errors="ignore").strip()
+            parsed = json.loads(body) if body else {}
+        if isinstance(parsed, dict) and parsed.get("ok") is False:
+            raise RuntimeError(
+                compact_text(
+                    str(parsed.get("error") or "google_keep_note_request_failed"),
+                    fallback="google_keep_note_request_failed",
+                    limit=240,
+                )
+            )
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _classify_pocket_assistant_command(
+        self,
+        *,
+        principal_id: str,
+        trigger_text: str,
+    ) -> dict[str, object]:
+        normalized_trigger = _normalize_pocket_assistant_command_text(trigger_text)
+        if not normalized_trigger:
+            return {"action": "", "confidence": 0.0, "reason": "empty_trigger", "params": {}}
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You classify spoken assistant commands extracted from personal audio transcripts. "
+                    "Return JSON only with keys: action, confidence, reason, params. "
+                    "Supported actions right now: shopping_list_add, keep_note_append, pocket_recording_send, onedrive_document_send, gmail_send, calendar_create, manual_followup, none. "
+                    "Use shopping_list_add when the speaker is clearly asking EA to add an item to a shopping list and set params.item_text. "
+                    "Use keep_note_append when the speaker is clearly asking EA to save a note or checklist item into Google Keep and set params.note_title plus params.note_text. "
+                    "Use pocket_recording_send when the command is asking to send or fetch an audio recording and set params.query plus optional params.before / params.after. "
+                    "Use onedrive_document_send when the command is asking to send or fetch a document/PDF and set params.query. "
+                    "Use gmail_send when the speaker is clearly asking EA to send an email and set params.recipient_email, params.subject, and params.body_text. "
+                    "Use calendar_create when the speaker is clearly asking EA to create an appointment/event and set params.title, params.start_at, params.end_at, plus optional params.description and params.location. "
+                    "Use manual_followup when the command is real but not yet safely automatable; set params.brief and params.why. "
+                    "Use none only when there is no actionable request."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "trigger_text": normalized_trigger,
+                        "principal_id": principal_id,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        try:
+            result = responses_upstream.generate_text(
+                messages=messages,
+                requested_model="gpt-5-mini",
+                max_output_tokens=220,
+                chatplayground_audit_principal_id=principal_id,
+            )
+            parsed = json.loads(str(result.text or "").strip())
+            if isinstance(parsed, dict):
+                action = str(parsed.get("action") or "").strip().lower()
+                params = parsed.get("params")
+                if not isinstance(params, dict):
+                    params = {}
+                return {
+                    "action": action,
+                    "confidence": float(parsed.get("confidence") or 0.0),
+                    "reason": str(parsed.get("reason") or "").strip(),
+                    "params": {str(key): value for key, value in params.items()},
+                }
+        except Exception:
+            pass
+        fallback_matchers = (
+            re.compile(r"(?is)\b(?:put|add)\s+(.+?)\s+(?:on|to)\s+(?:my\s+)?shopping\s+list\b"),
+            re.compile(r"(?is)\b(?:setze?|setz|stell(?:e|)?)\s+(.+?)\s+auf\s+(?:meine|die)\s+einkaufsliste\b"),
+            re.compile(r"(?is)\bfüge\s+(.+?)\s+(?:zu\s+)?(?:meiner|der)\s+einkaufsliste\s+hinzu\b"),
+            re.compile(r"(?is)\bpack(?:e)?\s+(.+?)\s+auf\s+(?:meine|die)\s+einkaufsliste\b"),
+        )
+        for pattern in fallback_matchers:
+            matched = pattern.search(normalized_trigger)
+            if matched is None:
+                continue
+            item_text = _normalize_pocket_assistant_command_text(re.sub(r"(?is)\b(?:please|bitte)\b", " ", matched.group(1) or ""))
+            if item_text:
+                return {
+                    "action": "shopping_list_add",
+                    "confidence": 0.51,
+                    "reason": "fallback_shopping_list_pattern",
+                    "params": {"item_text": item_text},
+                }
+        return {"action": "none", "confidence": 0.0, "reason": "no_supported_action", "params": {}}
+
+    def _open_pocket_assistant_followup(
+        self,
+        *,
+        principal_id: str,
+        recording_id: str,
+        title: str,
+        recording_at: str,
+        trigger_text: str,
+        action: str,
+        reason: str,
+        params: dict[str, object],
+    ) -> HandoffNote | None:
+        brief = compact_text(
+            str(params.get("brief") or trigger_text or f"Review Pocket assistant command from {title}"),
+            fallback=f"Review Pocket assistant command from {title}",
+            limit=140,
+        )
+        why_human = compact_text(
+            str(params.get("why") or reason or "Pocket assistant command needs review before execution."),
+            fallback="Pocket assistant command needs review before execution.",
+            limit=280,
+        )
+        session_id = self._start_product_review_session(
+            principal_id=principal_id,
+            goal=f"Review Pocket assistant command for {title or recording_id}",
+            source_ref=f"pocket-recording:{recording_id}",
+        )
+        task = self._container.orchestrator.create_human_task(
+            session_id=session_id,
+            principal_id=principal_id,
+            task_type="pocket_assistant_followup",
+            role_required="operator",
+            brief=brief,
+            why_human=why_human,
+            priority="normal",
+            input_json={
+                "recording_id": recording_id,
+                "title": title,
+                "recording_at": recording_at,
+                "trigger_text": trigger_text,
+                "action": action,
+                "reason": reason,
+                "params": dict(params or {}),
+                "source_ref": f"pocket-recording:{recording_id}",
+            },
+            desired_output_json={
+                "resolution": "completed",
+                "proof": "Follow-up action reviewed and executed or intentionally declined.",
+            },
+        )
+        return self._handoff_from_human_task(task)
+
+    def _process_pocket_assistant_commands(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        recording_id: str,
+        title: str,
+        recording_at: str,
+        transcript_text: str,
+    ) -> dict[str, int]:
+        command_total = 0
+        executed_total = 0
+        blocked_total = 0
+        for index, command in enumerate(_extract_pocket_assistant_commands(transcript_text), start=1):
+            command_total += 1
+            dedupe_prefix = f"{principal_id}|pocket-assistant-command|{recording_id}|{index}"
+            classified = self._classify_pocket_assistant_command(
+                principal_id=principal_id,
+                trigger_text=str(command.get("trigger_text") or "").strip(),
+            )
+            action = str(classified.get("action") or "").strip()
+            params = dict(classified.get("params") or {}) if isinstance(classified.get("params"), dict) else {}
+            item_text = _normalize_pocket_assistant_command_text(str(params.get("item_text") or ""))
+            command_payload = {
+                "recording_id": recording_id,
+                "title": title,
+                "recording_at": recording_at,
+                "command_index": index,
+                "trigger_text": str(command.get("trigger_text") or "").strip(),
+                "action": action,
+                "item_text": item_text,
+                "classification_confidence": float(classified.get("confidence") or 0.0),
+                "classification_reason": str(classified.get("reason") or "").strip(),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="pocket_assistant_command_detected",
+                payload=command_payload,
+                source_id=f"pocket-recording:{recording_id}",
+                dedupe_key=f"{dedupe_prefix}|detected",
+            )
+            if self._container.channel_runtime.find_observation_by_dedupe(
+                f"{dedupe_prefix}|executed",
+                principal_id=principal_id,
+            ) is not None:
+                executed_total += 1
+                continue
+            trigger_text = str(command.get("trigger_text") or "").strip()
+            params = dict(classified.get("params") or {}) if isinstance(classified.get("params"), dict) else {}
+            try:
+                delivery_backend = ""
+                if action == "shopping_list_add" and item_text:
+                    delivery_backend = "google_keep"
+                    delivery = self._deliver_google_keep_shopping_list_item(
+                        principal_id=principal_id,
+                        actor=actor,
+                        recording_id=recording_id,
+                        title=title,
+                        recording_at=recording_at,
+                        trigger_text=trigger_text,
+                        item_text=item_text,
+                    )
+                elif action == "keep_note_append":
+                    delivery_backend = "google_keep"
+                    delivery = self._deliver_google_keep_note_append(
+                        principal_id=principal_id,
+                        actor=actor,
+                        recording_id=recording_id,
+                        title=title,
+                        recording_at=recording_at,
+                        trigger_text=trigger_text,
+                        note_title=str(params.get("note_title") or "EA note").strip(),
+                        note_text=str(params.get("note_text") or trigger_text).strip(),
+                    )
+                elif action == "pocket_recording_send":
+                    delivery_backend = "telegram_pocket"
+                    delivery = self.deliver_pocket_recording_search_to_telegram(
+                        principal_id=principal_id,
+                        actor=actor,
+                        query=str(params.get("query") or trigger_text).strip(),
+                        before=str(params.get("before") or "").strip(),
+                        after=str(params.get("after") or "").strip(),
+                        limit=5,
+                    )
+                elif action == "onedrive_document_send":
+                    delivery_backend = "telegram_onedrive"
+                    delivery = self.deliver_onedrive_document_search_to_telegram(
+                        principal_id=principal_id,
+                        actor=actor,
+                        query=str(params.get("query") or trigger_text).strip(),
+                        limit=5,
+                    )
+                elif action == "gmail_send":
+                    delivery_backend = "google_gmail"
+                    receipt = google_oauth_service.send_google_gmail_message(
+                        container=self._container,
+                        principal_id=principal_id,
+                        recipient_email=str(params.get("recipient_email") or "").strip(),
+                        subject=str(params.get("subject") or "").strip(),
+                        body_text=str(params.get("body_text") or trigger_text).strip(),
+                    )
+                    delivery = {
+                        "status": "sent",
+                        "gmail_message_id": receipt.gmail_message_id,
+                        "recipient_email": receipt.recipient_email,
+                        "subject": receipt.subject,
+                    }
+                elif action == "calendar_create":
+                    delivery_backend = "google_calendar"
+                    receipt = google_oauth_service.create_google_calendar_event(
+                        container=self._container,
+                        principal_id=principal_id,
+                        summary=str(params.get("title") or trigger_text).strip(),
+                        start_at=str(params.get("start_at") or "").strip(),
+                        end_at=str(params.get("end_at") or "").strip(),
+                        description=str(params.get("description") or "").strip(),
+                        location=str(params.get("location") or "").strip(),
+                    )
+                    delivery = {
+                        "status": "created",
+                        "event_id": receipt.event_id,
+                        "html_link": receipt.html_link,
+                        "start_at": receipt.start_at,
+                        "end_at": receipt.end_at,
+                    }
+                elif action in {"manual_followup", "none", ""}:
+                    delivery_backend = "human_followup"
+                    followup = self._open_pocket_assistant_followup(
+                        principal_id=principal_id,
+                        recording_id=recording_id,
+                        title=title,
+                        recording_at=recording_at,
+                        trigger_text=trigger_text,
+                        action=action or "manual_followup",
+                        reason=str(classified.get("reason") or "unsupported_command").strip(),
+                        params=params,
+                    )
+                    delivery = {
+                        "status": "followup_created" if followup is not None else "blocked",
+                        "human_task_id": str(followup.id if followup is not None else ""),
+                    }
+                    action = "manual_followup"
+                else:
+                    raise RuntimeError("unsupported_command")
+            except RuntimeError as exc:
+                blocked_total += 1
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="pocket_assistant_command_blocked",
+                    payload={**command_payload, "blocked_reason": str(exc or "command_execution_failed"), "params": params},
+                    source_id=f"pocket-recording:{recording_id}",
+                    dedupe_key=f"{dedupe_prefix}|blocked:{str(exc or 'command_execution_failed').strip()}",
+                )
+                continue
+            executed_total += 1
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="pocket_assistant_command_executed",
+                payload={
+                    **command_payload,
+                    "params": params,
+                    "delivery_backend": delivery_backend,
+                    "delivery_status": "sent",
+                    "delivery_result": delivery,
+                },
+                source_id=f"pocket-recording:{recording_id}",
+                dedupe_key=f"{dedupe_prefix}|executed",
+            )
+        return {
+            "assistant_trigger_total": command_total,
+            "assistant_trigger_executed_total": executed_total,
+            "assistant_trigger_blocked_total": blocked_total,
         }
 
     def import_google_location_history(
@@ -12239,6 +12708,9 @@ class ProductService:
         archive_failed_total = 0
         location_matched_total = 0
         location_unmatched_total = 0
+        assistant_trigger_total = 0
+        assistant_trigger_executed_total = 0
+        assistant_trigger_blocked_total = 0
         teable_index_rows: list[dict[str, object]] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -12358,6 +12830,17 @@ class ProductService:
                 location_match=location_match,
                 tags=tags,
             )
+            assistant_command_summary = self._process_pocket_assistant_commands(
+                principal_id=principal_id,
+                actor=actor,
+                recording_id=recording_id,
+                title=title,
+                recording_at=str(detail.get("recording_at") or "").strip(),
+                transcript_text=transcript_text,
+            )
+            assistant_trigger_total += int(assistant_command_summary.get("assistant_trigger_total") or 0)
+            assistant_trigger_executed_total += int(assistant_command_summary.get("assistant_trigger_executed_total") or 0)
+            assistant_trigger_blocked_total += int(assistant_command_summary.get("assistant_trigger_blocked_total") or 0)
             summary = compact_text(summary_markdown or transcript_text or title, fallback=title, limit=280)
             text = _pocket_signal_text(title, summary_markdown=summary_markdown, transcript_text=transcript_text)
             should_stage_commitments, staging_suppression_reason = _pocket_should_stage_commitments(
@@ -12457,6 +12940,9 @@ class ProductService:
                 "teable_index_sync_attempted": bool(teable_index_result.get("sync_attempted")),
                 "preference_evidence_total": preference_evidence_total,
                 "preference_evidence_applied_total": preference_evidence_applied_total,
+                "assistant_trigger_total": assistant_trigger_total,
+                "assistant_trigger_executed_total": assistant_trigger_executed_total,
+                "assistant_trigger_blocked_total": assistant_trigger_blocked_total,
                 "cursor_used": use_cursor,
                 "cursor_persisted": persist_cursor,
                 "cursor_updated_at": cursor_updated_at,
@@ -12492,6 +12978,9 @@ class ProductService:
             "teable_index_sync_attempted": bool(teable_index_result.get("sync_attempted")),
             "preference_evidence_total": preference_evidence_total,
             "preference_evidence_applied_total": preference_evidence_applied_total,
+            "assistant_trigger_total": assistant_trigger_total,
+            "assistant_trigger_executed_total": assistant_trigger_executed_total,
+            "assistant_trigger_blocked_total": assistant_trigger_blocked_total,
             "cursor_used": use_cursor,
             "cursor_persisted": persist_cursor,
             "cursor_updated_at": cursor_updated_at,
