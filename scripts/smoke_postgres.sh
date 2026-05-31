@@ -3,6 +3,7 @@ set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 legacy_fixture=0
+ORIGINAL_EA_API_TOKEN="${EA_API_TOKEN:-}"
 
 for arg in "$@"; do
   case "${arg}" in
@@ -335,7 +336,7 @@ fi
 
 echo "== smoke-postgres: api smoke =="
 container_api_token="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
-token_candidates=("${EA_API_TOKEN:-}" "${container_api_token}" "smoke-postgres-token" "CHANGE_ME_STRONG")
+token_candidates=("${EA_API_TOKEN:-}" "${container_api_token}" "${ORIGINAL_EA_API_TOKEN}" "smoke-postgres-token" "CHANGE_ME_STRONG")
 for candidate_token in "${token_candidates[@]}"; do
   if [[ -z "${candidate_token}" ]]; then
     continue
