@@ -19,9 +19,13 @@ def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_pat
     receipt = tmp_path / "receipt.json"
     browser = tmp_path / "browser.json"
     journey = tmp_path / "journey.json"
+    scope = tmp_path / "scope.md"
     _write_json(
         pulse,
         {
+            "contract_name": "ea.weekly_product_pulse",
+            "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
+            "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
             "release_health": {"state": "blocked"},
             "flagship_readiness": {"state": "clear"},
             "journey_gate_health": {"state": "blocked", "blocked_count": 1},
@@ -31,6 +35,7 @@ def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_pat
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
     _write_json(journey, {"summary": {"overall_state": "blocked", "blocked_count": 1}})
+    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -44,6 +49,8 @@ def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_pat
             str(browser),
             "--journey-gates",
             str(journey),
+            "--implementation-scope",
+            str(scope),
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -60,9 +67,13 @@ def test_flagship_release_readiness_gate_passes_when_receipts_and_journeys_are_c
     receipt = tmp_path / "receipt.json"
     browser = tmp_path / "browser.json"
     journey = tmp_path / "journey.json"
+    scope = tmp_path / "scope.md"
     _write_json(
         pulse,
         {
+            "contract_name": "ea.weekly_product_pulse",
+            "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
+            "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
             "release_health": {"state": "clear"},
             "flagship_readiness": {"state": "clear"},
             "journey_gate_health": {"state": "ready", "blocked_count": 0},
@@ -72,6 +83,7 @@ def test_flagship_release_readiness_gate_passes_when_receipts_and_journeys_are_c
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
     _write_json(journey, {"summary": {"overall_state": "ready", "blocked_count": 0}})
+    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -85,6 +97,8 @@ def test_flagship_release_readiness_gate_passes_when_receipts_and_journeys_are_c
             str(browser),
             "--journey-gates",
             str(journey),
+            "--implementation-scope",
+            str(scope),
         ],
         check=True,
         stdout=subprocess.PIPE,
@@ -93,3 +107,52 @@ def test_flagship_release_readiness_gate_passes_when_receipts_and_journeys_are_c
     )
 
     assert '"status": "pass"' in result.stdout
+
+
+def test_flagship_release_readiness_gate_rejects_chummer_pulse_and_missing_ea_scope(tmp_path: Path) -> None:
+    pulse = tmp_path / "pulse.json"
+    receipt = tmp_path / "receipt.json"
+    browser = tmp_path / "browser.json"
+    journey = tmp_path / "journey.json"
+    scope = tmp_path / "scope.md"
+    _write_json(
+        pulse,
+        {
+            "contract_name": "chummer.weekly_product_pulse",
+            "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
+            "release_truth_source": "",
+            "release_health": {"state": "clear"},
+            "flagship_readiness": {"state": "clear"},
+            "journey_gate_health": {"state": "ready", "blocked_count": 0},
+            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+        },
+    )
+    _write_json(receipt, {"status": "pass"})
+    _write_json(browser, {"status": "pass"})
+    _write_json(journey, {"summary": {"overall_state": "ready", "blocked_count": 0}})
+    scope.write_text("mirrored `.codex-design/product/*`\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--pulse",
+            str(pulse),
+            "--flagship-receipt",
+            str(receipt),
+            "--browser-proof",
+            str(browser),
+            "--journey-gates",
+            str(journey),
+            "--implementation-scope",
+            str(scope),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "expected ea.weekly_product_pulse" in result.stdout
+    assert "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml" in result.stdout
+    assert "implementation scope no longer requires mirrored .codex-design/ea/* canon" in result.stdout

@@ -40,6 +40,7 @@ release-smoke: smoke-help smoke-api
 release-preflight:
 	$(MAKE) verify-release-assets
 	$(MAKE) verify-flagship-release-readiness
+	$(MAKE) verify-generated-release-artifacts-clean
 	$(MAKE) operator-help
 	$(MAKE) release-smoke
 
