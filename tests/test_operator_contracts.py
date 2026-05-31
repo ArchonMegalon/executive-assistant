@@ -3535,6 +3535,8 @@ def test_generic_task_execution_async_contracts_are_documented_and_smoked() -> N
     assert "GENERIC_APPROVAL_TASK_KEY" in smoke_api
     assert "GENERIC_HUMAN_JSON" in smoke_api
     assert "generic task async contracts ok" in smoke_api
+    assert 'local attempts="${3:-120}"' in smoke_api
+    assert 'timed out waiting for session ${session_id} to reach ${expected_status}' in smoke_api
     assert "test_generic_task_execution_supports_async_approval_and_human_contracts" in smoke_runtime
     assert "Promoted milestone capability `generic_task_execution_async_contracts` to released" in changelog
 

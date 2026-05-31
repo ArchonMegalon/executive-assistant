@@ -42,8 +42,8 @@ curl() {
 wait_for_session_status() {
   local session_id="$1"
   local expected_status="$2"
-  local attempts="${3:-20}"
-  local sleep_seconds="${4:-0.25}"
+  local attempts="${3:-120}"
+  local sleep_seconds="${4:-0.5}"
   local body=""
   local current_status=""
   local i
@@ -56,6 +56,7 @@ wait_for_session_status() {
     fi
     sleep "${sleep_seconds}"
   done
+  echo "timed out waiting for session ${session_id} to reach ${expected_status}; last status=${current_status}" >&2
   printf '%s' "${body}"
   return 1
 }
