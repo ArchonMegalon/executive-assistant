@@ -147,7 +147,11 @@ def test_weekly_product_pulse_keeps_allowed_provenance_only_head_change(tmp_path
         "_changed_paths_between_heads",
         lambda old_head, new_head: [
             ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+            "LTDs.md",
+            "scripts/materialize_ea_browser_workflow_proof.py",
             "scripts/materialize_weekly_product_pulse.py",
+            "tests/test_ea_browser_workflow_proof_materializer.py",
+            "tests/test_skills.py",
             "tests/test_weekly_product_pulse_materializer.py",
         ],
     )

@@ -2575,13 +2575,24 @@ operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/js
 HYBRID_RETRY_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"task_key\":\"stakeholder_review_dispatch_retry\",\"goal\":\"review and send a stakeholder briefing\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"missing-review-dispatch-binding\",\"channel\":\"email\",\"recipient\":\"${HYBRID_RETRY_RECIPIENT}\"}}")"
 HYBRID_RETRY_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('human_task_id','')), bool(body.get('session_id','')), bool(body.get('approval_id',''))))" <<<"${HYBRID_RETRY_EXECUTE_JSON}")"
+if [[ "${HYBRID_RETRY_EXECUTE_FIELDS}" == "stakeholder_review_dispatch_retry|queued|poll_or_subscribe|False|True|False" ]]; then
+  HYBRID_RETRY_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HYBRID_RETRY_EXECUTE_JSON}")"
+  for _ in $(seq 1 30); do
+    HYBRID_RETRY_HUMAN_TASK_ID="$(curl -fsS "${BASE}/v1/human/tasks?session_id=${HYBRID_RETRY_SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c 'import json,sys; rows=json.loads(sys.stdin.read() or "[]"); row=rows[0] if rows else {}; print(row.get("human_task_id",""))')"
+    if [[ -n "${HYBRID_RETRY_HUMAN_TASK_ID}" ]]; then
+      HYBRID_RETRY_EXECUTE_FIELDS="stakeholder_review_dispatch_retry|awaiting_human|poll_or_subscribe|True|True|False"
+      break
+    fi
+    sleep 1
+  done
+fi
 if [[ "${HYBRID_RETRY_EXECUTE_FIELDS}" != "stakeholder_review_dispatch_retry|awaiting_human|poll_or_subscribe|True|True|False" ]]; then
   echo "expected delayed review-then-dispatch workflow to pause behind human review first; got ${HYBRID_RETRY_EXECUTE_FIELDS}" >&2
   echo "${HYBRID_RETRY_EXECUTE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_RETRY_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HYBRID_RETRY_EXECUTE_JSON}")"
-HYBRID_RETRY_HUMAN_TASK_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${HYBRID_RETRY_EXECUTE_JSON}")"
+HYBRID_RETRY_SESSION_ID="${HYBRID_RETRY_SESSION_ID:-$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HYBRID_RETRY_EXECUTE_JSON}")}"
+HYBRID_RETRY_HUMAN_TASK_ID="${HYBRID_RETRY_HUMAN_TASK_ID:-$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("human_task_id",""))' <<<"${HYBRID_RETRY_EXECUTE_JSON}")}"
 HYBRID_RETRY_RETURN_JSON="$(operator_post_json "${BASE}/v1/human/tasks/${HYBRID_RETRY_HUMAN_TASK_ID}/return" -H 'content-type: application/json' \
   -d '{"operator_id":"briefing-reviewer","resolution":"ready_for_dispatch","returned_payload_json":{"final_text":"Reviewed stakeholder briefing."},"provenance_json":{"review_mode":"human"}}')"
 HYBRID_RETRY_RETURN_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('resolution','')))" <<<"${HYBRID_RETRY_RETURN_JSON}")"

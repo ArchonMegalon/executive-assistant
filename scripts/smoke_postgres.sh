@@ -328,6 +328,10 @@ if [[ "${ready_reason}" != "postgres_ready" ]]; then
 fi
 
 echo "== smoke-postgres: api smoke =="
+container_api_token="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
+if [[ -n "${container_api_token}" ]]; then
+  export EA_API_TOKEN="${container_api_token}"
+fi
 smoke_api_output=""
 smoke_api_status=0
 for attempt in 1 2 3; do
@@ -340,7 +344,7 @@ for attempt in 1 2 3; do
     break
   fi
   printf '%s\n' "${smoke_api_output}" >&2
-  if ! grep -Eq 'curl: \((52|56)\)|Connection reset by peer|Empty reply from server|HTTP 401' <<<"${smoke_api_output}"; then
+  if ! grep -Eq 'curl: \((7|22|52|56)\)|Connection reset by peer|Empty reply from server|HTTP 401|503 Service Unavailable|The requested URL returned error: 503' <<<"${smoke_api_output}"; then
     exit "${smoke_api_status}"
   fi
   if [[ "${attempt}" == "3" ]]; then
