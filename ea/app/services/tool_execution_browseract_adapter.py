@@ -3453,7 +3453,12 @@ class BrowserActToolAdapter:
             if workflow_id:
                 return None
             raise
-        if workflow_id and cls._browseract_ui_direct_result_needs_remote_retry(result=result):
+        remote_fallback_allowed = bool(
+            request_payload.get("force_browseract")
+            or request_payload.get("allow_browseract_remote_fallback")
+            or request_payload.get("remote_fallback_allowed")
+        )
+        if workflow_id and remote_fallback_allowed and cls._browseract_ui_direct_result_needs_remote_retry(result=result):
             return None
         return result
 

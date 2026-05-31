@@ -54,6 +54,7 @@ def _client() -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ.setdefault("EA_GEMINI_VORTEX_COMMAND", "python3")
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
     os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = "exec-1"
     from app.api.app import create_app

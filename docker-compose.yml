@@ -41,6 +41,8 @@ services:
     environment:
       - EA_ROLE=api
       - EA_PORT=8090
+      - EA_API_TOKEN=${EA_API_TOKEN:-}
+      - EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}
       - EA_ARTIFACTS_DIR=/data/artifacts
       - EA_RESPONSES_PROVIDER_LEDGER_DIR=/data/provider-ledger
       - EA_ONEDRIVE_ATTACHMENT_ROOT=/data/onedrive_attachments

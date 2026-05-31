@@ -338,6 +338,12 @@ fi
 
 echo "== smoke-postgres: api smoke =="
 container_api_token="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
+container_loopback_no_auth="$(docker exec ea-api /bin/sh -lc 'printenv EA_ALLOW_LOOPBACK_NO_AUTH' 2>/dev/null || true)"
+if [[ "${container_loopback_no_auth}" != "1" ]]; then
+  echo "expected ea-api smoke container to enable EA_ALLOW_LOOPBACK_NO_AUTH" >&2
+  docker logs --tail 120 ea-api >&2 || true
+  exit 39
+fi
 token_candidates=("${EA_API_TOKEN:-}" "${container_api_token}" "${ORIGINAL_EA_API_TOKEN}" "smoke-postgres-token" "CHANGE_ME_STRONG")
 for candidate_token in "${token_candidates[@]}"; do
   if [[ -z "${candidate_token}" ]]; then

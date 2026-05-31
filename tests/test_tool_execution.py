@@ -4636,6 +4636,7 @@ def test_tool_execution_service_falls_back_to_remote_browseract_when_template_wo
                 "principal_id": "exec-1",
                 "page_url": "https://paperguide.ai/workspace/research",
                 "title": "Paperguide Workspace",
+                "allow_browseract_remote_fallback": True,
             },
             context_json={"principal_id": "exec-1"},
         )
