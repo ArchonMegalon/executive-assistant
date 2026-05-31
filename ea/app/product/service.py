@@ -3090,6 +3090,17 @@ def _pocket_assistant_manual_only_actions() -> set[str]:
     return {"gmail_send", "calendar_create"}
 
 
+def _pocket_assistant_dangerous_auto_action_allowlist() -> set[str]:
+    configured = str(os.getenv("EA_POCKET_ASSISTANT_DANGEROUS_AUTO_ACTIONS") or "").strip()
+    if not configured:
+        return set()
+    return {
+        str(item or "").strip()
+        for item in configured.split(",")
+        if str(item or "").strip()
+    }
+
+
 def _extract_pocket_assistant_commands(transcript_text: str) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     for match in _POCKET_ASSISTANT_TRIGGER_RE.finditer(str(transcript_text or "")):
@@ -6385,8 +6396,9 @@ class ProductService:
             policy_reason = ""
             if action and action not in {"manual_followup", "none"}:
                 allowed_actions = _pocket_assistant_auto_action_allowlist()
+                dangerous_allowed_actions = _pocket_assistant_dangerous_auto_action_allowlist()
                 min_confidence = _pocket_assistant_min_confidence_for_action(action)
-                if action in _pocket_assistant_manual_only_actions() and action not in allowed_actions:
+                if action in _pocket_assistant_manual_only_actions() and action not in dangerous_allowed_actions:
                     policy_reason = "action_policy_requires_manual_followup"
                 elif action not in allowed_actions:
                     policy_reason = "action_not_in_auto_allowlist"
