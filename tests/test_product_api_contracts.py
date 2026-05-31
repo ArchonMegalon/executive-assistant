@@ -9474,6 +9474,9 @@ def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is
     assert sent[0]["recipient_email"] == "tibor.girschele@gmail.com"
     assert "https://myexternalbrain.com/workspace-access/" in str(sent[0]["body_text"])
     assert "It is not your app login." in str(sent[0]["body_text"])
+    sessions = product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=10)
+    assert sessions
+    assert sessions[0]["default_target"] == "/app/settings/access"
 
 
 def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:

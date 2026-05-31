@@ -14173,6 +14173,7 @@ class ProductService:
         operator_id: str = "",
         source_kind: str = "workspace_access",
         expires_in_hours: int = 72,
+        default_target: str = "",
     ) -> dict[str, object]:
         normalized_email = str(email or "").strip().lower()
         normalized_role = str(role or "principal").strip().lower() or "principal"
@@ -14193,7 +14194,9 @@ class ProductService:
             "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
         }
         access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
-        default_target = "/admin/office" if normalized_role == "operator" else "/app/today"
+        resolved_default_target = str(default_target or "").strip()
+        if not resolved_default_target:
+            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/today"
         payload = {
             "session_id": session_id,
             "principal_id": str(principal_id or "").strip(),
@@ -14209,7 +14212,7 @@ class ProductService:
             "expires_at": str(token_payload["expires_at"]),
             "access_token": access_token,
             "access_url": f"/workspace-access/{access_token}",
-            "default_target": default_target,
+            "default_target": resolved_default_target,
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -14674,6 +14677,7 @@ class ProductService:
                     operator_id=str(candidate.get("operator_id") or "").strip(),
                     source_kind="sign_in_email",
                     expires_in_hours=expires_in_hours,
+                    default_target="/app/settings/access",
                 )
                 access_url = str(access_session.get("access_url") or "").strip()
                 absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url
