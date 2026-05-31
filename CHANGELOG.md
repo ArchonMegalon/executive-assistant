@@ -186,6 +186,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Promoted the external-action policy evaluation route coverage into a released milestone capability, with release/operator guards pinning `/v1/policy/evaluate` external-send approval metadata as branch-baseline behavior.
 - Direct artifact reads, inline session artifact rows, and generic task execution responses now also project `preview_text` plus a stable `storage_handle`, so artifact consumers can start moving toward metadata-plus-handle envelopes without losing inline content.
 - Agent-local memory and work-queue files are now gitignored, `TASKS_WORK_LOG.md` is no longer tracked, and archive/support/operator scripts treat the local task log as optional state.
+- TASKS_WORK_LOG.md is no longer tracked; operator debug contracts now treat it as optional local state and use CHANGELOG coverage as the release baseline.
 - Session-bound human task creation and session-scoped queue reads now enforce the linked execution session principal as well, so foreign principals cannot attach packets to or enumerate another principal's execution thread via `session_id`.
 - Connector binding status changes now honor the request principal and return `binding_not_found` for foreign-scope updates.
 - Rewrite execution now runs through a typed three-step handler path (`step_input_prepare` -> `step_policy_evaluate` -> `step_artifact_save`) instead of a thin artifact-save-only plan.

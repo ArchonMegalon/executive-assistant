@@ -225,12 +225,22 @@ cd "${EA_ROOT}"
 echo "== smoke-postgres: compose up (db only) =="
 "${DC[@]}" up -d --build ea-db
 
-for _ in $(seq 1 30); do
-  if docker exec "${DB_CONTAINER}" pg_isready -U "${DB_USER}" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
+wait_for_postgres_sql() {
+  local attempts="${1:-90}"
+  local ready=""
+  for _ in $(seq 1 "${attempts}"); do
+    ready="$(docker exec -i "${DB_CONTAINER}" psql -At -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres -c "SELECT 1" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${ready}" == "1" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "postgres did not accept SQL connections in time" >&2
+  docker logs --tail 120 "${DB_CONTAINER}" >&2 || true
+  return 1
+}
+
+wait_for_postgres_sql 90
 
 echo "== smoke-postgres: reset isolated db ${SMOKE_DB} =="
 db_password_sql="${DB_PASSWORD//\'/\'\'}"
@@ -261,6 +271,7 @@ else
   echo 'EA_STORAGE_BACKEND=postgres' >> "${EA_ROOT}/.env"
 fi
 set_env_value "EA_API_TOKEN" "smoke-postgres-token"
+export EA_API_TOKEN="smoke-postgres-token"
 
 if [[ "${env_had_file}" == "1" ]]; then
   restore_api_env=1

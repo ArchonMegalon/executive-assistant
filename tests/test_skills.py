@@ -4,7 +4,9 @@ import importlib.util
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -60,6 +62,30 @@ def _client() -> TestClient:
     client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": "exec-1"})
     return client
+
+
+def _execute_plan_and_read_artifact(client: TestClient, payload: dict[str, Any]) -> dict[str, Any]:
+    executed = client.post("/v1/plans/execute", json=payload)
+    if executed.status_code == 200:
+        return executed.json()
+    assert executed.status_code == 202
+    accepted = executed.json()
+    session_id = accepted["session_id"]
+    session_body: dict[str, Any] = {}
+    for _ in range(80):
+        session = client.get(f"/v1/rewrite/sessions/{session_id}")
+        assert session.status_code == 200
+        session_body = session.json()
+        if session_body.get("status") == "completed" and session_body.get("artifacts"):
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail(f"queued execution did not complete: {session_body}")
+    artifacts = session_body.get("artifacts") or []
+    artifact_id = artifacts[-1]["artifact_id"]
+    artifact = client.get(f"/v1/rewrite/artifacts/{artifact_id}")
+    assert artifact.status_code == 200
+    return artifact.json()
 
 
 def test_skill_catalog_round_trips_product_metadata_and_backing_contract() -> None:
@@ -597,16 +623,14 @@ def test_skill_catalog_can_execute_chummer6_visual_director_skill(monkeypatch) -
         "step_artifact_save",
     ]
 
-    executed = client.post(
-        "/v1/plans/execute",
-        json={
+    body = _execute_plan_and_read_artifact(
+        client,
+        {
             "skill_key": "chummer6_visual_director",
             "goal": "author a structured Chummer6 guide refresh packet",
             "input_json": {"source_text": "Draft the next Chummer6 guide packet with JSON only."},
         },
     )
-    assert executed.status_code == 200
-    body = executed.json()
     assert body["skill_key"] == "chummer6_visual_director"
     assert body["task_key"] == "chummer6_guide_refresh"
     assert body["kind"] == "chummer6_guide_refresh_packet"
@@ -726,16 +750,14 @@ def test_skill_catalog_can_execute_chummer6_public_writer_skill(monkeypatch) -> 
         "step_artifact_save",
     ]
 
-    executed = client.post(
-        "/v1/plans/execute",
-        json={
+    body = _execute_plan_and_read_artifact(
+        client,
+        {
             "skill_key": "chummer6_public_writer",
             "goal": "author reader-safe Chummer6 guide copy",
             "input_json": {"source_text": "Draft the next Chummer6 public-facing page bundle with JSON only."},
         },
     )
-    assert executed.status_code == 200
-    body = executed.json()
     assert body["skill_key"] == "chummer6_public_writer"
     assert body["task_key"] == "chummer6_public_copy_refresh"
     assert body["kind"] == "chummer6_guide_refresh_packet"
@@ -997,16 +1019,14 @@ def test_skill_catalog_can_execute_chummer6_auditor_skills(monkeypatch, skill_ke
         "step_artifact_save",
     ]
 
-    executed = client.post(
-        "/v1/plans/execute",
-        json={
+    body = _execute_plan_and_read_artifact(
+        client,
+        {
             "skill_key": skill_key,
             "goal": f"run {skill_key} against the Chummer6 guide packet",
             "input_json": {"source_text": "Audit the generated Chummer6 guide packet with JSON only."},
         },
     )
-    assert executed.status_code == 200
-    body = executed.json()
     assert body["skill_key"] == skill_key
     assert body["task_key"] == task_key
     assert body["structured_output_json"]["packet"] == "guide_refresh"

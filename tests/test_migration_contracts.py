@@ -65,6 +65,8 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "approval_requests missing runtime columns" in smoke
     assert "approval_decisions missing runtime columns" in smoke
     assert 'set_env_value "EA_API_TOKEN" "smoke-postgres-token"' in smoke
+    assert 'export EA_API_TOKEN="smoke-postgres-token"' in smoke
+    assert "wait_for_postgres_sql 90" in smoke
     assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
     assert "python -m playwright install --with-deps chromium" in workflow
 

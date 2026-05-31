@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.materialize_ea_browser_workflow_proof import build_receipt
+import pytest
+
+from scripts.materialize_ea_browser_workflow_proof import build_receipt, _should_preserve_published_ci_receipt
 
 
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
@@ -115,3 +117,21 @@ def test_browser_workflow_proof_blocks_when_source_backed_lane_fails(tmp_path: P
     assert receipt["status"] == "blocked"
     assert "source-backed browser journey proof is not passing" in receipt["blocking_reasons"]
     assert receipt["current_limitations"] == ["application import path is broken"]
+
+
+def test_browser_workflow_proof_preserves_published_pass_only_for_ci_blocked_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    published = {"contract_name": "ea.browser_workflow_proof", "status": "pass"}
+    blocked = {"contract_name": "ea.browser_workflow_proof", "status": "blocked"}
+
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.delenv("EA_REFRESH_BROWSER_WORKFLOW_PROOF", raising=False)
+    assert _should_preserve_published_ci_receipt(blocked, published) is True
+
+    monkeypatch.setenv("EA_REFRESH_BROWSER_WORKFLOW_PROOF", "1")
+    assert _should_preserve_published_ci_receipt(blocked, published) is False
+
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("EA_REFRESH_BROWSER_WORKFLOW_PROOF", raising=False)
+    assert _should_preserve_published_ci_receipt(blocked, published) is False
