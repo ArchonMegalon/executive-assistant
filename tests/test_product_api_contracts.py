@@ -909,11 +909,138 @@ def test_property_scout_route_uses_explicit_preference_person_and_creates_review
     assert body["sources_total"] == 1
     assert body["listing_total"] == 2
     assert body["review_created_total"] == 2
+    assert body["high_fit_total"] == 1
     assert body["sources"][0]["preference_person_id"] == "elisabeth"
+    assert body["sources"][0]["top_fit_score"] == 96.0
     assert captured[0]["person_id"] == "elisabeth"
     assert captured[0]["object_payload"]["district"] == "waehring"
     assert captured[0]["object_payload"]["has_360"] is True
     assert captured[0]["object_payload"]["has_floorplan"] is True
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_created"})
+    assert events.status_code == 200
+    created = [item for item in events.json()["items"] if item["payload"].get("preference_person_id") == "elisabeth"]
+    assert created
+    assert all(float(item["payload"].get("willhaben_fit_score") or 0.0) > 0.0 for item in created)
+
+
+def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_review(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Notify Office")
+    product = ProductService(client.app.state.container)
+    product.update_property_alert_policy(
+        principal_id=principal_id,
+        auto_score=True,
+        auto_compare=True,
+        auto_generate_tour_for_good_fit=True,
+        notify_only_if_good=True,
+        good_fit_min_score=80.0,
+        actor="test",
+    )
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/testwohnung-123456789/"
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/?areaId=900&sort=3",
+                    "label": "Willhaben Wien rentals",
+                    "principal_id": principal_id,
+                    "preference_person_id": "elisabeth",
+                    "notify_telegram": True,
+                    "max_results": 1,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url: f'<a href="{listing_url}">One</a>',
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "123456789",
+            "listing_uuid": "uuid-123456789",
+            "title": "Waehring shortlist flat",
+            "property_facts_json": {
+                "postal_name": "Waehring",
+                "area_label": "74 m²",
+                "rooms_label": "3 rooms",
+                "total_rent_eur": 1890.0,
+                "heating": "Fernwaerme",
+                "floorplan_count": 1,
+            },
+            "media_urls_json": ["https://cdn.example.com/photo-1.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.png"],
+            "tour_variants_json": [{"variant_key": "layout_first", "scene_strategy": "layout_first"}],
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "assessment_id": "assessment-high-fit-scout-existing-1",
+            "domain": "willhaben",
+            "object_id": str(kwargs.get("object_id") or ""),
+            "fit_score": 96.0,
+            "confidence": 0.96,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Matches Elisabeth strongly."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    product._open_property_alert_review(
+        principal_id=principal_id,
+        title="Existing Waehring shortlist flat",
+        summary="existing scout review",
+        source_ref="property-scout:123456789",
+        external_id=listing_url,
+        counterparty="Willhaben Wien rentals",
+        account_email="",
+        property_url=listing_url,
+        actor="test",
+        notify_telegram=False,
+        personal_fit_assessment={"fit_score": 96.0, "recommendation": "shortlist"},
+        preference_person_id="elisabeth",
+    )
+    observed_telegram: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("991",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text: observed_telegram.update({"principal_id": principal_id, "text": text}) or _TelegramReceipt(),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://myexternalbrain.com/tours/test-scout-flat",
+            "vendor_tour_url": "https://vendor.example.com/tours/test-scout-flat",
+            "blocked_reason": "",
+        },
+    )
+    response = client.post("/app/api/signals/property/scout")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "processed"
+    assert body["review_existing_total"] == 1
+    assert body["notified_total"] == 1
+    assert body["tour_created_total"] == 1
+    assert body["high_fit_total"] == 1
+    assert "Personal fit 96/100" in str(observed_telegram["text"])
+    assert "https://myexternalbrain.com/tours/test-scout-flat" in str(observed_telegram["text"])
 
 
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:

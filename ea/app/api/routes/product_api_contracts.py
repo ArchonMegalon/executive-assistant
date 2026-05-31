@@ -1247,6 +1247,11 @@ class PropertyScoutSourceOut(BaseModel):
     listing_total: int = 0
     review_created_total: int = 0
     review_existing_total: int = 0
+    notified_total: int = 0
+    tour_created_total: int = 0
+    tour_existing_total: int = 0
+    high_fit_total: int = 0
+    top_fit_score: float = 0.0
     error: str = ""
 
 
@@ -1257,6 +1262,10 @@ class PropertyScoutSyncOut(BaseModel):
     listing_total: int = 0
     review_created_total: int = 0
     review_existing_total: int = 0
+    notified_total: int = 0
+    tour_created_total: int = 0
+    tour_existing_total: int = 0
+    high_fit_total: int = 0
     failed_total: int = 0
     sources: list[PropertyScoutSourceOut] = Field(default_factory=list)
 

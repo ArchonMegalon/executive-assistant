@@ -1582,6 +1582,9 @@ def _property_alert_review_telegram_text(
     property_url: str,
     personal_fit_assessment: dict[str, object] | None = None,
     candidate_properties: tuple[dict[str, object], ...] = (),
+    score_override: float | None = None,
+    tour_url: str = "",
+    preference_person_id: str = "",
 ) -> str:
     top_listing_title = ""
     if candidate_properties:
@@ -1592,6 +1595,12 @@ def _property_alert_review_telegram_text(
     if normalized_summary and normalized_summary.lower() != headline.lower():
         extra_lines.append(f"Summary: {normalized_summary}")
     fit_summary = _property_alert_fit_summary(personal_fit_assessment)
+    if score_override is not None:
+        score_text = f"Personal fit {int(round(max(0.0, min(100.0, float(score_override or 0.0))))):d}/100"
+        if fit_summary:
+            fit_summary = re.sub(r"Personal fit \d+/100", score_text, fit_summary)
+        else:
+            fit_summary = score_text
     next_action = ""
     if str(property_url or "").strip():
         pass
@@ -1614,6 +1623,10 @@ def _property_alert_review_telegram_text(
     elif fit_summary:
         next_action = _property_alert_next_action_text(personal_fit_assessment, property_url=property_url)
     extra_lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
+    if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
+        extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
+    if str(tour_url or "").strip():
+        extra_lines.append(f"3D tour: {str(tour_url or '').strip()}")
     return _property_scout_brief_text(
         title=headline,
         property_url=property_url,
@@ -8419,6 +8432,8 @@ class ProductService:
         actor: str,
         notify_telegram: bool = True,
         candidate_properties: tuple[dict[str, object], ...] = (),
+        personal_fit_assessment: dict[str, object] | None = None,
+        preference_person_id: str = "self",
     ) -> dict[str, object]:
         if _is_invalid_property_scout_task_url(property_url, source_ref=source_ref):
             payload = {
@@ -8437,11 +8452,15 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{source_ref or external_id or property_url}|property-alert-review-invalid",
             )
             return payload
-        personal_fit_assessment = _property_alert_personal_fit_assessment(
-            preference_profiles=self._preference_profiles,
-            principal_id=principal_id,
-            property_url=property_url,
-        )
+        if isinstance(personal_fit_assessment, dict):
+            personal_fit_assessment = dict(personal_fit_assessment)
+        else:
+            personal_fit_assessment = _property_alert_personal_fit_assessment(
+                preference_profiles=self._preference_profiles,
+                principal_id=principal_id,
+                person_id=str(preference_person_id or "").strip() or "self",
+                property_url=property_url,
+            )
         task_priority = _property_alert_priority_from_fit(personal_fit_assessment)
         fit_score = _property_alert_fit_score(personal_fit_assessment)
         existing = self._existing_property_alert_review_task(
@@ -8487,6 +8506,7 @@ class ProductService:
                 "external_id": str(external_id or "").strip(),
                 "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
                 "willhaben_fit_score": fit_score,
+                "preference_person_id": str(preference_person_id or "").strip() or "self",
                 "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
                 "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
                 "candidate_properties": [dict(item) for item in candidate_properties],
@@ -8508,6 +8528,7 @@ class ProductService:
             "external_id": str(external_id or "").strip(),
             "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
             "willhaben_fit_score": fit_score,
+            "preference_person_id": str(preference_person_id or "").strip() or "self",
             "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
         }
         self._record_product_event(
@@ -8520,6 +8541,7 @@ class ProductService:
                 "counterparty": str(counterparty or "").strip(),
                 "account_email": str(account_email or "").strip().lower(),
                 "actor": str(actor or "").strip() or "office_api",
+                "preference_person_id": str(preference_person_id or "").strip() or "self",
                 "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
                 "candidate_properties": [dict(item) for item in candidate_properties],
             },
@@ -8539,6 +8561,8 @@ class ProductService:
                         property_url=property_url,
                         personal_fit_assessment=personal_fit_assessment,
                         candidate_properties=candidate_properties,
+                        score_override=fit_score,
+                        preference_person_id=preference_person_id,
                     ),
                 )
                 payload["telegram_delivery_status"] = "sent"
@@ -10254,7 +10278,12 @@ class ProductService:
         listing_total = 0
         review_created_total = 0
         review_existing_total = 0
+        notified_total = 0
+        tour_created_total = 0
+        tour_existing_total = 0
+        high_fit_total = 0
         failed_total = 0
+        policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
         for source_spec in specs:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
@@ -10330,13 +10359,22 @@ class ProductService:
             )
             created_for_source = 0
             existing_for_source = 0
+            notified_for_source = 0
+            tour_created_for_source = 0
+            tour_existing_for_source = 0
+            high_fit_for_source = 0
             for row in ranked_rows:
                 property_url = str(row.get("property_url") or "").strip()
                 listing_id = str(row.get("listing_id") or "").strip() or property_url
                 title = str(row.get("title") or "").strip() or property_url
                 summary = str(row.get("summary") or "").strip()
                 assessment = dict(row.get("assessment") or {})
+                fit_score = float(row.get("fit_score") or 0.0)
                 source_ref = f"property-scout:{listing_id}"
+                is_good_fit = _property_alert_is_good_fit(assessment, policy=policy)
+                if is_good_fit:
+                    high_fit_for_source += 1
+                    high_fit_total += 1
                 opened = self._open_property_alert_review(
                     principal_id=principal_id,
                     title=title,
@@ -10347,10 +10385,10 @@ class ProductService:
                     account_email=account_email,
                     property_url=property_url,
                     actor=actor,
-                    notify_telegram=notify_telegram and (
-                        _property_alert_is_good_fit(assessment) or created_for_source == 0
-                    ),
+                    notify_telegram=False,
                     candidate_properties=candidate_properties,
+                    personal_fit_assessment=assessment,
+                    preference_person_id=preference_person_id,
                 )
                 if str(opened.get("status") or "").strip() == "opened":
                     created_for_source += 1
@@ -10358,6 +10396,41 @@ class ProductService:
                 else:
                     existing_for_source += 1
                     review_existing_total += 1
+                tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
+                if is_good_fit:
+                    tour_result = self._maybe_auto_create_property_scout_tour(
+                        principal_id=principal_id,
+                        actor=actor,
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        assessment=assessment,
+                        policy=policy,
+                    )
+                    if str(tour_result.get("status") or "").strip() == "created":
+                        tour_created_for_source += 1
+                        tour_created_total += 1
+                    elif str(tour_result.get("status") or "").strip() == "existing":
+                        tour_existing_for_source += 1
+                        tour_existing_total += 1
+                if notify_telegram and is_good_fit:
+                    notify_result = self._send_property_scout_hit_telegram(
+                        principal_id=principal_id,
+                        actor=actor,
+                        title=title,
+                        summary=summary,
+                        counterparty=source_label,
+                        account_email=account_email,
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        assessment=assessment,
+                        fit_score=fit_score,
+                        preference_person_id=preference_person_id,
+                        tour_result=tour_result,
+                        candidate_properties=candidate_properties,
+                    )
+                    if str(notify_result.get("status") or "").strip() == "sent":
+                        notified_for_source += 1
+                        notified_total += 1
             source_summaries.append(
                 {
                     "source_url": source_url,
@@ -10366,6 +10439,11 @@ class ProductService:
                     "listing_total": len(ranked_rows),
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
+                    "notified_total": notified_for_source,
+                    "tour_created_total": tour_created_for_source,
+                    "tour_existing_total": tour_existing_for_source,
+                    "high_fit_total": high_fit_for_source,
+                    "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
                 }
             )
         payload = {
@@ -10375,6 +10453,10 @@ class ProductService:
             "listing_total": listing_total,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
+            "notified_total": notified_total,
+            "tour_created_total": tour_created_total,
+            "tour_existing_total": tour_existing_total,
+            "high_fit_total": high_fit_total,
             "failed_total": failed_total,
             "sources": source_summaries,
         }
@@ -11999,6 +12081,212 @@ class ProductService:
                 continue
             return row
         return None
+
+    def _recent_product_event_exists(
+        self,
+        *,
+        principal_id: str,
+        event_type: str,
+        source_id: str = "",
+        dedupe_key: str = "",
+        external_id: str = "",
+        limit: int = 1000,
+    ) -> bool:
+        wanted_type = str(event_type or "").strip()
+        wanted_source = str(source_id or "").strip()
+        wanted_dedupe = str(dedupe_key or "").strip()
+        wanted_external = str(external_id or "").strip()
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=max(1, min(int(limit or 1000), 5000)),
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != wanted_type:
+                continue
+            if wanted_source and str(getattr(row, "source_id", "") or "").strip() != wanted_source:
+                continue
+            if wanted_dedupe and str(getattr(row, "dedupe_key", "") or "").strip() != wanted_dedupe:
+                continue
+            if wanted_external and str(getattr(row, "external_id", "") or "").strip() != wanted_external:
+                continue
+            return True
+        return False
+
+    def _latest_property_tour_event(
+        self,
+        *,
+        principal_id: str,
+        source_ref: str,
+    ) -> dict[str, object] | None:
+        wanted_source = str(source_ref or "").strip()
+        if not wanted_source:
+            return None
+        wanted_types = {
+            "willhaben_property_tour_created",
+            "willhaben_property_tour_email_sent",
+            "willhaben_property_tour_telegram_sent",
+            "willhaben_property_tour_delivery_failed",
+            "willhaben_property_tour_blocked",
+        }
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_SYNC_EVENT_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "source_id", "") or "").strip() != wanted_source:
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() not in wanted_types:
+                continue
+            return {
+                "event_type": str(getattr(row, "event_type", "") or "").strip(),
+                "payload": dict(getattr(row, "payload", {}) or {}),
+                "created_at": str(getattr(row, "created_at", "") or "").strip(),
+            }
+        return None
+
+    def _maybe_auto_create_property_scout_tour(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        property_url: str,
+        source_ref: str,
+        assessment: dict[str, object] | None,
+        policy: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url:
+            return {"status": "skipped", "reason": "property_url_missing"}
+        normalized_policy = _normalize_property_alert_policy(policy)
+        if not bool(normalized_policy.get("auto_generate_tour_for_good_fit")):
+            return {"status": "skipped", "reason": "policy_disabled"}
+        if not _property_alert_is_good_fit(dict(assessment or {}) if isinstance(assessment, dict) else None, policy=normalized_policy):
+            return {"status": "skipped", "reason": "fit_below_threshold"}
+        if not _is_willhaben_property_url(normalized_url):
+            return {"status": "unsupported", "reason": "tour_source_unsupported"}
+        existing_event = self._latest_property_tour_event(
+            principal_id=principal_id,
+            source_ref=source_ref,
+        )
+        if existing_event is not None:
+            existing_payload = dict(existing_event.get("payload") or {})
+            existing_tour_url = str(existing_payload.get("tour_url") or "").strip()
+            if existing_tour_url:
+                return {
+                    "status": "existing",
+                    "tour_url": existing_tour_url,
+                    "vendor_tour_url": str(existing_payload.get("vendor_tour_url") or "").strip(),
+                    "blocked_reason": "",
+                    "event_type": str(existing_event.get("event_type") or "").strip(),
+                }
+        try:
+            created = self.create_willhaben_property_tour(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                recipient_email=_principal_email_hint(principal_id),
+                source_ref=source_ref,
+                external_id=normalized_url,
+                auto_deliver=False,
+                actor=actor,
+            )
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "blocked_reason": compact_text(str(exc or ""), fallback="property_tour_auto_failed", limit=200),
+                "tour_url": "",
+                "vendor_tour_url": "",
+            }
+        return {
+            "status": str(created.get("status") or "").strip() or "created",
+            "tour_url": str(created.get("tour_url") or "").strip(),
+            "vendor_tour_url": str(created.get("vendor_tour_url") or "").strip(),
+            "blocked_reason": str(created.get("blocked_reason") or "").strip(),
+            "human_task_id": str(created.get("human_task_id") or "").strip(),
+        }
+
+    def _send_property_scout_hit_telegram(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        title: str,
+        summary: str,
+        counterparty: str,
+        account_email: str,
+        property_url: str,
+        source_ref: str,
+        assessment: dict[str, object] | None,
+        fit_score: float,
+        preference_person_id: str,
+        tour_result: dict[str, object] | None = None,
+        candidate_properties: tuple[dict[str, object], ...] = (),
+    ) -> dict[str, object]:
+        dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
+        dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-telegram|{dedupe_suffix}"
+        if self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="property_scout_hit_telegram_sent",
+            dedupe_key=dedupe_key,
+        ):
+            return {"status": "suppressed", "reason": "already_notified_today"}
+        tour_payload = dict(tour_result or {})
+        tour_url = str(tour_payload.get("tour_url") or "").strip()
+        blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        try:
+            telegram_receipt = send_telegram_message_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                text=_property_alert_review_telegram_text(
+                    title=title,
+                    summary=summary,
+                    counterparty=counterparty,
+                    account_email=account_email,
+                    property_url=property_url,
+                    personal_fit_assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+                    candidate_properties=candidate_properties,
+                    score_override=float(fit_score or 0.0),
+                    tour_url=tour_url,
+                    preference_person_id=preference_person_id,
+                ),
+            )
+        except Exception as exc:
+            payload = {
+                "property_url": property_url,
+                "source_ref": source_ref,
+                "fit_score": float(fit_score or 0.0),
+                "tour_url": tour_url,
+                "blocked_reason": blocked_reason,
+                "actor": str(actor or "").strip() or "property_scout",
+                "error": compact_text(str(exc or ""), fallback="telegram_delivery_failed", limit=160),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_hit_telegram_failed",
+                payload=payload,
+                source_id=source_ref,
+                dedupe_key=dedupe_key,
+            )
+            return {"status": "failed", "reason": payload["error"], "tour_url": tour_url}
+        payload = {
+            "property_url": property_url,
+            "source_ref": source_ref,
+            "fit_score": float(fit_score or 0.0),
+            "tour_url": tour_url,
+            "blocked_reason": blocked_reason,
+            "actor": str(actor or "").strip() or "property_scout",
+            "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
+            "telegram_message_ids": list(telegram_receipt.message_ids),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_scout_hit_telegram_sent",
+            payload=payload,
+            source_id=source_ref,
+            dedupe_key=dedupe_key,
+        )
+        return {"status": "sent", "tour_url": tour_url, "telegram_message_ids": list(telegram_receipt.message_ids)}
 
     def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
         event = self._latest_product_event(

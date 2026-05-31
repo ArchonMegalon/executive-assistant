@@ -769,7 +769,11 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
                 actor="scheduler",
             )
             if str(summary.get("status") or "").strip() in {"processed", "noop"}:
-                synced += int(summary.get("review_created_total") or 0)
+                synced += max(
+                    int(summary.get("review_created_total") or 0),
+                    int(summary.get("notified_total") or 0),
+                    int(summary.get("tour_created_total") or 0),
+                )
         except Exception:
             errors += 1
             log.exception("scheduler property scout failed principal=%s", principal_id)
