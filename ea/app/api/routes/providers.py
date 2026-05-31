@@ -1381,18 +1381,6 @@ def _onemin_browseract_failure_code(error: object) -> str:
         parts = [part for part in remainder.split(":") if part]
         if len(parts) >= 2:
             return parts[-1]
-    if (
-        "api.1min.ai/auth/login" in lowered
-        and (
-            "access to xmlhttprequest" in lowered
-            or "access-control-allow-origin" in lowered
-            or "cors policy" in lowered
-            or "content security policy" in lowered
-            or "connect-src 'none'" in lowered
-            or "refused to connect" in lowered
-        )
-    ):
-        return "challenge_required"
     if "auth_request_failed" in lowered or "api.1min.ai/auth/login" in lowered:
         return "auth_request_failed"
     if "invalid_credentials" in lowered or "email or password you entered is incorrect" in lowered:

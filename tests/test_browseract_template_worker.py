@@ -18,7 +18,7 @@ def _load_module():
 
 
 class BrowserActTemplateWorkerTests(unittest.TestCase):
-    def test_failure_code_maps_onemin_auth_cors_block_to_challenge_required(self) -> None:
+    def test_failure_code_maps_onemin_auth_cors_block_to_auth_request_failed(self) -> None:
         module = _load_module()
 
         detail = (
@@ -27,9 +27,9 @@ class BrowserActTemplateWorkerTests(unittest.TestCase):
             "CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
         )
 
-        self.assertEqual(module._failure_code_from_error_text(detail), "challenge_required")
+        self.assertEqual(module._failure_code_from_error_text(detail), "auth_request_failed")
 
-    def test_failure_code_maps_onemin_auth_csp_block_to_challenge_required(self) -> None:
+    def test_failure_code_maps_onemin_auth_csp_block_to_auth_request_failed(self) -> None:
         module = _load_module()
 
         detail = (
@@ -38,7 +38,7 @@ class BrowserActTemplateWorkerTests(unittest.TestCase):
             "\"connect-src 'none'\"."
         )
 
-        self.assertEqual(module._failure_code_from_error_text(detail), "challenge_required")
+        self.assertEqual(module._failure_code_from_error_text(detail), "auth_request_failed")
 
     def test_worker_script_fails_fast_on_onemin_auth_request_failure(self) -> None:
         module = _load_module()

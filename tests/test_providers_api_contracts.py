@@ -63,24 +63,24 @@ def test_onemin_browseract_failure_code_detects_invalid_credentials() -> None:
     ) == "invalid_credentials"
 
 
-def test_onemin_browseract_failure_code_detects_onemin_auth_cors_block_as_challenge() -> None:
+def test_onemin_browseract_failure_code_detects_onemin_auth_cors_block_as_auth_request_failed() -> None:
     from app.api.routes import providers as providers_route
 
     assert providers_route._onemin_browseract_failure_code(
         "template_worker_failed: Submit Login:auth_request_failed:console:Access to XMLHttpRequest at "
         "'https://api.1min.ai/auth/login' from origin 'https://app.1min.ai' has been blocked by "
         "CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
-    ) == "challenge_required"
+    ) == "auth_request_failed"
 
 
-def test_onemin_browseract_failure_code_detects_onemin_auth_csp_block_as_challenge() -> None:
+def test_onemin_browseract_failure_code_detects_onemin_auth_csp_block_as_auth_request_failed() -> None:
     from app.api.routes import providers as providers_route
 
     assert providers_route._onemin_browseract_failure_code(
         "template_worker_failed: Submit Login:auth_request_failed:console:[Report Only] Refused to connect to "
         "'https://api.1min.ai/auth/login' because it violates the following Content Security Policy directive: "
         "\"connect-src 'none'\"."
-    ) == "challenge_required"
+    ) == "auth_request_failed"
 
 
 def test_onemin_direct_api_opener_hashes_proxy_subject(monkeypatch: pytest.MonkeyPatch) -> None:

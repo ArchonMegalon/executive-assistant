@@ -3646,6 +3646,7 @@ def _estimated_onemin_remaining_credits(*, state_label: str, state: OneminKeySta
         and str(latest_billing.basis or "").strip().lower().startswith("actual")
         and billing_subject_match is not False
         and latest_billing_epoch > 0.0
+        and latest_billing_epoch >= latest_snapshot_epoch
         and (_now_epoch() - latest_billing_epoch) <= _onemin_billing_refresh_fresh_seconds()
         and str(latest_snapshot.basis or "").strip().lower() == "observed_error"
         and int(latest_snapshot.remaining_credits or 0) <= 0
@@ -4712,7 +4713,7 @@ def _trim_error_payload(payload: Any) -> str:
 
 
 def _proxy_url_with_optional_auth(*, server: str, username: str = "", password: str = "") -> str:
-    proxy_server = str(server or "").strip()
+    proxy_server = os.path.expandvars(str(server or "").strip())
     if not proxy_server or proxy_server.lower() in {"direct", "direct://", "none", "off", "disabled"}:
         return ""
     parsed = urlparse(proxy_server if "://" in proxy_server else f"http://{proxy_server}")

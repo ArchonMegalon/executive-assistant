@@ -152,6 +152,19 @@ def test_onemin_direct_api_proxy_pool_hashes_subjects_stably(monkeypatch: pytest
     assert first_retry != first
 
 
+def test_onemin_direct_api_proxy_pool_expands_env_placeholders(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FASTESTVPN_PROXY_PORT", "3128")
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_PROXY_POOL",
+        "http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT}",
+    )
+
+    assert upstream._onemin_direct_api_proxy_pool_urls() == (
+        "http://ea-fastestvpn-proxy:3128",
+        "http://ea-fastestvpn-proxy-ie:3128",
+    )
+
+
 def test_request_opener_for_request_uses_api_key_subject_for_onemin_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(
         "ONEMIN_DIRECT_API_PROXY_POOL",
@@ -2415,7 +2428,7 @@ def test_estimated_onemin_remaining_credits_prefers_fresh_actual_billing_over_ze
         upstream,
         "_latest_provider_balance_snapshot",
         lambda **_kwargs: upstream.ProviderBalanceSnapshot(
-            happened_at=19999.0,
+            happened_at=19800.0,
             provider_key="onemin",
             account_name="ONEMIN_AI_API_KEY",
             remaining_credits=0,
@@ -2446,6 +2459,54 @@ def test_estimated_onemin_remaining_credits_prefers_fresh_actual_billing_over_ze
 
     assert remaining == 15025
     assert basis == "actual_provider_api"
+
+
+def test_estimated_onemin_remaining_credits_prefers_newer_observed_error_over_fresh_actual_billing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ONEMIN_BILLING_REFRESH_FRESH_SECONDS", "21600")
+    monkeypatch.setattr(upstream, "_load_provider_ledgers_once", lambda: None)
+    monkeypatch.setattr(upstream, "_onemin_key_names", lambda: ("fresh-key",))
+    monkeypatch.setattr(upstream, "_provider_account_name", lambda _provider, key_names, key: "ONEMIN_AI_API_KEY")
+    monkeypatch.setattr(upstream, "_onemin_billing_snapshot_matches_credit_subject", lambda **_kwargs: True)
+    monkeypatch.setattr(upstream, "_observed_spend_since", lambda **_kwargs: 0)
+    monkeypatch.setattr(upstream, "_now_epoch", lambda: 20000.0)
+
+    monkeypatch.setattr(
+        upstream,
+        "_latest_provider_balance_snapshot",
+        lambda **_kwargs: upstream.ProviderBalanceSnapshot(
+            happened_at=19999.0,
+            provider_key="onemin",
+            account_name="ONEMIN_AI_API_KEY",
+            remaining_credits=0,
+            max_credits=4450000,
+            basis="observed_error",
+            source="required_credit_error",
+            detail="Team only has 0 credits",
+        ),
+    )
+    monkeypatch.setattr(
+        upstream,
+        "_latest_provider_billing_snapshot",
+        lambda **_kwargs: type(
+            "BillingSnapshot",
+            (),
+            {
+                "remaining_credits": 15025.0,
+                "basis": "actual_provider_api",
+                "observed_at": "1970-01-01T05:30:00Z",
+            },
+        )(),
+    )
+
+    remaining, basis = upstream._estimated_onemin_remaining_credits(
+        state_label="quarantine",
+        state=upstream.OneminKeyState(key="fresh-key"),
+    )
+
+    assert remaining == 0
+    assert basis == "observed_error"
 
 
 def test_call_onemin_provider_health_uses_quarantine_budget_signal_for_smaller_request(

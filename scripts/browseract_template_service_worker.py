@@ -883,7 +883,13 @@ async function main() {
   } catch (error) {
     const errorText = String(error && error.stack ? error.stack : error);
     const normalizedError = normalizeText(errorText);
-    if (
+    if (normalizedError.includes('invalid_credentials')) {
+      result.failure_code = 'invalid_credentials';
+      result.ui_failure_code = 'invalid_credentials';
+    } else if (normalizedError.includes('auth_request_failed')) {
+      result.failure_code = 'auth_request_failed';
+      result.ui_failure_code = 'auth_request_failed';
+    } else if (
       normalizedError.includes('api.1min.ai/auth/login')
       && (
         normalizedError.includes('access to xmlhttprequest')
@@ -894,12 +900,6 @@ async function main() {
         || normalizedError.includes('refused to connect')
       )
     ) {
-      result.failure_code = 'challenge_required';
-      result.ui_failure_code = 'challenge_required';
-    } else if (normalizedError.includes('invalid_credentials')) {
-      result.failure_code = 'invalid_credentials';
-      result.ui_failure_code = 'invalid_credentials';
-    } else if (normalizedError.includes('auth_request_failed')) {
       result.failure_code = 'auth_request_failed';
       result.ui_failure_code = 'auth_request_failed';
     }
@@ -1069,18 +1069,6 @@ def _failure_code_from_error_text(detail: object) -> str:
     lowered = str(detail or "").strip().lower()
     if not lowered:
         return ""
-    if (
-        "api.1min.ai/auth/login" in lowered
-        and (
-            "access to xmlhttprequest" in lowered
-            or "access-control-allow-origin" in lowered
-            or "cors policy" in lowered
-            or "content security policy" in lowered
-            or "connect-src 'none'" in lowered
-            or "refused to connect" in lowered
-        )
-    ):
-        return "challenge_required"
     if "invalid_credentials" in lowered or "email or password you entered is incorrect" in lowered:
         return "invalid_credentials"
     if "auth_request_failed" in lowered or "api.1min.ai/auth/login" in lowered:
