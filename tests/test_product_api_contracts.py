@@ -2303,6 +2303,7 @@ def test_profile_followup_resolution_suppression_expires(monkeypatch) -> None:
         status="active",
         decay_policy="reinforce_only",
     )
+    monkeypatch.setattr(product_service, "_utcnow", lambda: product_service._parse_iso("2026-05-30T00:00:00+00:00"))
     product._record_product_event(
         principal_id=principal_id,
         event_type="profile_followup_resolution_recorded",
@@ -2314,7 +2315,7 @@ def test_profile_followup_resolution_suppression_expires(monkeypatch) -> None:
         source_id="old-resolution-test",
         dedupe_key=f"{principal_id}|old-resolution-test|profile_followup:utilities_admin:utility_and_provider_account_management|profile-followup-resolution|defer",
     )
-    monkeypatch.setattr(product_service, "_utcnow", lambda: product_service._parse_iso("2026-06-01T12:00:00+00:00"))
+    monkeypatch.setattr(product_service, "_utcnow", lambda: product_service._parse_iso("2099-06-01T12:00:00+00:00"))
     monkeypatch.setattr(
         product,
         "_profile_followup_latest_evidence_at",
@@ -9948,10 +9949,10 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
         follow_redirects=False,
     )
     assert opened_access_today.status_code == 303
-    assert opened_access_today.headers["location"] == "/app/settings/access"
+    assert opened_access_today.headers["location"] == "/app/today"
     opened_access = client.get(access_body["access_url"], follow_redirects=False)
     assert opened_access.status_code == 303
-    assert opened_access.headers["location"] == "/app/settings/access"
+    assert opened_access.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
     opened_access_secure = client.get(
         access_body["access_url"],
@@ -9965,7 +9966,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert "Max-Age=" in secure_access_cookie
     head_opened_access = client.head(access_body["access_url"], follow_redirects=False)
     assert head_opened_access.status_code == 303
-    assert head_opened_access.headers["location"] == "/app/settings/access"
+    assert head_opened_access.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(head_opened_access.headers.get("set-cookie") or "")
     session_drafts = client.get("/app/api/drafts")
     assert session_drafts.status_code == 200

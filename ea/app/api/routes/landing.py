@@ -150,8 +150,6 @@ def _normalize_browser_return_to(raw: str | None, *, default: str) -> str:
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme or parsed.netloc or value.startswith("//") or not value.startswith("/"):
         return default
-    if value == "/app/today":
-        return "/app/settings/access"
     return value
 
 

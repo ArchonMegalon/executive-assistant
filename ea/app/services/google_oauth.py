@@ -1565,8 +1565,9 @@ def _list_recent_gmail_signals(
             counterparty = (sender_name or sender_email).strip()
             snippet = str(details.get("snippet") or "").strip()
             body_text = _gmail_message_body_text(details)
+            metadata_fallback = bool(details.get("_metadata_fallback_due_to_forbidden"))
             body_source = "gmail_full" if body_text else "snippet"
-            if include_message_body and not body_text:
+            if include_message_body and not body_text and not metadata_fallback:
                 body_text = _gmail_message_body_text_from_raw(
                     access_token=access_token,
                     message_id=message_id,
@@ -1789,11 +1790,13 @@ def _gmail_message_details(*, access_token: str, message_id: str, include_messag
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 403 and include_message_body:
-            return _gmail_message_details(
+            fallback = _gmail_message_details(
                 access_token=access_token,
                 message_id=message_id,
                 include_message_body=False,
             )
+            fallback["_metadata_fallback_due_to_forbidden"] = True
+            return fallback
         raise
 
 

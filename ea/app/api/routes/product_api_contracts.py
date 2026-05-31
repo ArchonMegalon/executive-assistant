@@ -1171,6 +1171,7 @@ class PocketRecordingSearchItemOut(BaseModel):
     archive_sha256: str = ""
     summary_markdown: str = ""
     transcript_excerpt: str = ""
+    topic_keywords_csv: str = ""
     location_match_status: str = ""
     location_match_reason: str = ""
     location_name: str = ""

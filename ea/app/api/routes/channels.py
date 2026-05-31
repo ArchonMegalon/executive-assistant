@@ -234,7 +234,7 @@ def _telegram_auto_bind_unknown_chat_enabled() -> bool:
 
 
 def _telegram_inline_async_accelerator_enabled() -> bool:
-    normalized = str(os.getenv("EA_TELEGRAM_INLINE_ASYNC_ACCELERATOR") or "").strip().lower()
+    normalized = str(os.getenv("EA_TELEGRAM_INLINE_ASYNC_ACCELERATOR") or "1").strip().lower()
     return normalized in {"1", "true", "yes", "on"}
 
 
@@ -474,10 +474,8 @@ def _telegram_post_json_with_retries(
             if attempt >= attempts:
                 raise
             last_error = exc
-        except Exception as exc:
-            if attempt >= attempts:
-                raise
-            last_error = exc
+        except Exception:
+            raise
         if backoff_seconds > 0:
             time.sleep(backoff_seconds * attempt)
     if last_error is not None:
@@ -1688,6 +1686,9 @@ def _telegram_answerly_document_query_candidate(text: str) -> bool:
         "find the scan",
         "find the pdf",
         "send me the birth certificate",
+        "schick mir",
+        "schicke mir",
+        "sende mir",
         "where is my medication",
     )
     if any(marker in normalized for marker in explicit_markers):
@@ -1723,6 +1724,9 @@ def _telegram_answerly_document_query_candidate(text: str) -> bool:
         "can you find",
         "can you check",
         "send me",
+        "schick mir",
+        "schicke mir",
+        "sende mir",
         "show me",
         "get me",
     )
@@ -4519,6 +4523,16 @@ def _telegram_force_async_path(ctx: TelegramTurnContext) -> bool:
         return False
     if _safe_math_answer(ctx.normalized):
         return False
+    if "audit plan" in ctx.lower:
+        return True
+    if ctx.lower in {"really", "really?"}:
+        return False
+    if _telegram_low_signal_followup_cue(ctx.normalized):
+        return False
+    if _telegram_meta_assistant_reply_text(ctx.normalized):
+        return False
+    if _telegram_prefers_local_grounded_reply(ctx.normalized):
+        return False
     if len(ctx.alpha_words) <= 2 and not any(marker in ctx.lower for marker in ("?", "why", "what", "when", "where", "how", "which")):
         return False
     return True
@@ -5126,25 +5140,31 @@ def ingest_telegram(
     async_message_id = str(decision.async_message_id or "").strip() or str(message_payload.get("message_id") or "")
     reply_sent = False
     if reply_text and chat_id and not _telegram_reply_already_sent(container, principal_id=principal_id, dedupe_key=dedupe_key):
-        reply_sent = _telegram_send_and_record_reply(
-            container=container,
-            principal_id=principal_id,
-            bot_config=bot_config,
-            chat_id=chat_id,
-            dedupe_key=dedupe_key,
-            reply_text=reply_text,
-            source_text=str(message_payload.get("text") or ""),
-        )
+        try:
+            reply_sent = _telegram_send_and_record_reply(
+                container=container,
+                principal_id=principal_id,
+                bot_config=bot_config,
+                chat_id=chat_id,
+                dedupe_key=dedupe_key,
+                reply_text=reply_text,
+                source_text=str(message_payload.get("text") or ""),
+            )
+        except Exception:
+            reply_sent = False
     if schedule_async and chat_id:
-        _telegram_send_processing_ack(
-            container=container,
-            principal_id=principal_id,
-            bot_config=bot_config,
-            chat_id=chat_id,
-            dedupe_key=dedupe_key,
-            source_text=async_text,
-            current_message_id=async_message_id,
-        )
+        try:
+            _telegram_send_processing_ack(
+                container=container,
+                principal_id=principal_id,
+                bot_config=bot_config,
+                chat_id=chat_id,
+                dedupe_key=dedupe_key,
+                source_text=async_text,
+                current_message_id=async_message_id,
+            )
+        except Exception:
+            pass
         _telegram_schedule_async_assistant_reply(
             container=container,
             principal_id=principal_id,

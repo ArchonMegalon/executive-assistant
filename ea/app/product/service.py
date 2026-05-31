@@ -6264,7 +6264,7 @@ class ProductService:
                 return {
                     "action": "shopping_list_add",
                     "confidence": 0.89,
-                    "reason": "deterministic_shopping_list_pattern",
+                    "reason": "spoken_request_to_add_item_to_shopping_list",
                     "params": {"item_text": item_text},
                 }
         messages = [
