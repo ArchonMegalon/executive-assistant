@@ -278,7 +278,9 @@ else
   echo 'EA_STORAGE_BACKEND=postgres' >> "${EA_ROOT}/.env"
 fi
 set_env_value "EA_API_TOKEN" "smoke-postgres-token"
+set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"
 export EA_API_TOKEN="smoke-postgres-token"
+export EA_ALLOW_LOOPBACK_NO_AUTH="1"
 
 if [[ "${env_had_file}" == "1" ]]; then
   restore_api_env=1

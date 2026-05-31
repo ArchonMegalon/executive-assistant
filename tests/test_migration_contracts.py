@@ -66,6 +66,8 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "approval_decisions missing runtime columns" in smoke
     assert 'set_env_value "EA_API_TOKEN" "smoke-postgres-token"' in smoke
     assert 'export EA_API_TOKEN="smoke-postgres-token"' in smoke
+    assert 'set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"' in smoke
+    assert 'export EA_ALLOW_LOOPBACK_NO_AUTH="1"' in smoke
     assert "container_api_token=" in smoke
     assert "ORIGINAL_EA_API_TOKEN=" in smoke
     assert "token_candidates=" in smoke
