@@ -175,7 +175,7 @@ def test_weekly_product_pulse_rewrites_when_disallowed_provenance_head_change_la
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_materializer_module()
-    monkeypatch.setattr(module, "_changed_paths_between_heads", lambda old_head, new_head: ["scripts/smoke_api.sh"])
+    monkeypatch.setattr(module, "_changed_paths_between_heads", lambda old_head, new_head: ["ea/app/runtime_unrelated.py"])
     pulse_path = tmp_path / "pulse.json"
     stale = {
         "contract_name": "ea.weekly_product_pulse",

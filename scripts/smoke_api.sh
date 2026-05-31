@@ -1997,13 +1997,21 @@ operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/js
 GENERIC_APPROVAL_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"task_key\":\"${GENERIC_APPROVAL_TASK_KEY}\",\"text\":\"Decision context for the approval-backed briefing.\",\"goal\":\"prepare a decision brief\"}")"
 GENERIC_APPROVAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('approval_id','')), bool(body.get('session_id',''))))" <<<"${GENERIC_APPROVAL_JSON}")"
-if [[ "${GENERIC_APPROVAL_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|poll_or_subscribe|True|True" ]]; then
+GENERIC_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("approval_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
+GENERIC_APPROVAL_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
+if [[ "${GENERIC_APPROVAL_FIELDS}" == "${GENERIC_APPROVAL_TASK_KEY}|queued|poll_or_subscribe|False|True" ]]; then
+  GENERIC_APPROVAL_AWAITING_JSON="$(wait_for_session_status "${GENERIC_APPROVAL_SESSION_ID}" "awaiting_approval")"
+  GENERIC_APPROVAL_ID="$(curl -fsS "${BASE}/v1/policy/approvals/pending?limit=20" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); session_id='${GENERIC_APPROVAL_SESSION_ID}'; row=next((row for row in rows if (row or {}).get('session_id') == session_id), {}); print(row.get('approval_id',''))" )"
+elif [[ "${GENERIC_APPROVAL_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|poll_or_subscribe|True|True" ]]; then
   echo "expected generic task execution approval contract to return a first-class awaiting_approval response; got ${GENERIC_APPROVAL_FIELDS}" >&2
   echo "${GENERIC_APPROVAL_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-GENERIC_APPROVAL_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("approval_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
-GENERIC_APPROVAL_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${GENERIC_APPROVAL_JSON}")"
+if [[ -z "${GENERIC_APPROVAL_ID}" ]]; then
+  echo "expected generic task execution approval contract to expose or create a pending approval" >&2
+  echo "${GENERIC_APPROVAL_JSON}" >&2
+  fail 12 "policy contract mismatch"
+fi
 GENERIC_APPROVAL_SESSION_FIELDS="$(curl -fsS "${BASE}/v1/rewrite/sessions/${GENERIC_APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); step_lookup={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; save_step=step_lookup.get('step_artifact_save') or {}; policy_step=step_lookup.get('step_policy_evaluate') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), save_step.get('state',''), save_step.get('dependency_keys') == ['step_policy_evaluate'], save_step.get('dependency_states') == {'step_policy_evaluate': 'completed'}, (save_step.get('dependency_step_ids') or {}).get('step_policy_evaluate') == policy_step.get('step_id',''), save_step.get('blocked_dependency_keys') == [], save_step.get('dependencies_satisfied') is True))" )"
 if [[ "${GENERIC_APPROVAL_SESSION_FIELDS}" != "${GENERIC_APPROVAL_TASK_KEY}|awaiting_approval|waiting_approval|True|True|True|True|True" ]]; then
   echo "expected generic approval-backed task session to preserve task identity plus satisfied dependency-state projection through awaiting_approval; got ${GENERIC_APPROVAL_SESSION_FIELDS}" >&2
@@ -2500,7 +2508,7 @@ if [[ "${HYBRID_RETURN_FIELDS}" != "stakeholder_review_dispatch|returned|ready_f
   echo "${HYBRID_RETURN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_AWAITING_APPROVAL_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HYBRID_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HYBRID_AWAITING_APPROVAL_JSON="$(wait_for_session_status "${HYBRID_SESSION_ID}" "awaiting_approval")"
 HYBRID_AWAITING_APPROVAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), steps.get('step_human_review',{}).get('state',''), steps.get('step_artifact_save',{}).get('state',''), steps.get('step_policy_evaluate',{}).get('state',''), steps.get('step_connector_dispatch',{}).get('state',''), len(artifacts) == 1, (artifacts[0] or {}).get('content','') if artifacts else ''))" <<<"${HYBRID_AWAITING_APPROVAL_JSON}")"
 if [[ "${HYBRID_AWAITING_APPROVAL_FIELDS}" != "awaiting_approval|completed|completed|completed|waiting_approval|True|Reviewed stakeholder briefing." && "${HYBRID_AWAITING_APPROVAL_FIELDS}" != "running|completed|completed|queued|queued|True|Reviewed stakeholder briefing." ]]; then
   echo "expected review-then-dispatch workflow to pause for approval after human return and artifact persistence; got ${HYBRID_AWAITING_APPROVAL_FIELDS}" >&2
@@ -2556,9 +2564,9 @@ if [[ "${HYBRID_RETRY_RETURN_FIELDS}" != "stakeholder_review_dispatch_retry|retu
   echo "${HYBRID_RETRY_RETURN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
-HYBRID_RETRY_AWAITING_APPROVAL_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HYBRID_RETRY_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+HYBRID_RETRY_AWAITING_APPROVAL_JSON="$(wait_for_session_status "${HYBRID_RETRY_SESSION_ID}" "awaiting_approval")"
 HYBRID_RETRY_AWAITING_APPROVAL_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; artifacts=body.get('artifacts') or []; print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), steps.get('step_human_review',{}).get('state',''), steps.get('step_artifact_save',{}).get('state',''), steps.get('step_policy_evaluate',{}).get('state',''), steps.get('step_connector_dispatch',{}).get('state',''), len(artifacts) == 1, (artifacts[0] or {}).get('content','') if artifacts else ''))" <<<"${HYBRID_RETRY_AWAITING_APPROVAL_JSON}")"
-if [[ "${HYBRID_RETRY_AWAITING_APPROVAL_FIELDS}" != "awaiting_approval|completed|completed|completed|waiting_approval|True|Reviewed stakeholder briefing." && "${HYBRID_RETRY_AWAITING_APPROVAL_FIELDS}" != "running|completed|completed|queued|queued|True|Reviewed stakeholder briefing." && "${HYBRID_RETRY_AWAITING_APPROVAL_FIELDS}" != "queued|completed|completed|completed|queued|True|Reviewed stakeholder briefing." ]]; then
+if [[ "${HYBRID_RETRY_AWAITING_APPROVAL_FIELDS}" != "awaiting_approval|completed|completed|completed|waiting_approval|True|Reviewed stakeholder briefing." ]]; then
   echo "expected delayed review-then-dispatch workflow to pause for approval after human return; got ${HYBRID_RETRY_AWAITING_APPROVAL_FIELDS}" >&2
   echo "${HYBRID_RETRY_AWAITING_APPROVAL_JSON}" >&2
   fail 12 "policy contract mismatch"

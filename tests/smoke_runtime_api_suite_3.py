@@ -4,6 +4,31 @@ from tests.smoke_runtime_api_support import build_client as _client
 from tests.smoke_runtime_api_support import build_headers as _headers
 
 
+def test_plan_execute_returns_accepted_when_inline_queue_drain_does_not_settle() -> None:
+    client = _client(storage_backend="memory", principal_id="exec-1")
+
+    def _queued_execute(_request):  # type: ignore[no-untyped-def]
+        raise RuntimeError("queued task did not execute: session-still-queued")
+
+    client.app.state.container.orchestrator.execute_task_artifact = _queued_execute
+
+    response = client.post(
+        "/v1/plans/execute",
+        json={"task_key": "rewrite_text", "text": "queued work", "goal": "rewrite queued work"},
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "skill_key": "rewrite_text",
+        "task_key": "rewrite_text",
+        "session_id": "session-still-queued",
+        "approval_id": "",
+        "human_task_id": "",
+        "status": "queued",
+        "next_action": "poll_or_subscribe",
+    }
+
+
 def test_generic_task_execution_supports_async_approval_and_human_contracts() -> None:
     client = _client(storage_backend="memory", principal_id="exec-1", operator=True)
 

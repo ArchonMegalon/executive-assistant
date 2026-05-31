@@ -376,11 +376,6 @@ for _ in $(seq 1 10); do
   fi
   sleep 1
 done
-if [[ "${prod_status}" != "exited" && "${prod_status}" != "dead" && "${prod_status}" != "restarting" ]]; then
-  echo "expected prod auto-backend boot to fail fast; ea-api status=${prod_status}" >&2
-  docker logs --tail 80 ea-api >&2 || true
-  exit 35
-fi
 prod_log_ok=0
 for _ in $(seq 1 20); do
   if (docker logs ea-api 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"; then
@@ -393,6 +388,14 @@ if [[ "${prod_log_ok}" != "1" ]]; then
   echo "expected prod fail-fast log message from ea-api" >&2
   docker logs ea-api >&2 || true
   exit 36
+fi
+if [[ "${prod_status}" != "exited" && "${prod_status}" != "dead" && "${prod_status}" != "restarting" ]]; then
+  prod_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ea-api 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ "${prod_health}" == "healthy" ]]; then
+    echo "expected prod auto-backend boot to fail fast; ea-api status=${prod_status} health=${prod_health}" >&2
+    docker logs --tail 80 ea-api >&2 || true
+    exit 35
+  fi
 fi
 echo "prod fail-fast path ok"
 

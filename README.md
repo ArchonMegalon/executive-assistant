@@ -411,15 +411,15 @@ Postgres-backed repository contract tests are available via `scripts/test_postgr
 Legacy migration-regression smoke is available via `bash scripts/smoke_postgres.sh --legacy-fixture` or `make smoke-postgres-legacy`.
 The script targets an isolated smoke database (`EA_SMOKE_DB`, default `ea_smoke_runtime`) and restores local `.env` state after the run.
 Local CI-parity compile checks can be run via `make ci-local`.
-One-command local CI gate bundle is available via `make ci-gates`.
+One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, and generated release artifact cleanliness after the full memory-backed test suite.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
-Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness` so a green receipt cannot hide a blocked weekly pulse or Fleet journey gate.
+Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness` and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, or dirty regenerated receipt.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
-`make all-local` is a lighter local readiness pass; use `make release-preflight` for release-stage smoke + operator checks.
-CI gate sequence is documented in `RUNBOOK.md` and includes the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification), Postgres-backed smoke and repository-contract jobs (`scripts/smoke_postgres.sh`, `scripts/test_postgres_contracts.sh`), and a legacy migration-regression job (`bash scripts/smoke_postgres.sh --legacy-fixture`).
+`make all-local` is a lighter local readiness pass; it still verifies release assets, flagship readiness, and generated release artifact cleanliness, but use `make release-preflight` for release-stage smoke + operator checks.
+CI gate sequence is documented in `RUNBOOK.md` and includes the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification, flagship release-readiness verification, generated release artifact cleanliness), Postgres-backed smoke and repository-contract jobs (`scripts/smoke_postgres.sh`, `scripts/test_postgres_contracts.sh`), and a legacy migration-regression job (`bash scripts/smoke_postgres.sh --legacy-fixture`).
 Shell script lint config is tracked in `.shellcheckrc`.

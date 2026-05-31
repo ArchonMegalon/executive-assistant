@@ -71,6 +71,7 @@ required_files=(
   "scripts/materialize_ea_flagship_release_gate.py"
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
+  "scripts/verify_generated_release_artifacts_clean.py"
   "scripts/verify_flagship_release_readiness.py"
   "scripts/verify_design_mirror_bundle.py"
   "scripts/repair_design_mirror_bundle.sh"
@@ -210,9 +211,12 @@ if release_truth_head and current_head and release_truth_head != current_head:
         "RELEASE_CHECKLIST.md",
         "PRODUCT_RELEASE_CHECKLIST.md",
         "Makefile",
+        "ea/app/api/routes/plans.py",
         "scripts/materialize_weekly_product_pulse.py",
         "scripts/operator_summary.sh",
+        "scripts/smoke_api.sh",
         "scripts/smoke_postgres.sh",
+        "scripts/verify_generated_release_artifacts_clean.py",
         "scripts/verify_flagship_release_readiness.py",
         "scripts/verify_release_assets.sh",
         "tests/e2e/visual_baselines/admin-community-page.png",
@@ -221,6 +225,7 @@ if release_truth_head and current_head and release_truth_head != current_head:
         "tests/test_migration_contracts.py",
         "tests/test_operator_contracts.py",
         "tests/test_providers_api_contracts.py",
+        "tests/smoke_runtime_api_suite_3.py",
         "tests/test_weekly_product_pulse_materializer.py",
     }
     disallowed = [

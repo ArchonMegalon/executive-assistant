@@ -137,6 +137,44 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "scripts/chummer6_overlay_vision_readiness.py" in makefile
 
 
+def _make_target_body(makefile: str, target: str) -> str:
+    marker = f"{target}:"
+    start = makefile.index(marker)
+    target_lines = makefile[start:].splitlines()
+    lines = [target_lines[0]]
+    for line in target_lines[1:]:
+        if line and not line.startswith(("\t", " ")):
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+    readme = (ROOT / "README.md").read_text()
+    runbook = (ROOT / "RUNBOOK.md").read_text()
+    workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text()
+
+    ci_gates = _make_target_body(makefile, "ci-gates")
+    all_local = _make_target_body(makefile, "all-local")
+    release_preflight = _make_target_body(makefile, "release-preflight")
+
+    for body in (ci_gates, all_local, release_preflight):
+        assert "verify-release-assets" in body
+        assert "verify-flagship-release-readiness" in body
+        assert "verify-generated-release-artifacts-clean" in body
+
+    generated_clean = _make_target_body(makefile, "verify-generated-release-artifacts-clean")
+    assert "scripts/verify_generated_release_artifacts_clean.py" in generated_clean
+    assert "git diff --exit-code -- .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" not in generated_clean
+
+    assert "make ci-gates" in workflow
+    assert "flagship release-readiness verification" in readme
+    assert "generated release artifact cleanliness" in readme
+    assert "flagship release readiness" in runbook
+    assert "generated release artifact cleanliness" in runbook
+
+
 def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text()
     makefile = (ROOT / "Makefile").read_text()

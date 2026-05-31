@@ -22,6 +22,14 @@ from app.services.policy import ApprovalRequiredError, PolicyDeniedError
 router = APIRouter(prefix="/v1/plans", tags=["plans"])
 
 
+def _queued_session_id_from_runtime_error(exc: RuntimeError) -> str:
+    prefix = "queued task did not execute:"
+    message = str(exc or "").strip()
+    if not message.startswith(prefix):
+        return ""
+    return message.removeprefix(prefix).strip()
+
+
 def _can_infer_ltd_runtime_selector(*, goal: str = "", input_json: dict[str, object] | None = None) -> bool:
     return bool(projected_task_key_for_request(goal=goal, input_json=input_json))
 
@@ -424,6 +432,20 @@ def execute_plan(
                 task_key=resolved_task_key,
                 session_id=exc.session_id,
                 status=exc.status,
+                next_action="poll_or_subscribe",
+            ).model_dump(),
+        )
+    except RuntimeError as exc:
+        session_id = _queued_session_id_from_runtime_error(exc)
+        if not session_id:
+            raise
+        return JSONResponse(
+            status_code=202,
+            content=PlanExecuteAcceptedOut(
+                skill_key=skill_key,
+                task_key=resolved_task_key,
+                session_id=session_id,
+                status="queued",
                 next_action="poll_or_subscribe",
             ).model_dump(),
         )

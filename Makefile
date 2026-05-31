@@ -114,7 +114,7 @@ materialize-release-assets:
 
 verify-generated-release-artifacts-clean:
 	$(MAKE) materialize-release-assets
-	git diff --exit-code -- .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json .codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json .codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json
+	$(PYTHON_BIN) scripts/verify_generated_release_artifacts_clean.py
 
 ci-local:
 	$(PYTHON_BIN) -m compileall -q ea/app
@@ -127,6 +127,7 @@ ci-gates:
 	$(MAKE) ci-local
 	$(MAKE) test-api
 	$(MAKE) verify-release-assets
+	$(MAKE) verify-flagship-release-readiness
 	$(MAKE) verify-generated-release-artifacts-clean
 
 ci-gates-postgres:
@@ -156,4 +157,4 @@ repair-design-mirror-bundle:
 
 docs-verify: verify-release-assets
 
-all-local: ci-local verify-release-assets
+all-local: ci-local verify-release-assets verify-flagship-release-readiness verify-generated-release-artifacts-clean
