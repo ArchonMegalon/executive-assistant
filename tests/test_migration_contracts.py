@@ -173,6 +173,8 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     assert "generated release artifact cleanliness" in readme
     assert "flagship release readiness" in runbook
     assert "generated release artifact cleanliness" in runbook
+    assert "- `make verify-flagship-release-readiness`" in runbook
+    assert "- `make verify-generated-release-artifacts-clean`" in runbook
 
 
 def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:

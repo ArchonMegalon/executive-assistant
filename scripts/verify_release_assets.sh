@@ -814,6 +814,14 @@ else
   missing=1
 fi
 
+if grep -Fq '  - `make verify-flagship-release-readiness`' "RUNBOOK.md" && \
+   grep -Fq '  - `make verify-generated-release-artifacts-clean`' "RUNBOOK.md"; then
+  echo "ok: RUNBOOK CI gate readiness and generated-clean bullets"
+else
+  echo "missing: RUNBOOK CI gate readiness or generated-clean bullets" >&2
+  missing=1
+fi
+
 if grep -Fq "lightweight readiness pass" "RUNBOOK.md"; then
   echo "ok: RUNBOOK all-local vs release-preflight note"
 else

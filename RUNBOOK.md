@@ -278,6 +278,8 @@ EA product canon for those claims now lives in `.codex-design/ea/START_HERE.md`.
   - `make ci-local`
   - `make test-api`
   - `make verify-release-assets`
+  - `make verify-flagship-release-readiness`
+  - `make verify-generated-release-artifacts-clean`
 - Postgres smoke jobs:
   - `bash scripts/smoke_postgres.sh`
   - `bash scripts/test_postgres_contracts.sh`

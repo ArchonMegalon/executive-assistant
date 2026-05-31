@@ -42,9 +42,9 @@ class ExecutionApprovalPauseService:
             error_json={"reason": reason, "approval_id": approval_request.approval_id},
             attempt_count=max(1, int(target_step.attempt_count or 0)),
         )
+        self._set_session_status(session_id, "awaiting_approval")
         if self._enqueue_step is not None:
             self._enqueue_step(session_id, target_step.step_id)
-        self._set_session_status(session_id, "awaiting_approval")
         self._append_event(
             session_id,
             "session_paused_for_approval",

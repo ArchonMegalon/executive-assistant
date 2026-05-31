@@ -726,6 +726,42 @@ def test_execution_step_runtime_service_pauses_policy_target_when_approval_requi
     ]
 
 
+def test_approval_pause_marks_session_awaiting_before_enqueueing_target_step() -> None:
+    calls: list[tuple[str, str]] = []
+    target_step = _step(
+        step_id="step-dispatch",
+        step_kind="tool_call",
+        state="queued",
+        input_json={"plan_step_key": "step_connector_dispatch"},
+    )
+
+    service = ExecutionApprovalPauseService(
+        create_request=lambda session_id, step_id, **kwargs: type(
+            "ApprovalRequestStub",
+            (),
+            {"approval_id": "approval-1", "session_id": session_id, "step_id": step_id},
+        )(),
+        update_step=lambda step_id, **kwargs: calls.append(("update_step", str(kwargs.get("state", "")))) or target_step,
+        set_session_status=lambda session_id, status: calls.append(("set_session_status", status)),
+        append_event=lambda session_id, name, payload: calls.append(("append_event", name)),
+        enqueue_step=lambda session_id, step_id: calls.append(("enqueue_step", step_id)),
+    )
+
+    service.pause_for_approval(
+        session_id="session-1",
+        target_step=target_step,
+        reason="approval_required",
+        requested_action_json={"action": "delivery.send"},
+    )
+
+    assert calls == [
+        ("update_step", "waiting_approval"),
+        ("set_session_status", "awaiting_approval"),
+        ("enqueue_step", "step-dispatch"),
+        ("append_event", "session_paused_for_approval"),
+    ]
+
+
 def test_execution_step_runtime_service_completes_tool_step_and_persists_receipt_cost_and_artifact_event() -> None:
     calls: list[tuple[str, object]] = []
     artifact = Artifact(
