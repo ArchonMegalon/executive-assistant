@@ -11,7 +11,13 @@ from app.services.tool_runtime import ToolRuntimeService
 from app.repositories.tool_registry import InMemoryToolRegistryRepository
 
 
+def _enable_fake_gemini_cli(monkeypatch) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+
+
 def test_gemini_vortex_tool_executes_and_returns_structured_output(monkeypatch) -> None:
+    _enable_fake_gemini_cli(monkeypatch)
+
     def fake_run(*args, **kwargs):
         return subprocess.CompletedProcess(
             args=args[0],
@@ -72,6 +78,7 @@ def test_gemini_vortex_tool_executes_and_returns_structured_output(monkeypatch) 
 
 
 def test_gemini_vortex_tool_falls_back_to_vertex_key_slot(monkeypatch, tmp_path) -> None:
+    _enable_fake_gemini_cli(monkeypatch)
     calls: list[dict[str, str]] = []
 
     def fake_run(*args, **kwargs):
@@ -133,6 +140,7 @@ def test_gemini_vortex_tool_falls_back_to_vertex_key_slot(monkeypatch, tmp_path)
 
 
 def test_gemini_vortex_tool_reuses_principal_slot_lease(monkeypatch, tmp_path) -> None:
+    _enable_fake_gemini_cli(monkeypatch)
     seen_slots: list[str] = []
 
     def fake_run(*args, **kwargs):

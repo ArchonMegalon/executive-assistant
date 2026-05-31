@@ -6334,6 +6334,7 @@ def test_codex_profiles_endpoint_exposes_lane_provider_state(monkeypatch: pytest
     monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-key")
     monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-key")
     monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
