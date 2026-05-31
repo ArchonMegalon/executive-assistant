@@ -25,6 +25,10 @@ VOLATILE_KEYS = {
     "source_path",
     "resolved_path",
     "git_repo_root",
+    "command",
+    "cwd",
+    "output_excerpt",
+    "python_bin",
     "review_due",
 }
 
