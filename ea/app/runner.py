@@ -829,21 +829,32 @@ def _run_scheduler_morning_memo_delivery(
     from app.product.service import build_product_service
     from app.services.google_oauth import GOOGLE_CONNECTOR_NAME
     from app.services.registration_email import email_delivery_enabled
+    from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR
 
     observed_at = now_utc or datetime.now(timezone.utc)
     if observed_at.tzinfo is None:
         observed_at = observed_at.replace(tzinfo=timezone.utc)
     service = build_product_service(container)
-    bindings = [
+    google_bindings = [
         binding
         for binding in container.tool_runtime.list_connector_bindings_for_connector(GOOGLE_CONNECTOR_NAME, limit=1000)
         if str(binding.status or "").strip().lower() == "enabled" and str(binding.principal_id or "").strip()
     ]
-    bindings_by_principal: dict[str, list[object]] = {}
-    for binding in bindings:
+    telegram_bindings = [
+        binding
+        for binding in container.tool_runtime.list_connector_bindings_for_connector(TELEGRAM_IDENTITY_CONNECTOR, limit=1000)
+        if str(binding.status or "").strip().lower() == "enabled" and str(binding.principal_id or "").strip()
+    ]
+    google_bindings_by_principal: dict[str, list[object]] = {}
+    for binding in google_bindings:
         principal_id = str(binding.principal_id or "").strip()
         if principal_id:
-            bindings_by_principal.setdefault(principal_id, []).append(binding)
+            google_bindings_by_principal.setdefault(principal_id, []).append(binding)
+    principals = {
+        str(binding.principal_id or "").strip()
+        for binding in [*google_bindings, *telegram_bindings]
+        if str(binding.principal_id or "").strip()
+    }
 
     configured = 0
     due = 0
@@ -853,8 +864,9 @@ def _run_scheduler_morning_memo_delivery(
     skipped = 0
     error_count = 0
 
-    for principal_id, principal_bindings in sorted(bindings_by_principal.items()):
+    for principal_id in sorted(principals):
         try:
+            principal_bindings = list(google_bindings_by_principal.get(principal_id, []))
             preferences = container.memory_runtime.list_delivery_preferences(
                 principal_id=principal_id,
                 limit=50,
@@ -864,7 +876,7 @@ def _run_scheduler_morning_memo_delivery(
                 (
                     row
                     for row in preferences
-                    if str(dict(row.format_json or {}).get("schedule_kind") or "").strip().lower() == "morning_memo"
+                    if str(dict(row.format_json or {}).get("schedule_kind") or "").strip().lower() in {"morning_memo", "assistant_nudge"}
                 ),
                 None,
             )
@@ -942,7 +954,7 @@ def _run_scheduler_morning_memo_delivery(
                 blocked += 1
                 continue
             delivery_channel = str(format_json.get("delivery_channel") or preference.channel or "email").strip().lower() or "email"
-            if delivery_channel != "email":
+            if delivery_channel not in {"email", "telegram"}:
                 blocked += 1
                 container.channel_runtime.ingest_observation(
                     principal_id=principal_id,
@@ -975,7 +987,7 @@ def _run_scheduler_morning_memo_delivery(
                 ),
                 "",
             )
-            recipient_email = explicit_email or google_email
+            recipient_email = explicit_email or google_email or principal_id
             if not recipient_email:
                 blocked += 1
                 container.channel_runtime.ingest_observation(
@@ -991,7 +1003,16 @@ def _run_scheduler_morning_memo_delivery(
                     dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|recipient-missing",
                 )
                 continue
-            if not email_delivery_enabled():
+            digest_key = str(format_json.get("digest_key") or "memo").strip().lower() or "memo"
+            digest = service.channel_digest_pack(
+                principal_id=principal_id,
+                digest_key=digest_key,
+                operator_id="",
+            )
+            if digest is None or (digest_key == "assistant_nudge" and not list(digest.get("items") or [])):
+                skipped += 1
+                continue
+            if delivery_channel == "email" and not email_delivery_enabled():
                 blocked += 1
                 container.channel_runtime.ingest_observation(
                     principal_id=principal_id,
@@ -1009,7 +1030,7 @@ def _run_scheduler_morning_memo_delivery(
                 continue
             payload = service.issue_channel_digest_delivery(
                 principal_id=principal_id,
-                digest_key=str(format_json.get("digest_key") or "memo").strip().lower() or "memo",
+                digest_key=digest_key,
                 recipient_email=recipient_email,
                 role=str(format_json.get("role") or "principal").strip().lower() or "principal",
                 display_name=str(format_json.get("display_name") or recipient_email or "Workspace Principal").strip(),
@@ -1033,8 +1054,10 @@ def _run_scheduler_morning_memo_delivery(
                     dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|digest-missing",
                 )
                 continue
-            email_status = str(payload.get("email_delivery_status") or "").strip().lower()
-            if email_status == "sent":
+            delivery_status = str(
+                payload.get("telegram_delivery_status") if delivery_channel == "telegram" else payload.get("email_delivery_status") or ""
+            ).strip().lower()
+            if delivery_status == "sent":
                 sent += 1
                 container.channel_runtime.ingest_observation(
                     principal_id=principal_id,
@@ -1052,7 +1075,7 @@ def _run_scheduler_morning_memo_delivery(
                     dedupe_key=sent_dedupe,
                 )
                 continue
-            if email_status == "not_configured":
+            if delivery_status == "not_configured":
                 blocked += 1
                 container.channel_runtime.ingest_observation(
                     principal_id=principal_id,
@@ -1061,11 +1084,11 @@ def _run_scheduler_morning_memo_delivery(
                     payload={
                         "schedule_key": schedule_key,
                         "local_day": local_day,
-                        "reason": "email_delivery_not_configured",
+                        "reason": f"{delivery_channel}_delivery_not_configured",
                         "recipient_email": recipient_email,
                     },
                     source_id=str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
-                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|email-not-configured",
+                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|{delivery_channel}-not-configured",
                 )
                 continue
             failed += 1
@@ -1079,10 +1102,12 @@ def _run_scheduler_morning_memo_delivery(
                     "local_day": local_day,
                     "delivery_id": str(payload.get("delivery_id") or "").strip(),
                     "recipient_email": recipient_email,
-                    "digest_key": str(payload.get("digest_key") or "memo").strip(),
+                    "digest_key": str(payload.get("digest_key") or digest_key).strip(),
                     "delivery_channel": delivery_channel,
-                    "email_delivery_status": email_status or "failed",
+                    "email_delivery_status": str(payload.get("email_delivery_status") or "").strip(),
                     "email_delivery_error": str(payload.get("email_delivery_error") or "").strip(),
+                    "telegram_delivery_status": str(payload.get("telegram_delivery_status") or "").strip(),
+                    "telegram_delivery_error": str(payload.get("telegram_delivery_error") or "").strip(),
                 },
                 source_id=str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
                 dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|failed|{failure_bucket}",

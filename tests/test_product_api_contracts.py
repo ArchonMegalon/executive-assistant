@@ -1624,6 +1624,54 @@ def test_issue_channel_digest_delivery_records_profile_followup_nudge() -> None:
     assert str((nudge.payload or {}).get("recommended_action") or "") == "check rehab approvals"
 
 
+def test_channel_loop_exposes_actionable_assistant_nudge_without_grounding_noise() -> None:
+    principal_id = "exec-product-assistant-nudge-digest"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Assistant Nudge Office")
+    product = ProductService(client.app.state.container)
+
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        display_name="Tibor Girschele",
+        learning_enabled=True,
+    )
+    product.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain="life_admin",
+        category="insurance_admin",
+        key="rehab_authorization_management",
+        value_json={"enabled": True},
+        strength="high",
+        confidence=0.9,
+        source_mode="inferred",
+        status="active",
+        decay_policy="reinforce_only",
+    )
+    product.record_preference_evidence(
+        principal_id=principal_id,
+        person_id="self",
+        domain="document_ingest",
+        event_type="document_pattern_detected",
+        object_type="scanned_document_batch",
+        object_id="onedrive:tibor-insurance-rehab-authorizations",
+        source_ref="/mnt/onedrive/Documents/Scanned Documents",
+        raw_signal_json={"sample_documents": ["20250615 Kfa Bewilligung Physio.pdf"]},
+        interpreted_signal_json={"summary": "Recurring KfA and rehab authorization paperwork."},
+        signal_strength=0.9,
+        reversible=True,
+    )
+
+    loop = client.get("/app/api/channel-loop")
+    assert loop.status_code == 200
+    assistant_nudge = next(item for item in loop.json()["digests"] if item["key"] == "assistant_nudge")
+    assert assistant_nudge["summary"] == "Only the items where you need to do something now."
+    assert any(item["tag"] == "Profile follow-up" for item in assistant_nudge["items"])
+    assert all(item["tag"] != "Grounding" for item in assistant_nudge["items"])
+
+
 def test_channel_loop_memo_reopens_profile_followup_after_fresh_evidence(monkeypatch) -> None:
     principal_id = "exec-product-profile-memo-followup-fresh-evidence"
     client = build_product_client(principal_id=principal_id)

@@ -500,6 +500,9 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
             return row
 
     class _FakeService:
+        def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = ""):
+            return {"key": digest_key, "items": [{"title": "Memo", "tag": "Memo"}]}
+
         def issue_channel_digest_delivery(
             self,
             *,
@@ -617,6 +620,9 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
     service_calls: list[str] = []
 
     class _FakeService:
+        def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = ""):
+            return {"key": digest_key, "items": [{"title": "Memo", "tag": "Memo"}]}
+
         def issue_channel_digest_delivery(self, **kwargs):
             service_calls.append("called")
             return {"delivery_id": "digest-2", "digest_key": "memo", "email_delivery_status": "sent"}
@@ -664,3 +670,152 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
         "errors": 0,
     }
     assert service_calls == []
+
+
+def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    telegram_binding = ConnectorBinding(
+        binding_id="binding-telegram-1",
+        principal_id="principal-nudge-1",
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        scope_json={},
+        auth_metadata_json={"default_chat_ref": "1354554303"},
+        status="enabled",
+        created_at="2026-03-30T00:00:00Z",
+        updated_at="2026-03-30T00:00:00Z",
+    )
+    preference = SimpleNamespace(
+        preference_id="pref-nudge-1",
+        principal_id="principal-nudge-1",
+        channel="telegram",
+        recipient_ref="assistant_nudge_primary",
+        cadence="daily_morning",
+        quiet_hours_json={
+            "timezone": "UTC",
+            "delivery_time_local": "08:00",
+            "quiet_hours_start": "20:00",
+            "quiet_hours_end": "07:00",
+            "delivery_window_minutes": 120,
+        },
+        format_json={
+            "schedule_kind": "assistant_nudge",
+            "digest_key": "assistant_nudge",
+            "role": "principal",
+            "display_name": "Exec Nudge",
+            "delivery_channel": "telegram",
+            "retry_after_minutes": 60,
+        },
+        status="active",
+    )
+
+    service_calls: list[tuple[str, str, str, str]] = []
+    ingested_events: list[tuple[str, str]] = []
+    dedupe_index: dict[str, SimpleNamespace] = {}
+
+    class _FakeChannelRuntime:
+        def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None):
+            return dedupe_index.get(dedupe_key)
+
+        def list_recent_observations(self, limit: int = 50, principal_id: str | None = None):
+            return []
+
+        def ingest_observation(
+            self,
+            principal_id: str,
+            channel: str,
+            event_type: str,
+            payload: dict[str, object] | None = None,
+            *,
+            source_id: str = "",
+            external_id: str = "",
+            dedupe_key: str = "",
+            auth_context_json: dict[str, object] | None = None,
+            raw_payload_uri: str = "",
+        ):
+            ingested_events.append((event_type, dedupe_key))
+            row = SimpleNamespace(
+                event_type=event_type,
+                payload=dict(payload or {}),
+                created_at="2026-03-30T08:05:00+00:00",
+            )
+            if dedupe_key:
+                dedupe_index[dedupe_key] = row
+            return row
+
+    class _FakeService:
+        def channel_digest_pack(self, *, principal_id: str, digest_key: str, operator_id: str = ""):
+            assert principal_id == "principal-nudge-1"
+            assert digest_key == "assistant_nudge"
+            return {"key": "assistant_nudge", "items": [{"title": "Reply to landlord", "tag": "Approval"}]}
+
+        def issue_channel_digest_delivery(
+            self,
+            *,
+            principal_id: str,
+            digest_key: str,
+            recipient_email: str,
+            role: str,
+            display_name: str = "",
+            operator_id: str = "",
+            delivery_channel: str = "email",
+            expires_in_hours: int = 72,
+            base_url: str = "",
+        ):
+            service_calls.append((principal_id, digest_key, recipient_email, delivery_channel))
+            return {
+                "delivery_id": "digest-nudge-1",
+                "digest_key": digest_key,
+                "telegram_delivery_status": "sent",
+            }
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [telegram_binding]
+            if connector_name == "telegram_identity"
+            else []
+        ),
+        memory_runtime=SimpleNamespace(
+            list_delivery_preferences=lambda principal_id, limit=50, status=None: [preference]
+        ),
+        channel_runtime=_FakeChannelRuntime(),
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.registration_email",
+        SimpleNamespace(email_delivery_enabled=lambda: True),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.telegram_onboarding_service",
+        SimpleNamespace(TELEGRAM_IDENTITY_CONNECTOR="telegram_identity"),
+    )
+
+    now_utc = runner.datetime(2026, 3, 30, 8, 5, tzinfo=runner.timezone.utc)
+    summary = runner._run_scheduler_morning_memo_delivery(
+        container,
+        logging.getLogger("test.runner"),
+        now_utc=now_utc,
+    )
+
+    assert summary == {
+        "ran": True,
+        "configured": 1,
+        "due": 1,
+        "sent": 1,
+        "blocked": 0,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0,
+    }
+    assert service_calls == [("principal-nudge-1", "assistant_nudge", "principal-nudge-1", "telegram")]
+    assert ingested_events == [
+        ("scheduled_morning_memo_delivery_sent", "principal-nudge-1|scheduled-morning-memo|pref-nudge-1|2026-03-30|sent")
+    ]

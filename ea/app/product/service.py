@@ -18433,7 +18433,7 @@ class ProductService:
                     source_id=delivery_id,
                     dedupe_key=f"{principal_id}|{delivery_id}|delivery-telegram-failed",
                 )
-        if normalized_digest == "memo":
+        if normalized_digest in {"memo", "assistant_nudge"}:
             for item in list(digest.get("items") or []):
                 if not isinstance(item, dict):
                     continue
@@ -18926,6 +18926,135 @@ class ProductService:
                     "secondary_action_method": "get",
                 }
             )
+        assistant_nudge_items: list[dict[str, str]] = []
+        if proactive_profile_brief is not None:
+            proactive_object_ref = str(proactive_profile_brief.object_ref or "").strip()
+            if not proactive_object_ref or self._profile_followup_nudge_allowed(
+                principal_id=principal_id,
+                object_ref=proactive_object_ref,
+            ):
+                assistant_nudge_items.append(
+                    {
+                        "title": proactive_profile_brief.title,
+                        "detail": proactive_profile_brief.why_now or proactive_profile_brief.summary or "A proactive admin follow-up needs your attention.",
+                        "tag": "Profile follow-up",
+                        "href": "/app/today",
+                        "action_href": "/app/today",
+                        "action_label": "Open follow-up",
+                        "action_method": "get",
+                        "object_ref": proactive_object_ref,
+                        "profile_followup_refs": list(proactive_profile_brief.profile_followup_refs),
+                        "recommended_action": str(proactive_profile_brief.recommended_action or "").strip(),
+                    }
+                )
+        if at_risk_commitments:
+            commitment = at_risk_commitments[0]
+            assistant_nudge_items.append(
+                {
+                    "title": commitment.statement,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            commitment.counterparty,
+                            f"Due {commitment.due_at[:10]}" if commitment.due_at else "",
+                            commitment.risk_level.replace("_", " ").title(),
+                        )
+                        if part
+                    )
+                    or "A commitment needs your decision.",
+                    "tag": "Commitment",
+                    "href": f"/app/commitment-items/{commitment.id}",
+                    "action_href": f"/app/commitment-items/{commitment.id}",
+                    "action_label": "Review commitment",
+                    "action_method": "get",
+                }
+            )
+        for draft in snapshot.drafts[:2]:
+            assistant_nudge_items.append(
+                {
+                    "title": f"Approve draft for {draft.recipient_summary or 'next reply'}",
+                    "detail": " · ".join(
+                        part for part in (draft.intent.title(), draft.send_channel, draft.approval_status) if part
+                    )
+                    or "A draft is waiting for your approval.",
+                    "tag": "Approval",
+                    "href": "/app/queue",
+                    "action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="draft",
+                        object_ref=draft.id,
+                        action="approve",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Approved from assistant nudge digest.",
+                    ),
+                    "action_label": "Approve now",
+                    "action_method": "get",
+                    "secondary_action_href": self.channel_action_href(
+                        principal_id=principal_id,
+                        object_kind="draft",
+                        object_ref=draft.id,
+                        action="reject",
+                        return_to="/app/channel-loop/approvals",
+                        operator_id=operator_key,
+                        reason="Rejected from assistant nudge digest.",
+                    ),
+                    "secondary_action_label": "Reject",
+                    "secondary_action_method": "get",
+                }
+            )
+        for candidate in visible_review_candidates[:2]:
+            assistant_nudge_items.append(
+                {
+                    "title": candidate.title,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            candidate.kind.replace("_", " ").title(),
+                            candidate.counterparty,
+                            f"Due {candidate.suggested_due_at[:10]}" if candidate.suggested_due_at else "",
+                            candidate.signal_type.replace("_", " ").title() if candidate.signal_type else "",
+                        )
+                        if part
+                    )
+                    or "A signal-backed candidate is waiting for your decision.",
+                    "tag": "Candidate",
+                    "href": f"/app/commitments/candidates/{candidate.candidate_id}",
+                    "action_href": f"/app/commitments/candidates/{candidate.candidate_id}",
+                    "action_label": "Review candidate",
+                    "action_method": "get",
+                }
+            )
+        for decision in open_decisions[:1]:
+            assistant_nudge_items.append(
+                {
+                    "title": decision.title,
+                    "detail": " · ".join(
+                        part
+                        for part in (
+                            decision.owner_role,
+                            decision.sla_status.replace("_", " ").title(),
+                            decision.impact_summary or decision.summary,
+                        )
+                        if part
+                    )
+                    or "A decision still needs you.",
+                    "tag": "Decision",
+                    "href": f"/app/decisions/{decision.id}",
+                    "action_href": f"/app/decisions/{decision.id}",
+                    "action_label": "Review decision",
+                    "action_method": "get",
+                }
+            )
+        deduped_assistant_nudges: list[dict[str, str]] = []
+        seen_nudge_keys: set[str] = set()
+        for item in assistant_nudge_items:
+            dedupe_key = str(item.get("object_ref") or item.get("href") or item.get("title") or "").strip().lower()
+            if not dedupe_key or dedupe_key in seen_nudge_keys:
+                continue
+            seen_nudge_keys.add(dedupe_key)
+            deduped_assistant_nudges.append(item)
+        assistant_nudge_items = deduped_assistant_nudges[:4]
         return [
             {
                 "key": "memo",
@@ -18957,6 +19086,24 @@ class ProductService:
                     "pending_drafts": len(snapshot.drafts),
                     "pending_commitment_candidates": len(visible_review_candidates),
                     "principal_queue_items": len(principal_queue),
+                    "open_decisions": len(open_decisions),
+                },
+            },
+            {
+                "key": "assistant_nudge",
+                "headline": "Assistant nudge",
+                "summary": "Only the items where you need to do something now.",
+                "preview_text": (
+                    f"{len(assistant_nudge_items)} actionable item"
+                    + ("" if len(assistant_nudge_items) == 1 else "s")
+                    + " need your attention."
+                ),
+                "items": assistant_nudge_items,
+                "stats": {
+                    "actionable_items": len(assistant_nudge_items),
+                    "at_risk_commitments": len(at_risk_commitments),
+                    "pending_drafts": len(snapshot.drafts),
+                    "pending_commitment_candidates": len(visible_review_candidates),
                     "open_decisions": len(open_decisions),
                 },
             },
