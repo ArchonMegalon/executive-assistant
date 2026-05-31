@@ -3430,6 +3430,11 @@ class BrowserActToolAdapter:
             raise ToolExecutionError(f"ui_service_template_missing:{service.service_key}")
         if bool(request_payload.get("force_browseract")):
             return None
+        remote_fallback_allowed = bool(
+            request_payload.get("force_browseract")
+            or request_payload.get("allow_browseract_remote_fallback")
+            or request_payload.get("remote_fallback_allowed")
+        )
         try:
             template_spec = browseract_ui_template_spec(service.template_key)
         except KeyError as exc:
@@ -3450,14 +3455,9 @@ class BrowserActToolAdapter:
                 allow_force_local=True,
             )
         except ToolExecutionError:
-            if workflow_id:
+            if workflow_id and remote_fallback_allowed:
                 return None
             raise
-        remote_fallback_allowed = bool(
-            request_payload.get("force_browseract")
-            or request_payload.get("allow_browseract_remote_fallback")
-            or request_payload.get("remote_fallback_allowed")
-        )
         if workflow_id and remote_fallback_allowed and cls._browseract_ui_direct_result_needs_remote_retry(result=result):
             return None
         return result
