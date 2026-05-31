@@ -44,10 +44,33 @@ def _state(payload: dict[str, Any], key: str) -> str:
     return str(section.get("state") or section.get("status") or "").strip().lower()
 
 
-def _journey_summary(path: Path) -> dict[str, Any]:
+def _pulse_journey_summary_snapshot(pulse: dict[str, Any], path: Path) -> dict[str, Any]:
+    health = pulse.get("journey_gate_health")
+    if not isinstance(health, dict):
+        return {}
+    supporting_signals = pulse.get("supporting_signals")
+    if not isinstance(supporting_signals, dict):
+        supporting_signals = {}
+    source = str(pulse.get("journey_gate_source") or supporting_signals.get("journey_gate_source") or "").strip()
+    if source != path.as_posix():
+        return {}
+    state = str(health.get("state") or health.get("status") or "").strip().lower()
+    if not state:
+        return {}
+    return {
+        "overall_state": state,
+        "blocked_count": int(health.get("blocked_count") or 0),
+        "warning_count": int(health.get("warning_count") or 0),
+        "source": "weekly_product_pulse_snapshot",
+    }
+
+
+def _journey_summary(path: Path, *, pulse: dict[str, Any]) -> dict[str, Any]:
     payload = _json(path)
     summary = payload.get("summary")
-    return dict(summary) if isinstance(summary, dict) else {}
+    if isinstance(summary, dict):
+        return dict(summary)
+    return _pulse_journey_summary_snapshot(pulse, path)
 
 
 def _text(path: Path) -> str:
@@ -70,7 +93,7 @@ def verify(
     pulse = _json(pulse_path)
     receipt = _json(flagship_receipt_path)
     browser = _json(browser_proof_path)
-    journey_summary = _journey_summary(journey_gates_path)
+    journey_summary = _journey_summary(journey_gates_path, pulse=pulse)
     implementation_scope = _text(implementation_scope_path)
 
     for path in required_contract_paths:

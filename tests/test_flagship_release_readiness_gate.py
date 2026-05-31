@@ -109,6 +109,156 @@ def test_flagship_release_readiness_gate_passes_when_receipts_and_journeys_are_c
     assert '"status": "pass"' in result.stdout
 
 
+def test_flagship_release_readiness_gate_accepts_committed_journey_snapshot_when_external_receipt_is_absent(
+    tmp_path: Path,
+) -> None:
+    pulse = tmp_path / "pulse.json"
+    receipt = tmp_path / "receipt.json"
+    browser = tmp_path / "browser.json"
+    journey = tmp_path / "missing" / "journey.json"
+    scope = tmp_path / "scope.md"
+    _write_json(
+        pulse,
+        {
+            "contract_name": "ea.weekly_product_pulse",
+            "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
+            "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+            "journey_gate_source": journey.as_posix(),
+            "release_health": {"state": "clear"},
+            "flagship_readiness": {"state": "clear"},
+            "journey_gate_health": {
+                "state": "ready",
+                "blocked_count": 0,
+                "warning_count": 0,
+                "recommended_action": "Journey proof is steady on current published evidence.",
+            },
+            "supporting_signals": {
+                "launch_readiness": "Release truth is clear enough to widen claims.",
+                "journey_gate_source": journey.as_posix(),
+            },
+        },
+    )
+    _write_json(receipt, {"status": "pass"})
+    _write_json(browser, {"status": "pass"})
+    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--pulse",
+            str(pulse),
+            "--flagship-receipt",
+            str(receipt),
+            "--browser-proof",
+            str(browser),
+            "--journey-gates",
+            str(journey),
+            "--implementation-scope",
+            str(scope),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert '"status": "pass"' in result.stdout
+
+
+def test_flagship_release_readiness_gate_fails_when_external_receipt_and_snapshot_are_absent(tmp_path: Path) -> None:
+    pulse = tmp_path / "pulse.json"
+    receipt = tmp_path / "receipt.json"
+    browser = tmp_path / "browser.json"
+    journey = tmp_path / "missing" / "journey.json"
+    scope = tmp_path / "scope.md"
+    _write_json(
+        pulse,
+        {
+            "contract_name": "ea.weekly_product_pulse",
+            "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
+            "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+            "release_health": {"state": "clear"},
+            "flagship_readiness": {"state": "clear"},
+            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+        },
+    )
+    _write_json(receipt, {"status": "pass"})
+    _write_json(browser, {"status": "pass"})
+    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--pulse",
+            str(pulse),
+            "--flagship-receipt",
+            str(receipt),
+            "--browser-proof",
+            str(browser),
+            "--journey-gates",
+            str(journey),
+            "--implementation-scope",
+            str(scope),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "journey gates summary missing or invalid" in result.stdout
+
+
+def test_flagship_release_readiness_gate_rejects_unsourced_journey_snapshot_when_external_receipt_is_absent(
+    tmp_path: Path,
+) -> None:
+    pulse = tmp_path / "pulse.json"
+    receipt = tmp_path / "receipt.json"
+    browser = tmp_path / "browser.json"
+    journey = tmp_path / "missing" / "journey.json"
+    scope = tmp_path / "scope.md"
+    _write_json(
+        pulse,
+        {
+            "contract_name": "ea.weekly_product_pulse",
+            "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
+            "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+            "release_health": {"state": "clear"},
+            "flagship_readiness": {"state": "clear"},
+            "journey_gate_health": {"state": "ready", "blocked_count": 0},
+            "supporting_signals": {"launch_readiness": "Release truth is clear enough to widen claims."},
+        },
+    )
+    _write_json(receipt, {"status": "pass"})
+    _write_json(browser, {"status": "pass"})
+    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--pulse",
+            str(pulse),
+            "--flagship-receipt",
+            str(receipt),
+            "--browser-proof",
+            str(browser),
+            "--journey-gates",
+            str(journey),
+            "--implementation-scope",
+            str(scope),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "journey gates summary missing or invalid" in result.stdout
+
+
 def test_flagship_release_readiness_gate_rejects_chummer_pulse_and_missing_ea_scope(tmp_path: Path) -> None:
     pulse = tmp_path / "pulse.json"
     receipt = tmp_path / "receipt.json"
