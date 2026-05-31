@@ -1043,6 +1043,91 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     assert "https://myexternalbrain.com/tours/test-scout-flat" in str(observed_telegram["text"])
 
 
+def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Watch Notify Office")
+    product = ProductService(client.app.state.container)
+    product.update_property_alert_policy(
+        principal_id=principal_id,
+        auto_score=True,
+        auto_compare=True,
+        auto_generate_tour_for_good_fit=True,
+        notify_only_if_good=True,
+        good_fit_min_score=80.0,
+        notify_top_watch_hit_when_no_good_fit=True,
+        watch_fit_min_score=35.0,
+        actor="test",
+    )
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.immmo.at/immo/Wohnung-mieten/Wien",
+                    "label": "IMMMO Wien rentals",
+                    "principal_id": principal_id,
+                    "preference_person_id": "elisabeth",
+                    "notify_telegram": True,
+                    "max_results": 1,
+                }
+            ]
+        ),
+    )
+    listing_url = "https://www.immobilienscout24.at/expose/watch-fit-1"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url: f'<a href="{listing_url}">One</a>',
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url: {
+            "listing_id": "watch-fit-1",
+            "title": "Watch fit apartment",
+            "summary": "Vienna apartment",
+            "property_facts_json": {},
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "assessment_id": "assessment-watch-fit-1",
+            "domain": "willhaben",
+            "object_id": str(kwargs.get("object_id") or ""),
+            "fit_score": 37.0,
+            "confidence": 0.78,
+            "predicted_reaction": "consider",
+            "recommendation": "ask_for_clarification",
+            "match_reasons_json": ["Potential fit worth watching."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    observed_telegram: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("992",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text: observed_telegram.update({"principal_id": principal_id, "text": text}) or _TelegramReceipt(),
+    )
+    response = client.post("/app/api/signals/property/scout")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "processed"
+    assert body["high_fit_total"] == 0
+    assert body["notified_total"] == 1
+    assert body["sources"][0]["watch_notified_total"] == 1
+    assert "Personal fit 37/100" in str(observed_telegram["text"])
+
+
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:
     principal_id = "exec-product-property-fit-end-to-end"
     client = build_product_client(principal_id=principal_id)

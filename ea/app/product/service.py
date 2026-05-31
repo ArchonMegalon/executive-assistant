@@ -1477,6 +1477,8 @@ def _default_property_alert_policy() -> dict[str, object]:
         "notify_only_if_good": True,
         "good_fit_min_score": 80.0,
         "good_fit_recommendations": ("shortlist",),
+        "notify_top_watch_hit_when_no_good_fit": True,
+        "watch_fit_min_score": 35.0,
     }
 
 
@@ -1484,11 +1486,15 @@ def _normalize_property_alert_policy(payload: dict[str, object] | None) -> dict[
     base = dict(_default_property_alert_policy())
     if not isinstance(payload, dict):
         return base
-    for key in ("auto_score", "auto_compare", "auto_generate_tour_for_good_fit", "notify_only_if_good"):
+    for key in ("auto_score", "auto_compare", "auto_generate_tour_for_good_fit", "notify_only_if_good", "notify_top_watch_hit_when_no_good_fit"):
         if key in payload:
             base[key] = bool(payload.get(key))
     try:
         base["good_fit_min_score"] = max(0.0, min(100.0, float(payload.get("good_fit_min_score") or base["good_fit_min_score"])))
+    except Exception:
+        pass
+    try:
+        base["watch_fit_min_score"] = max(0.0, min(100.0, float(payload.get("watch_fit_min_score") or base["watch_fit_min_score"])))
     except Exception:
         pass
     raw_recommendations = payload.get("good_fit_recommendations")
@@ -1525,6 +1531,23 @@ def _property_alert_is_good_fit(
     except Exception:
         min_score = 0.0
     return score >= min_score
+
+
+def _property_alert_is_watch_fit(
+    assessment: dict[str, object] | None,
+    *,
+    policy: dict[str, object] | None = None,
+) -> bool:
+    if not isinstance(assessment, dict):
+        return False
+    if _property_alert_is_good_fit(assessment, policy=policy):
+        return True
+    normalized_policy = _normalize_property_alert_policy(policy)
+    try:
+        min_score = float(normalized_policy.get("watch_fit_min_score") or 0.0)
+    except Exception:
+        min_score = 0.0
+    return _property_alert_fit_score(assessment) >= min_score
 
 
 def _property_alert_personal_fit_assessment(
@@ -10363,6 +10386,8 @@ class ProductService:
             tour_created_for_source = 0
             tour_existing_for_source = 0
             high_fit_for_source = 0
+            watch_notified_for_source = 0
+            top_watch_candidate: dict[str, object] | None = None
             for row in ranked_rows:
                 property_url = str(row.get("property_url") or "").strip()
                 listing_id = str(row.get("listing_id") or "").strip() or property_url
@@ -10372,9 +10397,19 @@ class ProductService:
                 fit_score = float(row.get("fit_score") or 0.0)
                 source_ref = f"property-scout:{listing_id}"
                 is_good_fit = _property_alert_is_good_fit(assessment, policy=policy)
+                is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
                 if is_good_fit:
                     high_fit_for_source += 1
                     high_fit_total += 1
+                elif is_watch_fit and top_watch_candidate is None:
+                    top_watch_candidate = {
+                        "title": title,
+                        "summary": summary,
+                        "property_url": property_url,
+                        "source_ref": source_ref,
+                        "assessment": assessment,
+                        "fit_score": fit_score,
+                    }
                 opened = self._open_property_alert_review(
                     principal_id=principal_id,
                     title=title,
@@ -10431,6 +10466,31 @@ class ProductService:
                     if str(notify_result.get("status") or "").strip() == "sent":
                         notified_for_source += 1
                         notified_total += 1
+            if (
+                notify_telegram
+                and high_fit_for_source == 0
+                and bool(policy.get("notify_top_watch_hit_when_no_good_fit"))
+                and top_watch_candidate is not None
+            ):
+                notify_result = self._send_property_scout_hit_telegram(
+                    principal_id=principal_id,
+                    actor=actor,
+                    title=str(top_watch_candidate.get("title") or "").strip(),
+                    summary=str(top_watch_candidate.get("summary") or "").strip(),
+                    counterparty=source_label,
+                    account_email=account_email,
+                    property_url=str(top_watch_candidate.get("property_url") or "").strip(),
+                    source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
+                    assessment=dict(top_watch_candidate.get("assessment") or {}),
+                    fit_score=float(top_watch_candidate.get("fit_score") or 0.0),
+                    preference_person_id=preference_person_id,
+                    tour_result={"status": "skipped", "tour_url": "", "blocked_reason": ""},
+                    candidate_properties=candidate_properties,
+                )
+                if str(notify_result.get("status") or "").strip() == "sent":
+                    watch_notified_for_source += 1
+                    notified_for_source += 1
+                    notified_total += 1
             source_summaries.append(
                 {
                     "source_url": source_url,
@@ -10443,6 +10503,7 @@ class ProductService:
                     "tour_created_total": tour_created_for_source,
                     "tour_existing_total": tour_existing_for_source,
                     "high_fit_total": high_fit_for_source,
+                    "watch_notified_total": watch_notified_for_source,
                     "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
                 }
             )
@@ -12306,6 +12367,8 @@ class ProductService:
         auto_generate_tour_for_good_fit: bool | None = None,
         notify_only_if_good: bool | None = None,
         good_fit_min_score: float | None = None,
+        notify_top_watch_hit_when_no_good_fit: bool | None = None,
+        watch_fit_min_score: float | None = None,
         good_fit_recommendations: tuple[str, ...] | None = None,
         source_id: str = "",
     ) -> dict[str, object]:
@@ -12320,6 +12383,10 @@ class ProductService:
             payload["notify_only_if_good"] = bool(notify_only_if_good)
         if good_fit_min_score is not None:
             payload["good_fit_min_score"] = max(0.0, min(100.0, float(good_fit_min_score)))
+        if notify_top_watch_hit_when_no_good_fit is not None:
+            payload["notify_top_watch_hit_when_no_good_fit"] = bool(notify_top_watch_hit_when_no_good_fit)
+        if watch_fit_min_score is not None:
+            payload["watch_fit_min_score"] = max(0.0, min(100.0, float(watch_fit_min_score)))
         if good_fit_recommendations is not None:
             payload["good_fit_recommendations"] = [
                 str(item or "").strip().lower()

@@ -1251,6 +1251,7 @@ class PropertyScoutSourceOut(BaseModel):
     tour_created_total: int = 0
     tour_existing_total: int = 0
     high_fit_total: int = 0
+    watch_notified_total: int = 0
     top_fit_score: float = 0.0
     error: str = ""
 
