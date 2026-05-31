@@ -26,6 +26,8 @@ Use these terms consistently:
 * `participant lane` is the Fleet/operator execution term
 * `contribution receipt` is the signed Fleet event that Hub ingests
 * `recognition projection` is the derived leaderboard/badge/feed view
+* `Codex contribution code` is the public-safe handoff token a signed-in supporter uses to connect a bounded participant lane to Hub participation truth
+* `participant_total_tokens` is the recognition metric for bounded contribution volume; it is never provider billing truth or merge authority
 
 Public copy should prefer `participate` and `guided contribution`.
 Operator terms such as `participant burst lane`, `jury`, `core backend`, or `device-auth helper` may appear in operator and verifier surfaces, but they are not first-contact user language.

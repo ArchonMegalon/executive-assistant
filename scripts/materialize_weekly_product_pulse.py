@@ -22,6 +22,34 @@ DEFAULT_CONTROL_LOOP = Path(".codex-design/product/PRODUCT_CONTROL_AND_GOVERNOR_
 DEFAULT_RELEASE_PIPELINE = Path(".codex-design/product/RELEASE_PIPELINE.md")
 DEFAULT_RELEASE_CHECKLIST = Path("RELEASE_CHECKLIST.md")
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
+_RELEASE_TRUTH_HEAD_KEYS = {
+    "release_truth_provenance.git_head",
+    "supporting_signals.flagship_release_receipt_git_head",
+}
+_PROVENANCE_REFRESH_ALLOWED_PREFIXES = (
+    ".codex-design/product/",
+    ".codex-studio/published/",
+    ".codex-design/repo/",
+)
+_PROVENANCE_REFRESH_ALLOWED_EXACT = {
+    "README.md",
+    "RUNBOOK.md",
+    "RELEASE_CHECKLIST.md",
+    "PRODUCT_RELEASE_CHECKLIST.md",
+    "Makefile",
+    "scripts/materialize_weekly_product_pulse.py",
+    "scripts/operator_summary.sh",
+    "scripts/smoke_postgres.sh",
+    "scripts/verify_flagship_release_readiness.py",
+    "scripts/verify_release_assets.sh",
+    "tests/e2e/visual_baselines/admin-community-page.png",
+    "tests/test_chummer5a_parity_lab_pack.py",
+    "tests/test_flagship_release_readiness_gate.py",
+    "tests/test_migration_contracts.py",
+    "tests/test_operator_contracts.py",
+    "tests/test_providers_api_contracts.py",
+    "tests/test_weekly_product_pulse_materializer.py",
+}
 
 
 def _utcnow() -> datetime:
@@ -64,6 +92,70 @@ def _normalize_release_value(value: Any) -> Any:
     return value
 
 
+def _provenance_heads(value: Any, *, prefix: str = "") -> dict[str, str]:
+    if isinstance(value, dict):
+        heads: dict[str, str] = {}
+        for key, item in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key == "git_head" or str(key).endswith("_git_head"):
+                heads[path] = str(item or "").strip()
+                continue
+            heads.update(_provenance_heads(item, prefix=path))
+        return heads
+    if isinstance(value, list):
+        heads: dict[str, str] = {}
+        for index, item in enumerate(value):
+            heads.update(_provenance_heads(item, prefix=f"{prefix}[{index}]"))
+        return heads
+    return {}
+
+
+def _changed_paths_between_heads(old_head: str, new_head: str, *, repo_root: Path = DEFAULT_ROOT) -> list[str] | None:
+    try:
+        output = subprocess.run(
+            ["git", "-C", str(repo_root), "diff", "--name-only", f"{old_head}..{new_head}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except Exception:
+        return None
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def _allowed_provenance_refresh_path(path: str) -> bool:
+    return path in _PROVENANCE_REFRESH_ALLOWED_EXACT or any(
+        path.startswith(prefix) for prefix in _PROVENANCE_REFRESH_ALLOWED_PREFIXES
+    )
+
+
+def _provenance_refresh_required(existing_heads: dict[str, str], payload_heads: dict[str, str]) -> bool:
+    if existing_heads == payload_heads:
+        return False
+
+    differing_keys = {
+        key
+        for key in set(existing_heads) | set(payload_heads)
+        if existing_heads.get(key) != payload_heads.get(key)
+    }
+    if not differing_keys <= _RELEASE_TRUTH_HEAD_KEYS:
+        return True
+
+    old_head = existing_heads.get("release_truth_provenance.git_head") or existing_heads.get(
+        "supporting_signals.flagship_release_receipt_git_head"
+    )
+    new_head = payload_heads.get("release_truth_provenance.git_head") or payload_heads.get(
+        "supporting_signals.flagship_release_receipt_git_head"
+    )
+    if not old_head or not new_head:
+        return True
+
+    changed_paths = _changed_paths_between_heads(old_head, new_head)
+    if changed_paths is None:
+        return True
+    return any(not _allowed_provenance_refresh_path(path) for path in changed_paths)
+
+
 def _write_json_stable(path: Path, payload: dict[str, Any]) -> None:
     serialized = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
     if path.exists():
@@ -71,7 +163,11 @@ def _write_json_stable(path: Path, payload: dict[str, Any]) -> None:
             existing = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             existing = None
-        if isinstance(existing, dict) and _normalize_release_value(existing) == _normalize_release_value(payload):
+        if (
+            isinstance(existing, dict)
+            and _normalize_release_value(existing) == _normalize_release_value(payload)
+            and not _provenance_refresh_required(_provenance_heads(existing), _provenance_heads(payload))
+        ):
             return
     path.write_text(serialized, encoding="utf-8")
 

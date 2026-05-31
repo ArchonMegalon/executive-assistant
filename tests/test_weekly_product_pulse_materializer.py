@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 from pathlib import Path
 
 import yaml
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +15,15 @@ PULSE_PATH = Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json")
 SCORECARD_PATH = Path(".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml")
 FLAGSHIP_RECEIPT_PATH = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
 JOURNEY_GATES_PATH = Path("/tmp/ea-weekly-pulse-journey-gates.generated.json")
+
+
+def _load_materializer_module():
+    spec = importlib.util.spec_from_file_location("weekly_product_pulse_materializer", SCRIPT)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _seed_truth_sources(root: Path) -> None:
@@ -127,6 +138,62 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     assert pulse["supporting_signals"]["overall_progress_percent"] == 50
     assert pulse["governor_decisions"]
     assert len(pulse["governor_decisions"]) == 2
+
+
+def test_weekly_product_pulse_keeps_allowed_provenance_only_head_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_materializer_module()
+    monkeypatch.setattr(
+        module,
+        "_changed_paths_between_heads",
+        lambda old_head, new_head: [
+            ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+            "scripts/materialize_weekly_product_pulse.py",
+            "tests/test_weekly_product_pulse_materializer.py",
+        ],
+    )
+    pulse_path = tmp_path / "pulse.json"
+    stale = {
+        "contract_name": "ea.weekly_product_pulse",
+        "summary": "same",
+        "release_truth_provenance": {"git_head": "old"},
+        "supporting_signals": {"flagship_release_receipt_git_head": "old"},
+    }
+    fresh = {
+        "contract_name": "ea.weekly_product_pulse",
+        "summary": "same",
+        "release_truth_provenance": {"git_head": "new"},
+        "supporting_signals": {"flagship_release_receipt_git_head": "new"},
+    }
+    pulse_path.write_text(json.dumps(stale, indent=2) + "\n", encoding="utf-8")
+
+    module._write_json_stable(pulse_path, fresh)
+
+    assert json.loads(pulse_path.read_text(encoding="utf-8")) == stale
+
+
+def test_weekly_product_pulse_rewrites_when_disallowed_provenance_head_change_lands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_materializer_module()
+    monkeypatch.setattr(module, "_changed_paths_between_heads", lambda old_head, new_head: ["scripts/smoke_api.sh"])
+    pulse_path = tmp_path / "pulse.json"
+    stale = {
+        "contract_name": "ea.weekly_product_pulse",
+        "summary": "same",
+        "release_truth_provenance": {"git_head": "old"},
+        "supporting_signals": {"flagship_release_receipt_git_head": "old"},
+    }
+    fresh = {
+        "contract_name": "ea.weekly_product_pulse",
+        "summary": "same",
+        "release_truth_provenance": {"git_head": "new"},
+        "supporting_signals": {"flagship_release_receipt_git_head": "new"},
+    }
+    pulse_path.write_text(json.dumps(stale, indent=2) + "\n", encoding="utf-8")
+
+    module._write_json_stable(pulse_path, fresh)
+
+    assert json.loads(pulse_path.read_text(encoding="utf-8")) == fresh
 
 
 def test_weekly_product_pulse_does_not_claim_missing_browser_proof_after_pass_receipt(tmp_path: Path) -> None:

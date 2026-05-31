@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-05-31T11:41:43Z",
+  "generated_at": "2026-05-31T15:13:04Z",
   "as_of": "2026-05-31",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -10,10 +10,10 @@
     "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
     "size_bytes": 5741,
-    "mtime_utc": "2026-05-31T10:21:45Z",
-    "sha256": "398f1de51845de7be6be596a68619b462feffa01c12c4879b915718b56d9296e",
+    "mtime_utc": "2026-05-31T15:13:04Z",
+    "sha256": "286f430b122c52f07cb43f38b4de072f29c67dbae094827b8093abea461a3ebc",
     "git_repo_root": "/docker/EA",
-    "git_head": "c512d3a5e1735060fc61f01e8dcfecedd2082614",
+    "git_head": "d45378948d1461c0f96b9e9d9bb50943f8a48df6",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -26,7 +26,7 @@
     "mtime_utc": "2026-05-31T11:39:39Z",
     "sha256": "c5ef38e2b0b1e72450e035931b9f150f66334a6877e9909e4cbb64e167dea77e",
     "git_repo_root": "/docker/fleet",
-    "git_head": "04ab4b7600b673f84bb4d8d3efe3ca019321cccb",
+    "git_head": "1e425028fe0937d7702e730e44b0ce852876b639",
     "git_branch": "completion/absolute-product-finish",
     "repo_relative_path": ".codex-studio/published/JOURNEY_GATES.generated.json"
   },
@@ -125,13 +125,13 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
-      "review_due": "2026-06-07T11:41:43Z",
+      "review_due": "2026-06-07T15:13:04Z",
       "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-    "journey_gate_git_head": "04ab4b7600b673f84bb4d8d3efe3ca019321cccb",
+    "journey_gate_git_head": "1e425028fe0937d7702e730e44b0ce852876b639",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "c512d3a5e1735060fc61f01e8dcfecedd2082614",
+    "flagship_release_receipt_git_head": "d45378948d1461c0f96b9e9d9bb50943f8a48df6",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",

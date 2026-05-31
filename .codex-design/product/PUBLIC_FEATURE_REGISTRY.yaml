@@ -550,13 +550,13 @@ cards:
     bucket: participate
     title: Guided contribution
     summary: Open the signed-in contribution flow when you want to lend focused, review-safe help.
-    href: /account/access
+    href: /account/participation
     badge: Registered
     audience: public
     image_family: solo_operator
     cta_kind: explainer
-    guest_href: /login?next=/account/access
-    registered_href: /account/access
+    guest_href: /auth/google/start?next=%2Faccount%2Fparticipation
+    registered_href: /account/participation
     action_label: Open guided contribution
   - id: participate_beta
     bucket: participate

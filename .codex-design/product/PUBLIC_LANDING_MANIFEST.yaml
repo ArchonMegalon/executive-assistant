@@ -177,6 +177,15 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: current public support/contact path only
+- path: /progress
+  title: Progress
+  audience: public
+  purpose: progress_report
+  requires_auth: false
+  guest_fallback: /progress
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public progress report only
 - path: /participate
   title: Participate
   audience: public
@@ -195,6 +204,24 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: public feedback entry only
+- path: /feedback/operations
+  title: Feedback operations
+  audience: public
+  purpose: public_feedback_operations
+  requires_auth: false
+  guest_fallback: /feedback/operations
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public feedback operations packet only
+- path: /feedback/operations/lookup
+  title: Feedback operations lookup
+  audience: public
+  purpose: public_feedback_operations_lookup
+  requires_auth: false
+  guest_fallback: /feedback/operations/lookup
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public feedback operations lookup only
 - path: /participate/karma-forge
   title: KARMA FORGE discovery
   audience: public
@@ -204,6 +231,32 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: governed discovery entry only
+- path: /participate/karma-forge/submitted/{submissionId}
+  title: KARMA FORGE discovery submitted
+  audience: public
+  purpose: governed_future_signal_submitted
+  requires_auth: false
+  guest_fallback: /participate/karma-forge
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: governed discovery submitted receipt only
+  verification_mode: controller_contract
+  verification_path: /participate/karma-forge
+  verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+  verification_pattern: '[HttpGet("/participate/karma-forge/submitted/{submissionId}")]'
+- path: /contact/submitted/{caseId}
+  title: Support case submitted
+  audience: public
+  purpose: support_case_submitted
+  requires_auth: false
+  guest_fallback: /contact
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public-safe support submitted receipt only
+  verification_mode: controller_contract
+  verification_path: /contact
+  verification_file: Chummer.Run.Api/Controllers/PublicLandingController.cs
+  verification_pattern: '[HttpGet("/contact/submitted/{caseId}")]'
 - path: /artifacts
   title: Featured artifacts
   audience: public
@@ -312,6 +365,33 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: artifact detail only
+- path: /ledger
+  title: Black Ledger
+  audience: public
+  purpose: public_worlds_entry
+  requires_auth: false
+  guest_fallback: /ledger
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public aggregate world-state entry only
+- path: /ledger/map
+  title: Black Ledger map
+  audience: public
+  purpose: public_world_map
+  requires_auth: false
+  guest_fallback: /ledger/map
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public aggregate map only
+- path: /ledger/factions
+  title: Black Ledger factions
+  audience: public
+  purpose: public_faction_index
+  requires_auth: false
+  guest_fallback: /ledger/factions
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: public-safe faction index only
 - path: /ledger/newsroom
   title: Black Ledger newsroom redirect
   audience: public
@@ -742,6 +822,16 @@ registered_routes:
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: secondary preferences route
+- path: /account/participation
+  title: Account participation
+  audience: registered
+  purpose: signed_in_participation
+  requires_auth: true
+  guest_fallback: /login?next=/account/participation
+  # auth_handoff: /auth/google/start?next=%2Faccount%2Fparticipation
+  must_exist: true
+  placeholder_allowed: true
+  placeholder_requirements: signed-in participation dashboard and recognition route
 - path: /account/advanced
   title: Account advanced
   audience: registered
@@ -757,6 +847,7 @@ registered_routes:
   purpose: signed_in_participation
   requires_auth: true
   guest_fallback: /login?next=/participate/codex
+  # auth_handoff: /auth/google/start?next=%2Fparticipate%2Fcodex
   must_exist: true
   placeholder_allowed: true
   placeholder_requirements: signed-in participation flow
