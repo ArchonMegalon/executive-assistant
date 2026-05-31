@@ -67,6 +67,7 @@ created_env=0
 env_had_file=0
 env_backup=""
 restore_api_env=0
+scheduler_was_running=0
 if [[ ! -f "${EA_ROOT}/.env" ]]; then
   cp "${env_template}" "${EA_ROOT}/.env"
   chmod 600 "${EA_ROOT}/.env"
@@ -97,9 +98,15 @@ if [[ ! "${SMOKE_DB}" =~ ^[a-zA-Z0-9_]+$ ]]; then
 fi
 
 cleanup() {
+  local restore_services=(ea-api ea-worker)
+  if [[ "${scheduler_was_running}" == "1" ]]; then
+    restore_services+=(ea-scheduler)
+  fi
   if [[ "${restore_api_env}" == "1" && "${env_had_file}" == "1" && -n "${env_backup}" && -f "${env_backup}" ]]; then
     cp "${env_backup}" "${EA_ROOT}/.env"
-    "${DC[@]}" up -d --force-recreate ea-api ea-worker >/dev/null 2>&1 || true
+    "${DC[@]}" up -d --force-recreate "${restore_services[@]}" >/dev/null 2>&1 || true
+  elif [[ "${scheduler_was_running}" == "1" ]]; then
+    "${DC[@]}" up -d ea-scheduler >/dev/null 2>&1 || true
   fi
   if [[ -n "${env_backup}" && -f "${env_backup}" ]]; then
     rm -f "${env_backup}"
@@ -222,6 +229,12 @@ validate_legacy_upgrade() {
 }
 
 cd "${EA_ROOT}"
+
+if "${DC[@]}" ps --status running --services 2>/dev/null | grep -Fxq "ea-scheduler"; then
+  scheduler_was_running=1
+  echo "== smoke-postgres: stop scheduler for isolated queue ownership =="
+  "${DC[@]}" stop ea-scheduler >/dev/null
+fi
 
 echo "== smoke-postgres: compose up (db only) =="
 "${DC[@]}" up -d --build ea-db
