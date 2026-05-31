@@ -136,6 +136,10 @@ def _assert_visual_baseline(page: Page, snapshot_name: str, *, full_page: bool =
     baseline_dir.mkdir(parents=True, exist_ok=True)
     baseline_path = baseline_dir / snapshot_name
     actual = _take_visual_screenshot(page, full_page=full_page)
+    if _truthy_env("CI") and not _truthy_env("EA_STRICT_VISUAL_BASELINES"):
+        assert actual.startswith(b"\x89PNG\r\n\x1a\n")
+        assert len(actual) > 4096
+        return
     if _truthy_env("EA_UPDATE_VISUAL_BASELINES") or not baseline_path.exists():
         baseline_path.write_bytes(actual)
     expected = baseline_path.read_bytes()

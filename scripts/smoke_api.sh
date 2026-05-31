@@ -61,6 +61,30 @@ wait_for_session_status() {
   return 1
 }
 
+plan_execute_artifact_json() {
+  local response="$1"
+  local artifact_id=""
+  local session_id=""
+  local session_json=""
+  artifact_id="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${response}")"
+  if [[ -n "${artifact_id}" ]]; then
+    printf '%s' "${response}"
+    return 0
+  fi
+  session_id="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${response}")"
+  if [[ -z "${session_id}" ]]; then
+    printf '%s' "${response}"
+    return 0
+  fi
+  session_json="$(wait_for_session_status "${session_id}" "completed" 120 0.5)"
+  artifact_id="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); rows=body.get("artifacts") or []; print((rows[-1] or {}).get("artifact_id","") if rows else "")' <<<"${session_json}")"
+  if [[ -z "${artifact_id}" ]]; then
+    printf '%s' "${response}"
+    return 0
+  fi
+  curl -fsS "${BASE}/v1/rewrite/artifacts/${artifact_id}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}"
+}
+
 curl_status_code() {
   local response_path="$1"
   shift
@@ -1927,6 +1951,7 @@ operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/js
   -d '{"task_key":"research_brief","deliverable_type":"decision_summary","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["decision_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low","workflow_template":"artifact_then_memory_candidate","artifact_output_template":"evidence_pack","evidence_pack_confidence":0.72}}' >/dev/null
 EVIDENCE_PACK_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"research_brief","goal":"prepare an evidence-backed brief","input_json":{"source_text":"Market conditions suggest two viable options.","claims":["Option A preserves margin","Option B accelerates launch"],"evidence_refs":["browseract://run/123","paper://abc"],"open_questions":["Need final vendor pricing"]}}')"
+EVIDENCE_PACK_JSON="$(plan_execute_artifact_json "${EVIDENCE_PACK_JSON}")"
 EVIDENCE_PACK_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); structured=body.get('structured_output_json') or {}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('kind',''), structured.get('format',''), len(structured.get('claims') or []), len(structured.get('evidence_refs') or []), len(structured.get('open_questions') or []), structured.get('confidence',''), body.get('preview_text','')))" <<<"${EVIDENCE_PACK_JSON}")"
 if [[ "${EVIDENCE_PACK_FIELDS}" != "research_brief|decision_summary|evidence_pack|2|2|1|0.72|Market conditions suggest two viable options." ]]; then
   echo "expected evidence-pack artifact output template to persist structured claims/evidence/open questions; got ${EVIDENCE_PACK_FIELDS}" >&2
@@ -1944,6 +1969,7 @@ fi
 EVIDENCE_PACK_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${EVIDENCE_PACK_JSON}")"
 EVIDENCE_PACK_TWO_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d '{"task_key":"research_brief","goal":"prepare an evidence-backed brief","input_json":{"source_text":"Support load may fall if the simpler option ships first.","claims":["Option C reduces support load"],"evidence_refs":["paper://abc","call://ops-review"],"open_questions":["Need service staffing forecast"],"confidence":0.58}}')"
+EVIDENCE_PACK_TWO_JSON="$(plan_execute_artifact_json "${EVIDENCE_PACK_TWO_JSON}")"
 EVIDENCE_PACK_TWO_ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("artifact_id",""))' <<<"${EVIDENCE_PACK_TWO_JSON}")"
 EVIDENCE_OBJECTS_JSON="$(curl -fsS "${BASE}/v1/evidence/objects?artifact_id=${EVIDENCE_PACK_ARTIFACT_ID}&principal_id=${PRINCIPAL_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 EVIDENCE_OBJECT_FIELDS="$(python3 -c "import json,sys; rows=json.loads(sys.stdin.read() or '[]'); row=(rows or [{}])[0]; print('{}|{}|{}|{}|{}|{}'.format(row.get('artifact_id',''), len(row.get('claims') or []), len(row.get('evidence_refs') or []), len(row.get('open_questions') or []), row.get('confidence',''), str(row.get('citation_handle','')).startswith('evidence://')))" <<<"${EVIDENCE_OBJECTS_JSON}")"

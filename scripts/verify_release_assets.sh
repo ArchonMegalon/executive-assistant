@@ -1163,6 +1163,13 @@ else
   missing=1
 fi
 
+if grep -Fq "python -m playwright install --with-deps chromium" ".github/workflows/smoke-runtime.yml"; then
+  echo "ok: smoke-runtime workflow installs playwright browsers for real-browser gates"
+else
+  echo "missing: smoke-runtime workflow playwright browser install" >&2
+  missing=1
+fi
+
 if grep -Fq "scripts/smoke_postgres.sh" ".github/workflows/smoke-runtime.yml"; then
   echo "ok: smoke-runtime workflow includes postgres smoke job"
 else
@@ -4574,6 +4581,7 @@ then
      grep -Fq '"format": "evidence_pack"' "ea/app/services/execution_step_runtime_service.py" && \
      grep -Fq "test_planner_can_project_evidence_pack_artifact_output_template" "tests/test_task_contract_step_templates.py" && \
      grep -Fq "test_artifact_then_memory_candidate_evidence_pack_persists_structured_output" "tests/test_task_contract_step_templates.py" && \
+     grep -Fq "plan_execute_artifact_json" "scripts/smoke_api.sh" && \
      grep -Fq 'artifact_output_template":"evidence_pack' "scripts/smoke_api.sh" && \
      grep -Fq "artifact_output_template=evidence_pack" "README.md" && \
      grep -Fq "artifact_output_template=evidence_pack" "RUNBOOK.md" && \

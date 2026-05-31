@@ -260,6 +260,7 @@ elif grep -q '^EA_LEDGER_BACKEND=' "${EA_ROOT}/.env"; then
 else
   echo 'EA_STORAGE_BACKEND=postgres' >> "${EA_ROOT}/.env"
 fi
+set_env_value "EA_API_TOKEN" "smoke-postgres-token"
 
 if [[ "${env_had_file}" == "1" ]]; then
   restore_api_env=1

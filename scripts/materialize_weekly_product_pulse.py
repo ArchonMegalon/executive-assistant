@@ -185,6 +185,27 @@ def _compact(value: object, *, fallback: str = "", limit: int = 220) -> str:
     return text
 
 
+def _existing_cited_signal_int(existing: dict[str, Any], signal_name: str, *, fallback: int = 0) -> int:
+    prefix = f"{signal_name}="
+    signal_sources = [
+        existing.get("governor_decisions") or [],
+        dict(existing.get("snapshot") or {}).get("governor_decisions") or [],
+    ]
+    for decisions in signal_sources:
+        for decision in decisions:
+            if not isinstance(decision, dict):
+                continue
+            for signal in decision.get("cited_signals") or []:
+                signal_text = str(signal or "")
+                if not signal_text.startswith(prefix):
+                    continue
+                try:
+                    return int(signal_text[len(prefix) :])
+                except ValueError:
+                    continue
+    return fallback
+
+
 def _resolve_for_read(root: Path, path: Path) -> Path:
     return path if path.is_absolute() else root / path
 
@@ -255,6 +276,51 @@ def _source_provenance(path: Path) -> dict[str, Any]:
 
 def _journey_gate_source(root: Path, journey_path: Path) -> dict[str, Any]:
     resolved = _resolve_for_read(root, journey_path)
+    if not resolved.exists():
+        existing = _load_json(root / DEFAULT_OUTPUT) or {}
+        existing_health = dict(existing.get("journey_gate_health") or {})
+        existing_provenance = dict(existing.get("journey_gate_provenance") or {})
+        if existing_health or existing_provenance:
+            existing_signals = dict(existing.get("supporting_signals") or {})
+            blocked = int(existing_health.get("blocked_count") or 0)
+            warning = int(existing_health.get("warning_count") or 0)
+            state = str(existing_health.get("state") or "missing").strip() or "missing"
+            recommended_action = _compact(
+                existing_health.get("recommended_action") or existing_health.get("reason") or "",
+                fallback="Journey-gate posture is preserved from the last committed external snapshot.",
+            )
+            total = int(
+                existing_health.get("total_count")
+                or _existing_cited_signal_int(existing, "journey_gate_total_count")
+                or blocked
+            )
+            ready = int(
+                existing_health.get("ready_count")
+                or _existing_cited_signal_int(existing, "journey_gate_ready_count")
+                or max(total - blocked - warning, 0)
+            )
+            ready_share = int(
+                existing_signals.get("overall_progress_percent")
+                or _existing_cited_signal_int(existing, "ready_share")
+                or 0
+            )
+            preserved_path = Path(str(existing.get("journey_gate_source") or journey_path.as_posix()))
+            provenance = existing_provenance or _source_provenance(resolved)
+            provenance.setdefault("present", False)
+            return {
+                "journey": {},
+                "summary": {},
+                "journeys": [],
+                "path": preserved_path,
+                "state": state,
+                "recommended_action": recommended_action,
+                "blocked": blocked,
+                "ready": ready,
+                "warning": warning,
+                "total": total,
+                "ready_share": int(round((ready / total) * 100)) if total else ready_share,
+                "provenance": provenance,
+            }
     journey = _load_json(resolved) or {}
     summary = dict(journey.get("summary") or {})
     journeys = [dict(row) for row in list(journey.get("journeys") or []) if isinstance(row, dict)]
@@ -312,6 +378,7 @@ def build_pulse(
     scorecard = _load_yaml(root / scorecard_path)
     cadence = dict(scorecard.get("cadence") or {})
     journey_info = _journey_gate_source(root, journey_gates_path)
+    journey_source_path = Path(str(journey_info.get("path") or journey_gates_path.as_posix()))
     receipt_info = _flagship_receipt_source(root, flagship_receipt_path)
     now = _utcnow()
     generated_at = _format_utc(now)
@@ -437,7 +504,7 @@ def build_pulse(
         "scorecard_source": scorecard_path.as_posix(),
         "release_truth_source": flagship_receipt_path.as_posix(),
         "release_truth_provenance": receipt_info["provenance"],
-        "journey_gate_source": journey_gates_path.as_posix(),
+        "journey_gate_source": journey_source_path.as_posix(),
         "journey_gate_provenance": journey_info["provenance"],
         "summary": summary,
         "active_wave": "EA flagship receipt closeout",
@@ -501,7 +568,7 @@ def build_pulse(
                 "cluster_id": "fleet_journey_coverage",
                 "summary": fleet_cluster_summary,
                 "source_paths": [
-                    journey_gates_path.as_posix(),
+                    journey_source_path.as_posix(),
                     "scripts/verify_release_assets.sh",
                 ],
             },
@@ -535,7 +602,7 @@ def build_pulse(
             "longest_pole": "cross-host journey coverage" if release_truth_state == "pass" else "browser execution proof",
             "launch_readiness": launch_readiness,
             "provider_route_stewardship": provider_route_stewardship,
-            "journey_gate_source": journey_gates_path.as_posix(),
+            "journey_gate_source": journey_source_path.as_posix(),
             "journey_gate_git_head": str(journey_info["provenance"].get("git_head") or "").strip(),
             "flagship_release_receipt_source": flagship_receipt_path.as_posix(),
             "flagship_release_receipt_git_head": str(receipt_info["provenance"].get("git_head") or "").strip(),
@@ -602,7 +669,7 @@ def build_pulse(
                     "cluster_id": "fleet_journey_coverage",
                     "summary": fleet_cluster_summary,
                     "source_paths": [
-                        journey_gates_path.as_posix(),
+                        journey_source_path.as_posix(),
                         "scripts/verify_release_assets.sh",
                     ],
                 },

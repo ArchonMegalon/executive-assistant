@@ -1371,6 +1371,7 @@ def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> N
     assert "\"format\": \"evidence_pack\"" in runtime_service
     assert "test_planner_can_project_evidence_pack_artifact_output_template" in workflow_test
     assert "test_artifact_then_memory_candidate_evidence_pack_persists_structured_output" in workflow_test
+    assert "plan_execute_artifact_json" in smoke_script
     assert "artifact_output_template\":\"evidence_pack" in smoke_script
     assert "artifact_output_template=evidence_pack" in readme
     assert "artifact_output_template=evidence_pack" in runbook
