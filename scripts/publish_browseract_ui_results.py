@@ -18,6 +18,17 @@ DEFAULT_OUTPUT_DIR = Path("/docker/fleet/state/public_browseract_results")
 DEFAULT_PUBLIC_BASE_URL = str(os.environ.get("EA_PUBLIC_RESULT_BASE_URL", "https://myexternalbrain.com/results")).strip().rstrip("/")
 
 
+def default_output_dir() -> Path:
+    configured = str(os.environ.get("EA_BROWSERACT_PUBLIC_RESULTS_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    try:
+        DEFAULT_OUTPUT_DIR.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return Path(os.environ.get("TMPDIR") or "/tmp") / "ea_public_browseract_results"
+    return DEFAULT_OUTPUT_DIR
+
+
 def slugify(value: str) -> str:
     lowered = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
     return lowered or "result"
@@ -140,7 +151,7 @@ def best_text(row: dict[str, object]) -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Publish browser-openable public result viewers for BrowserAct UI-service outputs.")
     parser.add_argument("--input", action="append", required=True, help="JSON file containing one result dict or a list of result dicts.")
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--output-dir", default=str(default_output_dir()))
     parser.add_argument("--public-base-url", default=DEFAULT_PUBLIC_BASE_URL)
     return parser.parse_args()
 
