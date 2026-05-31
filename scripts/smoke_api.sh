@@ -139,7 +139,7 @@ if [[ -z "${EA_API_TOKEN}" ]] && command -v docker >/dev/null 2>&1; then
 fi
 AUTH_ARGS=()
 if [[ -n "${EA_API_TOKEN:-}" ]]; then
-  AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}")
+  AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}" -H "X-EA-API-Token: ${EA_API_TOKEN}")
 fi
 EA_TELEGRAM_INGEST_SECRET="${EA_TELEGRAM_INGEST_SECRET:-}"
 if [[ -z "${EA_TELEGRAM_INGEST_SECRET}" && -f "${EA_ROOT}/.env" ]]; then
@@ -185,7 +185,7 @@ fi
 
 AUTH_ARGS=()
 if [[ -n "${EA_API_TOKEN:-}" ]]; then
-  AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}")
+  AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}" -H "X-EA-API-Token: ${EA_API_TOKEN}")
 fi
 
 operator_curl() {
@@ -2507,13 +2507,24 @@ fi
 HYBRID_EXECUTE_JSON="$(curl -fsS -X POST "${BASE}/v1/plans/execute" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"task_key\":\"stakeholder_review_dispatch\",\"goal\":\"review and send a stakeholder briefing\",\"input_json\":{\"source_text\":\"Board context and stakeholder sensitivities.\",\"binding_id\":\"${HYBRID_BINDING_ID}\",\"channel\":\"email\",\"recipient\":\"${HYBRID_RECIPIENT}\"}}")"
 HYBRID_EXECUTE_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); print('{}|{}|{}|{}|{}|{}'.format(body.get('task_key',''), body.get('status',''), body.get('next_action',''), bool(body.get('human_task_id','')), bool(body.get('session_id','')), bool(body.get('approval_id',''))))" <<<"${HYBRID_EXECUTE_JSON}")"
+if [[ "${HYBRID_EXECUTE_FIELDS}" == "stakeholder_review_dispatch|queued|poll_or_subscribe|False|True|False" ]]; then
+  HYBRID_SESSION_ID="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print(body.get("session_id",""))' <<<"${HYBRID_EXECUTE_JSON}")"
+  for _ in $(seq 1 30); do
+    HYBRID_HUMAN_TASK_ID="$(curl -fsS "${BASE}/v1/human/tasks?session_id=${HYBRID_SESSION_ID}&limit=10" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" | python3 -c 'import json,sys; rows=json.loads(sys.stdin.read() or "[]"); row=rows[0] if rows else {}; print(row.get("human_task_id",""))')"
+    if [[ -n "${HYBRID_HUMAN_TASK_ID}" ]]; then
+      HYBRID_EXECUTE_FIELDS="stakeholder_review_dispatch|awaiting_human|poll_or_subscribe|True|True|False"
+      break
+    fi
+    sleep 1
+  done
+fi
 if [[ "${HYBRID_EXECUTE_FIELDS}" != "stakeholder_review_dispatch|awaiting_human|poll_or_subscribe|True|True|False" ]]; then
   echo "expected review-then-dispatch workflow to pause behind human review first; got ${HYBRID_EXECUTE_FIELDS}" >&2
   echo "${HYBRID_EXECUTE_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 HYBRID_SESSION_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("session_id",""))' <<<"${HYBRID_EXECUTE_JSON}")"
-HYBRID_HUMAN_TASK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HYBRID_EXECUTE_JSON}")"
+HYBRID_HUMAN_TASK_ID="${HYBRID_HUMAN_TASK_ID:-$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("human_task_id",""))' <<<"${HYBRID_EXECUTE_JSON}")}"
 HYBRID_WAITING_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${HYBRID_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
 HYBRID_WAITING_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); steps={str((row.get('input_json') or {}).get('plan_step_key') or ''): row for row in (body.get('steps') or [])}; tasks=body.get('human_tasks') or []; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('intent_task_type',''), body.get('status',''), steps.get('step_human_review',{}).get('state',''), steps.get('step_human_review',{}).get('dependency_states') == {'step_input_prepare': 'completed'}, steps.get('step_artifact_save',{}).get('state',''), steps.get('step_artifact_save',{}).get('dependency_states') == {'step_human_review': 'waiting_human'}, body.get('artifacts') == [], len(tasks) == 1 and (tasks[0] or {}).get('status','') == 'pending'))" <<<"${HYBRID_WAITING_JSON}")"
 if [[ "${HYBRID_WAITING_FIELDS}" != "stakeholder_review_dispatch|awaiting_human|waiting_human|True|queued|True|True|True" ]]; then

@@ -73,6 +73,8 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "container_api_token=" in smoke
     assert "ORIGINAL_EA_API_TOKEN=" in smoke
     assert "token_candidates=" in smoke
+    assert 'X-EA-API-Token: ${candidate_token}' in smoke
+    assert 'X-EA-API-Token: ${EA_API_TOKEN}' in (ROOT / "scripts/smoke_api.sh").read_text()
     assert "EA_ALLOW_LOOPBACK_NO_AUTH=${EA_ALLOW_LOOPBACK_NO_AUTH:-0}" in (ROOT / "docker-compose.yml").read_text()
     assert "wait_for_postgres_sql 90" in smoke
     assert "consecutive=$((consecutive + 1))" in smoke

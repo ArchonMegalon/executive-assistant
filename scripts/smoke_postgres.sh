@@ -351,6 +351,7 @@ for candidate_token in "${token_candidates[@]}"; do
   fi
   token_probe_code="$(curl -sS --connect-timeout 2 --max-time 5 -o /tmp/ea_smoke_token_probe.json -w '%{http_code}' \
     -H "Authorization: Bearer ${candidate_token}" \
+    -H "X-EA-API-Token: ${candidate_token}" \
     -H "X-EA-Principal-ID: exec-1" \
     "${BASE}/v1/memory/candidates?limit=1" || true)"
   if [[ "${token_probe_code}" == "200" ]]; then
