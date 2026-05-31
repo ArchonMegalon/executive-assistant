@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-05-31T04:44:11Z",
+  "generated_at": "2026-05-31T04:44:28Z",
   "as_of": "2026-05-31",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -13,7 +13,7 @@
     "mtime_utc": "2026-05-30T20:44:00Z",
     "sha256": "fdd9820483d9a11e8d79b838e3cd029914718191627a3d8c49314fdb46b78521",
     "git_repo_root": "/docker/EA",
-    "git_head": "5db3f6ad5e322077af9c6c2b1e2b44022c26189d",
+    "git_head": "20b24296c95929f44d42e8910a82e38290ae597a",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -125,13 +125,13 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published, but cross-host journey coverage remains blocked.",
-      "review_due": "2026-06-07T04:44:11Z",
+      "review_due": "2026-06-07T04:44:28Z",
       "next_decision": "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "04ab4b7600b673f84bb4d8d3efe3ca019321cccb",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "5db3f6ad5e322077af9c6c2b1e2b44022c26189d",
+    "flagship_release_receipt_git_head": "20b24296c95929f44d42e8910a82e38290ae597a",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
