@@ -120,7 +120,12 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "make ci-gates-postgres-legacy" in text
     assert "make ci-gates-postgres" in text
     assert "make verify-release-assets" in text
+    assert "make verify-flagship-release-readiness" in text
     assert "make release-preflight" in text
+    assert "make provider-readiness" in text
+    assert "verify-flagship-release-readiness" in makefile
+    assert "verify-flagship-release-readiness:" in makefile
+    assert "provider-readiness:" in makefile
     assert "make overlay-vision-check" in text
     assert "make overlay-vision-pull" in text
     assert "make support-bundle" in text

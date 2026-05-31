@@ -169,3 +169,49 @@ def test_weekly_product_pulse_does_not_claim_missing_browser_proof_after_pass_re
         pulse["supporting_signals"]["provider_route_stewardship"]["next_decision"]
         == "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
     )
+
+
+def test_weekly_product_pulse_claims_ready_when_pass_receipt_and_journey_gate_ready(tmp_path: Path) -> None:
+    _seed_truth_sources(tmp_path)
+
+    receipt = json.loads((tmp_path / FLAGSHIP_RECEIPT_PATH).read_text(encoding="utf-8"))
+    receipt["status"] = "pass"
+    receipt["browser_workflow_proof"]["published_receipt_present"] = True
+    (tmp_path / FLAGSHIP_RECEIPT_PATH).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    journey = json.loads(Path(JOURNEY_GATES_PATH).read_text(encoding="utf-8"))
+    journey["summary"]["overall_state"] = "ready"
+    journey["summary"]["ready_count"] = 6
+    journey["summary"]["blocked_count"] = 0
+    journey["summary"]["recommended_action"] = "Journey proof is steady on current published evidence."
+    Path(JOURNEY_GATES_PATH).write_text(json.dumps(journey, indent=2) + "\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--scorecard",
+            SCORECARD_PATH.as_posix(),
+            "--journey-gates",
+            str(JOURNEY_GATES_PATH),
+            "--flagship-receipt",
+            FLAGSHIP_RECEIPT_PATH.as_posix(),
+            "--output",
+            PULSE_PATH.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
+
+    assert pulse["summary"] == (
+        "Executive Assistant has a green flagship receipt, the fleet journey gate is ready, "
+        "and no journeys block wider release claims."
+    )
+    assert pulse["release_health"]["state"] == "clear"
+    assert pulse["journey_gate_health"]["state"] == "ready"
+    assert pulse["supporting_signals"]["launch_readiness"] == "Release truth is clear enough to widen claims."

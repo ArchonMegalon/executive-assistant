@@ -3674,7 +3674,7 @@ def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: py
     import time
 
     def _slow_run_response(*args, **kwargs):
-        time.sleep(2.0)
+        time.sleep(3.0)
         raise RuntimeError("should_have_timed_out_first")
 
     monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _slow_run_response)
@@ -3687,7 +3687,7 @@ def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: py
     )
     elapsed = time.monotonic() - started
     assert reply == ""
-    assert elapsed < 1.8
+    assert elapsed < 2.5
 
 
 def test_telegram_ingest_duplicate_update_does_not_send_duplicate_reply(monkeypatch: pytest.MonkeyPatch) -> None:

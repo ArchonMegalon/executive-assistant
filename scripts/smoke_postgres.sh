@@ -383,7 +383,7 @@ if [[ "${prod_status}" != "exited" && "${prod_status}" != "dead" && "${prod_stat
 fi
 prod_log_ok=0
 for _ in $(seq 1 20); do
-  if (docker logs ea-api 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod requires (DATABASE_URL|a durable postgres runtime profile)"; then
+  if (docker logs ea-api 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"; then
     prod_log_ok=1
     break
   fi

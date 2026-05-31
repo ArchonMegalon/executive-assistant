@@ -1480,6 +1480,9 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     ea_release_provenance_subject = "ea: harden release provenance and browser workflow stability"
     release_readiness_audit_commit = "39bfa26"
     release_readiness_audit_subject = "ea: finalize release readiness audit fixes"
+    gold_ci_gate_commit = "c512d3a"
+    gold_ci_gate_subject = "ea: restore gold ci gate"
+    flagship_readiness_gate_subject = "ea: add flagship readiness gate"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1555,6 +1558,23 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/repo/IMPLEMENTATION_SCOPE.md" in paths, (commit, sorted(paths))
             assert ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" in paths, (commit, sorted(paths))
             assert ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json" in paths, (commit, sorted(paths))
+            continue
+        if commit == gold_ci_gate_commit:
+            assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert "tests/e2e/visual_baselines/admin-community-page.png" in paths, (commit, sorted(paths))
+            assert ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if (
+            "scripts/verify_flagship_release_readiness.py" in paths
+            and "tests/test_flagship_release_readiness_gate.py" in paths
+        ):
+            assert subject == flagship_readiness_gate_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json" in paths, (commit, sorted(paths))
+            assert "scripts/verify_flagship_release_readiness.py" in paths, (commit, sorted(paths))
+            assert "tests/test_flagship_release_readiness_gate.py" in paths, (commit, sorted(paths))
             continue
         assert all(
             path == "tests/test_chummer5a_parity_lab_pack.py"
@@ -1872,6 +1892,37 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" in paths, (commit, sorted(paths))
             assert ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json" in paths, (commit, sorted(paths))
             continue
+        if commit == gold_ci_gate_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert "tests/e2e/visual_baselines/admin-community-page.png" in paths, (commit, sorted(paths))
+            assert ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if (
+            "scripts/verify_flagship_release_readiness.py" in paths
+            and "tests/test_flagship_release_readiness_gate.py" in paths
+        ):
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == flagship_readiness_gate_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json" in paths, (commit, sorted(paths))
+            assert "scripts/verify_flagship_release_readiness.py" in paths, (commit, sorted(paths))
+            assert "tests/test_flagship_release_readiness_gate.py" in paths, (commit, sorted(paths))
+            continue
         assert all(path in permitted_post_receipt_paths or is_m103_feedback_path(path) for path in paths), (
             commit,
             sorted(paths),
@@ -2100,6 +2151,37 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/repo/IMPLEMENTATION_SCOPE.md" in paths, (commit, sorted(paths))
             assert ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" in paths, (commit, sorted(paths))
             assert ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json" in paths, (commit, sorted(paths))
+            continue
+        if commit == gold_ci_gate_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert "tests/e2e/visual_baselines/admin-community-page.png" in paths, (commit, sorted(paths))
+            assert ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml" in paths, (commit, sorted(paths))
+            assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if (
+            "scripts/verify_flagship_release_readiness.py" in paths
+            and "tests/test_flagship_release_readiness_gate.py" in paths
+        ):
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == flagship_readiness_gate_subject, (commit, subject, sorted(paths))
+            assert "tests/test_chummer5a_parity_lab_pack.py" in paths, (commit, sorted(paths))
+            assert ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json" in paths, (commit, sorted(paths))
+            assert "scripts/verify_flagship_release_readiness.py" in paths, (commit, sorted(paths))
+            assert "tests/test_flagship_release_readiness_gate.py" in paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(

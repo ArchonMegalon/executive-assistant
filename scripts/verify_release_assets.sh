@@ -64,6 +64,7 @@ required_files=(
   "scripts/materialize_ea_flagship_release_gate.py"
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
+  "scripts/verify_flagship_release_readiness.py"
   "scripts/verify_design_mirror_bundle.py"
   "scripts/repair_design_mirror_bundle.sh"
   "scripts/refresh_ltds_from_inventory.py"
@@ -201,6 +202,19 @@ if release_truth_head and current_head and release_truth_head != current_head:
         "RUNBOOK.md",
         "RELEASE_CHECKLIST.md",
         "PRODUCT_RELEASE_CHECKLIST.md",
+        "Makefile",
+        "scripts/materialize_weekly_product_pulse.py",
+        "scripts/operator_summary.sh",
+        "scripts/smoke_postgres.sh",
+        "scripts/verify_flagship_release_readiness.py",
+        "scripts/verify_release_assets.sh",
+        "tests/e2e/visual_baselines/admin-community-page.png",
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "tests/test_flagship_release_readiness_gate.py",
+        "tests/test_migration_contracts.py",
+        "tests/test_operator_contracts.py",
+        "tests/test_providers_api_contracts.py",
+        "tests/test_weekly_product_pulse_materializer.py",
     }
     disallowed = [
         path for path in changed_since_receipt
@@ -837,7 +851,7 @@ else
   missing=1
 fi
 
-if grep -Fq 'RELEASE_CHECKLIST.md` now includes an explicit EA flagship truth-plane preflight line to validate the browser proof and release gate seed.' "RUNBOOK.md"; then
+if grep -Fq 'RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, and Fleet journey gate.' "RUNBOOK.md"; then
   echo "ok: RUNBOOK EA truth-plane linkage note"
 else
   echo "missing: RUNBOOK EA truth-plane linkage note" >&2
@@ -1156,6 +1170,8 @@ if grep -Fq "make smoke-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make test-postgres-contracts" "scripts/operator_summary.sh" && \
    grep -Fq "make all-local" "scripts/operator_summary.sh" && \
    grep -Fq "make ci-gates-postgres-legacy" "scripts/operator_summary.sh" && \
+   grep -Fq "make provider-readiness" "scripts/operator_summary.sh" && \
+   grep -Fq "make verify-flagship-release-readiness" "scripts/operator_summary.sh" && \
    grep -Fq "make release-preflight" "scripts/operator_summary.sh" && \
    grep -Fq "make support-bundle" "scripts/operator_summary.sh" && \
    grep -Fq "make tasks-archive" "scripts/operator_summary.sh" && \

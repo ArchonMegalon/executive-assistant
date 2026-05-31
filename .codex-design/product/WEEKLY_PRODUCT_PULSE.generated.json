@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-05-31T10:21:45Z",
+  "generated_at": "2026-05-31T11:41:43Z",
   "as_of": "2026-05-31",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -13,7 +13,7 @@
     "mtime_utc": "2026-05-31T10:21:45Z",
     "sha256": "398f1de51845de7be6be596a68619b462feffa01c12c4879b915718b56d9296e",
     "git_repo_root": "/docker/EA",
-    "git_head": "6c805d7c74dc6293dab3ae61af7bc3d2f0d3a4c2",
+    "git_head": "c512d3a5e1735060fc61f01e8dcfecedd2082614",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -22,19 +22,19 @@
     "source_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "resolved_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "present": true,
-    "size_bytes": 66746,
-    "mtime_utc": "2026-05-31T07:43:39Z",
-    "sha256": "d6a08699c75eaf69ae9b4cdfc7c7d96d8ede9fa7d031a8421d1f95a11721bc60",
+    "size_bytes": 66081,
+    "mtime_utc": "2026-05-31T11:39:39Z",
+    "sha256": "c5ef38e2b0b1e72450e035931b9f150f66334a6877e9909e4cbb64e167dea77e",
     "git_repo_root": "/docker/fleet",
     "git_head": "04ab4b7600b673f84bb4d8d3efe3ca019321cccb",
     "git_branch": "completion/absolute-product-finish",
     "repo_relative_path": ".codex-studio/published/JOURNEY_GATES.generated.json"
   },
-  "summary": "Executive Assistant has a green flagship receipt, but the fleet journey gate is blocked, and 1 journey(s) still block wider claims.",
+  "summary": "Executive Assistant has a green flagship receipt, the fleet journey gate is ready, and no journeys block wider release claims.",
   "active_wave": "EA flagship receipt closeout",
   "active_wave_status": "active",
   "release_health": {
-    "state": "blocked",
+    "state": "clear",
     "reason": "The EA flagship receipt is published and current.",
     "flagship_receipt_status": "pass"
   },
@@ -43,19 +43,19 @@
     "reason": "Flagship receipt and browser proof are aligned."
   },
   "rule_environment_trust": {
-    "state": "watch",
-    "reason": "Install/update trust still depends on the blocked cross-host journey set."
+    "state": "monitor",
+    "reason": "Rule-environment trust is governed by the current release receipt."
   },
   "edition_authorship_and_import_confidence": {
     "state": "monitor",
     "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror."
   },
   "journey_gate_health": {
-    "state": "blocked",
-    "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-    "blocked_count": 1,
+    "state": "ready",
+    "reason": "Journey proof is steady on current published evidence.",
+    "blocked_count": 0,
     "warning_count": 0,
-    "recommended_action": "Resolve the blocking golden-journey gaps before widening publish claims."
+    "recommended_action": "Journey proof is steady on current published evidence."
   },
   "top_support_or_feedback_clusters": [
     {
@@ -69,7 +69,7 @@
     },
     {
       "cluster_id": "fleet_journey_coverage",
-      "summary": "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, so wider publish claims should stay constrained.",
+      "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
       "source_paths": [
         "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
         "scripts/verify_release_assets.sh"
@@ -92,46 +92,46 @@
     {
       "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
       "action": "focus_shift",
-      "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is pass, journey gates are blocked, and the ready share is 83%.",
+      "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is pass, journey gates are ready, and the ready share is 100%.",
       "cited_signals": [
         "flagship_receipt_status=pass",
-        "journey_gate_state=blocked",
-        "journey_gate_blocked_count=1",
-        "journey_gate_ready_count=5",
+        "journey_gate_state=ready",
+        "journey_gate_blocked_count=0",
+        "journey_gate_ready_count=6",
         "journey_gate_total_count=6",
-        "ready_share=83"
+        "ready_share=100"
       ]
     },
     {
       "decision_id": "2026-04-10-freeze-launch-expansion",
-      "action": "freeze_launch",
-      "reason": "Freeze launch expansion until the blocked journey tuples are cleared.",
+      "action": "hold_truth_line",
+      "reason": "Launch expansion can proceed because browser proof is published and blocked journey tuples are cleared.",
       "cited_signals": [
         "flagship_receipt_status=pass",
         "browser_execution_receipt_present=True",
-        "journey_gate_blocked_count=1",
-        "cross_host_tuple_coverage=blocked"
+        "journey_gate_blocked_count=0",
+        "cross_host_tuple_coverage=ready"
       ]
     }
   ],
   "next_checkpoint_question": "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?",
   "supporting_signals": {
     "current_recommended_wave": "EA flagship receipt closeout",
-    "overall_progress_percent": 83,
+    "overall_progress_percent": 100,
     "phase_label": "Journey coverage closeout",
     "history_snapshot_count": 1,
     "longest_pole": "cross-host journey coverage",
-    "launch_readiness": "Hold launch expansion pending cross-host journey coverage.",
+    "launch_readiness": "Release truth is clear enough to widen claims.",
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
-      "canary_status": "Browser execution proof is published, but cross-host journey coverage remains blocked.",
-      "review_due": "2026-06-07T10:21:45Z",
-      "next_decision": "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
+      "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
+      "review_due": "2026-06-07T11:41:43Z",
+      "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "04ab4b7600b673f84bb4d8d3efe3ca019321cccb",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "6c805d7c74dc6293dab3ae61af7bc3d2f0d3a4c2",
+    "flagship_release_receipt_git_head": "c512d3a5e1735060fc61f01e8dcfecedd2082614",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
@@ -141,7 +141,7 @@
   },
   "snapshot": {
     "release_health": {
-      "state": "blocked",
+      "state": "clear",
       "reason": "The EA flagship receipt is published and current.",
       "flagship_receipt_status": "pass"
     },
@@ -150,19 +150,19 @@
       "reason": "Flagship receipt and browser proof are aligned."
     },
     "rule_environment_trust": {
-      "state": "watch",
-      "reason": "Install/update trust still depends on the blocked cross-host journey set."
+      "state": "monitor",
+      "reason": "Rule-environment trust is governed by the current release receipt."
     },
     "edition_authorship_and_import_confidence": {
       "state": "monitor",
       "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror."
     },
     "journey_gate_health": {
-      "state": "blocked",
-      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-      "blocked_count": 1,
+      "state": "ready",
+      "reason": "Journey proof is steady on current published evidence.",
+      "blocked_count": 0,
       "warning_count": 0,
-      "recommended_action": "Resolve the blocking golden-journey gaps before widening publish claims."
+      "recommended_action": "Journey proof is steady on current published evidence."
     },
     "top_support_or_feedback_clusters": [
       {
@@ -176,7 +176,7 @@
       },
       {
         "cluster_id": "fleet_journey_coverage",
-        "summary": "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, so wider publish claims should stay constrained.",
+        "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
         "source_paths": [
           "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
           "scripts/verify_release_assets.sh"
@@ -199,29 +199,29 @@
       {
         "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
         "action": "focus_shift",
-        "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is pass, journey gates are blocked, and the ready share is 83%.",
+        "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is pass, journey gates are ready, and the ready share is 100%.",
         "cited_signals": [
           "flagship_receipt_status=pass",
-          "journey_gate_state=blocked",
-          "journey_gate_blocked_count=1",
-          "journey_gate_ready_count=5",
+          "journey_gate_state=ready",
+          "journey_gate_blocked_count=0",
+          "journey_gate_ready_count=6",
           "journey_gate_total_count=6",
-          "ready_share=83"
+          "ready_share=100"
         ]
       },
       {
         "decision_id": "2026-04-10-freeze-launch-expansion",
-        "action": "freeze_launch",
-        "reason": "Freeze launch expansion until the blocked journey tuples are cleared.",
+        "action": "hold_truth_line",
+        "reason": "Launch expansion can proceed because browser proof is published and blocked journey tuples are cleared.",
         "cited_signals": [
           "flagship_receipt_status=pass",
           "browser_execution_receipt_present=True",
-          "journey_gate_blocked_count=1",
-          "cross_host_tuple_coverage=blocked"
+          "journey_gate_blocked_count=0",
+          "cross_host_tuple_coverage=ready"
         ]
       }
     ],
-    "next_checkpoint_question": "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
+    "next_checkpoint_question": "What is the next meaningful release or journey-truth change that should trigger pulse re-materialization?"
   },
   "release_wave": {
     "current_recommended_wave": "EA flagship receipt closeout",

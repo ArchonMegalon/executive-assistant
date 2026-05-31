@@ -9,6 +9,7 @@
 - [ ] `FLAGSHIP_CLOSEOUT_PLAN.md` blocker set is green enough to support the intended release claim.
 - [ ] `.codex-design/ea/START_HERE.md` and the linked EA canon docs still match the shipped public/app surface.
 - [ ] `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json` agree with the browser workflow proof.
+- [ ] `make verify-flagship-release-readiness` passes, confirming the weekly pulse, browser proof, flagship receipt, and Fleet journey gate are all clear for wider release claims.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] CI smoke workflow is green.
 - [ ] CI gate bundle (`make smoke-help`, `make ci-local`, runtime smoke API tests, `make verify-release-assets`) is green.
@@ -37,7 +38,7 @@
 
 ## Smoke
 
-- [ ] Optional one-command release bundle: `make release-preflight`
+- [ ] Optional one-command release bundle: `make release-preflight` (includes flagship release-readiness verification)
 - [ ] `make release-smoke`
 - [ ] The core workspace proves one real memo -> queue -> draft/approval -> follow-up loop on durable product objects.
 - [ ] Browser surface contract tests confirm no product-surface links to experimental routes in product mode.

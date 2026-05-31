@@ -227,10 +227,15 @@ def build_pulse(
     readiness_share = int(journey_info["ready_share"])
     release_health_state = "blocked" if journey_state == "blocked" or release_truth_state != "pass" else "clear"
 
-    if release_truth_state == "pass":
+    if release_truth_state == "pass" and journey_state == "blocked":
         summary = (
             "Executive Assistant has a green flagship receipt, but the fleet journey gate is "
             f"{journey_state}, and {blocked_count} journey(s) still block wider claims."
+        )
+    elif release_truth_state == "pass":
+        summary = (
+            "Executive Assistant has a green flagship receipt, the fleet journey gate is "
+            f"{journey_state}, and no journeys block wider release claims."
         )
     elif release_truth_state == "preview_only":
         summary = (

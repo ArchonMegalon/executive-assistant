@@ -779,13 +779,13 @@ make all-local
 
 `make all-local` is a lightweight readiness pass. Use `make release-preflight` for release-stage smoke and operator checks.
 
-Release preflight aggregate (asset checks + operator help + release smoke):
+Release preflight aggregate (asset checks + flagship release-readiness verification + operator help + release smoke):
 
 ```bash
 make release-preflight
 ```
 
-`RELEASE_CHECKLIST.md` now includes an explicit EA flagship truth-plane preflight line to validate the browser proof and release gate seed.
+`RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, and Fleet journey gate.
 
 ## Smoke Exit Codes
 

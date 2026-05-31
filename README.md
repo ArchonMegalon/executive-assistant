@@ -417,7 +417,7 @@ Combined local API+Postgres legacy-migration parity run is available via `make c
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
-Release preflight aggregate is available via `make release-preflight`.
+Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness` so a green receipt cannot hide a blocked weekly pulse or Fleet journey gate.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
 `make all-local` is a lighter local readiness pass; use `make release-preflight` for release-stage smoke + operator checks.
