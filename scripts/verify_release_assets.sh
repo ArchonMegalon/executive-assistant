@@ -278,7 +278,21 @@ def _normalize(value):
     if isinstance(value, dict):
         normalized = {}
         for key, item in value.items():
-            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "sha256", "duration_seconds", "git_head"}:
+            if key in {
+                "generated_at",
+                "created_at",
+                "mtime_utc",
+                "size_bytes",
+                "sha256",
+                "duration_seconds",
+                "git_head",
+                "source_path",
+                "resolved_path",
+                "git_repo_root",
+                "command",
+                "cwd",
+                "python_bin",
+            }:
                 continue
             if key.endswith("_git_head"):
                 continue

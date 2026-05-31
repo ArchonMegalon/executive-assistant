@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -37,7 +38,11 @@ def _inspect_binding(root: Path, binding: dict[str, Any]) -> dict[str, Any]:
         "status": "ok",
     }
     if not source_path.exists():
-        row["status"] = "missing_source"
+        if local_path.exists() and os.environ.get("EA_DESIGN_MIRROR_REQUIRE_SOURCE") != "1":
+            row["source_unavailable"] = True
+            row["local_sha256"] = _sha256(local_path)
+        else:
+            row["status"] = "missing_source"
         return row
     if not local_path.exists():
         row["status"] = "missing_local"

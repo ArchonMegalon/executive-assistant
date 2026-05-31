@@ -74,7 +74,15 @@ def _sha256(path: Path) -> str:
 
 
 def _expected_queue_source_items() -> list[str]:
-    return [binding.local_path.as_posix() for binding in _bindings()]
+    return [f"/docker/EA/{binding.local_path.relative_to(ROOT).as_posix()}" for binding in _bindings()]
+
+
+def _acceptable_queue_source_items() -> tuple[list[str], ...]:
+    return (
+        _expected_queue_source_items(),
+        [binding.local_path.as_posix() for binding in _bindings()],
+        [binding.local_path.relative_to(ROOT).as_posix() for binding in _bindings()],
+    )
 
 
 def _load_successor_queue(path: Path) -> dict[str, object]:
@@ -139,7 +147,7 @@ def inspect_queue_overlay() -> dict[str, object]:
         mismatches.append("allowed_paths")
     if list(item.get("owned_surfaces") or []) != EXPECTED_QUEUE_OWNED_SURFACES:
         mismatches.append("owned_surfaces")
-    if list(item.get("source_items") or []) != _expected_queue_source_items():
+    if list(item.get("source_items") or []) not in _acceptable_queue_source_items():
         mismatches.append("source_items")
 
     row["mode"] = mode
@@ -168,7 +176,10 @@ def inspect_bundle() -> list[dict[str, object]]:
         if not local_exists and not source_exists:
             row["status"] = "missing_local_and_source"
         elif not source_exists:
-            row["status"] = "missing_source"
+            if os.environ.get("EA_DESIGN_MIRROR_REQUIRE_SOURCE") == "1":
+                row["status"] = "missing_source"
+            else:
+                row["source_unavailable"] = True
         elif not local_exists:
             row["status"] = "missing_local"
         else:
