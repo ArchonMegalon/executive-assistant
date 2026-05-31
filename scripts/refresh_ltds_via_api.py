@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 EA_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(EA_ROOT))
 sys.path.insert(0, str(EA_ROOT / "ea"))
 
 from app.services.ltd_inventory_api import (

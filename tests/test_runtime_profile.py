@@ -31,6 +31,8 @@ def _clear_env() -> None:
         "EA_API_TOKEN",
         "EA_SIGNING_SECRET",
         "EA_DEFAULT_PRINCIPAL_ID",
+        "EA_ALLOW_LOOPBACK_NO_AUTH",
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
         "EA_CF_ACCESS_TEAM_DOMAIN",
         "EA_CF_ACCESS_AUD",
         "EA_CF_ACCESS_CERTS_URL",
@@ -49,6 +51,8 @@ def _isolated_env() -> None:
         "EA_API_TOKEN": os.environ.get("EA_API_TOKEN"),
         "EA_SIGNING_SECRET": os.environ.get("EA_SIGNING_SECRET"),
         "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
+        "EA_ALLOW_LOOPBACK_NO_AUTH": os.environ.get("EA_ALLOW_LOOPBACK_NO_AUTH"),
+        "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
         "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
         "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
         "EA_CF_ACCESS_CERTS_URL": os.environ.get("EA_CF_ACCESS_CERTS_URL"),
@@ -75,6 +79,7 @@ def _request(headers: dict[str, str] | None = None) -> Request:
             "method": "GET",
             "path": "/context",
             "headers": raw_headers,
+            "client": ("127.0.0.1", 49152),
         }
     )
 
@@ -184,6 +189,30 @@ def test_runtime_profile_non_prod_token_auth_matches_request_context_contract() 
         container=container,
     )
     assert header_context.principal_id == "caller-1"
+
+
+def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:
+    _clear_env()
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, _ = _container_for_current_settings()
+
+    token_context = get_request_context(
+        _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "caller-1"}),
+        container=container,
+    )
+    assert token_context.principal_id == "caller-1"
+    assert token_context.auth_source == "api_token"
+    assert token_context.authenticated is True
+
+    loopback_context = get_request_context(
+        _request(headers={"X-EA-Principal-ID": "caller-2"}),
+        container=container,
+    )
+    assert loopback_context.principal_id == "caller-2"
+    assert loopback_context.auth_source == "loopback_no_auth"
+    assert loopback_context.authenticated is True
 
 
 def test_runtime_profile_prod_authenticated_header_matches_request_context_contract() -> None:

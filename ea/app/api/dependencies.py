@@ -422,7 +422,12 @@ def get_request_context(
         )
         setattr(request.state, "ea_request_context", context)
         return context
-    if _loopback_no_auth_allowed(request, container):
+    loopback_no_auth_allowed = _loopback_no_auth_allowed(request, container)
+    token_authenticated_on_loopback = False
+    if loopback_no_auth_allowed:
+        expected = _configured_api_token(container)
+        token_authenticated_on_loopback = bool(expected and _extract_token(request) == expected)
+    if loopback_no_auth_allowed and not token_authenticated_on_loopback:
         principal_id = _resolved_principal_id(request, container=container, authenticated=True)
         if not principal_id:
             _log_auth_failure(request, detail="principal_required", profile=profile, expected_token_configured=bool(_configured_api_token(container)))

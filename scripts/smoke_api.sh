@@ -286,7 +286,7 @@ REGISTER_COOKIE_JAR="${EA_ROOT}/.smoke_tmp/register_workspace_access.cookies"
 REGISTER_ACCESS_HEADERS="${EA_ROOT}/.smoke_tmp/register_workspace_access.headers"
 rm -f "${REGISTER_COOKIE_JAR}" "${REGISTER_ACCESS_HEADERS}"
 curl -sS -D "${REGISTER_ACCESS_HEADERS}" -c "${REGISTER_COOKIE_JAR}" -o /dev/null "${BASE}${REGISTER_ACCESS_URL}"
-REGISTER_ACCESS_FIELDS="$(python3 - <<'PY' "${REGISTER_ACCESS_HEADERS}" "${REGISTER_COOKIE_JAR}"
+REGISTER_ACCESS_FIELDS="$(python3 - "${REGISTER_ACCESS_HEADERS}" "${REGISTER_COOKIE_JAR}" <<'PY'
 import sys
 from pathlib import Path
 headers=Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace')
@@ -363,7 +363,7 @@ echo "workspace browser surfaces ok"
 echo "== smoke: google signal sync =="
 GOOGLE_SYNC_BODY="${EA_ROOT}/.smoke_tmp/google_signal_sync.json"
 GOOGLE_SYNC_STATUS="$(curl -sS -o "${GOOGLE_SYNC_BODY}" -w '%{http_code}' -X POST "${BASE}/app/api/signals/google/sync?email_limit=1&calendar_limit=1" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
-GOOGLE_SYNC_FIELDS="$(python3 - <<'PY' "${GOOGLE_SYNC_STATUS}" "${GOOGLE_SYNC_BODY}"
+GOOGLE_SYNC_FIELDS="$(python3 - "${GOOGLE_SYNC_STATUS}" "${GOOGLE_SYNC_BODY}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -1550,7 +1550,7 @@ if [[ "${FOREIGN_APPROVE_CODE}" != "403" ]]; then
 fi
 curl -fsS -X POST "${BASE}/v1/policy/approvals/${APPROVAL_ID}/approve" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
   -d "{\"decided_by\":\"${PRINCIPAL_ID}\",\"reason\":\"resume execution\"}" >/dev/null
-APPROVED_SESSION_JSON="$(curl -fsS "${BASE}/v1/rewrite/sessions/${APPROVAL_SESSION_ID}" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+APPROVED_SESSION_JSON="$(wait_for_session_status "${APPROVAL_SESSION_ID}" "completed")"
 APPROVED_FIELDS="$(python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); queues=body.get('queue_items') or []; steps=body.get('steps') or []; events={e.get('name','') for e in (body.get('events') or [])}; print('{}|{}|{}|{}|{}|{}|{}|{}'.format(body.get('status',''), len(body.get('artifacts') or []) >= 1, len(body.get('receipts') or []) >= 1, len(body.get('run_costs') or []) >= 1, len(steps) >= 3 and len(queues) >= 3 and all((q or {}).get('state','') == 'done' for q in queues), 'input_prepared' in events, 'policy_step_completed' in events, 'tool_execution_completed' in events))" <<<"${APPROVED_SESSION_JSON}")"
 if [[ "${APPROVED_FIELDS}" != "completed|True|True|True|True|True|True|True" ]]; then
   echo "expected resumed session to complete with artifacts/receipts/run_costs, a three-step queue, input_prepared, policy_step_completed, and tool_execution_completed; got ${APPROVED_FIELDS}" >&2
@@ -1695,8 +1695,8 @@ except Exception:
 print(((body.get("error") or {}).get("code")) or "")
 PY
 )"
-if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "operator_scope_required" ]]; then
-  echo "expected foreign principal tool execution code operator_scope_required; got ${TOOL_EXEC_MISMATCH_REASON}" >&2
+if [[ "${TOOL_EXEC_MISMATCH_REASON}" != "operator_scope_required" && "${TOOL_EXEC_MISMATCH_REASON}" != "principal_scope_mismatch" ]]; then
+  echo "expected foreign principal tool execution code operator_scope_required or principal_scope_mismatch; got ${TOOL_EXEC_MISMATCH_REASON}" >&2
   cat /docker/EA/.smoke_tmp/ea_tool_exec_mismatch_resp.json >&2 || true
   fail 12 "policy contract mismatch"
 fi
@@ -1734,7 +1734,7 @@ if [[ -n "${BINDING_ID}" ]]; then
   curl -fsS -X POST "${BASE}/v1/connectors/bindings/${BINDING_ID}/status" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"status":"disabled"}' >/dev/null
 fi
 curl -fsS "${BASE}/v1/connectors/bindings?limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" >/dev/null
-CONNECTOR_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json "${BASE}/v1/connectors/bindings?principal_id=${MISMATCH_PRINCIPAL_ID}&limit=5" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}")"
+CONNECTOR_MISMATCH_CODE="$(curl_status_code /docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json "${BASE}/v1/connectors/bindings?principal_id=${PRINCIPAL_ID}&limit=5" "${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${MISMATCH_PRINCIPAL_ID}")"
 if [[ "${CONNECTOR_MISMATCH_CODE}" != "403" ]]; then
   echo "expected 403 for connector principal mismatch; got ${CONNECTOR_MISMATCH_CODE}" >&2
   cat /docker/EA/.smoke_tmp/ea_connector_mismatch_resp.json >&2 || true

@@ -99,7 +99,7 @@ fi
 cleanup() {
   if [[ "${restore_api_env}" == "1" && "${env_had_file}" == "1" && -n "${env_backup}" && -f "${env_backup}" ]]; then
     cp "${env_backup}" "${EA_ROOT}/.env"
-    "${DC[@]}" up -d --force-recreate ea-api >/dev/null 2>&1 || true
+    "${DC[@]}" up -d --force-recreate ea-api ea-worker >/dev/null 2>&1 || true
   fi
   if [[ -n "${env_backup}" && -f "${env_backup}" ]]; then
     rm -f "${env_backup}"
@@ -279,6 +279,7 @@ else
 fi
 set_env_value "EA_API_TOKEN" "smoke-postgres-token"
 set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"
+set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"
 export EA_API_TOKEN="smoke-postgres-token"
 export EA_ALLOW_LOOPBACK_NO_AUTH="1"
 
@@ -295,8 +296,8 @@ if [[ "${legacy_fixture}" == "1" ]]; then
   exit 0
 fi
 
-echo "== smoke-postgres: compose up (api) =="
-"${DC[@]}" up -d --build --force-recreate ea-api
+echo "== smoke-postgres: compose up (api + worker) =="
+"${DC[@]}" up -d --build --force-recreate ea-api ea-worker
 
 echo "== smoke-postgres: readiness check =="
 ready_json=""
@@ -339,6 +340,8 @@ fi
 echo "== smoke-postgres: api smoke =="
 container_api_token="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
 container_loopback_no_auth="$(docker exec ea-api /bin/sh -lc 'printenv EA_ALLOW_LOOPBACK_NO_AUTH' 2>/dev/null || true)"
+container_operator_principal="$(docker exec ea-api /bin/sh -lc 'printenv EA_OPERATOR_PRINCIPAL_IDS | tr "," "\n" | sed -n "1p"' 2>/dev/null || true)"
+container_operator_principal="${container_operator_principal:-${EA_OPERATOR_PRINCIPAL_ID:-exec-1}}"
 if [[ "${container_loopback_no_auth}" != "1" ]]; then
   echo "expected ea-api smoke container to enable EA_ALLOW_LOOPBACK_NO_AUTH" >&2
   docker logs --tail 120 ea-api >&2 || true
@@ -362,8 +365,22 @@ done
 smoke_api_output=""
 smoke_api_status=0
 for attempt in 1 2 3; do
+  for _smoke_container_wait in $(seq 1 30); do
+    if docker exec ea-api /bin/sh -lc 'mkdir -p /docker /app/scripts && ln -sfn /app /docker/EA' >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  docker cp "${EA_ROOT}/scripts/smoke_api.sh" ea-api:/app/scripts/smoke_api.sh >/dev/null
+  docker cp "${EA_ROOT}/scripts/refresh_ltds_via_api.sh" ea-api:/app/scripts/refresh_ltds_via_api.sh >/dev/null
+  docker cp "${EA_ROOT}/scripts/refresh_ltds_via_api.py" ea-api:/app/scripts/refresh_ltds_via_api.py >/dev/null
   set +e
-  smoke_api_output="$(bash scripts/smoke_api.sh 2>&1)"
+  smoke_api_output="$(docker exec \
+    -e EA_API_TOKEN="${EA_API_TOKEN:-}" \
+    -e EA_HOST_PORT="8090" \
+    -e EA_PRINCIPAL_ID="exec-1" \
+    -e EA_OPERATOR_PRINCIPAL_ID="${container_operator_principal}" \
+    ea-api bash /app/scripts/smoke_api.sh 2>&1)"
   smoke_api_status=$?
   set -e
   if [[ "${smoke_api_status}" == "0" ]]; then
