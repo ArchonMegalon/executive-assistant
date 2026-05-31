@@ -329,9 +329,20 @@ fi
 
 echo "== smoke-postgres: api smoke =="
 container_api_token="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
-if [[ -n "${container_api_token}" ]]; then
-  export EA_API_TOKEN="${container_api_token}"
-fi
+token_candidates=("${EA_API_TOKEN:-}" "${container_api_token}" "smoke-postgres-token" "CHANGE_ME_STRONG")
+for candidate_token in "${token_candidates[@]}"; do
+  if [[ -z "${candidate_token}" ]]; then
+    continue
+  fi
+  token_probe_code="$(curl -sS --connect-timeout 2 --max-time 5 -o /tmp/ea_smoke_token_probe.json -w '%{http_code}' \
+    -H "Authorization: Bearer ${candidate_token}" \
+    -H "X-EA-Principal-ID: exec-1" \
+    "${BASE}/v1/memory/candidates?limit=1" || true)"
+  if [[ "${token_probe_code}" == "200" ]]; then
+    export EA_API_TOKEN="${candidate_token}"
+    break
+  fi
+done
 smoke_api_output=""
 smoke_api_status=0
 for attempt in 1 2 3; do

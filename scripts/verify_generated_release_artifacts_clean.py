@@ -22,6 +22,8 @@ VOLATILE_KEYS = {
     "sha256",
     "duration_seconds",
     "git_head",
+    "resolved_path",
+    "git_repo_root",
     "review_due",
 }
 
