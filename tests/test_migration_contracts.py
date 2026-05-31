@@ -69,6 +69,7 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "container_api_token=" in smoke
     assert "token_candidates=" in smoke
     assert "wait_for_postgres_sql 90" in smoke
+    assert "consecutive=$((consecutive + 1))" in smoke
     assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
     assert "python -m playwright install --with-deps chromium" in workflow
 

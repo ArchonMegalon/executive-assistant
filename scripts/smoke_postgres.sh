@@ -228,10 +228,16 @@ echo "== smoke-postgres: compose up (db only) =="
 wait_for_postgres_sql() {
   local attempts="${1:-90}"
   local ready=""
+  local consecutive=0
   for _ in $(seq 1 "${attempts}"); do
     ready="$(docker exec -i "${DB_CONTAINER}" psql -At -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres -c "SELECT 1" 2>/dev/null | tr -d '[:space:]' || true)"
     if [[ "${ready}" == "1" ]]; then
-      return 0
+      consecutive=$((consecutive + 1))
+      if [[ "${consecutive}" -ge 3 ]]; then
+        return 0
+      fi
+    else
+      consecutive=0
     fi
     sleep 1
   done
