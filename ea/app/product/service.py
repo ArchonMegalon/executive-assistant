@@ -18703,6 +18703,19 @@ class ProductService:
         normalized_base = str(base_url or "").strip().rstrip("/")
         normalized_access = str(access_url or "").strip()
 
+        def _browser_safe_action_href(action_href: str, *, method: str = "", fallback_href: str = "") -> str:
+            value = str(action_href or "").strip()
+            if not value:
+                return absolute(fallback_href)
+            normalized_method = str(method or "get").strip().lower() or "get"
+            if normalized_method != "get":
+                return absolute(fallback_href)
+            parsed = urllib.parse.urlparse(value)
+            path = str(parsed.path or "").strip()
+            if path.startswith("/app/api/") or path.startswith("/v1/"):
+                return absolute(fallback_href)
+            return absolute(value)
+
         def secure_workspace_link(target_href: str) -> str:
             target_value = str(target_href or "").strip()
             if not target_value or not normalized_access:
@@ -18749,15 +18762,28 @@ class ProductService:
             title = str(item.get("title") or f"Item {index}").strip()
             tag = str(item.get("tag") or "").strip()
             detail = str(item.get("detail") or "").strip()
-            action_label = str(item.get("action_label") or "").strip()
-            action_href = absolute(str(item.get("action_href") or "").strip())
-            secondary_label = str(item.get("secondary_action_label") or "").strip()
-            secondary_href = absolute(str(item.get("secondary_action_href") or "").strip())
-            tertiary_label = str(item.get("tertiary_action_label") or "").strip()
-            tertiary_href = absolute(str(item.get("tertiary_action_href") or "").strip())
-            quaternary_label = str(item.get("quaternary_action_label") or "").strip()
-            quaternary_href = absolute(str(item.get("quaternary_action_href") or "").strip())
             href = absolute(str(item.get("href") or "").strip())
+            action_label = str(item.get("action_label") or "").strip()
+            action_href = _browser_safe_action_href(
+                str(item.get("action_href") or "").strip(),
+                method=str(item.get("action_method") or "").strip(),
+                fallback_href=str(item.get("href") or "").strip(),
+            )
+            secondary_label = str(item.get("secondary_action_label") or "").strip()
+            secondary_href = _browser_safe_action_href(
+                str(item.get("secondary_action_href") or "").strip(),
+                method=str(item.get("secondary_action_method") or "").strip(),
+            )
+            tertiary_label = str(item.get("tertiary_action_label") or "").strip()
+            tertiary_href = _browser_safe_action_href(
+                str(item.get("tertiary_action_href") or "").strip(),
+                method=str(item.get("tertiary_action_method") or "").strip(),
+            )
+            quaternary_label = str(item.get("quaternary_action_label") or "").strip()
+            quaternary_href = _browser_safe_action_href(
+                str(item.get("quaternary_action_href") or "").strip(),
+                method=str(item.get("quaternary_action_method") or "").strip(),
+            )
             wrote_action = False
             header = f"{index}. [{tag}] {title}" if tag else f"{index}. {title}"
             lines.append(header)

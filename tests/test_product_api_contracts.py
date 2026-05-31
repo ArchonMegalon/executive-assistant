@@ -9433,6 +9433,7 @@ def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     assert "https://public.example.com/channel-loop/deliveries/" in delivery_body["plain_text"]
     assert "https://public.example.com/workspace-access/" in delivery_body["plain_text"]
     assert "return_to=/app/" in delivery_body["plain_text"]
+    assert "/app/api/" not in delivery_body["plain_text"]
 
 
 def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is_disabled(monkeypatch) -> None:
