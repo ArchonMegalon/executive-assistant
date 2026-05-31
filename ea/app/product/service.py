@@ -1480,6 +1480,7 @@ def _property_scout_brief_text(
     *,
     title: str,
     property_url: str = "",
+    property_link_label: str = "Listing",
     fit_summary: str = "",
     next_action: str = "",
     status_text: str = "",
@@ -1498,7 +1499,8 @@ def _property_scout_brief_text(
     if str(mailbox or "").strip():
         lines.append(f"Mailbox: {compact_text(str(mailbox or '').strip().lower(), fallback='', limit=80)}")
     if str(property_url or "").strip():
-        lines.append(f"Listing: {str(property_url or '').strip()}")
+        link_label = compact_text(str(property_link_label or "Listing").strip(), fallback="Listing", limit=40)
+        lines.append(f"{link_label}: {str(property_url or '').strip()}")
     if str(fit_summary or "").strip():
         lines.append(str(fit_summary or "").strip())
     if str(status_text or "").strip():
@@ -1720,7 +1722,7 @@ def _property_alert_review_telegram_text(
             extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
         if top_summary:
             extra_lines.append(f"Top candidate: {top_summary}")
-        if top_url and top_url != str(property_url or '').strip():
+        if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip():
             extra_lines.append(f"Top listing: {top_url}")
         top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
         next_action = _property_alert_next_action_text(top_assessment, property_url=top_url)
@@ -1729,11 +1731,12 @@ def _property_alert_review_telegram_text(
     extra_lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
     if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
         extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
-    if str(tour_url or "").strip():
-        extra_lines.append(f"3D tour: {str(tour_url or '').strip()}")
+    visible_property_url = str(tour_url or "").strip() or str(property_url or "").strip()
+    visible_property_label = "3D tour" if str(tour_url or "").strip() else "Listing"
     return _property_scout_brief_text(
         title=headline,
-        property_url=property_url,
+        property_url=visible_property_url,
+        property_link_label=visible_property_label,
         fit_summary=fit_summary,
         next_action=next_action,
         source_text=counterparty,
@@ -8706,6 +8709,46 @@ class ProductService:
         )
         if notify_telegram:
             try:
+                feedback_property_url = str(property_url or "").strip()
+                if not feedback_property_url and candidate_properties:
+                    feedback_property_url = str(candidate_properties[0].get("property_url") or "").strip()
+                feedback_raw_signal = {
+                    "title": str(title or "").strip(),
+                    "summary": str(summary or "").strip(),
+                    "counterparty": str(counterparty or "").strip(),
+                    "property_url": feedback_property_url,
+                    "fit_score": float(fit_score or 0.0),
+                    "account_email": str(account_email or "").strip(),
+                }
+                if candidate_properties:
+                    feedback_raw_signal["candidate_property"] = dict(candidate_properties[0] or {})
+                if _is_willhaben_property_url(feedback_property_url):
+                    try:
+                        packet = _load_willhaben_property_packet(feedback_property_url)
+                    except Exception:
+                        packet = {}
+                    property_facts = dict(packet.get("property_facts_json") or {}) if isinstance(packet, dict) else {}
+                    feedback_raw_signal.update(
+                        {
+                            "district": str(property_facts.get("district") or property_facts.get("postal_name") or property_facts.get("location") or "").strip(),
+                            "postal_name": str(property_facts.get("postal_name") or "").strip(),
+                            "location": str(property_facts.get("location") or "").strip(),
+                            "heating": str(property_facts.get("heating") or property_facts.get("heating_type") or "").strip(),
+                            "has_floorplan": bool(list(packet.get("floorplan_urls_json") or [])) if isinstance(packet, dict) else False,
+                        }
+                    )
+                feedback_prompt = self._prepare_notification_feedback_prompt(
+                    principal_id=principal_id,
+                    notification_kind="property_alert_review",
+                    person_id=str(preference_person_id or "").strip() or "self",
+                    domain="willhaben" if _is_willhaben_property_url(feedback_property_url) else "property_scout",
+                    object_type="property_listing",
+                    object_id=feedback_property_url or str(source_ref or external_id or task.human_task_id).strip(),
+                    source_ref=str(source_ref or external_id or task.human_task_id).strip(),
+                    raw_signal_json=feedback_raw_signal,
+                    interpreted_signal_json={},
+                    suggestion_options=self._property_notification_feedback_suggestions(raw_signal_json=feedback_raw_signal),
+                )
                 telegram_receipt = send_telegram_message_for_principal(
                     self._container.tool_runtime,
                     principal_id=principal_id,
@@ -8720,10 +8763,18 @@ class ProductService:
                         score_override=fit_score,
                         preference_person_id=preference_person_id,
                     ),
+                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
                 )
                 payload["telegram_delivery_status"] = "sent"
                 payload["telegram_message_ids"] = list(telegram_receipt.message_ids)
                 payload["telegram_chat_ref"] = str(telegram_receipt.chat_id or "").strip()
+                self._record_notification_feedback_prompt(
+                    principal_id=principal_id,
+                    prompt=feedback_prompt,
+                    delivery_channel="telegram",
+                    telegram_chat_ref=str(telegram_receipt.chat_id or "").strip(),
+                    telegram_message_ids=list(telegram_receipt.message_ids),
+                )
                 self._record_product_event(
                     principal_id=principal_id,
                     event_type="property_alert_review_telegram_sent",

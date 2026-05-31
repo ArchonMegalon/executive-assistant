@@ -592,6 +592,15 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     principal_id = "exec-product-signal-telegram-property-review"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Alert Telegram Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
 
     observed_telegram: dict[str, object] = {}
 
@@ -602,8 +611,8 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text: observed_telegram.update(
-            {"principal_id": principal_id, "text": text}
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}
         ) or _TelegramReceipt(),
     )
 
@@ -630,6 +639,7 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     assert observed_telegram["principal_id"] == principal_id
     assert "Scout update." in str(observed_telegram["text"])
     assert "Listing: https://www.immoscout24.at/expose/telegram-test-property-1" in str(observed_telegram["text"])
+    assert observed_telegram["inline_buttons"]
 
 
 def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority(monkeypatch) -> None:
@@ -1479,7 +1489,7 @@ def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monk
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text: observed_telegram.update({"principal_id": principal_id, "text": text}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
     )
 
     signal = client.post(
@@ -2697,6 +2707,32 @@ def test_property_alert_review_telegram_text_includes_top_candidate_summary() ->
     assert "Top candidate: Personal fit 91/100" in text
     assert "Top listing: https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/top-fit-1" in text
     assert "Next: open the listing and generate a tour." in text
+
+
+def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> None:
+    text = product_service._property_alert_review_telegram_text(
+        title="Watch fit apartment",
+        summary="Recent scout hit.",
+        counterparty="IMMMO",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
+        personal_fit_assessment={"fit_score": 91.0, "recommendation": "shortlist"},
+        candidate_properties=(
+            {
+                "property_url": "https://www.immobilienscout24.at/expose/watch-fit-1",
+                "listing_title": "Watch fit apartment",
+                "fit_score": 91.0,
+                "recommendation": "shortlist",
+                "fit_summary": "Personal fit 91/100 · shortlist",
+                "assessment": {"fit_score": 91.0, "recommendation": "shortlist"},
+            },
+        ),
+        tour_url="https://myexternalbrain.com/tours/watch-fit-1",
+    )
+
+    assert "3D tour: https://myexternalbrain.com/tours/watch-fit-1" in text
+    assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
+    assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
 
 
 def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
