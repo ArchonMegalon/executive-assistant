@@ -71,6 +71,7 @@ from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
 from app.services.telegram_delivery import (
+    build_telegram_feedback_callback_data_for_principal,
     resolve_primary_telegram_binding,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
@@ -78,6 +79,7 @@ from app.services.telegram_delivery import (
     send_telegram_video_for_principal,
 )
 from app.services.registration_email import (
+    _minutes_until,
     delivery_sender_emails,
     email_delivery_enabled,
     send_channel_digest_email,
@@ -984,6 +986,85 @@ def _memo_issue_fix_detail(*, reason: str = "", error: str = "") -> str:
     if normalized_reason == "digest_not_available":
         return "Regenerate the memo after the workspace loop refreshes."
     return ""
+
+
+def _workspace_access_email_text(
+    *,
+    workspace_name: str,
+    access_url: str,
+    role: str,
+    display_name: str = "",
+    expires_at: str = "",
+) -> str:
+    minutes = _minutes_until(expires_at_iso=expires_at)
+    role_label = str(role or "principal").strip().replace("_", " ").title() or "Principal"
+    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    display = str(display_name or "").strip()
+    body = [
+        "Hello,",
+        "",
+        f"Open this secure link to return to {workspace_label}:",
+        "",
+        access_url,
+        "",
+        f"This link expires in about {minutes} minutes.",
+    ]
+    if display:
+        body.extend(["", f"This link opens your {role_label.lower()} access as {display}."])
+    else:
+        body.extend(["", f"This link opens your {role_label.lower()} access to the workspace."])
+    body.extend(
+        [
+            "",
+            "Google is connected later as a workspace data source. It is not your app login.",
+        ]
+    )
+    return "\n".join(body).strip() + "\n"
+
+
+def _workspace_access_email_subject(*, workspace_name: str) -> str:
+    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    return f"Your access link for {workspace_label}"
+
+
+def _workspace_invitation_email_text(
+    *,
+    invite_url: str,
+    role: str,
+    invited_by: str,
+    note: str = "",
+    expires_at: str = "",
+) -> str:
+    minutes = _minutes_until(expires_at_iso=expires_at)
+    role_label = str(role or "operator").strip().replace("_", " ").title() or "Operator"
+    inviter = str(invited_by or "Executive Assistant").strip() or "Executive Assistant"
+    note_text = str(note or "").strip()
+    body = [
+        "Hello,",
+        "",
+        f"{inviter} invited you to join an Executive Assistant workspace as {role_label}.",
+        "",
+        "Open this secure link to accept the invite:",
+        "",
+        invite_url,
+        "",
+        f"This link expires in about {minutes} minutes.",
+    ]
+    if note_text:
+        body.extend(["", "Message from the workspace:", note_text])
+    body.extend(
+        [
+            "",
+            "You will get workspace access after accepting the invite.",
+            "Google is connected later as a workspace data source. It is not your app login.",
+        ]
+    )
+    return "\n".join(body).strip() + "\n"
+
+
+def _workspace_invitation_email_subject(*, invited_by: str) -> str:
+    inviter = str(invited_by or "Executive Assistant").strip() or "Executive Assistant"
+    return f"{inviter} invited you to Executive Assistant"
 
 
 def _is_assistant_originated_delivery_email(*, title: str, summary: str, payload: dict[str, object] | None) -> bool:
@@ -2312,6 +2393,44 @@ def _pocket_transcript_quality_report(
         "score": round(final_score, 3),
         "reasons": reasons,
     }
+
+
+_POCKET_TOPIC_STOPWORDS = {
+    "about", "aber", "also", "and", "assistant", "assistent", "auch", "auf", "aus", "bei", "bin", "bist",
+    "bitte", "das", "dass", "dein", "deine", "dem", "den", "der", "des", "die", "dir", "doch", "dort", "ein",
+    "eine", "einem", "einer", "eines", "er", "es", "etwas", "for", "from", "habe", "haben", "hat", "have",
+    "hier", "ich", "ihr", "ihre", "im", "in", "into", "ist", "it", "its", "jetzt", "kann", "können", "man",
+    "mein", "meine", "mit", "more", "nach", "nicht", "noch", "nur", "oder", "please", "schon", "sein", "seine",
+    "sind", "so", "that", "the", "this", "und", "uns", "unser", "unter", "use", "useful", "vom", "von", "vor",
+    "war", "was", "weil", "weiter", "wenn", "werde", "wie", "wir", "wird", "with", "you", "your", "zur",
+}
+
+
+def _pocket_topic_keywords_csv(
+    *,
+    title: str,
+    tags: list[str] | tuple[str, ...] | None,
+    summary_markdown: str,
+    transcript_text: str,
+) -> str:
+    scored: dict[str, float] = {}
+
+    def _consume(text: str, *, weight: float) -> None:
+        for token in re.findall(r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9_-]{2,}", str(text or "")):
+            normalized = token.strip(" _-").lower()
+            if not normalized or normalized in _POCKET_TOPIC_STOPWORDS:
+                continue
+            if normalized.isdigit():
+                continue
+            scored[normalized] = scored.get(normalized, 0.0) + weight
+
+    _consume(title, weight=4.0)
+    for tag in list(tags or ()):
+        _consume(str(tag or ""), weight=4.0)
+    _consume(summary_markdown, weight=3.0)
+    _consume(compact_text(transcript_text, fallback="", limit=6000), weight=1.0)
+    ranked = sorted(scored.items(), key=lambda item: (-float(item[1]), item[0]))
+    return ", ".join(token for token, _score in ranked[:24])
 
 
 def _pocket_audio_transcribe_webhook_url() -> str:
@@ -5898,6 +6017,7 @@ class ProductService:
         transcript_text: str,
         transcript_excerpt: str,
         location_match: dict[str, object],
+        topic_keywords_csv: str = "",
         tags: Sequence[str] | None = None,
     ) -> None:
         payload = {
@@ -5910,6 +6030,7 @@ class ProductService:
             "summary_markdown": summary_markdown,
             "transcript_text": compact_text(transcript_text, fallback="", limit=12000),
             "transcript_excerpt": transcript_excerpt,
+            "topic_keywords_csv": str(topic_keywords_csv or "").strip(),
             "tags_csv": ", ".join(str(item).strip() for item in list(tags or []) if str(item).strip()),
             **_google_location_match_projection(location_match),
         }
@@ -12174,6 +12295,311 @@ class ProductService:
             return True
         return False
 
+    def _notification_feedback_ttl_seconds(self) -> int:
+        raw = str(os.getenv("EA_NOTIFICATION_FEEDBACK_TTL_SECONDS") or "604800").strip()
+        try:
+            return max(int(float(raw or "604800")), 3600)
+        except Exception:
+            return 604800
+
+    def _notification_feedback_options(
+        self,
+        *,
+        notification_kind: str,
+        domain: str,
+        suggestion_options: Sequence[dict[str, object]] | None = None,
+    ) -> list[dict[str, object]]:
+        normalized_kind = str(notification_kind or "").strip().lower()
+        normalized_domain = str(domain or "").strip().lower()
+        if normalized_kind == "property_scout_hit" or normalized_domain == "willhaben":
+            options = [
+                {
+                    "key": "more_like_this",
+                    "label": "More like this",
+                    "event_type": "listing_saved",
+                    "reply_text": "Understood. I’ll bias future property matches more in this direction.",
+                },
+                {
+                    "key": "less_like_this",
+                    "label": "Less like this",
+                    "event_type": "listing_dismissed",
+                    "reply_text": "Understood. I’ll steer future property matches away from this.",
+                },
+            ]
+            for item in list(suggestion_options or []):
+                if isinstance(item, dict) and str(item.get("key") or "").strip():
+                    options.append(dict(item))
+            return options
+        return [
+            {
+                "key": "useful",
+                "label": "Useful",
+                "event_type": "notification_useful",
+                "reply_text": "Noted. I’ll keep this style of notification.",
+            },
+            {
+                "key": "less_like_this",
+                "label": "Less like this",
+                "event_type": "notification_not_relevant",
+                "reply_text": "Understood. I’ll reduce this kind of notification.",
+            },
+        ]
+
+    def _prepare_notification_feedback_prompt(
+        self,
+        *,
+        principal_id: str,
+        notification_kind: str,
+        person_id: str,
+        domain: str,
+        object_type: str,
+        object_id: str,
+        source_ref: str,
+        raw_signal_json: dict[str, object] | None = None,
+        interpreted_signal_json: dict[str, object] | None = None,
+        suggestion_options: Sequence[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        notification_key = uuid4().hex[:10]
+        expires_at = int(time.time()) + self._notification_feedback_ttl_seconds()
+        options = self._notification_feedback_options(
+            notification_kind=notification_kind,
+            domain=domain,
+            suggestion_options=suggestion_options,
+        )
+        button_rows: list[list[tuple[str, str]]] = []
+        current_row: list[tuple[str, str]] = []
+        for option in options[:6]:
+            callback_data = build_telegram_feedback_callback_data_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                notification_key=notification_key,
+                feedback_key=str(option.get("key") or "").strip(),
+                expires_at=expires_at,
+            )
+            if callback_data:
+                current_row.append((str(option.get("label") or "").strip(), callback_data))
+                if len(current_row) >= 2:
+                    button_rows.append(current_row)
+                    current_row = []
+        if current_row:
+            button_rows.append(current_row)
+        return {
+            "notification_key": notification_key,
+            "expires_at": expires_at,
+            "button_rows": button_rows,
+            "options": options,
+            "notification_kind": str(notification_kind or "").strip(),
+            "person_id": str(person_id or "").strip() or "self",
+            "domain": str(domain or "").strip(),
+            "object_type": str(object_type or "").strip(),
+            "object_id": str(object_id or "").strip(),
+            "source_ref": str(source_ref or "").strip(),
+            "raw_signal_json": dict(raw_signal_json or {}),
+            "interpreted_signal_json": dict(interpreted_signal_json or {}),
+        }
+
+    def _property_notification_feedback_suggestions(
+        self,
+        *,
+        raw_signal_json: dict[str, object] | None,
+    ) -> list[dict[str, object]]:
+        raw = dict(raw_signal_json or {})
+        suggestions: list[dict[str, object]] = []
+        heating = str(raw.get("heating") or raw.get("heating_type") or "").strip()
+        heating_lower = heating.lower()
+        has_floorplan = bool(raw.get("has_floorplan"))
+        if heating and not any(marker in heating_lower for marker in ("zentral", "central", "fernwärme", "fernwaerme", "district")):
+            suggestions.append(
+                {
+                    "key": "avoid_heat",
+                    "label": "Ignore: no central heating",
+                    "event_type": "listing_dismissed",
+                    "reply_text": "Noted. I’ll treat this heating setup as a negative signal for future property matches.",
+                    "preference_hints": [
+                        {
+                            "domain": "willhaben",
+                            "category": "aversion",
+                            "key": "avoid_heating_types",
+                            "value_json": [heating],
+                            "strength": "medium",
+                            "merge_mode": "append_unique",
+                        }
+                    ],
+                }
+            )
+        if not has_floorplan:
+            suggestions.append(
+                {
+                    "key": "need_plan",
+                    "label": "Need floor plan",
+                    "event_type": "listing_dismissed",
+                    "reply_text": "Noted. I’ll push floor plans harder when ranking and filtering future properties.",
+                    "preference_hints": [
+                        {
+                            "domain": "willhaben",
+                            "category": "soft_preference",
+                            "key": "requires_floorplan_for_remote_review",
+                            "value_json": True,
+                            "strength": "medium",
+                        }
+                    ],
+                }
+            )
+        return suggestions
+
+    def _record_notification_feedback_prompt(
+        self,
+        *,
+        principal_id: str,
+        prompt: dict[str, object],
+        delivery_channel: str,
+        telegram_chat_ref: str = "",
+        telegram_message_ids: list[str] | tuple[str, ...] = (),
+    ) -> None:
+        notification_key = str(prompt.get("notification_key") or "").strip()
+        if not notification_key:
+            return
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="notification_feedback_prompted",
+            payload={
+                "notification_key": notification_key,
+                "notification_kind": str(prompt.get("notification_kind") or "").strip(),
+                "person_id": str(prompt.get("person_id") or "").strip(),
+                "domain": str(prompt.get("domain") or "").strip(),
+                "object_type": str(prompt.get("object_type") or "").strip(),
+                "object_id": str(prompt.get("object_id") or "").strip(),
+                "source_ref": str(prompt.get("source_ref") or "").strip(),
+                "raw_signal_json": dict(prompt.get("raw_signal_json") or {}),
+                "interpreted_signal_json": dict(prompt.get("interpreted_signal_json") or {}),
+                "options": [dict(item) for item in list(prompt.get("options") or []) if isinstance(item, dict)],
+                "delivery_channel": str(delivery_channel or "").strip(),
+                "telegram_chat_ref": str(telegram_chat_ref or "").strip(),
+                "telegram_message_ids": [str(item or "").strip() for item in list(telegram_message_ids or []) if str(item or "").strip()],
+            },
+            source_id=str(prompt.get("source_ref") or notification_key).strip() or notification_key,
+            dedupe_key=f"{principal_id}|{notification_key}|notification-feedback-prompt",
+        )
+
+    def _notification_feedback_prompt_by_key(
+        self,
+        *,
+        principal_id: str,
+        notification_key: str,
+    ) -> dict[str, object] | None:
+        normalized_key = str(notification_key or "").strip()
+        if not normalized_key:
+            return None
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_SYNC_EVENT_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "notification_feedback_prompted":
+                continue
+            payload = dict(getattr(row, "payload", {}) or {})
+            if str(payload.get("notification_key") or "").strip() != normalized_key:
+                continue
+            return payload
+        return None
+
+    def record_notification_feedback(
+        self,
+        *,
+        principal_id: str,
+        notification_key: str,
+        feedback_key: str,
+        actor: str = "",
+        chat_id: str = "",
+    ) -> dict[str, object]:
+        prompt = self._notification_feedback_prompt_by_key(
+            principal_id=principal_id,
+            notification_key=notification_key,
+        )
+        if prompt is None:
+            return {"status": "missing", "reply_text": "That feedback prompt is no longer available."}
+        option = next(
+            (
+                dict(item)
+                for item in list(prompt.get("options") or [])
+                if isinstance(item, dict) and str(item.get("key") or "").strip() == str(feedback_key or "").strip()
+            ),
+            {},
+        )
+        if not option:
+            return {"status": "invalid", "reply_text": "That feedback option is no longer valid."}
+        dedupe_key = f"{principal_id}|{str(notification_key or '').strip()}|{str(feedback_key or '').strip()}|notification-feedback"
+        if self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="notification_feedback_received",
+            dedupe_key=dedupe_key,
+        ):
+            return {"status": "duplicate", "reply_text": str(option.get('reply_text') or 'Already noted.').strip() or "Already noted."}
+        interpreted_signal_json = dict(prompt.get("interpreted_signal_json") or {})
+        option_hints = [
+            dict(item)
+            for item in list(option.get("preference_hints") or [])
+            if isinstance(item, dict)
+        ]
+        if option_hints:
+            merged_hints = [dict(item) for item in list(interpreted_signal_json.get("preference_hints") or []) if isinstance(item, dict)]
+            merged_hints.extend(option_hints)
+            interpreted_signal_json["preference_hints"] = merged_hints
+        evidence_result = None
+        normalized_domain = str(prompt.get("domain") or "").strip()
+        normalized_object_type = str(prompt.get("object_type") or "").strip()
+        normalized_object_id = str(prompt.get("object_id") or "").strip()
+        if normalized_domain and normalized_object_type and normalized_object_id:
+            evidence_result = self.record_preference_evidence(
+                principal_id=principal_id,
+                person_id=str(prompt.get("person_id") or "self").strip() or "self",
+                domain=normalized_domain,
+                event_type=str(option.get("event_type") or f"notification_feedback_{feedback_key}").strip(),
+                object_type=normalized_object_type,
+                object_id=normalized_object_id,
+                source_ref=str(prompt.get("source_ref") or "").strip(),
+                raw_signal_json=dict(prompt.get("raw_signal_json") or {}),
+                interpreted_signal_json=interpreted_signal_json,
+                signal_strength=0.9,
+                reversible=True,
+            )
+        teable_sync = None
+        if evidence_result:
+            try:
+                teable_sync = self.request_preference_teable_sync(
+                    principal_id=principal_id,
+                    person_id=str(prompt.get("person_id") or "self").strip() or "self",
+                )
+            except Exception as exc:
+                teable_sync = {"status": "failed", "blocked_reason": compact_text(str(exc or ""), fallback="teable_sync_failed", limit=160)}
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="notification_feedback_received",
+            payload={
+                "notification_key": str(notification_key or "").strip(),
+                "feedback_key": str(feedback_key or "").strip(),
+                "notification_kind": str(prompt.get("notification_kind") or "").strip(),
+                "person_id": str(prompt.get("person_id") or "").strip(),
+                "domain": normalized_domain,
+                "object_type": normalized_object_type,
+                "object_id": normalized_object_id,
+                "source_ref": str(prompt.get("source_ref") or "").strip(),
+                "actor": str(actor or "").strip() or "telegram_feedback",
+                "chat_id": str(chat_id or "").strip(),
+                "preference_event_type": str(option.get("event_type") or "").strip(),
+                "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
+                "teable_blocked_reason": str(dict(teable_sync or {}).get("blocked_reason") or "").strip(),
+            },
+            source_id=str(prompt.get("source_ref") or notification_key).strip() or str(notification_key or "").strip(),
+            dedupe_key=dedupe_key,
+        )
+        return {
+            "status": "recorded",
+            "reply_text": str(option.get("reply_text") or "Noted.").strip() or "Noted.",
+            "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
+        }
+
     def _latest_property_tour_event(
         self,
         *,
@@ -12295,6 +12721,44 @@ class ProductService:
         tour_payload = dict(tour_result or {})
         tour_url = str(tour_payload.get("tour_url") or "").strip()
         blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        feedback_raw_signal = {
+            "title": str(title or "").strip(),
+            "summary": str(summary or "").strip(),
+            "counterparty": str(counterparty or "").strip(),
+            "property_url": str(property_url or "").strip(),
+            "fit_score": float(fit_score or 0.0),
+            "account_email": str(account_email or "").strip(),
+            "tour_url": tour_url,
+        }
+        if candidate_properties:
+            feedback_raw_signal["candidate_property"] = dict(candidate_properties[0] or {})
+        if _is_willhaben_property_url(property_url):
+            try:
+                packet = _load_willhaben_property_packet(property_url)
+            except Exception:
+                packet = {}
+            property_facts = dict(packet.get("property_facts_json") or {}) if isinstance(packet, dict) else {}
+            feedback_raw_signal.update(
+                {
+                    "district": str(property_facts.get("district") or property_facts.get("postal_name") or property_facts.get("location") or "").strip(),
+                    "postal_name": str(property_facts.get("postal_name") or "").strip(),
+                    "location": str(property_facts.get("location") or "").strip(),
+                    "heating": str(property_facts.get("heating") or property_facts.get("heating_type") or "").strip(),
+                    "has_floorplan": bool(list(packet.get("floorplan_urls_json") or [])) if isinstance(packet, dict) else False,
+                }
+            )
+        feedback_prompt = self._prepare_notification_feedback_prompt(
+            principal_id=principal_id,
+            notification_kind="property_scout_hit",
+            person_id=preference_person_id,
+            domain="willhaben" if _is_willhaben_property_url(property_url) else "property_scout",
+            object_type="property_listing",
+            object_id=str(property_url or "").strip(),
+            source_ref=source_ref,
+            raw_signal_json=feedback_raw_signal,
+            interpreted_signal_json={},
+            suggestion_options=self._property_notification_feedback_suggestions(raw_signal_json=feedback_raw_signal),
+        )
         try:
             telegram_receipt = send_telegram_message_for_principal(
                 self._container.tool_runtime,
@@ -12311,6 +12775,7 @@ class ProductService:
                     tour_url=tour_url,
                     preference_person_id=preference_person_id,
                 ),
+                inline_buttons=list(feedback_prompt.get("button_rows") or []),
             )
         except Exception as exc:
             payload = {
@@ -12340,6 +12805,13 @@ class ProductService:
             "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
             "telegram_message_ids": list(telegram_receipt.message_ids),
         }
+        self._record_notification_feedback_prompt(
+            principal_id=principal_id,
+            prompt=feedback_prompt,
+            delivery_channel="telegram",
+            telegram_chat_ref=str(telegram_receipt.chat_id or "").strip(),
+            telegram_message_ids=list(telegram_receipt.message_ids),
+        )
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_scout_hit_telegram_sent",
@@ -13130,6 +13602,12 @@ class ProductService:
             summary_markdown = str(detail.get("summary_markdown") or "").strip()
             title = str(detail.get("title") or "").strip() or f"Pocket recording {recording_id}"
             tags = [str(value).strip() for value in list(detail.get("tags") or []) if str(value).strip()]
+            topic_keywords_csv = _pocket_topic_keywords_csv(
+                title=title,
+                tags=tags,
+                summary_markdown=summary_markdown,
+                transcript_text=transcript_text,
+            )
             location_match = self._match_google_location_window(
                 principal_id=principal_id,
                 recording_at=str(detail.get("recording_at") or "").strip(),
@@ -13195,6 +13673,7 @@ class ProductService:
                     "language": str(detail.get("language") or "").strip(),
                     "recording_at": str(detail.get("recording_at") or "").strip(),
                     "recording_updated_at": str(detail.get("updated_at") or _pocket_recording_effective_updated_at(row)).strip(),
+                    "topic_keywords_csv": topic_keywords_csv,
                     "tags_csv": ", ".join(tags),
                     "summary_markdown": summary_markdown,
                     "transcript_text": compact_text(transcript_text, fallback="", limit=12000),
@@ -13215,6 +13694,7 @@ class ProductService:
                 transcript_text=transcript_text,
                 transcript_excerpt=compact_text(transcript_text, fallback="", limit=1200),
                 location_match=location_match,
+                topic_keywords_csv=topic_keywords_csv,
                 tags=tags,
             )
             assistant_command_summary = self._process_pocket_assistant_commands(
@@ -13453,6 +13933,7 @@ class ProductService:
                     str(payload.get("summary_markdown") or "").strip(),
                     str(payload.get("transcript_text") or "").strip(),
                     str(payload.get("transcript_excerpt") or "").strip(),
+                    str(payload.get("topic_keywords_csv") or "").strip(),
                     str(payload.get("location_name") or "").strip(),
                     str(payload.get("location_address") or "").strip(),
                     str(payload.get("tags_csv") or "").strip(),
@@ -13478,6 +13959,7 @@ class ProductService:
                     "summary_markdown": str(payload.get("summary_markdown") or "").strip(),
                     "transcript_text": str(payload.get("transcript_text") or "").strip(),
                     "transcript_excerpt": str(payload.get("transcript_excerpt") or "").strip(),
+                    "topic_keywords_csv": str(payload.get("topic_keywords_csv") or "").strip(),
                     **_google_location_match_projection(payload),
                     "match_score": match_score,
                 }
@@ -14109,8 +14591,6 @@ class ProductService:
         normalized_email = str(email or "").strip().lower()
         if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
             raise ValueError("workspace_sign_in_email_invalid")
-        if not email_delivery_enabled():
-            raise RuntimeError("workspace_sign_in_email_delivery_not_configured")
         candidates = self._workspace_sign_in_candidates(email=normalized_email)
         if not candidates:
             return {
@@ -14136,14 +14616,34 @@ class ProductService:
                     if not invite_url:
                         raise RuntimeError("workspace_invite_url_missing")
                     absolute_invite_url = urllib.parse.urljoin(str(base_url or "").strip(), invite_url) if str(base_url or "").strip() else invite_url
-                    receipt = send_workspace_invitation_email(
-                        recipient_email=normalized_email,
-                        invite_url=absolute_invite_url,
-                        role=role,
-                        invited_by=str(candidate.get("invited_by") or workspace_name).strip() or workspace_name,
-                        note=str(candidate.get("note") or "").strip(),
-                        expires_at=str(candidate.get("expires_at") or "").strip(),
-                    )
+                    invited_by = str(candidate.get("invited_by") or workspace_name).strip() or workspace_name
+                    invite_note = str(candidate.get("note") or "").strip()
+                    invite_expires_at = str(candidate.get("expires_at") or "").strip()
+                    if email_delivery_enabled():
+                        receipt = send_workspace_invitation_email(
+                            recipient_email=normalized_email,
+                            invite_url=absolute_invite_url,
+                            role=role,
+                            invited_by=invited_by,
+                            note=invite_note,
+                            expires_at=invite_expires_at,
+                        )
+                        provider = receipt.provider
+                    else:
+                        gmail_receipt = google_oauth_service.send_google_gmail_message(
+                            container=self._container,
+                            principal_id=principal_id,
+                            recipient_email=normalized_email,
+                            subject=_workspace_invitation_email_subject(invited_by=invited_by),
+                            body_text=_workspace_invitation_email_text(
+                                invite_url=absolute_invite_url,
+                                role=role,
+                                invited_by=invited_by,
+                                note=invite_note,
+                                expires_at=invite_expires_at,
+                            ),
+                        )
+                        provider = "google_gmail"
                     self._record_product_event(
                         principal_id=principal_id,
                         event_type="workspace_sign_in_invite_email_sent",
@@ -14151,7 +14651,7 @@ class ProductService:
                             "recipient_email": normalized_email,
                             "workspace_name": workspace_name,
                             "role": role,
-                            "provider": receipt.provider,
+                            "provider": provider,
                         },
                         source_id=f"signin-invite:{normalized_email}:{principal_id}",
                     )
@@ -14177,14 +14677,32 @@ class ProductService:
                 )
                 access_url = str(access_session.get("access_url") or "").strip()
                 absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url
-                receipt = send_workspace_access_email(
-                    recipient_email=normalized_email,
-                    workspace_name=workspace_name,
-                    access_url=absolute_access_url,
-                    role=role,
-                    display_name=display_name,
-                    expires_at=str(access_session.get("expires_at") or "").strip(),
-                )
+                access_expires_at = str(access_session.get("expires_at") or "").strip()
+                if email_delivery_enabled():
+                    receipt = send_workspace_access_email(
+                        recipient_email=normalized_email,
+                        workspace_name=workspace_name,
+                        access_url=absolute_access_url,
+                        role=role,
+                        display_name=display_name,
+                        expires_at=access_expires_at,
+                    )
+                    provider = receipt.provider
+                else:
+                    gmail_receipt = google_oauth_service.send_google_gmail_message(
+                        container=self._container,
+                        principal_id=principal_id,
+                        recipient_email=normalized_email,
+                        subject=_workspace_access_email_subject(workspace_name=workspace_name),
+                        body_text=_workspace_access_email_text(
+                            workspace_name=workspace_name,
+                            access_url=absolute_access_url,
+                            role=role,
+                            display_name=display_name,
+                            expires_at=access_expires_at,
+                        ),
+                    )
+                    provider = "google_gmail"
                 self._record_product_event(
                     principal_id=principal_id,
                     event_type="workspace_sign_in_access_email_sent",
@@ -14192,7 +14710,7 @@ class ProductService:
                         "recipient_email": normalized_email,
                         "workspace_name": workspace_name,
                         "role": role,
-                        "provider": receipt.provider,
+                        "provider": provider,
                         "access_session_id": str(access_session.get("session_id") or "").strip(),
                     },
                     source_id=f"signin-access:{normalized_email}:{principal_id}",
@@ -18177,20 +18695,48 @@ class ProductService:
         digest_key: str,
         operator_id: str = "",
         base_url: str = "",
+        access_url: str = "",
     ) -> str:
         digest = self.channel_digest_pack(principal_id=principal_id, digest_key=digest_key, operator_id=operator_id)
         if digest is None:
             return ""
-        normalized_base = str(base_url or "").strip()
+        normalized_base = str(base_url or "").strip().rstrip("/")
+        normalized_access = str(access_url or "").strip()
+
+        def secure_workspace_link(target_href: str) -> str:
+            target_value = str(target_href or "").strip()
+            if not target_value or not normalized_access:
+                return target_value
+            absolute_access = (
+                urllib.parse.urljoin(f"{normalized_base}/", normalized_access.lstrip("/"))
+                if normalized_base and "://" not in normalized_access
+                else normalized_access
+            )
+            separator = "&" if "?" in absolute_access else "?"
+            return f"{absolute_access}{separator}return_to={urllib.parse.quote(target_value, safe='/?:=&')}"
 
         def absolute(href: str) -> str:
             value = str(href or "").strip()
             if not value:
                 return ""
-            if "://" in value:
+            if "://" not in value:
+                if value.startswith("/") and normalized_access:
+                    return secure_workspace_link(value)
+                if normalized_base:
+                    return urllib.parse.urljoin(f"{normalized_base}/", value.lstrip("/"))
                 return value
             if normalized_base:
-                return urllib.parse.urljoin(normalized_base, value)
+                parsed_value = urllib.parse.urlparse(value)
+                parsed_base = urllib.parse.urlparse(normalized_base)
+                same_origin = (
+                    parsed_value.scheme == parsed_base.scheme
+                    and parsed_value.netloc == parsed_base.netloc
+                )
+                if same_origin and normalized_access:
+                    target = parsed_value.path or "/"
+                    if parsed_value.query:
+                        target = f"{target}?{parsed_value.query}"
+                    return secure_workspace_link(target)
             return value
 
         lines: list[str] = [
@@ -18323,6 +18869,7 @@ class ProductService:
                     digest_key=normalized_digest,
                     operator_id=str(access_session.get("operator_id") or "").strip(),
                     base_url=base_url,
+                    access_url=str(access_session.get("access_url") or "").strip(),
                 ),
             )
             if part
@@ -18398,15 +18945,38 @@ class ProductService:
                     dedupe_key=f"{principal_id}|{delivery_id}|delivery-email-failed",
                 )
         elif str(token_payload["delivery_channel"]) == "telegram":
+            feedback_prompt = self._prepare_notification_feedback_prompt(
+                principal_id=principal_id,
+                notification_kind="assistant_nudge" if normalized_digest == "assistant_nudge" else "channel_digest",
+                person_id="self",
+                domain="assistant_nudge" if normalized_digest == "assistant_nudge" else "channel_digest",
+                object_type="channel_digest",
+                object_id=normalized_digest,
+                source_ref=f"channel_digest:{normalized_digest}",
+                raw_signal_json={
+                    "headline": str(digest.get("headline") or "").strip(),
+                    "preview_text": str(digest.get("preview_text") or "").strip(),
+                    "item_tags": [str(dict(item).get("tag") or "").strip() for item in list(digest.get("items") or []) if isinstance(item, dict)],
+                },
+                interpreted_signal_json={},
+            )
             try:
                 telegram_receipt = send_telegram_message_for_principal(
                     self._container.tool_runtime,
                     principal_id=principal_id,
                     text=plain_text,
+                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
                 )
                 payload["telegram_delivery_status"] = "sent"
                 payload["telegram_message_ids"] = list(telegram_receipt.message_ids)
                 payload["telegram_chat_ref"] = telegram_receipt.chat_id
+                self._record_notification_feedback_prompt(
+                    principal_id=principal_id,
+                    prompt=feedback_prompt,
+                    delivery_channel="telegram",
+                    telegram_chat_ref=str(telegram_receipt.chat_id or "").strip(),
+                    telegram_message_ids=list(telegram_receipt.message_ids),
+                )
                 self._record_product_event(
                     principal_id=principal_id,
                     event_type="channel_digest_delivery_telegram_sent",
@@ -18542,6 +19112,7 @@ class ProductService:
                 digest_key=digest_key,
                 operator_id=str(access_session.get("operator_id") or "").strip(),
                 base_url=base_url,
+                access_url=str(access_session.get("access_url") or "").strip(),
             ),
         }
 

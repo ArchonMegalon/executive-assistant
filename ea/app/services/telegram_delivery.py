@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -360,6 +362,7 @@ def send_telegram_message_for_principal(
     *,
     principal_id: str,
     text: str,
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
     if binding is None:
@@ -378,10 +381,23 @@ def send_telegram_message_for_principal(
         bot_handle = str(config.get("handle") or "").strip()
     message_ids: list[str] = []
     for chunk in _chunk_telegram_text(text):
+        payload: dict[str, object] = {"chat_id": chat_id, "text": chunk}
+        if inline_buttons:
+            payload["reply_markup"] = {
+                "inline_keyboard": [
+                    [
+                        {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+                        for label, callback_data in row
+                        if str(label or "").strip() and str(callback_data or "").strip()
+                    ]
+                    for row in inline_buttons
+                    if row
+                ]
+            }
         result = _telegram_send_json(
             token=token,
             method="sendMessage",
-            payload={"chat_id": chat_id, "text": chunk},
+            payload=payload,
         )
         message_ids.append(str(result.get("message_id") or ""))
     return TelegramDeliveryReceipt(
@@ -391,6 +407,102 @@ def send_telegram_message_for_principal(
         bot_handle=bot_handle,
         message_ids=tuple(value for value in message_ids if value),
     )
+
+
+def _telegram_feedback_secret(*, bot_token: str) -> str:
+    return str(os.getenv("EA_TELEGRAM_FEEDBACK_SECRET") or "").strip() or str(bot_token or "").strip()
+
+
+def _telegram_feedback_signature(
+    *,
+    secret: str,
+    notification_key: str,
+    feedback_key: str,
+    chat_id: str,
+    expires_at: int,
+) -> str:
+    payload = "|".join(
+        (
+            str(notification_key or "").strip(),
+            str(feedback_key or "").strip(),
+            str(chat_id or "").strip(),
+            str(int(expires_at)),
+        )
+    )
+    return hmac.new(
+        str(secret or "").encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:12]
+
+
+def build_telegram_feedback_callback_data_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    notification_key: str,
+    feedback_key: str,
+    expires_at: int,
+) -> str:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        return ""
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    secret = _telegram_feedback_secret(bot_token=token)
+    if not secret or not chat_id:
+        return ""
+    signature = _telegram_feedback_signature(
+        secret=secret,
+        notification_key=notification_key,
+        feedback_key=feedback_key,
+        chat_id=chat_id,
+        expires_at=int(expires_at),
+    )
+    return f"fb|{str(notification_key or '').strip()}|{str(feedback_key or '').strip()}|{chat_id}|{int(expires_at)}|{signature}"
+
+
+def decode_telegram_feedback_callback_data(
+    *,
+    bot_token: str,
+    callback_data: str,
+    chat_id: str,
+) -> dict[str, object]:
+    normalized = str(callback_data or "").strip()
+    parts = normalized.split("|")
+    if len(parts) != 6 or parts[0] != "fb":
+        return {"ok": False, "reason": "invalid_format"}
+    _, notification_key, feedback_key, encoded_chat_id, expires_at_raw, signature = parts
+    if str(encoded_chat_id or "").strip() != str(chat_id or "").strip():
+        return {"ok": False, "reason": "chat_mismatch"}
+    try:
+        expires_at = int(str(expires_at_raw or "").strip())
+    except Exception:
+        return {"ok": False, "reason": "invalid_expiry"}
+    if expires_at < int(time.time()):
+        return {"ok": False, "reason": "expired"}
+    secret = _telegram_feedback_secret(bot_token=bot_token)
+    if not secret:
+        return {"ok": False, "reason": "missing_secret"}
+    expected_signature = _telegram_feedback_signature(
+        secret=secret,
+        notification_key=notification_key,
+        feedback_key=feedback_key,
+        chat_id=str(chat_id or "").strip(),
+        expires_at=expires_at,
+    )
+    if not hmac.compare_digest(str(signature or "").strip(), expected_signature):
+        return {"ok": False, "reason": "invalid_signature"}
+    return {
+        "ok": True,
+        "notification_key": str(notification_key or "").strip(),
+        "feedback_key": str(feedback_key or "").strip(),
+        "chat_id": str(chat_id or "").strip(),
+        "expires_at": expires_at,
+    }
 
 
 def send_telegram_video_for_principal(

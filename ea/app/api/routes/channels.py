@@ -39,6 +39,7 @@ from app.services.telegram_session_service import (
     run_local_resolvers,
 )
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR, TELEGRAM_OFFICIAL_BOT_CONNECTOR
+from app.services.telegram_delivery import decode_telegram_feedback_callback_data
 
 router = APIRouter(prefix="/v1/channels", tags=["channels"])
 _telegram = TelegramObservationAdapter()
@@ -4377,9 +4378,30 @@ def _telegram_command_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDec
 def _telegram_callback_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
     if str(ctx.payload.get("kind") or "").strip().lower() != "callback_query":
         return TelegramTurnDecision()
+    callback_data = str(ctx.payload.get("callback_data") or "").strip()
+    if callback_data.startswith("fb|"):
+        callback_packet = decode_telegram_feedback_callback_data(
+            bot_token=str(dict(ctx.payload.get("_bot_config") or {}).get("token") or "").strip(),
+            callback_data=callback_data,
+            chat_id=ctx.chat_id,
+        )
+        if not bool(callback_packet.get("ok")):
+            reason = str(callback_packet.get("reason") or "").strip().lower()
+            if reason == "expired":
+                return TelegramTurnDecision(reply_text="That feedback button expired. Send a fresh request if you want to tune this again.")
+            return TelegramTurnDecision(reply_text="That feedback button is no longer valid.")
+        service = build_product_service(ctx.container)
+        result = service.record_notification_feedback(
+            principal_id=ctx.principal_id,
+            notification_key=str(callback_packet.get("notification_key") or "").strip(),
+            feedback_key=str(callback_packet.get("feedback_key") or "").strip(),
+            actor="telegram_feedback",
+            chat_id=ctx.chat_id,
+        )
+        return TelegramTurnDecision(reply_text=str(result.get("reply_text") or "Noted.").strip() or "Noted.")
     callback_packet = _telegram_decode_callback_data(
         bot_config=dict(ctx.payload.get("_bot_config") or {}),
-        callback_data=str(ctx.payload.get("callback_data") or ""),
+        callback_data=callback_data,
         chat_id=ctx.chat_id,
     )
     if not bool(callback_packet.get("ok")):

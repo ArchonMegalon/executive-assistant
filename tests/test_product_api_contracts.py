@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import app.api.routes.channels as channel_routes
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
@@ -937,6 +938,21 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
         good_fit_min_score=80.0,
         actor="test",
     )
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="elisabeth",
+        display_name="Elisabeth",
+        learning_enabled=True,
+    )
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
     listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/testwohnung-123456789/"
     monkeypatch.setenv(
         "EA_PROPERTY_SCOUT_URLS_JSON",
@@ -1019,7 +1035,7 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text: observed_telegram.update({"principal_id": principal_id, "text": text}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
     )
     monkeypatch.setattr(
         ProductService,
@@ -1041,12 +1057,51 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     assert body["high_fit_total"] == 1
     assert "Personal fit 96/100" in str(observed_telegram["text"])
     assert "https://myexternalbrain.com/tours/test-scout-flat" in str(observed_telegram["text"])
+    assert observed_telegram["inline_buttons"]
+    feedback_events = client.get("/app/api/events", params={"channel": "product", "event_type": "notification_feedback_prompted"})
+    assert feedback_events.status_code == 200
+    feedback_prompt = next(item for item in feedback_events.json()["items"] if item["payload"]["source_ref"] == "property-scout:123456789")
+    feedback_result = product.record_notification_feedback(
+        principal_id=principal_id,
+        notification_key=str(feedback_prompt["payload"]["notification_key"]),
+        feedback_key="more_like_this",
+        actor="test",
+        chat_id="1354554303",
+    )
+    assert feedback_result["status"] == "recorded"
+    bundle = client.app.state.container.preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="elisabeth")
+    evidence_rows = [
+        row
+        for row in list(bundle.get("recent_evidence_events") or [])
+        if str(row.get("domain") or "") == "willhaben" and str(row.get("event_type") or "") == "listing_saved"
+    ]
+    assert evidence_rows
 
 
 def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Watch Notify Office")
+    client.post(
+        "/app/api/people/elisabeth/preference-profile",
+        json={
+            "display_name": "Elisabeth",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+        },
+    )
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={
+            "default_chat_ref": "1354554303",
+            "bot_key": "default",
+            "bot_handle": "tibor_concierge_bot",
+        },
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
     product = ProductService(client.app.state.container)
     product.update_property_alert_policy(
         principal_id=principal_id,
@@ -1074,6 +1129,7 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
             ]
         ),
     )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
     listing_url = "https://www.immobilienscout24.at/expose/watch-fit-1"
     monkeypatch.setattr(
         product_service,
@@ -1116,7 +1172,7 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     monkeypatch.setattr(
         product_service,
         "send_telegram_message_for_principal",
-        lambda tool_runtime, *, principal_id, text: observed_telegram.update({"principal_id": principal_id, "text": text}) or _TelegramReceipt(),
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
     )
     response = client.post("/app/api/signals/property/scout")
     assert response.status_code == 200
@@ -1126,6 +1182,213 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     assert body["notified_total"] == 1
     assert body["sources"][0]["watch_notified_total"] == 1
     assert "Personal fit 37/100" in str(observed_telegram["text"])
+
+
+def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Reason Buttons Office")
+    product = ProductService(client.app.state.container)
+    product.update_property_alert_policy(
+        principal_id=principal_id,
+        auto_score=True,
+        auto_compare=True,
+        auto_generate_tour_for_good_fit=False,
+        notify_only_if_good=True,
+        good_fit_min_score=80.0,
+        actor="test",
+    )
+    product.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="elisabeth",
+        display_name="Elisabeth",
+        learning_enabled=True,
+    )
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/testwohnung-987654321/"
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/?areaId=900&sort=3",
+                    "label": "Willhaben Wien rentals",
+                    "principal_id": principal_id,
+                    "preference_person_id": "elisabeth",
+                    "notify_telegram": True,
+                    "max_results": 1,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda url: f'<a href="{listing_url}">One</a>')
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "987654321",
+            "listing_uuid": "uuid-987654321",
+            "title": "Heating mismatch flat",
+            "property_facts_json": {
+                "postal_name": "Waehring",
+                "heating": "Gasetagenheizung",
+                "floorplan_count": 0,
+            },
+            "media_urls_json": ["https://cdn.example.com/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [],
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "assessment_id": "assessment-reason-buttons-1",
+            "domain": "willhaben",
+            "object_id": str(kwargs.get("object_id") or ""),
+            "fit_score": 92.0,
+            "confidence": 0.92,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Mostly strong, but heating and missing floor plan are concerns."],
+            "mismatch_reasons_json": ["Gas heating."],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    observed_telegram: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("993",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update({"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}) or _TelegramReceipt(),
+    )
+    response = client.post("/app/api/signals/property/scout")
+    assert response.status_code == 200
+    button_labels = [button[0] for row in list(observed_telegram.get("inline_buttons") or []) for button in row]
+    assert "Ignore: no central heating" in button_labels
+    assert "Need floor plan" in button_labels
+    feedback_events = client.get("/app/api/events", params={"channel": "product", "event_type": "notification_feedback_prompted"})
+    assert feedback_events.status_code == 200
+    feedback_prompt = next(item for item in feedback_events.json()["items"] if item["payload"]["source_ref"] == "property-scout:987654321")
+    feedback_result = product.record_notification_feedback(
+        principal_id=principal_id,
+        notification_key=str(feedback_prompt["payload"]["notification_key"]),
+        feedback_key="avoid_heat",
+        actor="test",
+        chat_id="1354554303",
+    )
+    assert feedback_result["status"] == "recorded"
+    bundle = client.app.state.container.preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="elisabeth")
+    evidence_rows = [
+        row
+        for row in list(bundle.get("recent_evidence_events") or [])
+        if str(row.get("domain") or "") == "willhaben" and str(row.get("event_type") or "") == "listing_dismissed"
+    ]
+    assert any("avoid_heating_types" in json.dumps(dict(row.get("interpreted_signal_json") or {}), ensure_ascii=False) for row in evidence_rows)
+
+
+def test_telegram_feedback_callback_records_generic_notification_preference(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Telegram Feedback Office")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "telegram-secret-test")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={
+            "default_chat_ref": "1354554303",
+            "bot_key": "default",
+            "bot_handle": "tibor_concierge_bot",
+        },
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    product = ProductService(client.app.state.container)
+    prompt = product._prepare_notification_feedback_prompt(
+        principal_id=principal_id,
+        notification_kind="assistant_nudge",
+        person_id="self",
+        domain="assistant_nudge",
+        object_type="channel_digest",
+        object_id="assistant_nudge",
+        source_ref="channel_digest:assistant_nudge",
+        raw_signal_json={"headline": "Action needed", "preview_text": "Approve the draft."},
+        interpreted_signal_json={},
+    )
+    product._record_notification_feedback_prompt(
+        principal_id=principal_id,
+        prompt=prompt,
+        delivery_channel="telegram",
+        telegram_chat_ref="1354554303",
+        telegram_message_ids=["991"],
+    )
+    callback_data = str(prompt["button_rows"][0][0][1])
+    answered: list[dict[str, object]] = []
+    replies: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        channel_routes,
+        "_telegram_answer_callback_query",
+        lambda *, bot_token, callback_query_id, text="": answered.append(
+            {"bot_token": bot_token, "callback_query_id": callback_query_id, "text": text}
+        ),
+    )
+    monkeypatch.setattr(
+        channel_routes,
+        "_telegram_send_and_record_reply",
+        lambda **kwargs: replies.append({"reply_text": kwargs.get("reply_text"), "dedupe_key": kwargs.get("dedupe_key")}) or True,
+    )
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"x-telegram-bot-api-secret-token": "telegram-secret-test"},
+        json={
+            "update": {
+                "callback_query": {
+                    "id": "cb-1",
+                    "data": callback_data,
+                    "message": {
+                        "message_id": 991,
+                        "text": "Action needed",
+                        "chat": {"id": "1354554303"},
+                    },
+                }
+            }
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert body["reply_text"] == "Noted. I’ll keep this style of notification."
+    assert answered and answered[0]["callback_query_id"] == "cb-1"
+    assert replies and replies[0]["reply_text"] == "Noted. I’ll keep this style of notification."
+    feedback_events = client.get("/app/api/events", params={"channel": "product", "event_type": "notification_feedback_received"})
+    assert feedback_events.status_code == 200
+    feedback_payloads = [item["payload"] for item in feedback_events.json()["items"]]
+    matched_feedback = next(item for item in feedback_payloads if item["notification_key"] == prompt["notification_key"])
+    assert matched_feedback["feedback_key"] == "useful"
+    bundle = client.app.state.container.preference_profiles.get_profile_bundle(principal_id=principal_id, person_id="self")
+    evidence_rows = [
+        row
+        for row in list(bundle.get("recent_evidence_events") or [])
+        if str(row.get("domain") or "") == "assistant_nudge" and str(row.get("event_type") or "") == "notification_useful"
+    ]
+    assert evidence_rows
 
 
 def test_property_alert_preference_scoring_flows_through_queue_and_telegram(monkeypatch) -> None:
@@ -4004,6 +4267,8 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     assert body["items"][0]["source_id"] == "pocket-recording:done-1"
     assert captured_rows[0]["audio_download_url"] == ""
     assert "audio_download_url_host" not in captured_rows[0]
+    assert "board" in str(captured_rows[0]["topic_keywords_csv"])
+    assert "sofia" in str(captured_rows[0]["topic_keywords_csv"])
 
     events = client.get("/app/api/events", params={"channel": "pocket"})
     assert events.status_code == 200
@@ -4013,6 +4278,10 @@ def test_pocket_api_sync_ingests_completed_recordings(monkeypatch) -> None:
     assert "audio_download_url" not in event["payload"]
     assert event["payload"]["audio_archive_status"] == "archived"
     assert event["payload"]["audio_archive_path"].endswith("__done-1__pocket-meeting.mp3")
+    product_events = client.get("/app/api/events", params={"channel": "product", "event_type": "pocket_recording_archive_indexed"})
+    assert product_events.status_code == 200
+    archive_indexed = next(item for item in product_events.json()["items"] if item["payload"]["recording_id"] == "done-1")
+    assert "board" in str(archive_indexed["payload"]["topic_keywords_csv"])
 
 
 def test_pocket_api_sync_dismisses_subminute_recordings_from_continuous_archive(monkeypatch) -> None:
@@ -4735,6 +5004,8 @@ def test_google_location_history_import_supports_maps_myactivity_zip(monkeypatch
     assert body["items"][0]["recording_id"] == "hospital-2"
     assert body["items"][0]["location_name"] == "Hanusch Spital"
     assert body["items"][0]["location_match_status"] in {"matched", "nearest"}
+    assert "hanusch" in str(body["items"][0]["topic_keywords_csv"])
+    assert "vater" in str(body["items"][0]["topic_keywords_csv"])
 
 
 def test_pocket_recording_search_deliver_telegram_route_sends_best_match(monkeypatch) -> None:
@@ -9142,6 +9413,7 @@ def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     principal_id = "exec-product-delivery-public-host"
     client = build_product_client(principal_id=principal_id)
     seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Public Host Delivery Office")
     monkeypatch.delenv("EA_PUBLIC_APP_BASE_URL", raising=False)
     monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://public.example.com/google/callback")
 
@@ -9159,6 +9431,48 @@ def test_channel_digest_delivery_uses_public_host_fallback(monkeypatch) -> None:
     assert delivery.status_code == 200
     delivery_body = delivery.json()
     assert "https://public.example.com/channel-loop/deliveries/" in delivery_body["plain_text"]
+    assert "https://public.example.com/workspace-access/" in delivery_body["plain_text"]
+    assert "return_to=/app/" in delivery_body["plain_text"]
+
+
+def test_workspace_sign_in_email_links_fall_back_to_google_gmail_when_emailit_is_disabled(monkeypatch) -> None:
+    principal_id = "exec-product-signin-gmail-fallback"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Sign In Fallback Office")
+    product = ProductService(client.app.state.container)
+    product.issue_workspace_access_session(
+        principal_id=principal_id,
+        email="tibor.girschele@gmail.com",
+        role="principal",
+        display_name="Tibor Girschele",
+        source_kind="sign_in_email",
+        expires_in_hours=24,
+    )
+    monkeypatch.setattr(product_service, "email_delivery_enabled", lambda: False)
+    sent: list[dict[str, object]] = []
+
+    class _FakeGmailReceipt:
+        provider = "google_gmail"
+        gmail_message_id = "gmail-msg-1"
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "send_google_gmail_message",
+        lambda **kwargs: sent.append(dict(kwargs)) or _FakeGmailReceipt(),
+    )
+
+    result = product.request_workspace_sign_in_email_links(
+        email="tibor.girschele@gmail.com",
+        base_url="https://myexternalbrain.com",
+    )
+    assert result["status"] == "sent"
+    assert result["sent_total"] == 1
+    assert result["failed_total"] == 0
+    assert sent
+    assert sent[0]["recipient_email"] == "tibor.girschele@gmail.com"
+    assert "https://myexternalbrain.com/workspace-access/" in str(sent[0]["body_text"])
+    assert "It is not your app login." in str(sent[0]["body_text"])
 
 
 def test_memo_digest_delivery_refreshes_stale_google_signals_before_issue(monkeypatch) -> None:
