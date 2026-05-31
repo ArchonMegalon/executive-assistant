@@ -12,7 +12,7 @@ hero_ctas:
 - label: Open downloads
   href: /downloads
   emphasis: primary
-- label: See what works today
+- label: What Works Today
   href: /now
   emphasis: secondary
 guest_shell_actions:
