@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.domain.models import TaskExecutionRequest
 from app.services.channel_runtime import ChannelRuntimeService
+from app.services.tool_execution_common import ToolExecutionError
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.orchestrator import RewriteOrchestrator
 from app.services.task_contracts import TaskContractService
@@ -119,22 +120,28 @@ class ProactiveHorizonService:
                 self._release_dedupe_key(candidate.dedupe_key)
                 continue
             try:
-                _ = self._orchestrator.execute_task_artifact(
-                    TaskExecutionRequest(
-                        task_key=candidate.task_key,
-                        principal_id=candidate.principal_id,
-                        goal=candidate.goal,
-                        input_json={
-                            "source_text": candidate.source_text,
-                            "normalized_text": candidate.source_text,
-                            "text_length": len(candidate.source_text),
-                            "proactive_horizon_kind": candidate.kind,
-                            "proactive_horizon_due_at": candidate.due_at,
-                            "context_refs": list(candidate.context_refs),
-                        },
-                        context_refs=candidate.context_refs,
+                self._execute_candidate(candidate, task_key=candidate.task_key)
+            except ToolExecutionError as exc:
+                if "brain_profile_provider_unavailable:" not in str(exc) or candidate.task_key == "rewrite_text":
+                    self._log.exception(
+                        "failed to enqueue proactive horizon candidate kind=%s principal=%s record=%s",
+                        candidate.kind,
+                        candidate.principal_id,
+                        candidate.record_id,
                     )
-                )
+                    self._release_dedupe_key(candidate.dedupe_key)
+                    continue
+                try:
+                    self._execute_candidate(candidate, task_key="rewrite_text")
+                except Exception:
+                    self._log.exception(
+                        "failed to enqueue proactive horizon fallback candidate kind=%s principal=%s record=%s",
+                        candidate.kind,
+                        candidate.principal_id,
+                        candidate.record_id,
+                    )
+                    self._release_dedupe_key(candidate.dedupe_key)
+                    continue
             except Exception:
                 self._log.exception(
                     "failed to enqueue proactive horizon candidate kind=%s principal=%s record=%s",
@@ -147,6 +154,25 @@ class ProactiveHorizonService:
             self._release_dedupe_key(candidate.dedupe_key)
             launched.append(candidate)
         return tuple(launched)
+
+    def _execute_candidate(self, candidate: HorizonCandidate, *, task_key: str) -> None:
+        self._orchestrator.execute_task_artifact(
+            TaskExecutionRequest(
+                task_key=task_key,
+                principal_id=candidate.principal_id,
+                goal=candidate.goal,
+                input_json={
+                    "source_text": candidate.source_text,
+                    "normalized_text": candidate.source_text,
+                    "text_length": len(candidate.source_text),
+                    "proactive_horizon_kind": candidate.kind,
+                    "proactive_horizon_due_at": candidate.due_at,
+                    "proactive_horizon_task_key": candidate.task_key,
+                    "context_refs": list(candidate.context_refs),
+                },
+                context_refs=candidate.context_refs,
+            )
+        )
 
     def _preferred_task_key(self, *task_keys: str) -> str:
         for task_key in task_keys:
