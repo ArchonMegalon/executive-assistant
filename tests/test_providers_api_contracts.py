@@ -6937,6 +6937,7 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "/memorials/manfred/speech-transcribe" in page.text
     assert "memorial-speech-listen" in page.text
     assert "memorial-server-stt" in page.text
+    assert "memorial-conversation" in page.text
     assert "memorial-speech-speak" in page.text
     assert "SpeechRecognition" in page.text
     assert "MediaRecorder" in page.text
@@ -6947,6 +6948,9 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "no-speech" in page.text
     assert "speechHadError" in page.text
     assert "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten." in page.text
+    assert "readJsonResponse" in page.text
+    assert "Gespräch läuft. Ich transkribiere fortlaufend." in page.text
+    assert "recorder.start(900)" in page.text
 
     voice = client.get(f"/memorials/{slug}/voice-config")
     assert voice.status_code == 200

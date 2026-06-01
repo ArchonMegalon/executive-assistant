@@ -535,6 +535,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <div class="speech-row">
           <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
           <button type="button" id="memorial-server-stt">Server-STT starten</button>
+          <button type="button" id="memorial-conversation">Gespräch starten</button>
           <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
           <button type="button" id="memorial-speech-stop">Stopp</button>
           <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, {voice_label}.</span>
@@ -559,6 +560,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const statusNode = document.getElementById("memorial-chat-status");
       const listenButton = document.getElementById("memorial-speech-listen");
       const serverSttButton = document.getElementById("memorial-server-stt");
+      const conversationButton = document.getElementById("memorial-conversation");
       const speakButton = document.getElementById("memorial-speech-speak");
       const stopButton = document.getElementById("memorial-speech-stop");
       const speechNote = document.getElementById("memorial-speech-note");
@@ -566,6 +568,11 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       let activeRecognition = null;
       let activeRecorder = null;
       let recorderChunks = [];
+      let conversationActive = false;
+      let activeStream = null;
+      let activeAudioContext = null;
+      let activeSilenceTimer = null;
+      let activeMaxTimer = null;
       let speechHadError = false;
       let memorialVoiceConfig = {{
         tts_mode: "browser_speech_synthesis",
@@ -586,7 +593,21 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
         }} catch (error) {{}}
       }}
-      async function askMemorialChat(value) {{
+      async function readJsonResponse(response) {{
+        const raw = await response.text();
+        try {{
+          const payload = JSON.parse(raw);
+          if (!response.ok) throw new Error(payload.detail || payload.error?.message || "request_failed");
+          return payload;
+        }} catch (error) {{
+          if (error instanceof SyntaxError) {{
+            const preview = raw.trim().slice(0, 120);
+            throw new Error(preview.startsWith("<") ? "Server lieferte HTML statt JSON. Bitte kurz warten und erneut versuchen." : preview || "ungueltige Serverantwort");
+          }}
+          throw error;
+        }}
+      }}
+      async function askMemorialChat(value, options = {{}}) {{
         const text = String(value || "").trim();
         if (!text) return;
         statusNode.textContent = "Formuliere...";
@@ -597,19 +618,22 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{ question: text }})
           }});
-          const payload = await response.json();
-          if (!response.ok) throw new Error(payload.detail || "chat_failed");
+          const payload = await readJsonResponse(response);
           lastAnswerText = String(payload.answer || "");
           answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           statusNode.textContent = "";
-          speakText(lastAnswerText);
+          speakText(lastAnswerText, options.continueConversation ? () => {{
+            if (conversationActive) setTimeout(recordConversationTurn, 450);
+          }} : null);
         }} catch (error) {{
-          statusNode.textContent = "Antwort konnte nicht erstellt werden.";
+          statusNode.textContent = "Antwort konnte nicht erstellt werden: " + String(error.message || error);
+          if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
         }}
       }}
-      function speakText(value) {{
+      function speakText(value, onDone = null) {{
         if (!("speechSynthesis" in window)) {{
           speechNote.textContent = "Text-to-Speech wird von diesem Browser nicht unterstuetzt.";
+          if (onDone) onDone();
           return;
         }}
         const text = String(value || lastAnswerText || "").trim();
@@ -627,8 +651,41 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) ||
           voices.find((voice) => /^de/i.test(voice.lang || ""));
         if (preferred) utterance.voice = preferred;
+        utterance.onend = () => {{
+          if (onDone) onDone();
+        }};
+        utterance.onerror = () => {{
+          if (onDone) onDone();
+        }};
         window.speechSynthesis.speak(utterance);
         speechNote.textContent = "Antwort wird mit " + (memorialVoiceConfig.voice_label || "synthetischer Stimme") + " vorgelesen.";
+      }}
+      function releaseConversationAudio() {{
+        if (activeSilenceTimer) clearTimeout(activeSilenceTimer);
+        if (activeMaxTimer) clearTimeout(activeMaxTimer);
+        activeSilenceTimer = null;
+        activeMaxTimer = null;
+        if (activeAudioContext) {{
+          try {{ activeAudioContext.close(); }} catch (error) {{}}
+          activeAudioContext = null;
+        }}
+        if (activeStream) {{
+          activeStream.getTracks().forEach((track) => track.stop());
+          activeStream = null;
+        }}
+      }}
+      function setConversationUi(active) {{
+        conversationButton.textContent = active ? "Gespräch beenden" : "Gespräch starten";
+        listenButton.disabled = active;
+        serverSttButton.disabled = active;
+      }}
+      async function transcribeAudioBlob(blob) {{
+        const response = await fetch("/memorials/{html.escape(slug)}/speech-transcribe", {{
+          method: "POST",
+          headers: {{ "Content-Type": blob.type || "application/octet-stream" }},
+          body: blob
+        }});
+        return readJsonResponse(response);
       }}
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -739,13 +796,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
             }}
             speechNote.textContent = "Transkribiere Audio...";
             try {{
-              const response = await fetch("/memorials/{html.escape(slug)}/speech-transcribe", {{
-                method: "POST",
-                headers: {{ "Content-Type": blob.type || "application/octet-stream" }},
-                body: blob
-              }});
-              const payload = await response.json();
-              if (!response.ok) throw new Error(payload.detail || "speech_transcription_failed");
+              const payload = await transcribeAudioBlob(blob);
               question.value = String(payload.transcript_text || "").trim();
               speechNote.textContent = question.value ? "Audio transkribiert." : "Keine Sprache im Audio erkannt.";
               if (question.value) askMemorialChat(question.value);
@@ -758,14 +809,130 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           speechNote.textContent = "Mikrofon nicht verfuegbar oder nicht erlaubt.";
         }}
       }}
+      async function recordConversationTurn() {{
+        if (!conversationActive) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
+          speechNote.textContent = "Gesprächsmodus braucht MediaRecorder. Bitte Chrome/Edge verwenden.";
+          conversationActive = false;
+          setConversationUi(false);
+          return;
+        }}
+        try {{
+          releaseConversationAudio();
+          activeStream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+          const recorder = new MediaRecorder(activeStream, {{ mimeType }});
+          activeRecorder = recorder;
+          recorderChunks = [];
+          let chunkInterval = null;
+          let stopped = false;
+          const stopRecorder = (restart = false) => {{
+            if (stopped) return;
+            stopped = true;
+            recorder._restartAfterStop = Boolean(restart);
+            try {{
+              if (recorder.state === "recording") recorder.stop();
+            }} catch (error) {{}}
+          }};
+          recorder.ondataavailable = (event) => {{
+            if (event.data && event.data.size > 0) recorderChunks.push(event.data);
+          }};
+          recorder.onstop = async () => {{
+            releaseConversationAudio();
+            activeRecorder = null;
+            if (chunkInterval) clearInterval(chunkInterval);
+            if (!conversationActive) return;
+            const shouldRestart = Boolean(recorder._restartAfterStop);
+            const blob = new Blob(recorderChunks, {{ type: mimeType }});
+            recorderChunks = [];
+            if (!blob.size) {{
+              speechNote.textContent = "Ich höre weiter...";
+              setTimeout(recordConversationTurn, 120);
+              return;
+            }}
+            speechNote.textContent = "Transkribiere laufend...";
+            try {{
+              const payload = await transcribeAudioBlob(blob);
+              const text = String(payload.transcript_text || "").trim();
+              question.value = text;
+              if (!text) {{
+                speechNote.textContent = "Ich höre weiter...";
+                setTimeout(recordConversationTurn, 120);
+                return;
+              }}
+              speechNote.textContent = "Frage erkannt.";
+              await askMemorialChat(text, {{ continueConversation: true }});
+            }} catch (error) {{
+              const message = String(error.message || error);
+              if (message.includes("speech_transcription_failed") || message.includes("AUDIO_FORMAT") || message.includes("ungueltige Serverantwort")) {{
+                speechNote.textContent = "Ich höre weiter...";
+              }} else {{
+                speechNote.textContent = "Server-STT fehlgeschlagen: " + message;
+              }}
+              if (conversationActive) setTimeout(recordConversationTurn, shouldRestart ? 120 : 650);
+            }}
+          }};
+          recorder.start(900);
+          speechNote.textContent = "Gespräch läuft. Ich transkribiere fortlaufend.";
+          chunkInterval = setInterval(() => stopRecorder(true), 2400);
+          activeMaxTimer = setTimeout(() => stopRecorder(true), 2600);
+          try {{
+            activeAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = activeAudioContext.createMediaStreamSource(activeStream);
+            const analyser = activeAudioContext.createAnalyser();
+            analyser.fftSize = 1024;
+            source.connect(analyser);
+            const data = new Uint8Array(analyser.fftSize);
+            const checkLevel = () => {{
+              if (!conversationActive || stopped) return;
+              analyser.getByteTimeDomainData(data);
+              let sum = 0;
+              for (let index = 0; index < data.length; index += 1) {{
+                const value = (data[index] - 128) / 128;
+                sum += value * value;
+              }}
+              const rms = Math.sqrt(sum / data.length);
+              if (rms > 0.025) {{
+                speechNote.textContent = "Ich höre...";
+              }}
+              requestAnimationFrame(checkLevel);
+            }};
+            checkLevel();
+          }} catch (error) {{
+            speechNote.textContent = "Gespräch läuft. Ich transkribiere fortlaufend.";
+          }}
+        }} catch (error) {{
+          speechNote.textContent = "Mikrofon nicht verfuegbar oder nicht erlaubt.";
+          conversationActive = false;
+          setConversationUi(false);
+          releaseConversationAudio();
+        }}
+      }}
+      function toggleConversation() {{
+        conversationActive = !conversationActive;
+        setConversationUi(conversationActive);
+        if (conversationActive) {{
+          if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+          recordConversationTurn();
+        }} else {{
+          if (activeRecorder && activeRecorder.state === "recording") {{
+            try {{ activeRecorder.stop(); }} catch (error) {{}}
+          }}
+          releaseConversationAudio();
+          speechNote.textContent = "Gespräch beendet.";
+        }}
+      }}
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
         askMemorialChat(question.value);
       }});
       listenButton.addEventListener("click", startSpeechInput);
       serverSttButton.addEventListener("click", startServerSpeechInput);
+      conversationButton.addEventListener("click", toggleConversation);
       speakButton.addEventListener("click", () => speakText(lastAnswerText || answer.textContent));
       stopButton.addEventListener("click", () => {{
+        conversationActive = false;
+        setConversationUi(false);
         if (activeRecognition) {{
           speechHadError = true;
           try {{ activeRecognition.stop(); }} catch (error) {{}}
@@ -774,6 +941,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
+        releaseConversationAudio();
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         speechNote.textContent = "Gestoppt.";
         listenButton.disabled = false;
