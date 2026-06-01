@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 
 router = APIRouter(tags=["public-memorials"])
 
@@ -107,6 +108,46 @@ def _load_private_profile(slug: str) -> dict[str, object]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _public_voice_profile_summary(slug: str) -> dict[str, object]:
+    profile = load_memorial_voice_profile(slug=slug)
+    if not profile:
+        return {
+            "voice_profile_ready": False,
+            "voice_profile_policy": {
+                "voice_cloning_supported": False,
+                "voice_cloning_policy": "safe_profile_only",
+            },
+            "voice_profile_sources": {"ready": 0},
+        }
+    source_counts = dict(profile.get("source_counts") or {})
+    policy = dict(profile.get("policy") or {})
+    audio_assets = [dict(item) for item in (profile.get("audio_assets") or []) if isinstance(item, dict)]
+    ready_sources = int(source_counts.get("processed", 0) or 0)
+    return {
+        "voice_profile_ready": ready_sources > 0,
+        "voice_profile_manifest_version": str(profile.get("manifest_version") or "1"),
+        "voice_profile_slug": str(profile.get("slug") or ""),
+        "voice_profile_generated_at": str(profile.get("generated_at") or ""),
+        "voice_profile_policy": {
+            "voice_cloning_supported": bool(policy.get("voice_cloning_supported") is True),
+            "voice_cloning_policy": str(policy.get("voice_cloning_policy") or ""),
+            "notes": str(policy.get("notes") or ""),
+        },
+        "voice_profile_sources": {
+            "ready": int(source_counts.get("processed", 0) or 0),
+            "failed": int(source_counts.get("failed", 0) or 0),
+            "total": len(audio_assets),
+            "public_clips": int(source_counts.get("public_clips", 0) or 0),
+            "youtube_urls": int(source_counts.get("youtube_urls", 0) or 0),
+            "youtube_downloads": int(source_counts.get("youtube_downloads", 0) or 0),
+        },
+        "voice_profile_sample_assets": [
+            {k: item.get(k) for k in ("kind", "source_label", "analysis_status", "filename", "duration_seconds", "size_bytes") if k in item}
+            for item in audio_assets[:4]
+        ],
+    }
+
+
 def _float_between(value: object, *, fallback: float, minimum: float, maximum: float) -> float:
     try:
         parsed = float(value)
@@ -154,9 +195,102 @@ def _load_voice_config(slug: str) -> dict[str, object]:
                     "consent_basis": _text(payload.get("consent_basis"), str(default_config["consent_basis"])),
                 }
             )
+    # Safety invariant: production never reports full speech cloning support to memorial users.
+    # Keep provider-compatible fields but clearly expose safe-profile policy only.
     default_config["tts_mode"] = "browser_speech_synthesis"
     default_config["synthetic_voice_clone_of_memorial_person"] = False
+    default_config.update(_public_voice_profile_summary(slug))
     return default_config
+
+
+def _voice_config_path(slug: str) -> Path:
+    safe = _safe_slug(slug)
+    return (_private_profile_dir() / safe / "tts_voice.json").resolve()
+
+
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _safe_voice_name_hints(value: object) -> list[str]:
+    hints: list[str] = []
+    for item in (value if isinstance(value, list) else []):
+        normalized = str(item or "").strip()
+        if normalized:
+            hints.append(normalized)
+    return hints[:8]
+
+
+def _voice_config_to_public_payload(payload: dict[str, object], slug: str) -> dict[str, object]:
+    safe_config = {
+        "voice_profile_id": _text(payload.get("voice_profile_id"), f"tts-{slug}"),
+        "voice_label": _text(payload.get("voice_label"), "Austauschbare synthetische Stimme"),
+        "lang": _text(payload.get("lang"), "de-AT")[:16] or "de-AT",
+        "rate": _float_between(payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5),
+        "pitch": _float_between(payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
+        "volume": _float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
+        "voice_name_hints": _safe_voice_name_hints(payload.get("voice_name_hints")),
+    }
+    safe_config["consent_basis"] = _text(payload.get("consent_basis"), "generic_or_owner_consented_voice")
+    return safe_config
+
+
+def _normalize_voice_name_hints_csv(value: object) -> list[str]:
+    if isinstance(value, str):
+        candidates = [item.strip() for item in value.replace(",", "\n").splitlines()]
+    elif isinstance(value, (list, tuple, set)):
+        candidates = [str(item).strip() for item in value]
+    else:
+        candidates = []
+    return [item for item in candidates if item][:8]
+
+
+def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, object]:
+    default_config = {
+        "tts_mode": "browser_speech_synthesis",
+        "voice_profile_id": "default-browser-synthetic",
+        "voice_label": "Austauschbare synthetische Stimme",
+        "lang": "de-AT",
+        "rate": 0.92,
+        "pitch": 0.92,
+        "volume": 1.0,
+        "voice_name_hints": ["de-AT", "de-DE", "German"],
+        "consent_basis": "generic_or_owner_consented_voice",
+    }
+    return {
+        "tts_mode": "browser_speech_synthesis",
+        "voice_profile_id": _text(payload.get("voice_profile_id") if isinstance(payload, dict) else None, str(default_config["voice_profile_id"])),
+        "voice_label": _text(payload.get("voice_label") if isinstance(payload, dict) else None, str(default_config["voice_label"])),
+        "lang": _text(payload.get("lang") if isinstance(payload, dict) else None, str(default_config["lang"]))[:16] or "de-AT",
+        "rate": _float_between(payload.get("rate") if isinstance(payload, dict) else None, fallback=0.92, minimum=0.45, maximum=1.5),
+        "pitch": _float_between(payload.get("pitch") if isinstance(payload, dict) else None, fallback=0.92, minimum=0.5, maximum=1.5),
+        "volume": _float_between(payload.get("volume") if isinstance(payload, dict) else None, fallback=1.0, minimum=0.0, maximum=1.0),
+        "voice_name_hints": _normalize_voice_name_hints_csv(payload.get("voice_name_hints") if isinstance(payload, dict) else None),
+        "consent_basis": _text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
+    }
+
+
+def _normalize_voice_build_payload(payload: dict[str, object]) -> tuple[list[str], str, int]:
+    raw_urls = payload.get("youtube_urls") or payload.get("youtube_links") or payload.get("youtube")
+    url_candidates: list[str] = []
+    if isinstance(raw_urls, str):
+        url_candidates.extend([item.strip() for item in raw_urls.replace(",", "\n").splitlines() if item.strip()])
+    elif isinstance(raw_urls, (list, tuple, set)):
+        for raw in raw_urls:
+            normalized = str(raw or "").strip()
+            if normalized:
+                url_candidates.append(normalized)
+    raw_limit = payload.get("youtube_limit")
+    try:
+        youtube_limit = int(raw_limit) if raw_limit is not None else 5
+    except (TypeError, ValueError):
+        youtube_limit = 5
+    youtube_limit = max(1, min(youtube_limit, 12))
+    query = _text(payload.get("youtube_query"), _text(payload.get("query"), _text(payload.get("search", ""))))
+    return list(dict.fromkeys(url_candidates)), query, youtube_limit
 
 
 def _compact_public_facts(payload: dict[str, object]) -> list[str]:
@@ -172,6 +306,34 @@ def _compact_public_facts(payload: dict[str, object]) -> list[str]:
         if trait and evidence:
             facts.append(f"{trait}: {evidence}")
     return facts[:8]
+
+
+def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
+    normalized = _voice_config_to_public_payload(_normalize_voice_config_payload(payload), slug=slug)
+    normalized.update({
+        "tts_mode": "browser_speech_synthesis",
+        "synthetic_voice_clone_of_memorial_person": False,
+    })
+    _write_json_atomic(_voice_config_path(slug=slug), normalized)
+
+
+def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) -> list[Path]:
+    seen: set[str] = set()
+    paths: list[Path] = []
+    for clip in _list_of_dicts(payload.get("audio_clips")):
+        relpath = _text(clip.get("asset_relpath"))
+        if not relpath:
+            continue
+        try:
+            path = _asset_file(slug=slug, asset_path=relpath)
+        except HTTPException:
+            continue
+        normalized = str(path.resolve())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        paths.append(path)
+    return paths
 
 
 def _memorial_chat_answer(payload: dict[str, object], question: str, private_profile: dict[str, object]) -> dict[str, object]:
@@ -419,6 +581,17 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
     page_title = html.escape(title)
     voice_config = _load_voice_config(slug)
     voice_label = html.escape(_text(voice_config.get("voice_label"), "Austauschbare synthetische Stimme"))
+    voice_profile_ready = bool(voice_config.get("voice_profile_ready"))
+    voice_profile_ready_text = "Aktiv" if voice_profile_ready else "Nicht vorbereitet"
+    voice_profile_sources = dict(voice_config.get("voice_profile_sources") or {})
+    voice_profile_generated_at = html.escape(_text(voice_config.get("voice_profile_generated_at"), ""))
+    voice_profile_policy = dict(voice_config.get("voice_profile_policy") or {})
+    voice_name_hints = ", ".join(
+        str(item)
+        for item in list(dict.fromkeys(voice_config.get("voice_name_hints") or []))[:8]
+        if str(item or "").strip()
+    )
+    voice_build_default_query = html.escape(f"{person_name} interview")
     clickrank_html = clickrank_head_snippet(hostname)
     clips_html = "\n".join(
         f"""
@@ -555,12 +728,29 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       main {{ padding: 44px 0 72px; }}
       section {{ margin-top: 44px; }}
       .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
-      .clip, .memory, .chat, .candidate, .profile-note {{
+      .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{
         border: 1px solid var(--line);
         background: var(--panel);
         border-radius: 8px;
         padding: 18px;
       }}
+      .voice-tools {{ background: #f7f9f8; border-color: rgba(83,104,91,.24); }}
+      .voice-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+      .voice-field {{ display: grid; gap: 6px; }}
+      .voice-actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }}
+      .voice-input {{
+        width: 100%;
+        border: 1px solid rgba(46,82,102,.28);
+        border-radius: 8px;
+        padding: 10px;
+        background: #fffaf2;
+        color: var(--ink);
+        font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .voice-input[type="range"] {{ max-width: 100%; }}
+      .voice-status {{ color: var(--muted); font-size: .93rem; min-height: 1.4em; }}
+      .status-note {{ margin-top: 12px; color: var(--muted); }}
+      label {{ font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.01em; }}
       .clip {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .65fr); gap: 18px; align-items: center; }}
       audio {{ width: 100%; }}
       .memory p:last-child, .clip p:last-child, .chat p {{ color: var(--muted); }}
@@ -574,6 +764,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .chat {{ background: #eef3ef; border-color: rgba(83,104,91,.24); }}
       .prompt-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }}
       .chat-form {{ display: grid; gap: 12px; margin-top: 18px; }}
+      .voice-build {{ display: grid; gap: 10px; margin-top: 12px; }}
+      .speech-row {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }}
       textarea {{
         width: 100%;
         min-height: 112px;
@@ -586,7 +778,6 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
       }}
       .chat-actions {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
-      .speech-row {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }}
       .speech-note {{ color: var(--muted); font-size: .94rem; }}
       .chat-answer {{
         margin-top: 16px;
@@ -639,17 +830,76 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       {profile_html}
       {sources_html}
       {candidates_html}
+      <section class="voice-tools">
+        <p class="eyebrow">Stimme und Sprachmodell</p>
+        <h2>Stimmenprofil verwalten</h2>
+        <p class="lead">Die Seite nutzt Browser-STT/TTS. Du kannst eine bevorzugte Stimme wählen und einen Fingerprint auf Basis echter Audioquellen aufbauen.</p>
+        <form class="voice-grid" id="memorial-voice-config-form">
+          <div class="voice-field">
+            <label for="memorial-voice-label">Stimmenlabel</label>
+            <input id="memorial-voice-label" class="voice-input" type="text" value="{voice_label}" autocomplete="off">
+          </div>
+          <div class="voice-field">
+            <label for="memorial-voice-lang">Sprache</label>
+            <input id="memorial-voice-lang" class="voice-input" type="text" value="{html.escape(_text(voice_config.get('lang'), 'de-AT'))[:16]}">
+          </div>
+          <div class="voice-field">
+            <label for="memorial-voice-rate">Sprechtempo ({voice_config.get("rate", 0.92)})</label>
+            <input id="memorial-voice-rate" class="voice-input" type="range" min="0.45" max="1.5" step="0.05" value="{voice_config.get("rate", 0.92)}">
+          </div>
+          <div class="voice-field">
+            <label for="memorial-voice-pitch">Stimmtonhöhe ({voice_config.get("pitch", 0.92)})</label>
+            <input id="memorial-voice-pitch" class="voice-input" type="range" min="0.5" max="1.5" step="0.05" value="{voice_config.get("pitch", 0.92)}">
+          </div>
+          <div class="voice-field">
+            <label for="memorial-voice-volume">Lautstaerke ({voice_config.get("volume", 1.0)})</label>
+            <input id="memorial-voice-volume" class="voice-input" type="range" min="0" max="1" step="0.05" value="{voice_config.get("volume", 1.0)}">
+          </div>
+          <div class="voice-field">
+            <label for="memorial-voice-hints">Stimmen-Hints (Komma oder Zeilenumbruch)</label>
+            <textarea id="memorial-voice-hints" class="voice-input" rows="3">{voice_name_hints}</textarea>
+          </div>
+          <div class="voice-actions">
+            <button type="button" id="memorial-voice-config-save">Einstellungen speichern</button>
+            <span class="voice-status" id="memorial-voice-status">Profil aus Cache geladen.</span>
+          </div>
+        </form>
+        <div class="voice-build">
+          <h3>Stimmprofil erweitern (Audio + YouTube)</h3>
+          <p class="lead">Aus den freigegebenen Clips + YouTube-Liste wird ein wiederverwendbarer Sprecher-Fingerprint aufgebaut (ohne Echtzeit-Klon).</p>
+          <div class="voice-grid">
+            <div class="voice-field">
+              <label for="memorial-voice-youtube-query">YouTube-Suchbegriff</label>
+              <input id="memorial-voice-youtube-query" class="voice-input" type="text" value="{voice_build_default_query}">
+            </div>
+            <div class="voice-field">
+              <label for="memorial-voice-youtube-limit">YouTube-Item-Limit</label>
+              <input id="memorial-voice-youtube-limit" class="voice-input" type="number" min="1" max="12" value="5">
+            </div>
+            <div class="voice-field" style="grid-column:1 / -1;">
+              <label for="memorial-voice-youtube-urls">YouTube-URLs (optional, pro Zeile/Komma)</label>
+              <textarea id="memorial-voice-youtube-urls" class="voice-input" rows="3" placeholder="https://www.youtube.com/watch?v=..."></textarea>
+            </div>
+          </div>
+          <div class="voice-actions">
+            <button type="button" id="memorial-voice-profile-build">Stimmprofil neu bauen</button>
+            <span class="voice-status" id="memorial-voice-profile-status">{html.escape(f"Status: {voice_profile_ready_text}")}</span>
+          </div>
+          <div class="status-note" id="memorial-voice-profile-summary">{html.escape(f"Samples: {int(voice_profile_sources.get('total',0))}, Verarbeitet: {int(voice_profile_sources.get('ready',0))}, Fehler: {int(voice_profile_sources.get('failed',0))}{', erstellt ' + voice_profile_generated_at if voice_profile_generated_at else ''}.")}</div>
+          </div>
+        </div>
+      </section>
       <section class="chat">
         <p class="eyebrow">Erinnerungs-Chat</p>
         <h2>Sprich mit der Erinnerung.</h2>
         <p>Die Antworten bleiben aus Archiv, Originalstimme und Familienkontext zusammengesetzt, aber sie duerfen nah und persoenlich klingen.</p>
         <div class="prompt-row">{prompts_html}</div>
         <div class="speech-row">
-          <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
-          <button type="button" id="memorial-server-stt">Server-STT starten</button>
           <button type="button" id="memorial-conversation">Gespräch starten</button>
-          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
-          <button type="button" id="memorial-speech-stop">Stopp</button>
+          <button type="button" id="memorial-speech-listen" hidden>Mikrofon starten</button>
+          <button type="button" id="memorial-server-stt" hidden>Server-STT starten</button>
+          <button type="button" id="memorial-speech-speak" hidden>Antwort vorlesen</button>
+          <button type="button" id="memorial-speech-stop" hidden>Stopp</button>
           <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, {voice_label}.</span>
         </div>
         <form class="chat-form" id="memorial-chat-form">
@@ -670,6 +920,21 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const question = document.getElementById("memorial-chat-question");
       const answer = document.getElementById("memorial-chat-answer");
       const statusNode = document.getElementById("memorial-chat-status");
+      const voiceConfigForm = document.getElementById("memorial-voice-config-form");
+      const voiceProfileSaveButton = document.getElementById("memorial-voice-config-save");
+      const voiceProfileStatus = document.getElementById("memorial-voice-status");
+      const voiceProfileSummary = document.getElementById("memorial-voice-profile-summary");
+      const voiceBuildButton = document.getElementById("memorial-voice-profile-build");
+      const voiceBuildStatus = document.getElementById("memorial-voice-profile-status");
+      const voiceLabelInput = document.getElementById("memorial-voice-label");
+      const voiceLangInput = document.getElementById("memorial-voice-lang");
+      const voiceRateInput = document.getElementById("memorial-voice-rate");
+      const voicePitchInput = document.getElementById("memorial-voice-pitch");
+      const voiceVolumeInput = document.getElementById("memorial-voice-volume");
+      const voiceHintsInput = document.getElementById("memorial-voice-hints");
+      const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
+      const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
+      const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
       const listenButton = document.getElementById("memorial-speech-listen");
       const serverSttButton = document.getElementById("memorial-server-stt");
       const conversationButton = document.getElementById("memorial-conversation");
@@ -703,8 +968,101 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           if (!response.ok) return;
           const payload = await response.json();
           memorialVoiceConfig = Object.assign(memorialVoiceConfig, payload || {{}});
+          if (voiceLabelInput) voiceLabelInput.value = memorialVoiceConfig.voice_label || "";
+          if (voiceLangInput) voiceLangInput.value = memorialVoiceConfig.lang || "de-AT";
+          if (voiceRateInput) voiceRateInput.value = String(memorialVoiceConfig.rate || 0.92);
+          if (voicePitchInput) voicePitchInput.value = String(memorialVoiceConfig.pitch || 0.92);
+          if (voiceVolumeInput) voiceVolumeInput.value = String(memorialVoiceConfig.volume || 1);
+          if (voiceHintsInput) voiceHintsInput.value = (Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints : []).join(", ");
           speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
+          if (payload.voice_profile_sources) {{
+            const source = payload.voice_profile_sources;
+            const status = "Stimmenprofil: " + (payload.voice_profile_ready ? "aktiv" : "nicht aktiv") + " (Samples " + (source.total || 0) + ", verarbeitet " + (source.ready || 0) + ", Fehler " + (source.failed || 0) + ")";
+            if (voiceProfileStatus) voiceProfileStatus.textContent = status;
+            const generatedAt = payload.voice_profile_generated_at || "";
+            const summaryParts = [];
+            if (generatedAt) summaryParts.push("erstellt: " + generatedAt);
+            if ((source.public_clips || 0) > 0) summaryParts.push("Öffentliche Clips: " + (source.public_clips || 0));
+            if ((source.youtube_urls || 0) > 0) summaryParts.push("YouTube-Suche/Links: " + (source.youtube_urls || 0));
+            if ((source.youtube_downloads || 0) > 0) summaryParts.push("Downloads: " + (source.youtube_downloads || 0));
+            if (voiceProfileSummary) voiceProfileSummary.textContent = status + (summaryParts.length ? " · " + summaryParts.join(" · ") : "");
+          }}
         }} catch (error) {{}}
+      }}
+      function buildProfileSummaryText(payload) {{
+        const source = payload.voice_profile_sources || {{}};
+        const total = Number(source.total || 0);
+        const ready = Number(source.ready || 0);
+        const failed = Number(source.failed || 0);
+        const policy = payload.voice_profile_policy || {{}};
+        const policyText = policy.voice_cloning_supported ? "klonfähig" : "nur stimmliches Fingerprint";
+        const lines = [
+          "Status: " + (payload.voice_profile_ready ? "aktiv" : "nicht aktiv"),
+          "Samples: " + total + " (verarbeitet " + ready + ", Fehler " + failed + ")",
+          "Profil-Policy: " + policyText,
+        ];
+        if (source.public_clips) lines.push("Öffentliche Clips: " + source.public_clips);
+        if (source.youtube_urls) lines.push("YouTube-Quellen: " + source.youtube_urls);
+        if (payload.voice_profile_generated_at) lines.push("Zuletzt: " + String(payload.voice_profile_generated_at || ""));
+        return lines.join(" · ");
+      }}
+      async function refreshVoiceProfileSummary() {{
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-profile");
+          if (!response.ok) return;
+          const payload = await readJsonResponse(response);
+          const summary = buildProfileSummaryText(payload);
+          if (voiceProfileSummary) voiceProfileSummary.textContent = summary;
+          if (voiceProfileStatus) {{
+            voiceProfileStatus.textContent = "Status: " + (payload.voice_profile_ready ? "aktiv" : "nicht aktiv");
+          }}
+        }} catch (error) {{}}
+      }}
+      async function saveVoiceConfig() {{
+        if (!voiceConfigForm) return;
+        if (voiceProfileStatus) voiceProfileStatus.textContent = "Speichere Stimmenprofil...";
+        const payload = {{
+          voice_label: String(voiceLabelInput ? (voiceLabelInput.value || "") : memorialVoiceConfig.voice_label || ""),
+          lang: String(voiceLangInput ? (voiceLangInput.value || "") : memorialVoiceConfig.lang || "de-AT").slice(0, 16),
+          rate: Number(voiceRateInput ? voiceRateInput.value || 0.92 : memorialVoiceConfig.rate || 0.92),
+          pitch: Number(voicePitchInput ? voicePitchInput.value || 0.92 : memorialVoiceConfig.pitch || 0.92),
+          volume: Number(voiceVolumeInput ? voiceVolumeInput.value || 1 : memorialVoiceConfig.volume || 1),
+          voice_name_hints: String(voiceHintsInput ? (voiceHintsInput.value || "") : "").split(/[\n,]/).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8),
+        }};
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-config", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify(payload)
+          }});
+          const updated = await readJsonResponse(response);
+          memorialVoiceConfig = Object.assign(memorialVoiceConfig, updated || {{}});
+          if (voiceProfileStatus) voiceProfileStatus.textContent = "Einstellungen gespeichert.";
+          speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
+        }} catch (error) {{
+          if (voiceProfileStatus) voiceProfileStatus.textContent = "Speichern fehlgeschlagen: " + String(error.message || error);
+        }}
+      }}
+      async function buildVoiceProfile() {{
+        if (voiceBuildStatus) voiceBuildStatus.textContent = "Starte Profilaufbau...";
+        const payload = {{
+          youtube_query: String(voiceYoutubeQueryInput ? (voiceYoutubeQueryInput.value || "") : ""),
+          youtube_urls: String(voiceYoutubeUrlsInput ? (voiceYoutubeUrlsInput.value || "") : ""),
+          youtube_limit: Number(voiceYoutubeLimitInput ? (voiceYoutubeLimitInput.value || 5) : 5),
+        }};
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-profile/build", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify(payload)
+          }});
+          const result = await readJsonResponse(response);
+          if (voiceProfileStatus) voiceProfileStatus.textContent = result.voice_profile_ready ? "Profil aufgebaut." : "Profil teilweise aufgebaut.";
+          if (voiceProfileSummary) voiceProfileSummary.textContent = buildProfileSummaryText(result);
+        }} catch (error) {{
+          if (voiceProfileStatus) voiceProfileStatus.textContent = "Profil konnte nicht aufgebaut werden: " + String(error.message || error);
+        }}
+        await refreshVoiceProfileSummary();
       }}
       function normalizeTranscriptText(value) {{
         return String(value || "").replace(/\\s+/g, " ").trim();
@@ -1114,6 +1472,12 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         serverSttButton.textContent = "Server-STT starten";
         stopButton.disabled = false;
       }});
+      if (voiceConfigForm && voiceProfileSaveButton) {{
+        voiceProfileSaveButton.addEventListener("click", saveVoiceConfig);
+      }}
+      if (voiceBuildButton) {{
+        voiceBuildButton.addEventListener("click", buildVoiceProfile);
+      }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{
           question.value = button.getAttribute("data-prompt") || "";
@@ -1121,6 +1485,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }});
       }});
       loadVoiceConfig();
+      void refreshVoiceProfileSummary();
     </script>
   </body>
 </html>"""
@@ -1134,6 +1499,52 @@ def public_memorial_manifest(slug: str) -> JSONResponse:
 @router.get("/memorials/{slug}/voice-config")
 def public_memorial_voice_config(slug: str) -> JSONResponse:
     return JSONResponse(_load_voice_config(slug))
+
+
+@router.post("/memorials/{slug}/voice-config")
+async def public_memorial_voice_config_update(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid_json")
+    _save_voice_config_payload(slug=slug, payload=payload)
+    return JSONResponse(_load_voice_config(slug))
+
+
+@router.get("/memorials/{slug}/voice-profile")
+def public_memorial_voice_profile(slug: str) -> JSONResponse:
+    _load_memorial(slug)
+    return JSONResponse(_public_voice_profile_summary(slug))
+
+
+@router.post("/memorials/{slug}/voice-profile/build")
+async def public_memorial_voice_profile_build(slug: str, request: Request) -> JSONResponse:
+    memorial = _load_memorial(slug)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(payload, dict):
+        payload = {}
+    youtube_urls, youtube_query, youtube_limit = _normalize_voice_build_payload(payload)
+    public_paths = _collect_memorial_public_audio_paths(memorial, slug)
+    if not public_paths and not youtube_urls and not youtube_query:
+        raise HTTPException(status_code=400, detail="voice_profile_no_source")
+    try:
+        build_memorial_voice_profile(
+            slug=slug,
+            public_audio_paths=public_paths,
+            youtube_query=youtube_query,
+            youtube_urls=youtube_urls,
+            youtube_limit=youtube_limit,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=400, detail=detail) from exc
+    return JSONResponse(_public_voice_profile_summary(slug))
 
 
 @router.get("/memorials/files/{slug}/{asset_path:path}")

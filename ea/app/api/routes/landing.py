@@ -138,6 +138,8 @@ def _public_app_base_url(request: Request) -> str:
     forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     if forwarded:
+        forwarded_proto = _first_forwarded_https_or_first_token(forwarded_proto)
+    if forwarded:
         return f"{forwarded_proto}://{forwarded}"
     return str(request.base_url).rstrip("/")
 
@@ -153,10 +155,20 @@ def _normalize_browser_return_to(raw: str | None, *, default: str) -> str:
     return value
 
 
+def _first_forwarded_https_or_first_token(raw: str) -> str:
+    tokens = [token.strip().lower() for token in str(raw or "").split(",") if token.strip()]
+    if "https" in tokens:
+        return "https"
+    if "wss" in tokens:
+        return "wss"
+    return tokens[0] if tokens else ""
+
+
 def _browser_request_uses_secure_scheme(request: Request) -> bool:
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip().lower()
-    if forwarded_proto:
-        return forwarded_proto.split(",", 1)[0].strip() == "https"
+    normalized = _first_forwarded_https_or_first_token(forwarded_proto)
+    if normalized:
+        return normalized in {"https", "wss"}
     return str(request.url.scheme or "").strip().lower() == "https"
 
 

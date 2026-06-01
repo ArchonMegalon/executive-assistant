@@ -11409,3 +11409,43 @@ def test_workspace_invite_and_access_invalid_pages_render_browser_recovery_copy(
     assert "This action link is no longer valid." in missing_channel_action.text
     missing_channel_action_head = client.head("/app/channel-actions/bad-token", follow_redirects=False)
     assert missing_channel_action_head.status_code == 404
+
+
+def test_workspace_session_cookie_secure_for_proxy_protocol_chain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_SIGNIN", "1")
+    principal_id = "exec-workspace-cookie-chain"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="team", workspace_name="Cookie Protocol Team")
+
+    access_body = client.post(
+        "/app/api/workspace-access",
+        json={
+            "return_to": "/app/today",
+            "role": "operator",
+            "display_name": "Cookie check",
+            "recipient_email": "ops@example.com",
+        },
+    ).json()
+    assert access_body["access_url"].startswith("/workspace-access/")
+
+    opened_secure = client.get(
+        access_body["access_url"],
+        follow_redirects=False,
+        headers={"x-forwarded-proto": "http, https"},
+    )
+    assert opened_secure.status_code == 303
+    secure_cookie = str(opened_secure.headers.get("set-cookie") or "")
+    assert "ea_workspace_session=" in secure_cookie
+    assert "Secure" in secure_cookie
+
+    opened_nonsecure = client.get(
+        access_body["access_url"],
+        follow_redirects=False,
+        headers={"x-forwarded-proto": "http, http"},
+    )
+    assert opened_nonsecure.status_code == 303
+    nonsecure_cookie = str(opened_nonsecure.headers.get("set-cookie") or "")
+    assert "ea_workspace_session=" in nonsecure_cookie
+    assert "Secure" not in nonsecure_cookie

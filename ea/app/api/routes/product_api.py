@@ -1172,6 +1172,48 @@ def create_workspace_access_session(
     return WorkspaceAccessSessionOut(**payload)
 
 
+def _normalize_workspace_access_legacy_payload(*, body: dict[str, object]) -> tuple[str, str, str, str, int, str]:
+    normalized_email = str(body.get("email") or body.get("recipient_email") or "").strip().lower()
+    if not normalized_email:
+        raise HTTPException(status_code=400, detail="recipient_email_required")
+    expires_raw = str(body.get("expires_in_hours") or 72).strip()
+    try:
+        expires_in_hours = int(expires_raw)
+    except ValueError:
+        expires_in_hours = 72
+    return (
+        normalized_email,
+        str(body.get("role") or "operator").strip().lower() or "operator",
+        str(body.get("display_name") or "").strip(),
+        str(body.get("operator_id") or "").strip(),
+        max(1, expires_in_hours),
+        str(body.get("return_to") or body.get("default_target") or "").strip(),
+    )
+
+
+@router.post("/workspace-access", include_in_schema=False, response_model=WorkspaceAccessSessionOut)
+def create_workspace_access_session_legacy(
+    body: dict[str, object],
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> WorkspaceAccessSessionOut:
+    service = build_product_service(container)
+    email, role, display_name, operator_id, expires_in_hours, default_target = _normalize_workspace_access_legacy_payload(
+        body=dict(body or {})
+    )
+    payload = service.issue_workspace_access_session(
+        principal_id=context.principal_id,
+        email=email,
+        role=role,
+        display_name=display_name,
+        operator_id=operator_id,
+        source_kind="workspace_access_api",
+        expires_in_hours=expires_in_hours,
+        default_target=default_target,
+    )
+    return WorkspaceAccessSessionOut(**payload)
+
+
 @router.get("/access-sessions", response_model=WorkspaceAccessSessionResponse)
 def list_workspace_access_sessions(
     status: str = Query(default=""),

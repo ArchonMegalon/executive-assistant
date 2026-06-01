@@ -8015,6 +8015,141 @@ def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_a
     assert "AUDIO_FORMAT_NOT_SUPPORTED" in body["detail"]
 
 
+def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    bundle_dir = public_root / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "audio").mkdir()
+    (bundle_dir / "audio" / "hanusch-enhanced.mp3").write_bytes(b"fake-mp3")
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "person_name": "Manfred Hoza",
+                "audio_clips": [{"asset_relpath": "audio/hanusch-enhanced.mp3"}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+
+    from app.api.routes import public_memorials
+    from app.services import memorial_voice_profile
+
+    monkeypatch.setattr(public_memorials, "build_memorial_voice_profile", memorial_voice_profile.build_memorial_voice_profile)
+    monkeypatch.setattr(memorial_voice_profile, "_search_youtube_urls", lambda query, max_results: ["https://www.youtube.com/watch?v=abc"])
+
+    def _fake_download_youtube_audio(*, urls, output_dir):  # type: ignore[override]
+        output_dir.mkdir(parents=True, exist_ok=True)
+        asset = output_dir / "youtube_download.mp3"
+        asset.write_bytes(b"youtube-bytes")
+        return [asset], []
+
+    def _fake_compute_signature(*, source_path):
+        return {
+            "duration_seconds": 12.0,
+            "sample_rate": 16000,
+            "channels": 1,
+            "frame_count": 192000,
+            "size_bytes": source_path.stat().st_size,
+            "audio_features": {
+                "rms": 0.012,
+                "mean_abs": 0.002,
+                "peak": 0.11,
+                "zero_crossing_ratio": 0.01,
+                "speech_ratio": 0.95,
+                "silence_ratio": 0.05,
+            },
+        }
+
+    monkeypatch.setattr(memorial_voice_profile, "_download_youtube_audio", _fake_download_youtube_audio)
+    monkeypatch.setattr(memorial_voice_profile, "_compute_audio_signature", _fake_compute_signature)
+
+    client = _client(principal_id="exec-public-memorial-voice-profile")
+    config = client.get(f"/memorials/{slug}/voice-config")
+    assert config.status_code == 200
+    initial_config = config.json()
+    assert initial_config["voice_label"] == "Austauschbare synthetische Stimme"
+    assert initial_config["voice_profile_ready"] is False
+
+    saved = client.post(
+        f"/memorials/{slug}/voice-config",
+        json={
+            "voice_label": "Archiv Stimme",
+            "lang": "de-DE",
+            "rate": 1.05,
+            "pitch": 0.98,
+            "volume": 0.92,
+            "voice_name_hints": ["de-DE", "de-AT", "male"],
+            "synthetic_voice_clone_of_memorial_person": True,
+            "provider_secret": "not-allowed",
+        },
+    )
+    assert saved.status_code == 200
+    saved_body = saved.json()
+    assert saved_body["voice_label"] == "Archiv Stimme"
+    assert saved_body["lang"] == "de-DE"
+    assert saved_body["rate"] == 1.05
+    assert saved_body["pitch"] == 0.98
+    assert saved_body["volume"] == 0.92
+    assert saved_body["tts_mode"] == "browser_speech_synthesis"
+    assert saved_body["synthetic_voice_clone_of_memorial_person"] is False
+    assert "provider_secret" not in saved_body
+
+    manifest = private_root / slug / "voice_profile_manifest.json"
+    assert not manifest.exists()
+
+    build = client.post(
+        f"/memorials/{slug}/voice-profile/build",
+        json={
+            "youtube_query": "Manfred Hoza interview",
+            "youtube_urls": "https://www.youtube.com/watch?v=abc\nhttps://www.youtube.com/watch?v=xyz",
+            "youtube_limit": 2,
+        },
+    )
+    assert build.status_code == 200
+    build_body = build.json()
+    assert build_body["voice_profile_slug"] == slug
+    assert build_body["voice_profile_ready"] is True
+    assert build_body["voice_profile_sources"]["public_clips"] >= 1
+    assert build_body["voice_profile_sources"]["youtube_downloads"] >= 1
+    assert manifest.exists()
+
+    summary = client.get(f"/memorials/{slug}/voice-profile")
+    assert summary.status_code == 200
+    summary_body = summary.json()
+    assert summary_body["voice_profile_slug"] == slug
+    assert summary_body["voice_profile_ready"] is True
+
+    stored_config_path = private_root / slug / "tts_voice.json"
+    assert stored_config_path.is_file()
+    stored_config = json.loads(stored_config_path.read_text(encoding="utf-8"))
+    assert stored_config["voice_label"] == "Archiv Stimme"
+    assert stored_config["tts_mode"] == "browser_speech_synthesis"
+    assert stored_config["synthetic_voice_clone_of_memorial_person"] is False
+    assert "provider_secret" not in stored_config
+    assert "voice_name_hints" in stored_config
+
+    empty_slug = "manfred-no-source"
+    empty_bundle = public_root / empty_slug
+    empty_bundle.mkdir(parents=True)
+    (empty_bundle / "memorial.json").write_text(json.dumps({"slug": empty_slug, "person_name": "Nobody"}, ensure_ascii=False), encoding="utf-8")
+    failed = client.post(f"/memorials/{empty_slug}/voice-profile/build", json={"youtube_query": "", "youtube_urls": ""})
+    assert failed.status_code == 400
+    failed_json = failed.json()
+    failed_detail = (
+        failed_json.get("detail")
+        or failed_json.get("error", {}).get("message")
+        or failed_json.get("error", {}).get("code")
+    )
+    assert failed_detail == "voice_profile_no_source"
+
+
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "0")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "0")
