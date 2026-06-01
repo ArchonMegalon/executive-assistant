@@ -91,6 +91,7 @@ class FeatureSettings:
     public_side_surfaces_enabled: bool = False
     public_results_enabled: bool = False
     public_tours_enabled: bool = False
+    public_memorials_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -207,6 +208,10 @@ class Settings:
     @property
     def public_tours_enabled(self) -> bool:
         return self.features.public_tours_enabled
+
+    @property
+    def public_memorials_enabled(self) -> bool:
+        return self.features.public_memorials_enabled
 
 
 def _runtime_mode(raw: str) -> str:
@@ -390,6 +395,7 @@ def get_settings() -> Settings:
     raw_public_side_surfaces_enabled = os.environ.get("EA_ENABLE_PUBLIC_SIDE_SURFACES")
     raw_public_results_enabled = os.environ.get("EA_ENABLE_PUBLIC_RESULTS")
     raw_public_tours_enabled = os.environ.get("EA_ENABLE_PUBLIC_TOURS")
+    raw_public_memorials_enabled = os.environ.get("EA_ENABLE_PUBLIC_MEMORIALS")
     public_side_surfaces_enabled = _env_truthy(raw_public_side_surfaces_enabled)
     public_results_enabled = (
         public_side_surfaces_enabled
@@ -400,6 +406,11 @@ def get_settings() -> Settings:
         public_side_surfaces_enabled
         if raw_public_tours_enabled is None
         else _env_truthy(raw_public_tours_enabled)
+    )
+    public_memorials_enabled = (
+        public_side_surfaces_enabled
+        if raw_public_memorials_enabled is None
+        else _env_truthy(raw_public_memorials_enabled)
     )
 
     settings = Settings(
@@ -437,9 +448,13 @@ def get_settings() -> Settings:
         ),
         channels=ChannelSettings(default_list_limit=default_list_limit),
         features=FeatureSettings(
-            public_side_surfaces_enabled=public_side_surfaces_enabled or public_results_enabled or public_tours_enabled,
+            public_side_surfaces_enabled=public_side_surfaces_enabled
+            or public_results_enabled
+            or public_tours_enabled
+            or public_memorials_enabled,
             public_results_enabled=public_results_enabled,
             public_tours_enabled=public_tours_enabled,
+            public_memorials_enabled=public_memorials_enabled,
         ),
     )
     ensure_prod_api_token_configured(settings)

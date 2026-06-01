@@ -6801,10 +6801,77 @@ def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
     assert 'src="https://360.example.test/view/portal/id/live-360"' not in page.text
 
 
+def test_public_memorial_routes_render_original_voice_without_voice_clone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
+    monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", "33ff8f39-6213-4903-99d7-81048b5b3e1f")
+    slug = "manfred"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "audio").mkdir()
+    (bundle_dir / "audio" / "hanusch-enhanced.mp3").write_bytes(b"fake-mp3-data")
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "person_name": "Manfred",
+                "title": "Erinnerungen an Manfred",
+                "relationship": "Vater",
+                "subtitle": "Eine ruhige Seite fuer Erinnerungen und Originalstimme.",
+                "disclosure": "Originalaufnahmen sind als Original gekennzeichnet.",
+                "intro": "Neue Texte sind keine direkte Rede.",
+                "audio_clips": [
+                    {
+                        "label": "Originalaufnahme",
+                        "title": "Hanusch Gespraech",
+                        "description": "Freigegebener Ausschnitt aus dem Archiv.",
+                        "asset_relpath": "audio/hanusch-enhanced.mp3",
+                    }
+                ],
+                "memory_cards": [
+                    {
+                        "source_label": "Transkript",
+                        "title": "Schach",
+                        "body": "Das Schach soll in der Familie bleiben.",
+                    }
+                ],
+                "suggested_prompts": ["Was ist wirklich belegt?"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-memorial")
+    page = client.get(f"/memorials/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert "Manfred" in page.text
+    assert "Seine Stimme hoeren" in page.text
+    assert "Nicht er selbst" in page.text
+    assert "voice clone" not in page.text.lower()
+    assert f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3" in page.text
+    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
+
+    payload = client.get(f"/memorials/{slug}.json")
+    assert payload.status_code == 200
+    assert payload.json()["person_name"] == "Manfred"
+
+    audio = client.get(f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3")
+    assert audio.status_code == 200
+    assert audio.content == b"fake-mp3-data"
+    assert audio.headers["content-type"].startswith("audio/mpeg")
+
+
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "0")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "0")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "0")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "0")
     client = _client(principal_id="exec-public-disabled")
 
     tour = client.get("/tours/example-tour")
@@ -6814,6 +6881,10 @@ def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -
     result_page = client.get("/results/example-result")
     assert result_page.status_code == 404
     assert result_page.json() == {"detail": "Not Found"}
+
+    memorial_page = client.get("/memorials/example-person")
+    assert memorial_page.status_code == 404
+    assert memorial_page.json() == {"detail": "Not Found"}
 
 
 def test_public_results_and_tours_can_be_enabled_independently(

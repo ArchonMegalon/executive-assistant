@@ -53,6 +53,8 @@ services:
       - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
       - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
+      - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/mnt/pcloud/EA/public_memorials}
       - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
