@@ -101,6 +101,7 @@ def _normalize_release_value(value: Any) -> Any:
                 "size_bytes",
                 "sha256",
                 "duration_seconds",
+                "git_branch",
                 "git_head",
                 "source_path",
                 "resolved_path",

@@ -22,6 +22,7 @@ VOLATILE_KEYS = {
     "size_bytes",
     "sha256",
     "duration_seconds",
+    "git_branch",
     "git_head",
     "source_path",
     "resolved_path",
