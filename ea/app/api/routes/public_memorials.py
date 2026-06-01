@@ -94,6 +94,58 @@ def _load_private_profile(slug: str) -> dict[str, object]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _float_between(value: object, *, fallback: float, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    return min(max(parsed, minimum), maximum)
+
+
+def _load_voice_config(slug: str) -> dict[str, object]:
+    default_config = {
+        "tts_mode": "browser_speech_synthesis",
+        "voice_profile_id": "default-browser-synthetic",
+        "voice_label": "Austauschbare synthetische Stimme",
+        "lang": "de-AT",
+        "rate": 0.92,
+        "pitch": 0.92,
+        "volume": 1.0,
+        "voice_name_hints": ["de-AT", "de-DE", "German"],
+        "synthetic_voice_clone_of_memorial_person": False,
+        "consent_basis": "generic_or_owner_consented_voice",
+    }
+    safe = _safe_slug(slug)
+    root = _private_profile_dir().resolve()
+    path = (root / safe / "tts_voice.json").resolve()
+    if root in path.parents and path.is_file():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+        if isinstance(payload, dict):
+            default_config.update(
+                {
+                    "tts_mode": _text(payload.get("tts_mode"), str(default_config["tts_mode"])),
+                    "voice_profile_id": _text(payload.get("voice_profile_id"), str(default_config["voice_profile_id"])),
+                    "voice_label": _text(payload.get("voice_label"), str(default_config["voice_label"])),
+                    "lang": _text(payload.get("lang"), str(default_config["lang"])),
+                    "rate": _float_between(payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5),
+                    "pitch": _float_between(payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
+                    "volume": _float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
+                    "voice_name_hints": [
+                        str(item).strip()
+                        for item in (payload.get("voice_name_hints") or [])
+                        if str(item).strip()
+                    ][:8],
+                    "consent_basis": _text(payload.get("consent_basis"), str(default_config["consent_basis"])),
+                }
+            )
+    default_config["tts_mode"] = "browser_speech_synthesis"
+    default_config["synthetic_voice_clone_of_memorial_person"] = False
+    return default_config
+
+
 def _compact_public_facts(payload: dict[str, object]) -> list[str]:
     facts: list[str] = []
     for card in _list_of_dicts(payload.get("memory_cards")):
@@ -193,6 +245,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
     external_sources = _list_of_dicts(payload.get("external_sources"))
     suggested_prompts = [str(item).strip() for item in (payload.get("suggested_prompts") or []) if str(item).strip()]
     page_title = html.escape(title)
+    voice_config = _load_voice_config(slug)
+    voice_label = html.escape(_text(voice_config.get("voice_label"), "Austauschbare synthetische Stimme"))
     clickrank_html = clickrank_head_snippet(hostname)
     clips_html = "\n".join(
         f"""
@@ -422,7 +476,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
           <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
           <button type="button" id="memorial-speech-stop">Stopp</button>
-          <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, neutrale Systemstimme.</span>
+          <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, {voice_label}.</span>
         </div>
         <form class="chat-form" id="memorial-chat-form">
           <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
@@ -447,6 +501,25 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const stopButton = document.getElementById("memorial-speech-stop");
       const speechNote = document.getElementById("memorial-speech-note");
       let lastAnswerText = "";
+      let memorialVoiceConfig = {{
+        tts_mode: "browser_speech_synthesis",
+        voice_label: "Austauschbare synthetische Stimme",
+        lang: "de-AT",
+        rate: 0.92,
+        pitch: 0.92,
+        volume: 1,
+        voice_name_hints: ["de-AT", "de-DE", "German"],
+        synthetic_voice_clone_of_memorial_person: false
+      }};
+      async function loadVoiceConfig() {{
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-config");
+          if (!response.ok) return;
+          const payload = await response.json();
+          memorialVoiceConfig = Object.assign(memorialVoiceConfig, payload || {{}});
+          speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
+        }} catch (error) {{}}
+      }}
       async function askMemorialChat(value) {{
         const text = String(value || "").trim();
         if (!text) return;
@@ -477,15 +550,19 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         if (!text) return;
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "de-AT";
-        utterance.rate = 0.92;
-        utterance.pitch = 0.92;
-        utterance.volume = 1;
+        utterance.lang = memorialVoiceConfig.lang || "de-AT";
+        utterance.rate = Number(memorialVoiceConfig.rate || 0.92);
+        utterance.pitch = Number(memorialVoiceConfig.pitch || 0.92);
+        utterance.volume = Number(memorialVoiceConfig.volume ?? 1);
         const voices = window.speechSynthesis.getVoices();
-        const preferred = voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) || voices.find((voice) => /^de/i.test(voice.lang || ""));
+        const hints = Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints : [];
+        const preferred =
+          voices.find((voice) => hints.some((hint) => String(voice.name + " " + voice.lang).toLowerCase().includes(String(hint).toLowerCase()))) ||
+          voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) ||
+          voices.find((voice) => /^de/i.test(voice.lang || ""));
         if (preferred) utterance.voice = preferred;
         window.speechSynthesis.speak(utterance);
-        speechNote.textContent = "Antwort wird mit neutraler Systemstimme vorgelesen.";
+        speechNote.textContent = "Antwort wird mit " + (memorialVoiceConfig.voice_label || "synthetischer Stimme") + " vorgelesen.";
       }}
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -537,6 +614,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           askMemorialChat(question.value);
         }});
       }});
+      loadVoiceConfig();
     </script>
   </body>
 </html>"""
@@ -545,6 +623,11 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
 @router.get("/memorials/{slug}.json")
 def public_memorial_manifest(slug: str) -> JSONResponse:
     return JSONResponse(_load_memorial(slug))
+
+
+@router.get("/memorials/{slug}/voice-config")
+def public_memorial_voice_config(slug: str) -> JSONResponse:
+    return JSONResponse(_load_voice_config(slug))
 
 
 @router.get("/memorials/files/{slug}/{asset_path:path}")

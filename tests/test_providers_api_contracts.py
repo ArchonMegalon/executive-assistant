@@ -6907,6 +6907,24 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
         ),
         encoding="utf-8",
     )
+    (private_dir / "tts_voice.json").write_text(
+        json.dumps(
+            {
+                "tts_mode": "browser_speech_synthesis",
+                "voice_profile_id": "tibor-consented-placeholder",
+                "voice_label": "Tibor freigegebene synthetische Stimme",
+                "lang": "de-AT",
+                "rate": 0.88,
+                "pitch": 0.86,
+                "volume": 1,
+                "voice_name_hints": ["Tibor", "de-AT"],
+                "synthetic_voice_clone_of_memorial_person": True,
+                "provider_secret": "must-not-leak",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(tmp_path / "private"))
 
@@ -6920,7 +6938,17 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "memorial-speech-speak" in page.text
     assert "SpeechRecognition" in page.text
     assert "SpeechSynthesisUtterance" in page.text
-    assert "neutrale Systemstimme" in page.text
+    assert "Austauschbare synthetische Stimme" in page.text
+
+    voice = client.get(f"/memorials/{slug}/voice-config")
+    assert voice.status_code == 200
+    voice_body = voice.json()
+    assert voice_body["voice_profile_id"] == "tibor-consented-placeholder"
+    assert voice_body["voice_label"] == "Tibor freigegebene synthetische Stimme"
+    assert voice_body["rate"] == 0.88
+    assert voice_body["pitch"] == 0.86
+    assert voice_body["synthetic_voice_clone_of_memorial_person"] is False
+    assert "provider_secret" not in voice_body
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ging er mit Kritik um?"})
     assert response.status_code == 200
